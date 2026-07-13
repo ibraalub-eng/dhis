@@ -161,6 +161,11 @@ async def lifespan(app: FastAPI):
         seed_app_config(session)
         seed_indicators(session)
         seed_rules(session)
+        # Load logging setting
+        from app.models import SystemSetting
+        from app.monitoring import set_logging_enabled
+        log_row = session.query(SystemSetting).filter(SystemSetting.key == "structured_logging_enabled").first()
+        set_logging_enabled(log_row.value == "true" if log_row else True)
     finally:
         session.close()
     os.makedirs(UPLOAD_DIR, exist_ok=True)

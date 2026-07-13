@@ -66,6 +66,17 @@ class StructuredFormatter(logging.Formatter):
         return json.dumps(entry, ensure_ascii=False)
 
 
+# ── Logging enabled flag (updated at startup and via API) ─────────────────
+_logging_enabled = True
+
+def set_logging_enabled(enabled: bool):
+    global _logging_enabled
+    _logging_enabled = enabled
+
+def is_logging_enabled() -> bool:
+    return _logging_enabled
+
+
 def setup_structured_logging(level=logging.INFO):
     handler = logging.StreamHandler()
     handler.setFormatter(StructuredFormatter())
@@ -97,11 +108,12 @@ async def monitoring_middleware(request: Request, call_next):
         sql_count = sql_count_var.get()
         sql_queries_per_request.labels(method=method, path=path).observe(sql_count)
         sql_queries_total.labels(method=method, path=path).inc(sql_count)
-        logger.error(
-            "Request failed",
-            extra={"method": method, "path": path, "status": sc,
-                   "duration_ms": round(dur * 1000, 1), "sql_count": sql_count},
-        )
+        if is_logging_enabled():
+            logger.error(
+                "Request failed",
+                extra={"method": method, "path": path, "status": sc,
+                       "duration_ms": round(dur * 1000, 1), "sql_count": sql_count},
+            )
         raise
 
     dur = time.time() - start
@@ -113,10 +125,11 @@ async def monitoring_middleware(request: Request, call_next):
     sql_queries_per_request.labels(method=method, path=path).observe(sql_count)
     sql_queries_total.labels(method=method, path=path).inc(sql_count)
 
-    logger.info(
-        "Request completed",
-        extra={"method": method, "path": path, "status": response.status_code,
-               "duration_ms": round(dur * 1000, 1), "sql_count": sql_count},
-    )
+    if is_logging_enabled():
+        logger.info(
+            "Request completed",
+            extra={"method": method, "path": path, "status": response.status_code,
+                   "duration_ms": round(dur * 1000, 1), "sql_count": sql_count},
+        )
 
     return response

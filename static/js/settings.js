@@ -887,18 +887,26 @@
             apiGet('/config/control/settings').then(data => {
                 const cb = document.getElementById('cfg_auto_disable_null');
                 if (cb) cb.checked = !!data.auto_disable_null_indicators;
+                const logCb = document.getElementById('cfg_structured_logging');
+                if (logCb) logCb.checked = data.structured_logging_enabled !== false;
             }).catch(() => {});
         }
 
         export function saveControlSettings() {
             const cb = document.getElementById('cfg_auto_disable_null');
+            const logCb = document.getElementById('cfg_structured_logging');
             const val = cb ? cb.checked : false;
+            const logVal = logCb ? logCb.checked : true;
             const status = document.getElementById('controlSaveStatus');
             if (status) { status.textContent = 'Saving...'; status.style.color = '#1565c0'; }
-            apiPut('/config/control/settings', {auto_disable_null_indicators: val ? 'true' : 'false'}).then(() => {
+            apiPut('/config/control/settings', {
+                auto_disable_null_indicators: val ? 'true' : 'false',
+                structured_logging_enabled: logVal ? 'true' : 'false',
+            }).then(() => {
                 if (status) { status.textContent = '\u2713 Saved'; status.style.color = '#2e7d32'; }
             }).catch(e => {
                 if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }
             });
+        }
         }
 

@@ -7,24 +7,37 @@ from app.config_utils import AI_CONFIG_KEYS, get_ai_config
 router = APIRouter(prefix="/config", tags=["config"])
 
 CONTROL_KEY = "auto_disable_null_indicators"
+LOGGING_KEY = "structured_logging_enabled"
 
 
 @router.get("/control/settings")
 def get_control_settings(db: Session = Depends(get_db)):
     row = db.query(SystemSetting).filter(SystemSetting.key == CONTROL_KEY).first()
-    return {"auto_disable_null_indicators": (row.value == "true") if row else False}
+    log_row = db.query(SystemSetting).filter(SystemSetting.key == LOGGING_KEY).first()
+    return {
+        "auto_disable_null_indicators": (row.value == "true") if row else False,
+        "structured_logging_enabled": (log_row.value == "true") if log_row else True,
+    }
 
 
 @router.put("/control/settings")
 def update_control_settings(updates: dict, db: Session = Depends(get_db)):
-    val = str(updates.get(CONTROL_KEY, "false")).lower()
-    row = db.query(SystemSetting).filter(SystemSetting.key == CONTROL_KEY).first()
-    if row:
-        row.value = val
-    else:
-        db.add(SystemSetting(key=CONTROL_KEY, value=val))
+    updated = {}
+    for key in (CONTROL_KEY, LOGGING_KEY):
+        if key in updates:
+            val = str(updates[key]).lower()
+            row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+            if row:
+                row.value = val
+            else:
+                db.add(SystemSetting(key=key, value=val))
+            updated[key] = val == "true"
     db.commit()
-    return {"status": "ok", CONTROL_KEY: val == "true"}
+    # Update runtime logging flag immediately
+    if LOGGING_KEY in updated:
+        from app.monitoring import set_logging_enabled
+        set_logging_enabled(updated[LOGGING_KEY])
+    return {"status": "ok", **updated}
 
 
 @router.get("/")

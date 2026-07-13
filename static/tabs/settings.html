@@ -681,6 +681,15 @@
                                     </ul>
                                 </div>
                             </label>
+                        </div>
+                        <div style="background:#fafafa;padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                                <input type="checkbox" id="cfg_structured_logging" onchange="saveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                                <div>
+                                    <strong>Structured Logging</strong><br>
+                                    <span style="font-size:0.8rem;color:#666;">When enabled, all HTTP requests are logged as JSON to stdout with method, path, status, duration, and SQL count. Disable to reduce console output.</span>
+                                </div>
+                            </label>
                             <div style="margin-top:0.6rem;">
                                 <span id="controlSaveStatus" style="font-size:0.8rem;color:#888;"></span>
                             </div>
