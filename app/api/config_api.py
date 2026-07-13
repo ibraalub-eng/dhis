@@ -100,14 +100,17 @@ def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
 @router.get("/month-settings")
 def get_month_settings(db: Session = Depends(get_db)):
     """Get list of enabled months for analysis."""
+    from app.api.analysis import list_months_with_data
+    all_months = list_months_with_data(db)
     rows = db.query(SystemSetting).filter(
         SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
     ).all()
-    enabled_months = [
+    disabled = {
         row.key[len(MONTH_SETTINGS_PREFIX):]
         for row in rows
-        if row.value == "true"
-    ]
+        if row.value == "false"
+    }
+    enabled_months = [m for m in all_months if m not in disabled]
     return {"enabled_months": enabled_months}
 
 
@@ -127,3 +130,38 @@ def update_month_setting(updates: dict, db: Session = Depends(get_db)):
         db.add(SystemSetting(key=key, value=val))
     db.commit()
     return {"status": "ok", "month": month, "enabled": enabled}
+
+
+@router.get("/")
+def get_all_config(db: Session = Depends(get_db)):
+    rows = db.query(AppConfig).all()
+    result = {}
+    for r in rows:
+        if r.category not in result:
+            result[r.category] = {}
+        result[r.category][r.key] = {
+            "value": r.value,
+            "label": r.label,
+        }
+    return result
+
+
+@router.get("/{category}")
+def get_config_by_category(category: str, db: Session = Depends(get_db)):
+    rows = db.query(AppConfig).filter(AppConfig.category == category).all()
+    return {r.key: {"value": r.value, "label": r.label} for r in rows}
+
+
+@router.put("/")
+def update_config(updates: dict, db: Session = Depends(get_db)):
+    updated = 0
+    for key, val in updates.items():
+        row = db.query(AppConfig).filter(AppConfig.key == key).first()
+        if row:
+            try:
+                row.value = float(val)
+                updated += 1
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail=f"Invalid numeric value for '{key}': {val}")
+    db.commit()
+    return {"status": "ok", "updated": updated}
