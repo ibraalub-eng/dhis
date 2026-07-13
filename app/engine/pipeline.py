@@ -100,7 +100,7 @@ def get_disabled_indicator_ids(session, hospital_id, month):
 
 
 def get_all_hospital_data_for_month(session: Session, month: str) -> Dict[str, Dict[str, float]]:
-    hospitals = session.query(Hospital).all()
+    hospitals = session.query(Hospital).filter(Hospital.is_active.is_(True)).all()
     result = {}
     for hosp in hospitals:
         vals = get_enabled_values_for_hospital_month(session, hosp.id, month)

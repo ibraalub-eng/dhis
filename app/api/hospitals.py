@@ -14,15 +14,31 @@ router = APIRouter(prefix="/hospitals", tags=["hospitals"])
 def list_hospitals(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    include_inactive: bool = Query(False, description="Include inactive hospitals"),
     db: Session = Depends(get_db),
 ):
-    cache_key = cache.make_key("hospitals:list", skip=skip, limit=limit)
+    cache_key = cache.make_key("hospitals:list", skip=skip, limit=limit, include_inactive=include_inactive)
     cached = cache.get(cache_key)
     if cached:
         return cached
-    hospitals = db.query(Hospital).offset(skip).limit(limit).all()
+    q = db.query(Hospital)
+    if not include_inactive:
+        q = q.filter(Hospital.is_active.is_(True))
+    hospitals = q.offset(skip).limit(limit).all()
     cache.set(cache_key, hospitals)
     return hospitals
+
+
+@router.put("/{hospital_id}/toggle-active")
+def toggle_hospital_active(hospital_id: int, db: Session = Depends(get_db)):
+    """Toggle a hospital's active status. Inactive hospitals are excluded from analysis and reports."""
+    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+    hospital.is_active = not hospital.is_active
+    db.commit()
+    cache.invalidate()
+    return {"id": hospital.id, "name": hospital.name, "is_active": hospital.is_active}
 
 
 @router.get("/indicators", response_model=List[IndicatorOut])

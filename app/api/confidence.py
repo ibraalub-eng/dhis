@@ -123,7 +123,7 @@ def compare_hospital_confidence(
     month: str = Query(..., description="Month YYYY-MM"),
     db: Session = Depends(get_db),
 ):
-    hospitals = db.query(Hospital).all()
+    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
     results: List[dict] = []
     for hosp in hospitals:
         vals = get_enabled_values_for_hospital_month(db, hosp.id, month)

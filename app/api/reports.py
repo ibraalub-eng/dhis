@@ -50,6 +50,12 @@ def list_reports(
     hospital_ids = list(set(s.hospital_id for s in scores))
     hospitals = {h.id: h for h in db.query(Hospital).filter(Hospital.id.in_(hospital_ids)).all()}
 
+    # Filter out inactive hospitals
+    scores = [s for s in scores if hospitals.get(s.hospital_id) and hospitals[s.hospital_id].is_active]
+    if not scores:
+        return []
+    hospital_ids = list(set(s.hospital_id for s in scores))
+
     months = list(set(s.month for s in scores))
     anomaly_rows = (
         db.query(AnomalyResult)

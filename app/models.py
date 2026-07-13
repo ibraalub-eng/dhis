@@ -10,6 +10,7 @@ class Hospital(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, nullable=False, index=True)
     region = Column(String(100), nullable=True)
+    is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     indicator_values = relationship("IndicatorValue", back_populates="hospital")

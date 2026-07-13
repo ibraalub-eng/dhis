@@ -280,7 +280,7 @@ def global_toggle_indicator(
     if not indicator:
         raise HTTPException(status_code=404, detail="Indicator not found")
 
-    hospitals = db.query(Hospital).all()
+    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
     if not hospitals:
         raise HTTPException(status_code=400, detail="No hospitals exist")
 

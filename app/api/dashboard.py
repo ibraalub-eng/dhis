@@ -10,7 +10,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/overview")
 def dashboard_overview(hospital_id: int | None = None, month: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
-    total_hospitals = db.query(Hospital).count()
+    total_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).count()
     total_reports = db.query(QualityScore).distinct(
         QualityScore.hospital_id, QualityScore.month
     ).count()
@@ -57,6 +57,8 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
         func.count(QualityScore.id).label("report_count"),
     ).outerjoin(
         QualityScore, QualityScore.hospital_id == Hospital.id
+    ).filter(
+        Hospital.is_active.is_(True)
     ).group_by(Hospital.id, Hospital.name).order_by(
         func.avg(QualityScore.score).desc().nullslast()
     ).all()

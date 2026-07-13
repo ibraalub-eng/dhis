@@ -85,7 +85,7 @@ def historical_analysis(hospital_id: int, db: Session = Depends(get_db)):
     trends = analyze_historical_trends(hospital.name, monthly_data)
     last_month = months[-1]
 
-    all_hospitals = db.query(Hospital).all()
+    all_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
     all_monthly_data = {}
     for h in all_hospitals:
         h_rows = (
@@ -250,7 +250,7 @@ def compare_all_hospitals(
     month: str = Query(..., description="Month YYYY-MM"),
     db: Session = Depends(get_db),
 ):
-    all_hospitals = db.query(Hospital).all()
+    all_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
     if not all_hospitals:
         return []
 
@@ -414,7 +414,7 @@ def reanalyze_all(
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
-    hospitals = db.query(Hospital).all()
+    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
     months = list_months_with_data(db)
     task_id = create_task("Re-analyze All", lambda: None)
 

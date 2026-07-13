@@ -79,6 +79,7 @@
                 }
             });
             if (name === 'ai') loadAiSettings();
+            if (name === 'control') { loadControlSettings(); loadHospitalToggles(); }
         }
 
         function loadWeights() {
@@ -718,8 +719,31 @@
                 .catch(e => {
                     document.getElementById('rulesLoading').classList.add('hidden');
                     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#a00;">Error: ' + e.message + '</td></tr>';
-                });
+            });
         }
+
+        export function loadHospitalToggles() {
+            apiGet('/hospitals/?include_inactive=true').then(hospitals => {
+                const container = document.getElementById('hospitalToggleList');
+                if (!container) return;
+                container.innerHTML = hospitals.map(h =>
+                    '<label style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0;border-bottom:1px solid #eee;cursor:pointer;">' +
+                    '<input type="checkbox" ' + (h.is_active ? 'checked' : '') + ' onchange="toggleHospital(' + h.id + ', this.checked)" style="width:16px;height:16px;">' +
+                    '<span style="font-size:0.82rem;">' + esc(h.name) + '</span>' +
+                    '</label>'
+                ).join('');
+            }).catch(() => {});
+        }
+
+        window.toggleHospital = function(hospitalId, isActive) {
+            apiPut('/hospitals/' + hospitalId + '/toggle-active', {}).then(() => {
+                loadHospitalToggles();
+                // Refresh cached data
+                if (typeof loadDashboard === 'function') loadDashboard();
+            }).catch(e => {
+                alert('Error: ' + e.message);
+            });
+        };
 
         function renderRulesManager() {
             document.getElementById('rulesManagerCount').textContent = rulesManagerData.length + ' rule(s)';
@@ -907,6 +931,5 @@
             }).catch(e => {
                 if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }
             });
-        }
         }
 

@@ -28,6 +28,7 @@ class HospitalCreate(HospitalBase):
 
 class HospitalOut(HospitalBase):
     id: int
+    is_active: bool = True
     created_at: Optional[datetime] = None
 
     class Config:
