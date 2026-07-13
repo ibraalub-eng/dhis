@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.database import init_db, SessionLocal
 from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
-from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops
+from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config
 from app.tasks import get_task, cleanup_old_tasks
 from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR
 from scripts.seed_indicators import seed_indicators
@@ -56,6 +56,8 @@ app.middleware("http")(monitoring_middleware)
 
 app.include_router(upload.router)
 app.include_router(hospitals.router)
+app.include_router(indicator_config.router)
+app.include_router(tree_config.router)
 app.include_router(reports.router)
 app.include_router(analysis.router)
 app.include_router(rules_api.router)
