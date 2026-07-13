@@ -117,7 +117,7 @@
             const btn = document.getElementById('treeReanalyzeBtn');
             if (btn) { btn.textContent = 'Analyzing...'; btn.disabled = true; }
             setStatus('loading', 'Re-analyzing ' + month + '...');
-            fetch(API() + '/hospitals/' + hospId + '/re-analyze?month=' + month, { method: 'POST' })
+            fetch(API() + '/hospitals/' + hospId + '/re-analyze?month=' + month + '&force=true', { method: 'POST' })
                 .then(r => r.json())
                 .then(report => {
                     if (btn) { btn.textContent = __('Re-analyze'); btn.disabled = false; }

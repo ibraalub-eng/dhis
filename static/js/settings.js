@@ -600,7 +600,7 @@
             btn.textContent = '...';
             btn.disabled = true;
             showLoader('Re-analyzing all hospitals...');
-            apiPost('/analysis/reanalyze-all').then(data => {
+            apiPost('/analysis/reanalyze-all?force=true').then(data => {
                 const statusEl = document.getElementById('settingsStatus');
                 statusEl.textContent = '\u2713 Re-analyzed ' + data.total_runs + ' combinations (' + data.hospitals_processed + ' hospitals, ' + data.months_processed + ' months)';
                 statusEl.style.color = '#2e7d32';
