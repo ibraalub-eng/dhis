@@ -88,7 +88,7 @@ def _calc_outlier_penalty(anomaly_results: list, config: Optional[Dict[str, floa
     if not anomaly_results:
         return 0.0
     cfg = config or {}
-    multiplier = cfg.get("outlier_multiplier", 2.0)
+    multiplier = cfg.get("outlier_multiplier", 1.5)
     outlier_count = sum(1 for a in anomaly_results if hasattr(a, "is_outlier") and a.is_outlier)
     total = len(anomaly_results)
     if total == 0:

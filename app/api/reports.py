@@ -9,7 +9,7 @@ import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
 from app.cache import cache
-from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue
+from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue, ConfidenceScore
 from app.schemas import ReportOut, ReportSummaryOut
 from app.engine.pipeline import run_full_analysis
 
@@ -83,6 +83,10 @@ def list_reports(
             hospital=hosp.name if hosp else "Unknown",
             month=s.month,
             data_quality_score=s.score,
+            rule_compliance=s.rule_compliance,
+            completeness=s.completeness,
+            consistency=s.consistency,
+            outlier_penalty=s.outlier_penalty,
             issues=issues,
             outliers=outliers,
         ))
@@ -162,7 +166,12 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
         consistency = qs.consistency
         outlier_penalty = qs.outlier_penalty
         issues = json.loads(qs.issues) if qs.issues else []
-        confidence = None
+        # Try to read confidence from database
+        cs = db.query(ConfidenceScore).filter(
+            ConfidenceScore.hospital_id == hospital_id,
+            ConfidenceScore.month == month,
+        ).first()
+        confidence = json.loads(cs.confidence_data) if cs and cs.confidence_data else None
 
     validation_rows = db.query(ValidationResult).filter(
         ValidationResult.hospital_id == hospital_id,

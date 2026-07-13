@@ -50,7 +50,7 @@ def detect_anomalies(
             continue
         rate_values = list(rates.values())
         mean_rate = np.mean(rate_values)
-        std_rate = np.std(rate_values)
+        std_rate = np.std(rate_values, ddof=1) if len(rate_values) > 1 else 0
         current_values = all_hospital_data.get(current_hospital, {})
         current_rate = compute_rate(current_values, num_code, den_code)
         if current_rate is None:
@@ -97,7 +97,7 @@ def detect_monthly_trend(
         if len(historical_rates) < 2:
             continue
         mean_h = np.mean(historical_rates)
-        std_h = np.std(historical_rates)
+        std_h = np.std(historical_rates, ddof=1) if len(historical_rates) > 1 else 0
         if std_h == 0:
             z = 0.0
         else:

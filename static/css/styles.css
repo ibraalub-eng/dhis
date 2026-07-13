@@ -58,6 +58,7 @@ tbody tr { transition: background 0.12s; }
 .badge-decreasing { background: #e3f2fd; color: #1565c0; }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
 .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.25rem; }
+.grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1rem; }
 .stat-box { text-align: center; padding: 1rem; }
 .stat-box .value { font-size: 1.6rem; font-weight: 700; color: #1a237e; }
 .stat-box .label { font-size: 0.72rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
@@ -186,7 +187,7 @@ body.rtl .modal-close { float:left; }
 body.rtl #detailModal, body.rtl #ruleEditModal { direction:rtl; }
 body.rtl .charts-row { direction:ltr; }
 body.rtl .filter-bar { direction:rtl; }
-@media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+@media (max-width: 768px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr 1fr; } }
 .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
 .dashboard-grid .card { margin-bottom: 0; text-align: center; border-top: 3px solid #e0e0e0; padding: 1rem 0.8rem; }
 .dashboard-grid .card .value { font-size: 1.9rem; font-weight: 700; }

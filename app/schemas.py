@@ -212,6 +212,10 @@ class ReportOut(BaseModel):
     hospital: str
     month: str
     data_quality_score: float
+    rule_compliance: Optional[float] = None
+    completeness: Optional[float] = None
+    consistency: Optional[float] = None
+    outlier_penalty: Optional[float] = None
     issues: List[str]
     outliers: List[dict]
     confidence: Optional[ConfidenceSummaryOut] = None

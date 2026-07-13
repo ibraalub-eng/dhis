@@ -112,7 +112,7 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
         outlier_q = outlier_q.filter(QualityScore.month.like(f"{year}-%"))
     outlier_row = outlier_q.first()
     outlier_penalty = round(float(outlier_row.avg_op or 0), 1)
-    radar_components["Outlier Penalty (inv)"] = max(0, 100 - outlier_penalty)
+    radar_components["Outlier Score"] = round(max(0, 100 - outlier_penalty), 1)
 
     return {
         "total_hospitals": total_hospitals,

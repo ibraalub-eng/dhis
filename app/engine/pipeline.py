@@ -222,7 +222,16 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
 
     anomaly_results = detect_anomalies(all_hospital_data, hospital.name, month, anomaly_config)
     trend_anomalies = detect_monthly_trend(historical, month, values, anomaly_config)
-    anomaly_results.extend(trend_anomalies)
+
+    # Deduplicate by indicator_code — prefer cross-hospital anomaly over trend
+    seen_codes: set = set()
+    deduped_anomalies: list = []
+    for a in anomaly_results + trend_anomalies:
+        code = getattr(a, "indicator_code", None)
+        if code and code not in seen_codes:
+            seen_codes.add(code)
+            deduped_anomalies.append(a)
+    anomaly_results = deduped_anomalies
 
     total_indicators = session.query(Indicator).count()
     all_disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
