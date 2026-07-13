@@ -10,3 +10,4 @@ pydantic
 httpx
 reportlab
 prometheus-client
+alembic
