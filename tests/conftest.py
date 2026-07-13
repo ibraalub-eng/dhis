@@ -6,6 +6,8 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.models import Hospital, Indicator, IndicatorValue, Rule
 from app.indicators import INDICATOR_FLAT_LIST
+from scripts.seed_indicators import seed_indicators
+from scripts.seed_rules import seed_rules
 
 
 @pytest.fixture
@@ -21,32 +23,14 @@ def db_session():
     Session = sessionmaker(bind=engine)
     session = Session()
     try:
-        _seed_indicators(session)
+        seed_indicators(session)
         _seed_hospitals(session)
-        _seed_rules(session)
+        seed_rules(session)
         session.commit()
         yield session
     finally:
         session.close()
         engine.dispose()
-
-
-def _seed_indicators(session):
-    for ind in INDICATOR_FLAT_LIST:
-        parent_id = None
-        if ind["parent_id"] is not None:
-            existing = session.query(Indicator).filter(Indicator.code == ind["parent_id"]).first()
-            if existing:
-                parent_id = existing.id
-        db_ind = Indicator(
-            code=ind["code"],
-            name=ind["name"],
-            parent_id=parent_id,
-            level=ind["level"],
-            group_name=ind.get("group_name", "SRMNH Inpatient Indicators"),
-        )
-        session.add(db_ind)
-        session.flush()
 
 
 def _seed_hospitals(session):
@@ -57,25 +41,6 @@ def _seed_hospitals(session):
     ]
     for h in hospitals:
         session.add(h)
-    session.flush()
-
-
-def _seed_rules(session):
-    from scripts.seed_rules import RULES
-    for r in RULES:
-        rule = Rule(
-            code=r["code"],
-            name=r["name"],
-            rule_type=r["rule_type"],
-            severity=r["severity"],
-            category=r["category"],
-            expression_type=r["expression_type"],
-            params=r["params"],
-            description=r["description"],
-            enabled=True,
-            sort_order=0,
-        )
-        session.add(rule)
     session.flush()
 
 

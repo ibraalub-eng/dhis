@@ -6,11 +6,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.database import init_db
+from app.database import init_db, SessionLocal
 from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
 from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops
 from app.tasks import get_task, cleanup_old_tasks
 from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR
+from scripts.seed_indicators import seed_indicators
+from scripts.seed_rules import seed_rules
 import os
 import logging
 
@@ -20,8 +22,12 @@ setup_structured_logging(logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    _seed_indicators()
-    _seed_rules()
+    session = SessionLocal()
+    try:
+        seed_indicators(session)
+        seed_rules(session)
+    finally:
+        session.close()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     yield
 
@@ -90,85 +96,6 @@ def dashboard():
 def metrics():
     from fastapi.responses import Response
     return Response(content=generate_latest(REGISTRY), media_type=CONTENT_TYPE_LATEST)
-
-
-def _seed_indicators():
-    from app.database import SessionLocal
-    from app.models import Indicator
-    from app.indicators import INDICATOR_FLAT_LIST
-
-    session = SessionLocal()
-    try:
-        existing = {ind.code for ind in session.query(Indicator).all()}
-        if not existing:
-            code_to_id = {}
-            for ind in INDICATOR_FLAT_LIST:
-                parent_id = None
-                if ind["parent_id"] is not None and ind["parent_id"] in code_to_id:
-                    parent_id = code_to_id[ind["parent_id"]]
-                db_ind = Indicator(
-                    code=ind["code"],
-                    name=ind["name"],
-                    parent_id=parent_id,
-                    level=ind["level"],
-                    group_name=ind.get("group_name", "SRMNH Inpatient Indicators"),
-                )
-                session.add(db_ind)
-                session.flush()
-                code_to_id[ind["code"]] = db_ind.id
-            session.commit()
-        else:
-            # Add any new indicators not yet in the DB (migration)
-            code_to_id = {}
-            for db_ind in session.query(Indicator).all():
-                code_to_id[db_ind.code] = db_ind.id
-            for ind in INDICATOR_FLAT_LIST:
-                if ind["code"] in code_to_id:
-                    continue
-                parent_id = None
-                if ind["parent_id"] is not None and ind["parent_id"] in code_to_id:
-                    parent_id = code_to_id[ind["parent_id"]]
-                db_ind = Indicator(
-                    code=ind["code"],
-                    name=ind["name"],
-                    parent_id=parent_id,
-                    level=ind["level"],
-                    group_name=ind.get("group_name", "SRMNH Inpatient Indicators"),
-                )
-                session.add(db_ind)
-                session.flush()
-                code_to_id[ind["code"]] = db_ind.id
-            if session.new:
-                session.commit()
-    finally:
-        session.close()
-
-
-def _seed_rules():
-    from app.database import SessionLocal
-    from app.models import Rule
-
-    session = SessionLocal()
-    try:
-        count = session.query(Rule).count()
-        if count > 0:
-            return
-        from scripts.seed_rules import RULES
-        for r in RULES:
-            rule = Rule(
-                code=r["code"],
-                name=r["name"],
-                rule_type=r["rule_type"],
-                severity=r["severity"],
-                category=r["category"],
-                expression_type=r["expression_type"],
-                params=r["params"],
-                description=r["description"],
-            )
-            session.add(rule)
-        session.commit()
-    finally:
-        session.close()
 
 
 @app.get("/")

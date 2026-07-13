@@ -624,13 +624,17 @@ RULES = [
 ]
 
 
-def seed_rules():
-    init_db()
-    session = SessionLocal()
+def seed_rules(session=None):
+    """Seed rules into the database. If no session given, creates one."""
+    own_session = session is None
+    if own_session:
+        init_db()
+        session = SessionLocal()
     try:
         count = session.query(Rule).count()
         if count > 0:
-            print(f"Rules table already has {count} rules. Skipping seed.")
+            if own_session:
+                print(f"Rules table already has {count} rules. Skipping seed.")
             return
 
         for idx, r in enumerate(RULES):
@@ -647,9 +651,11 @@ def seed_rules():
             )
             session.add(rule)
         session.commit()
-        print(f"Seeded {len(RULES)} rules successfully.")
+        if own_session:
+            print(f"Seeded {len(RULES)} rules successfully.")
     finally:
-        session.close()
+        if own_session:
+            session.close()
 
 
 if __name__ == "__main__":
