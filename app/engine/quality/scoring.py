@@ -1,5 +1,6 @@
-from typing import List, Dict, Tuple
-from app.engine.quality import RuleResult, RuleStatus, Severity
+from typing import List, Dict, Optional
+
+from .rules import RuleResult, RuleStatus, Severity
 
 
 def calculate_quality_score(
@@ -7,17 +8,24 @@ def calculate_quality_score(
     values: Dict[str, float],
     anomaly_results: list,
     active_indicator_count: int,
+    config: Optional[Dict[str, float]] = None,
 ) -> Dict:
+    cfg = config or {}
+    w_rc = cfg.get("quality_rule_compliance", 0.35)
+    w_cp = cfg.get("quality_completeness", 0.25)
+    w_co = cfg.get("quality_consistency", 0.25)
+    w_op = cfg.get("quality_outlier_penalty", 0.15)
+
     rule_compliance = _calc_rule_compliance(rule_results)
     completeness = _calc_completeness(values, active_indicator_count)
-    consistency = _calc_consistency(rule_results)
-    outlier_penalty = _calc_outlier_penalty(anomaly_results)
+    consistency = _calc_consistency(rule_results, cfg)
+    outlier_penalty = _calc_outlier_penalty(anomaly_results, cfg)
 
     raw_score = (
-        rule_compliance * 0.35
-        + completeness * 0.25
-        + consistency * 0.25
-        + (1.0 - outlier_penalty) * 0.15
+        rule_compliance * w_rc
+        + completeness * w_cp
+        + consistency * w_co
+        + (1.0 - outlier_penalty) * w_op
     ) * 100
 
     score = max(0, min(100, round(raw_score, 1)))
@@ -55,10 +63,15 @@ def _calc_completeness(values: Dict[str, float], active_indicator_count: int) ->
     return filled / active_indicator_count
 
 
-def _calc_consistency(rule_results: List[RuleResult]) -> float:
+def _calc_consistency(rule_results: List[RuleResult], config: Optional[Dict[str, float]] = None) -> float:
     if not rule_results:
         return 1.0
-    severity_weights = {Severity.HIGH: 3, Severity.MEDIUM: 2, Severity.LOW: 1}
+    cfg = config or {}
+    severity_weights = {
+        Severity.HIGH: cfg.get("severity_high", 3),
+        Severity.MEDIUM: cfg.get("severity_medium", 2),
+        Severity.LOW: cfg.get("severity_low", 1),
+    }
     total_weight = 0
     fail_weight = 0
     for r in rule_results:
@@ -71,12 +84,14 @@ def _calc_consistency(rule_results: List[RuleResult]) -> float:
     return 1.0 - (fail_weight / total_weight)
 
 
-def _calc_outlier_penalty(anomaly_results: list) -> float:
+def _calc_outlier_penalty(anomaly_results: list, config: Optional[Dict[str, float]] = None) -> float:
     if not anomaly_results:
         return 0.0
+    cfg = config or {}
+    multiplier = cfg.get("outlier_multiplier", 2.0)
     outlier_count = sum(1 for a in anomaly_results if hasattr(a, "is_outlier") and a.is_outlier)
     total = len(anomaly_results)
     if total == 0:
         return 0.0
     ratio = outlier_count / total
-    return min(1.0, ratio * 2)
+    return min(1.0, ratio * multiplier)
