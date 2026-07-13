@@ -362,10 +362,10 @@ def _build_narrative(th: ClinicalThreshold, cls: str, value: float) -> str:
     return f"{th.rate_name} of {value:.1f}{th.unit}. {th.clinical_guideline}"
 
 
-def compute_rate(numerator_total: float, denominator: float) -> Optional[float]:
+def compute_rate(numerator_total: float, denominator: float, unit: str = "") -> Optional[float]:
     if denominator is None or denominator == 0:
         return None
-    return (numerator_total / denominator) * (100 if "%" in th.unit else 1)
+    return (numerator_total / denominator) * (100 if "%" in unit else 1)
 
 
 def compute_all_classifications(values: Dict[str, float]) -> List[ClinicalClassification]:

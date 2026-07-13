@@ -24,6 +24,23 @@ severity_weights = {Severity.HIGH: 3, Severity.MEDIUM: 2, Severity.LOW: 1}
 ```
 **Impact:** `{.HIGH: 3}` is a syntax error (invalid dict key). This would cause the `_calc_consistency` function to crash at runtime when called.
 
+### 3. `app/engine/clinical.py:368` — `compute_rate` references undefined `th`
+**Before:**
+```python
+def compute_rate(numerator_total: float, denominator: float) -> Optional[float]:
+    if denominator is None or denominator == 0:
+        return None
+    return (numerator_total / denominator) * (100 if "%" in th.unit else 1)
+```
+**After:**
+```python
+def compute_rate(numerator_total: float, denominator: float, unit: str = "") -> Optional[float]:
+    if denominator is None or denominator == 0:
+        return None
+    return (numerator_total / denominator) * (100 if "%" in unit else 1)
+```
+**Impact:** The previous "fix" changed `str` to `th.unit`, but `th` is not defined in this function's scope, causing a `NameError`. Added `unit` as a parameter with a default empty string so the function is self-contained. This is dead code (never called anywhere), so no existing callers are affected.
+
 ## Test Results
 - **151 passed**, 0 failed (unchanged from baseline)
 - All existing tests continue to pass
