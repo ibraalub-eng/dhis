@@ -1,6 +1,4 @@
 import pytest
-import os
-import tempfile
 import pandas as pd
 
 from app.utils.excel_parser import parse_excel, normalize_data

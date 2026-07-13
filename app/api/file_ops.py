@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, BackgroundTasks
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task

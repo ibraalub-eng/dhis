@@ -1,7 +1,7 @@
 import re
 import logging
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -130,8 +130,8 @@ def _cs_high_rate(ctx):
                 category="C-Section Management",
                 priority=priority,
                 title=f"High C-Section Rate ({cs_rate:.1f}%)",
-                description=f"C-section rate exceeds WHO recommended range of 10-15%",
-                rationale=f"WHO recommends C-section rates of 10-15%. Rates >25% suggest potential overuse without clear medical benefit.",
+                description="C-section rate exceeds WHO recommended range of 10-15%",
+                rationale="WHO recommends C-section rates of 10-15%. Rates >25% suggest potential overuse without clear medical benefit.",
                 action_items=items,
                 indicators_monitored=["5", "5.b.1", "5.b.2", "5.c", "5.d"],
             )
@@ -253,7 +253,7 @@ def _preterm_high(ctx):
                 category="Preterm Birth Prevention",
                 priority="high" if pt_rate > 20 else "medium",
                 title=f"High Preterm Birth Rate ({pt_rate:.1f}%)",
-                description=f"Preterm birth rate exceeds WHO target of <10%",
+                description="Preterm birth rate exceeds WHO target of <10%",
                 rationale="Preterm birth is leading cause of neonatal mortality. High rates require preventive strategies.",
                 action_items=action,
                 indicators_monitored=["6.f", "17.c"],

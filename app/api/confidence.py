@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 from app.database import get_db
-from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig, ConfidenceScore
+from app.models import Hospital, Indicator, ConfidenceScore
 from app.engine.pipeline import (
     get_enabled_values_for_hospital_month,
     get_all_hospital_data_for_month,
@@ -14,7 +14,7 @@ from app.engine.confidence import (
     build_indicator_rule_map,
     HospitalConfidenceResult,
 )
-from app.indicators import INDICATOR_FLAT_LIST, PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME
+from app.indicators import PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME
 from app.schemas import HospitalConfidenceOut, ConfidenceComparisonOut
 import logging
 

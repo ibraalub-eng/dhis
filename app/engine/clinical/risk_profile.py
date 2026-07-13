@@ -149,7 +149,7 @@ def compute_risk_profile(hospital: str, month: str, values: Dict[str, float]) ->
         ))
 
     in_facility = values.get("2.k", 0) or 0
-    out_facility = values.get("2.l", 0) or 0
+    _out_facility = values.get("2.l", 0) or 0
     facility_rate = (in_facility / total * 100) if total > 0 else 0
     profile.metrics.append(RiskMetric(
         metric_name="In-Facility Delivery Rate",
@@ -183,7 +183,7 @@ def compute_risk_profile(hospital: str, month: str, values: Dict[str, float]) ->
 
     stillbirth = values.get("7", 0) or 0
     fresh_sb = values.get("7.a", 0) or 0
-    macerated_sb = values.get("7.b", 0) or 0
+    _macerated_sb = values.get("7.b", 0) or 0
     if stillbirth > 0 and fresh_sb > 0:
         fresh_proportion = (fresh_sb / stillbirth) * 100
         profile.metrics.append(RiskMetric(
@@ -197,9 +197,9 @@ def compute_risk_profile(hospital: str, month: str, values: Dict[str, float]) ->
 
     nd_total = values.get("17", 0) or 0
     if nd_total > 0:
-        nd_preterm = values.get("17.c", 0) or 0
+        _nd_preterm = values.get("17.c", 0) or 0
         nd_asphyxia = values.get("17.d", 0) or 0
-        nd_sepsis = values.get("17.f", 0) or 0
+        _nd_sepsis = values.get("17.f", 0) or 0
         nd_asphyxia_rate = (nd_asphyxia / nd_total * 100) if nd_total > 0 else 0
         profile.metrics.append(RiskMetric(
             metric_name="Birth Asphyxia % of Neonatal Deaths",
@@ -258,7 +258,7 @@ def correlate_risk_outcomes(values: Dict[str, float], all_hospital_data: Dict[st
 
         if risk_rates and preterm_rates:
             avg_risk = sum(risk_rates) / len(risk_rates)
-            avg_preterm = sum(preterm_rates) / len(preterm_rates)
+            _avg_preterm = sum(preterm_rates) / len(preterm_rates)
             if high_risk_rate > avg_risk * 1.2:
                 findings.append({
                     "finding": "High-risk proportion significantly above peer average",

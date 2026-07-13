@@ -1,7 +1,7 @@
 import os
 import json
 import logging
-from typing import List, Dict, Optional
+from typing import List, Optional
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -378,7 +378,7 @@ def _local_executive_summary_fallback(
 def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
     recs = []
     rs = report_data.get("overall_quality_score", 0)
-    cs = report_data.get("overall_confidence", "")
+    _cs = report_data.get("overall_confidence", "")
     rf = report_data.get("top_rule_failures") or []
     cg = report_data.get("confidence_gaps") or []
     ap = report_data.get("anomaly_patterns") or []

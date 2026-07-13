@@ -1,18 +1,16 @@
 import io
 import json
-import os
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 from typing import List, Optional
 import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
 from app.cache import cache
-from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue, Indicator
-from app.schemas import ReportOut, ReportSummaryOut, QualityScoreOut, ValidationOut, AnomalyOut
+from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue
+from app.schemas import ReportOut, ReportSummaryOut
 from app.engine.pipeline import run_full_analysis
 
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -58,7 +56,7 @@ def list_reports(
         .filter(
             AnomalyResult.hospital_id.in_(hospital_ids),
             AnomalyResult.month.in_(months),
-            AnomalyResult.is_outlier == True,
+            AnomalyResult.is_outlier,
         )
         .all()
     )
@@ -109,7 +107,7 @@ def generate_report_background(
             from app.engine.pipeline import run_full_analysis
             from app.tasks import set_progress, set_status
             set_progress(tid, 50)
-            report = run_full_analysis(bg_db, hid, m)
+            run_full_analysis(bg_db, hid, m)
             set_progress(tid, 100)
             set_status(tid, "done")
         except Exception as e:
@@ -230,7 +228,6 @@ def _register_unicode_font():
 
 @router.get("/export/{hospital_id}/pdf")
 def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = Depends(get_db)):
-    import html
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.lib import colors
@@ -389,10 +386,13 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
     ws.cell(row, 1, report_month).font = Font(size=11, color="888888")
     row += 2
 
-    ws.cell(row, 1, "Metric").font = hdr_font; ws.cell(row, 1).fill = hdr_fill
-    ws.cell(row, 2, "Value").font = hdr_font; ws.cell(row, 2).fill = hdr_fill
+    ws.cell(row, 1, "Metric").font = hdr_font
+    ws.cell(row, 1).fill = hdr_fill
+    ws.cell(row, 2, "Value").font = hdr_font
+    ws.cell(row, 2).fill = hdr_fill
     for c in [ws.cell(row, 1), ws.cell(row, 2)]:
-        c.border = border; c.alignment = Alignment(horizontal="center")
+        c.border = border
+        c.alignment = Alignment(horizontal="center")
     row += 1
     for label, key in [("Data Quality Score", "data_quality_score"), ("Rule Compliance", "rule_compliance"),
                         ("Completeness", "completeness"), ("Consistency", "consistency"),
@@ -411,7 +411,8 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
 
     row += 1
     # Issues
-    ws.cell(row, 1, "Issues Found").font = hdr_font; ws.cell(row, 1).fill = hdr_fill
+    ws.cell(row, 1, "Issues Found").font = hdr_font
+    ws.cell(row, 1).fill = hdr_fill
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
     ws.cell(row, 1).border = border
     row += 1
@@ -426,19 +427,24 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
 
     row += 1
     # Validation Results
-    ws.cell(row, 1, "Validation Results").font = hdr_font; ws.cell(row, 1).fill = hdr_fill
+    ws.cell(row, 1, "Validation Results").font = hdr_font
+    ws.cell(row, 1).fill = hdr_fill
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
     ws.cell(row, 1).border = border
     row += 1
     for col, h in enumerate(["Code", "Description", "Status", "Severity", "Details"], 1):
         c = ws.cell(row, col, h)
-        c.font = hdr_font; c.fill = hdr_fill; c.border = border; c.alignment = Alignment(horizontal="center")
+        c.font = hdr_font
+        c.fill = hdr_fill
+        c.border = border
+        c.alignment = Alignment(horizontal="center")
     row += 1
     for v in vrows:
         ws.cell(row, 1, v.rule_code).border = border
         ws.cell(row, 2, v.rule_description).border = border
         sc = ws.cell(row, 3, v.status)
-        sc.border = border; sc.alignment = Alignment(horizontal="center")
+        sc.border = border
+        sc.alignment = Alignment(horizontal="center")
         if v.status == "FAIL":
             sc.font = Font(color="C62828", bold=True)
         else:
@@ -450,13 +456,17 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
 
     row += 1
     # Anomalies
-    ws.cell(row, 1, "Anomaly Detection").font = hdr_font; ws.cell(row, 1).fill = hdr_fill
+    ws.cell(row, 1, "Anomaly Detection").font = hdr_font
+    ws.cell(row, 1).fill = hdr_fill
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
     ws.cell(row, 1).border = border
     row += 1
     for col, h in enumerate(["Rate Name", "Value", "Benchmark", "Z-Score", "Outlier"], 1):
         c = ws.cell(row, col, h)
-        c.font = hdr_font; c.fill = hdr_fill; c.border = border; c.alignment = Alignment(horizontal="center")
+        c.font = hdr_font
+        c.fill = hdr_fill
+        c.border = border
+        c.alignment = Alignment(horizontal="center")
     row += 1
     for a in arows:
         ws.cell(row, 1, a.rate_name).border = border
@@ -467,7 +477,8 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
         ws.cell(row, 4, f"{a.z_score:.2f}" if a.z_score is not None else "--").border = border
         ws.cell(row, 4).alignment = Alignment(horizontal="center")
         oc = ws.cell(row, 5, "Yes" if a.is_outlier else "No")
-        oc.border = border; oc.alignment = Alignment(horizontal="center")
+        oc.border = border
+        oc.alignment = Alignment(horizontal="center")
         if a.is_outlier:
             oc.font = Font(color="C62828", bold=True)
         row += 1

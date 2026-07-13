@@ -65,7 +65,7 @@ def get_root_cause_analysis(
                 "issues": report.get("issues", []),
             }
             confidence_data = report.get("confidence", {})
-        except Exception as e:
+        except Exception:
             pass
 
     report = generate_root_cause_analysis(

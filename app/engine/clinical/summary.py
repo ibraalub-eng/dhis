@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 
 @dataclass
@@ -41,8 +41,8 @@ def generate_clinical_summary(
     smm = int(values.get("10", 0) or 0)
     sb = int(values.get("7", 0) or 0)
     preterm = int(values.get("6.f", 0) or 0)
-    lbw = int(values.get("6.g", 0) or 0)
-    nicu = int(values.get("16", 0) or 0)
+    _lbw = int(values.get("6.g", 0) or 0)
+    _nicu = int(values.get("16", 0) or 0)
 
     cs_rate = (cs / total * 100) if total > 0 else 0
     mmr = (deaths / total * 100000) if total > 0 else 0
@@ -130,13 +130,13 @@ def _build_risk_text(risk_profile, total: int) -> str:
         return "Risk analysis not available."
     level = risk_profile.overall_risk_level
     if level == "critical":
-        return f"CRITICAL RISK PROFILE: Multiple high-severity risk factors identified requiring immediate multisectoral intervention."
+        return "CRITICAL RISK PROFILE: Multiple high-severity risk factors identified requiring immediate multisectoral intervention."
     elif level == "high":
-        return f"HIGH RISK PROFILE: Several clinical risk indicators elevated. Systematic review of high-risk case management recommended."
+        return "HIGH RISK PROFILE: Several clinical risk indicators elevated. Systematic review of high-risk case management recommended."
     elif level == "moderate":
-        return f"Moderate risk profile. Some indicators above optimal levels. Targeted monitoring recommended."
+        return "Moderate risk profile. Some indicators above optimal levels. Targeted monitoring recommended."
     else:
-        return f"Low risk profile. Most clinical risk indicators within acceptable ranges."
+        return "Low risk profile. Most clinical risk indicators within acceptable ranges."
 
 
 def _build_morbidity_text(morbidity_profile, smm: int, deaths: int) -> str:

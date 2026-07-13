@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import List
 from app.database import get_db
 from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig, SystemSetting
 from app.indicators import build_tree_from_db, get_flat_list_from_db
@@ -46,8 +45,6 @@ def save_tree_config(
 def get_management_tree(db: Session = Depends(get_db)):
     """Return tree from DB without hospital/month data — for global management UI."""
     tree = build_tree_from_db(db)
-    flat = get_flat_list_from_db(db)
-    code_to_name = {ind["code"]: ind["name"] for ind in flat}
     code_to_id = {}
     for ind in db.query(Indicator).all():
         code_to_id[ind.code] = ind.id

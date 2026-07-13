@@ -1,5 +1,4 @@
 """Tests for quality score calculation (engine.quality)."""
-import pytest
 from app.engine.quality import (
     calculate_quality_score,
     RuleResult,
@@ -62,14 +61,13 @@ def test_score_clamps_to_100():
 
 
 def test_score_never_negative():
-    results = [_rr(f"R{i}", f"Test", RuleStatus.FAIL, Severity.CRITICAL) for i in range(30)]
+    results = [_rr(f"R{i}", "Test", RuleStatus.FAIL, Severity.CRITICAL) for i in range(30)]
     values = {}
     score = calculate_quality_score(results, values, [], 100)
     assert score["score"] >= 0.0
 
 
 def test_outlier_penalty_zero():
-    from app.engine.anomaly import AnomalyResultData
     results = []
     values = {str(i): float(i) for i in range(60)}
     score = calculate_quality_score(results, values, [], 60)

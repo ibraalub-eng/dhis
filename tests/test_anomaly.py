@@ -1,6 +1,5 @@
 """Tests for anomaly detection and statistical trend analysis (engine.anomaly)."""
 import pytest
-import numpy as np
 from app.engine.anomaly import (
     compute_rate,
     detect_anomalies,
@@ -13,7 +12,6 @@ from app.engine.anomaly import (
     RATE_DEFINITIONS,
     TrendResult,
     HospitalComparison,
-    set_trends_config,
 )
 
 
@@ -236,7 +234,7 @@ def test_compare_hospitals_labels():
     }
     comparisons = compare_hospitals(all_data, "2026-04")
     labels = [c.comparison_label for c in comparisons]
-    assert any("above" in l or "below" in l or "normal" in l for l in labels)
+    assert any("above" in label or "below" in label or "normal" in label for label in labels)
 
 
 # ── detect_trend_anomalies ────────────────────────────────────

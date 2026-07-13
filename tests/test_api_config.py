@@ -3,7 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.database import get_db
-from app.models import AppConfig, SystemSetting
+from app.models import AppConfig
 
 
 @pytest.fixture

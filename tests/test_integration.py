@@ -4,8 +4,8 @@ import io
 import pandas as pd
 from fastapi.testclient import TestClient
 from app.main import app
-from app.database import Base, get_db, SessionLocal, engine
-from app.models import Hospital, IndicatorValue, QualityScore
+from app.database import get_db
+from app.models import Hospital, IndicatorValue
 
 # Use TestClient with dependency override for DB
 @pytest.fixture
@@ -116,7 +116,6 @@ class TestFullPipeline:
 
         # Insert indicator values
         from app.models import Indicator
-        from app.indicators import INDICATOR_CODE_TO_NAME
 
         for code, value in sample_values.items():
             ind = db_session.query(Indicator).filter(Indicator.code == code).first()

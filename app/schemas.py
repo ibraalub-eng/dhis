@@ -195,7 +195,7 @@ class AutoReportResponse(BaseModel):
     filename: str
     hospitals: List[dict]
     months: List[str]
-    reports: List[ReportOut]
+    reports: List["ReportOut"]
 
 
 class ConfidenceSummaryOut(BaseModel):

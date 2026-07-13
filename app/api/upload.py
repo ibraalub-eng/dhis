@@ -2,7 +2,6 @@ import os
 import shutil
 import io
 import json
-from typing import List
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session

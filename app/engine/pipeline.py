@@ -12,7 +12,7 @@ from app.models import (
 from sqlalchemy.orm import Session
 import json
 
-from app.indicators import INDICATOR_FLAT_LIST, PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME
+from app.indicators import PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME
 
 USE_DB_RULES = True
 
@@ -40,7 +40,7 @@ def get_enabled_values_for_hospital_month(session: Session, hospital_id: int, mo
         c.indicator_id
         for c in session.query(HospitalIndicatorConfig).filter(
             HospitalIndicatorConfig.hospital_id == hospital_id,
-            HospitalIndicatorConfig.is_enabled == False,
+            HospitalIndicatorConfig.is_enabled.is_(False),
         ).all()
     ]
     rows = (
@@ -67,7 +67,7 @@ def get_disabled_indicator_ids(session, hospital_id, month):
         c.indicator_id
         for c in session.query(HospitalIndicatorConfig).filter(
             HospitalIndicatorConfig.hospital_id == hospital_id,
-            HospitalIndicatorConfig.is_enabled == False,
+            HospitalIndicatorConfig.is_enabled.is_(False),
         ).all()
     ]
     if _is_auto_disable_null(session):

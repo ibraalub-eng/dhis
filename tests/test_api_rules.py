@@ -189,14 +189,14 @@ class TestBulkReorder:
 
 class TestToggleRule:
     def test_toggle_enabled_to_disabled(self, client, db_session):
-        rule = db_session.query(Rule).filter(Rule.enabled == True).first()
+        rule = db_session.query(Rule).filter(Rule.enabled).first()
         resp = client.put(f"/rules/{rule.id}/toggle")
         assert resp.status_code == 200
         data = resp.json()
         assert data["enabled"] is False
 
     def test_toggle_disabled_to_enabled(self, client, db_session):
-        rule = db_session.query(Rule).filter(Rule.enabled == False).first()
+        rule = db_session.query(Rule).filter(Rule.enabled.is_(False)).first()
         if rule:
             resp = client.put(f"/rules/{rule.id}/toggle")
             assert resp.status_code == 200

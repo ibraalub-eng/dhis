@@ -12,3 +12,4 @@ reportlab
 prometheus-client
 alembic
 pytest-cov
+ruff

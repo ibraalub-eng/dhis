@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AppConfig, SystemSetting
-from app.config_utils import AI_CONFIG_KEYS, get_config_value, get_config_dict, get_ai_config
+from app.config_utils import AI_CONFIG_KEYS, get_ai_config
 
 router = APIRouter(prefix="/config", tags=["config"])
 

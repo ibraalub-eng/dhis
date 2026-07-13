@@ -1,7 +1,6 @@
 import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from typing import Optional
 from app.database import get_db
 from app.models import Hospital, QualityScore, ValidationResult
 from app.engine.pipeline import get_enabled_values_for_hospital_month

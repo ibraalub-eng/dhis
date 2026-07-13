@@ -326,7 +326,7 @@ def run_all_rules(ctx: ValidationContext) -> List[RuleResult]:
 
 def load_rules_from_db(session: Session) -> list:
     from app.models import Rule
-    return session.query(Rule).filter(Rule.enabled == True).order_by(Rule.sort_order, Rule.code).all()
+    return session.query(Rule).filter(Rule.enabled).order_by(Rule.sort_order, Rule.code).all()
 
 
 def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:

@@ -1,24 +1,24 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from alembic.config import Config
-from alembic import command
-from alembic.script import ScriptDirectory
-from app.database import init_db, SessionLocal, engine
-from app.models import AppConfig
-from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
-from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config
-from app.tasks import get_task, cleanup_old_tasks
-from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR
-from scripts.seed_indicators import seed_indicators
-from scripts.seed_rules import seed_rules
-import os
-import logging
+from contextlib import asynccontextmanager  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.responses import FileResponse  # noqa: E402
+from alembic.config import Config  # noqa: E402
+from alembic import command  # noqa: E402
+from alembic.script import ScriptDirectory  # noqa: E402
+from app.database import init_db, SessionLocal, engine  # noqa: E402
+from app.models import AppConfig  # noqa: E402
+from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
+from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config  # noqa: E402
+from app.tasks import get_task  # noqa: E402
+from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR  # noqa: E402
+from scripts.seed_indicators import seed_indicators  # noqa: E402
+from scripts.seed_rules import seed_rules  # noqa: E402
+import os  # noqa: E402
+import logging  # noqa: E402
 
 setup_structured_logging(logging.INFO)
 
@@ -126,7 +126,7 @@ def run_alembic_upgrade():
     alembic_cfg = Config(os.path.join(BASE_DIR, "alembic.ini"))
     alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
     script = ScriptDirectory.from_config(alembic_cfg)
-    head_revision = script.get_current_head()
+    _head_revision = script.get_current_head()
 
     from sqlalchemy import inspect, text
     inspector = inspect(engine)
@@ -204,8 +204,7 @@ app.include_router(root_cause.router)
 app.include_router(dashboard.router)
 app.include_router(file_ops.router)
 
-from fastapi import Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse  # noqa: E402
 
 
 @app.get("/tasks/{task_id}")

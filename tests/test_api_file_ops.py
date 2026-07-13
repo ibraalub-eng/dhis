@@ -6,7 +6,6 @@ import json
 from fastapi.testclient import TestClient
 from app.main import app
 from app.database import get_db
-from app.models import Hospital, Indicator, IndicatorValue
 from app.config import UPLOAD_DIR
 
 

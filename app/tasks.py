@@ -1,7 +1,7 @@
 import uuid
 import threading
 from datetime import datetime
-from typing import Any, Callable
+from typing import Callable
 
 _task_store: dict[str, dict] = {}
 _lock = threading.Lock()

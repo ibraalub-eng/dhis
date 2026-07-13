@@ -1,11 +1,9 @@
 """Shared test fixtures for HEALTH-ai backend tests."""
 import pytest
-import pytest_asyncio
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.database import Base
-from app.models import Hospital, Indicator, IndicatorValue, Rule
-from app.indicators import INDICATOR_FLAT_LIST
+from app.models import Hospital
 from scripts.seed_indicators import seed_indicators
 from scripts.seed_rules import seed_rules
 

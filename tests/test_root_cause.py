@@ -1,5 +1,4 @@
 """Tests for root cause analysis (engine.root_cause)."""
-import pytest
 from app.engine.root_cause import (
     analyze_rule_failures,
     analyze_quality_drivers,
@@ -8,15 +7,11 @@ from app.engine.root_cause import (
     generate_root_cause_analysis,
     _diagnose_rule_failure,
     _diagnose_confidence_gap,
-    RuleFailurePattern,
     QualityDriver,
-    ConfidenceGap,
-    AnomalyPattern,
     RootCauseReport,
 )
 from app.models import (
-    Hospital, Indicator, IndicatorValue, Rule,
-    ValidationResult, AnomalyResult, QualityScore, ConfidenceScore,
+    Hospital, Indicator, IndicatorValue, ValidationResult, AnomalyResult, QualityScore, ConfidenceScore,
 )
 import json
 
@@ -284,7 +279,6 @@ class TestAnalyzeAnomalyPatterns:
 class TestGenerateRootCauseAnalysis:
     def test_basic_report(self, db_session, sample_values):
         hospital = db_session.query(Hospital).first()
-        from app.models import Indicator
 
         for code, value in sample_values.items():
             ind = db_session.query(Indicator).filter(Indicator.code == code).first()

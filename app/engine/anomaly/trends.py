@@ -1,8 +1,9 @@
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import numpy as np
 
 from .zscore import compute_rate, RATE_DEFINITIONS, AnomalyResultData
+from .comparison import HospitalComparison
 
 
 _TRENDS_CONFIG = {
@@ -214,7 +215,6 @@ def detect_trend_anomalies(
     sorted_months = sorted(monthly_data.keys())
     current_month = sorted_months[-1]
     current_values = monthly_data[current_month]
-    historical_months = {m: monthly_data[m] for m in sorted_months[:-1]}
 
     for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
         current_rate = compute_rate(current_values, num_code, den_code)
@@ -240,9 +240,7 @@ def detect_trend_anomalies(
 
         is_outlier = abs(z) > _TRENDS_CONFIG["zscore_threshold"]
 
-        mu = float(np.mean(historical_rates[:-1])) if len(historical_rates) > 2 else mean_h
-        sigma = float(np.std(historical_rates[:-1])) if len(historical_rates) > 2 else std_h
-        drift_pct = ((current_rate - mu) / mu * 100) if mu != 0 else 0.0
+        _mu = float(np.mean(historical_rates[:-1])) if len(historical_rates) > 2 else mean_h
 
         if abs(z) > _TRENDS_CONFIG["zscore_threshold"]:
             is_outlier = True
@@ -280,8 +278,6 @@ def generate_historical_summary(
     critical_comparisons = [c for c in comparisons if "critically" in c.comparison_label]
     outlier_count = len([a for a in trend_anomalies if a.is_outlier])
     cross_outlier_count = len([a for a in cross_hospital_anomalies if a.is_outlier])
-
-    high_severity_trends = [t for t in trends if t.trend_severity in ("high", "critical")]
 
     return {
         "total_rates_analyzed": len(trends),

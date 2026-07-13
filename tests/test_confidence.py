@@ -1,5 +1,4 @@
 """Tests for confidence scoring (engine.confidence)."""
-import pytest
 from app.engine.confidence import (
     calculate_confidence,
     build_indicator_rule_map,
@@ -15,12 +14,9 @@ from app.engine.confidence import (
     ConfidenceSignal,
     IndicatorConfidence,
     HospitalConfidenceResult,
-    INDICATOR_CLINICAL_WEIGHTS,
-    INDICATOR_GROUPS,
-    SIGNAL_WEIGHTS,
 )
 from app.engine.quality import RuleResult, RuleStatus, Severity, RuleType
-from app.models import Rule, Hospital, Indicator, IndicatorValue, ConfidenceWeights
+from app.models import Rule
 
 
 class TestExtractCodesFromParams:
@@ -297,7 +293,7 @@ class TestBuildIndicatorRuleMap:
 
     def test_maps_codes_to_rules(self, db_session):
         mapping = build_indicator_rule_map(db_session)
-        rules = db_session.query(Rule).filter(Rule.enabled == True).all()
+        rules = db_session.query(Rule).filter(Rule.enabled).all()
         assert len(rules) > 0
         all_mapped_codes = set()
         for codes in mapping.values():

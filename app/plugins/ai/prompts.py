@@ -1,6 +1,6 @@
 from typing import List, Dict, Optional
 
-from app.plugins.ai.providers import AIRuleDef, AI_MAX_RECOMMENDATIONS
+from app.plugins.ai.providers import AI_MAX_RECOMMENDATIONS
 
 
 def _build_prompt(
@@ -81,7 +81,7 @@ def _build_executive_summary_prompt(
     lines.append("Write a concise executive narrative summary of the hospital's data quality status.")
     lines.append("Do NOT list individual recommendations. Write a flowing analytical report.")
     lines.append("")
-    lines.append(f"## Quality Scores")
+    lines.append("## Quality Scores")
     lines.append(f"  Overall: {quality_score}/100")
     lines.append(f"  Completeness: {completeness}%")
     lines.append(f"  Consistency: {consistency}%")
@@ -92,7 +92,7 @@ def _build_executive_summary_prompt(
     if rule_results:
         failed = [r for r in rule_results if getattr(r, 'status', None) and r.status.name == "FAIL"]
         passed = [r for r in rule_results if getattr(r, 'status', None) and r.status.name == "PASS"]
-        lines.append(f"## Rule Engine Results")
+        lines.append("## Rule Engine Results")
         lines.append(f"  Total rules: {len(rule_results)}")
         lines.append(f"  Passed: {len(passed)}, Failed: {len(failed)}")
         for f in failed[:5]:
@@ -104,7 +104,7 @@ def _build_executive_summary_prompt(
     if anomaly_results:
         outliers = [a for a in anomaly_results if getattr(a, 'is_outlier', False)]
         if outliers:
-            lines.append(f"## Outlier Detection")
+            lines.append("## Outlier Detection")
             lines.append(f"  {len(outliers)} outlier(s) detected:")
             for o in outliers[:5]:
                 name = getattr(o, 'rate_name', '') or getattr(o, 'indicator', '')
@@ -115,7 +115,7 @@ def _build_executive_summary_prompt(
     if classifications:
         elevated = [c for c in classifications if getattr(c, 'classification', '') in ('high', 'critical')]
         if elevated:
-            lines.append(f"## Clinical Threshold Analysis")
+            lines.append("## Clinical Threshold Analysis")
             lines.append(f"  {len(elevated)} indicator(s) at elevated clinical risk:")
             for c in elevated[:5]:
                 lines.append(f"  - {getattr(c, 'rate_name', '') or getattr(c, 'indicator_code', '')}: {getattr(c, 'value', '')} ({getattr(c, 'classification', '')})")
@@ -124,7 +124,7 @@ def _build_executive_summary_prompt(
     if risk_profile:
         rl = getattr(risk_profile, 'overall_risk_level', '')
         kf = getattr(risk_profile, 'key_findings', [])
-        lines.append(f"## Risk Profile")
+        lines.append("## Risk Profile")
         if rl:
             lines.append(f"  Overall Risk Level: {rl}")
         if kf:
@@ -133,7 +133,7 @@ def _build_executive_summary_prompt(
         metrics = getattr(risk_profile, 'metrics', [])
         at_risk = [m for m in metrics if getattr(m, 'severity', '') in ('high', 'critical')]
         if at_risk:
-            lines.append(f"  Elevated Risk Metrics:")
+            lines.append("  Elevated Risk Metrics:")
             for m in at_risk[:3]:
                 lines.append(f"    - {getattr(m, 'metric_name', '')}: {getattr(m, 'severity', '')}")
         lines.append("")
@@ -142,7 +142,7 @@ def _build_executive_summary_prompt(
         smm = getattr(morbidity_profile, 'total_smm', 0)
         deaths = getattr(morbidity_profile, 'maternal_deaths', 0)
         kf = getattr(morbidity_profile, 'key_findings', [])
-        lines.append(f"## Maternal Morbidity Profile")
+        lines.append("## Maternal Morbidity Profile")
         if smm is not None:
             lines.append(f"  Total SMM Events: {smm}")
         if deaths:
@@ -157,20 +157,20 @@ def _build_executive_summary_prompt(
         if non_null:
             important = [(k, v) for k, v in sorted(non_null.items())][:10]
             if important:
-                lines.append(f"## Key Indicator Values")
+                lines.append("## Key Indicator Values")
                 for k, v in important:
                     lines.append(f"  {k}: {v}")
         lines.append("")
 
     if trend_data:
-        lines.append(f"## Trend Analysis")
+        lines.append("## Trend Analysis")
         for indicator, points in list(trend_data.items())[:5]:
             direction = "improving" if points.get("slope", 0) > 0 else "declining" if points.get("slope", 0) < 0 else "stable"
             lines.append(f"  {indicator}: {direction} (slope={points.get('slope', 0):.2f})")
         lines.append("")
 
     if all_hospital_data and len(all_hospital_data) > 1:
-        lines.append(f"## Cross-Hospital Benchmarking")
+        lines.append("## Cross-Hospital Benchmarking")
         lines.append(f"  Compared to {len(all_hospital_data) - 1} other hospital(s)")
         lines.append("")
 

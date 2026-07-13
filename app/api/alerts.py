@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func, case
-from typing import Optional, List
+from typing import Optional
 from app.database import get_db
-from app.models import Hospital, ValidationResult, AnomalyResult, QualityScore
+from app.models import Hospital, ValidationResult, AnomalyResult
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
@@ -94,7 +94,7 @@ def alerts_overview(
         })
 
     outlier_count = 0
-    oq = db.query(AnomalyResult).filter(AnomalyResult.is_outlier == True)
+    oq = db.query(AnomalyResult).filter(AnomalyResult.is_outlier)
     if month:
         oq = oq.filter(AnomalyResult.month == month)
     if hospital_id:

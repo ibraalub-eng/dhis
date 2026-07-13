@@ -3,19 +3,19 @@ from app.engine.clinical.thresholds import (
     CLINICAL_THRESHOLDS,
     CLASSIFICATION_LABELS,
     CLASSIFICATION_COLORS,
-    CLASSIFICATION_SEVERITY,
+    CLASSIFICATION_SEVERITY as CLASSIFICATION_SEVERITY,
     get_threshold,
     classify_rate,
-    compute_rate,
+    compute_rate as compute_rate,
 )
 from app.engine.clinical.risk_profile import (
-    RiskMetric,
+    RiskMetric as RiskMetric,
     RiskProfile,
     compute_risk_profile,
-    correlate_risk_outcomes,
+    correlate_risk_outcomes as correlate_risk_outcomes,
 )
 from app.engine.clinical.morbidity import (
-    MorbidityMetric,
+    MorbidityMetric as MorbidityMetric,
     MorbidityProfile,
     compute_morbidity_profile,
 )
@@ -25,10 +25,10 @@ from app.engine.clinical.recommendations import (
 )
 from app.engine.clinical.summary import (
     ClinicalSummary,
-    LOW_TO_CRITICAL,
+    LOW_TO_CRITICAL as LOW_TO_CRITICAL,
     generate_clinical_summary,
 )
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Dict, Optional
 
 

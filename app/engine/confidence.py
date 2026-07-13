@@ -1,8 +1,8 @@
 import json
 import numpy as np
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple, Set
-from app.engine.quality import RuleResult, RuleStatus, Severity, RuleType
+from typing import List, Dict, Optional, Set
+from app.engine.quality import RuleResult, RuleStatus
 from app.engine.anomaly import compute_rate, RATE_DEFINITIONS
 
 
@@ -144,7 +144,7 @@ def _extract_codes_from_params(expr_type: str, params: dict) -> List[str]:
 
 def build_indicator_rule_map(session) -> Dict[str, List[str]]:
     from app.models import Rule
-    rules = session.query(Rule).filter(Rule.enabled == True).all()
+    rules = session.query(Rule).filter(Rule.enabled).all()
     mapping: Dict[str, List[str]] = {}
     for rule in rules:
         params = json.loads(rule.params) if isinstance(rule.params, str) else (rule.params or {})

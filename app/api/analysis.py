@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import case
 from typing import List, Optional
+import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
 from app.cache import cache
@@ -10,7 +11,6 @@ from app.models import (
     AnomalyResult, ValidationResult, ConfidenceScore,
     HospitalIndicatorConfig,
 )
-from datetime import datetime
 from app.engine.pipeline import run_full_analysis, get_enabled_values_for_hospital_month, get_all_hospital_data_for_month
 from app.engine.anomaly import detect_anomalies
 from app.engine.anomaly import (
@@ -22,7 +22,7 @@ from app.engine.anomaly import (
 from app.engine.clinical import run_clinical_analysis
 from pydantic import BaseModel
 from app.schemas import (
-    HistoricalAnalysisOut, HospitalComparisonOut, AnomalyOut,
+    HistoricalAnalysisOut, HospitalComparisonOut,
 )
 import json
 import logging
@@ -258,7 +258,7 @@ def compare_all_hospitals(
 
     disabled_rows = db.query(HospitalIndicatorConfig).filter(
         HospitalIndicatorConfig.hospital_id.in_(hospital_ids),
-        HospitalIndicatorConfig.is_enabled == False,
+        HospitalIndicatorConfig.is_enabled.is_(False),
     ).all()
     disabled_by_hospital: dict[int, set[int]] = {}
     for row in disabled_rows:
@@ -307,7 +307,7 @@ def list_outliers(
     if cached:
         return cached
 
-    query = db.query(AnomalyResult).options(selectinload(AnomalyResult.hospital)).filter(AnomalyResult.is_outlier == True)
+    query = db.query(AnomalyResult).options(selectinload(AnomalyResult.hospital)).filter(AnomalyResult.is_outlier)
     if month:
         query = query.filter(AnomalyResult.month == month)
     if hospital_id:
@@ -421,7 +421,9 @@ def reanalyze_all(
     def _run(tid, hosp_list, month_list, frc):
         bg_db = SessionLocal()
         try:
-            total = 0; skipped = 0; errors = []
+            total = 0
+            skipped = 0
+            errors = []
             total_work = len(hosp_list) * len(month_list)
             done = 0
             for h in hosp_list:
@@ -533,7 +535,7 @@ def generate_report(
 
     disabled_rows = db.query(HospitalIndicatorConfig).filter(
         HospitalIndicatorConfig.hospital_id.in_(hospital_ids),
-        HospitalIndicatorConfig.is_enabled == False,
+        HospitalIndicatorConfig.is_enabled.is_(False),
     ).all()
     disabled_by_hospital: dict[int, set[int]] = {}
     for row in disabled_rows:

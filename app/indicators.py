@@ -1,4 +1,3 @@
-import re
 
 
 def _natural_sort_key(code: str):

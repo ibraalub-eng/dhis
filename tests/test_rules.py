@@ -1,11 +1,9 @@
 """Tests for validation rules engine (engine.quality)."""
-import pytest
 from app.engine.quality import (
     ValidationContext,
     run_all_rules,
     RuleStatus,
     Severity,
-    RuleType,
     set_rules_config,
 )
 

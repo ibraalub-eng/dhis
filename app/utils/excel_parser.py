@@ -1,9 +1,8 @@
 import pandas as pd
-import numpy as np
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 from app.models import Hospital, Indicator, IndicatorValue
-from app.indicators import INDICATOR_NAME_TO_CODE, INDICATOR_FLAT_LIST, PARENT_CHILD_MAP
+from app.indicators import INDICATOR_NAME_TO_CODE, INDICATOR_FLAT_LIST
 import os
 import re
 import logging
@@ -120,14 +119,12 @@ def parse_excel(file_path: str) -> pd.DataFrame:
         engines = ["openpyxl", "xlrd", "calamine"]
 
     errors = []
-    last_err = None
 
     for engine in engines:
         try:
             xl = pd.ExcelFile(file_path, engine=engine)
         except Exception as e:
             errors.append(f"Engine {engine}: cannot open file - {e}")
-            last_err = e
             continue
 
         for sheet_name in xl.sheet_names:
@@ -146,7 +143,6 @@ def parse_excel(file_path: str) -> pd.DataFrame:
                     return df
             except Exception as e:
                 errors.append(f"Engine {engine}, sheet {sheet_name}: {e}")
-                last_err = e
                 continue
 
     for sep in [",", ";", "\t", "|"]:

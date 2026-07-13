@@ -2,8 +2,8 @@ import time
 import logging
 import json
 from contextvars import ContextVar
-from fastapi import Request, Response
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
+from fastapi import Request
+from prometheus_client import Counter, Histogram, Gauge, generate_latest as generate_latest, CONTENT_TYPE_LATEST as CONTENT_TYPE_LATEST, REGISTRY as REGISTRY
 from sqlalchemy import event
 from app.database import engine
 
@@ -88,7 +88,7 @@ async def monitoring_middleware(request: Request, call_next):
 
     try:
         response = await call_next(request)
-    except Exception as exc:
+    except Exception:
         dur = time.time() - start
         sc = "error"
         http_requests_total.labels(method=method, path=path, status=sc).inc()

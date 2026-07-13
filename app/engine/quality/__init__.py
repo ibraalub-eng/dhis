@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from .rules import (
     Severity,
@@ -15,7 +15,7 @@ from .rules import (
     set_rules_config,
 )
 from .scoring import calculate_quality_score
-from .definitions import _RULES_CONFIG, RULE_CATALOG
+from .definitions import _RULES_CONFIG as _RULES_CONFIG, RULE_CATALOG
 
 
 def run_quality_analysis(

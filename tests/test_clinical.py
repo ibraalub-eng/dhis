@@ -5,11 +5,9 @@ Covers: thresholds, classifications, risk, morbidity, recommendations, summary, 
 """
 import pytest
 from app.engine.clinical import (
-    ClinicalThreshold,
     ClinicalClassification,
     RiskMetric,
     RiskProfile,
-    MorbidityMetric,
     MorbidityProfile,
     Recommendation,
     ClinicalSummary,
@@ -17,7 +15,6 @@ from app.engine.clinical import (
     CLINICAL_THRESHOLDS,
     CLASSIFICATION_LABELS,
     CLASSIFICATION_COLORS,
-    CLASSIFICATION_SEVERITY,
     LOW_TO_CRITICAL,
     get_threshold,
     classify_rate,
