@@ -1,0 +1,42 @@
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                        <div>
+                            <h2 style="margin:0;">Rule Failures</h2>
+                            <span style="font-size:0.82rem;color:#888;">Data quality rule violations across hospitals and months</span>
+                        </div>
+                        <div id="ruleFailSummary" style="display:flex;gap:0.4rem;"></div>
+                    </div>
+                    <div class="card" style="padding:0.6rem 0.8rem;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                                <label style="font-size:0.75rem;color:#666;">Hospital:</label>
+                                <select id="ruleFailHospitalFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                                <label style="font-size:0.75rem;color:#666;">Month:</label>
+                                <select id="ruleFailMonthFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                                <label style="font-size:0.75rem;color:#666;">Severity:</label>
+                                <select id="ruleFailSeverityFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select>
+                                <label style="font-size:0.75rem;color:#666;">Type:</label>
+                                <select id="ruleFailTypeFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option><option value="LOGIC">Logic</option><option value="CLINICAL">Clinical</option><option value="STATISTICAL">Statistical</option><option value="TREND">Trend</option></select>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:0.4rem;">
+                                <span id="ruleFailCount" style="font-size:0.75rem;color:#888;"></span>
+                                <span id="ruleFailLoading" class="hidden" style="font-size:0.75rem;color:#888;"><span class="spinner"></span></span>
+                            </div>
+                        </div>
+                        <div style="max-height:500px;overflow-y:auto;">
+                            <table id="ruleFailTable">
+                                <thead><tr>
+                                    <th class="sortable" data-col="hospital">Hospital</th>
+                                    <th class="sortable" data-col="month">Month</th>
+                                    <th class="sortable" data-col="rule_code">Rule</th>
+                                    <th class="sortable" data-col="rule_description">Description</th>
+                                    <th class="sortable" data-col="severity">Severity</th>
+                                    <th class="sortable" data-col="rule_type">Type</th>
+                                    <th class="sortable" data-col="details">Details</th>
+                                </tr></thead>
+                                <tbody id="ruleFailTbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+

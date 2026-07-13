@@ -1,0 +1,25 @@
+            <div class="filter-bar">
+                <label>Hospital:</label>
+                <select id="dashHospital" onchange="loadDashboard()"><option value="">All Hospitals</option></select>
+                <label>Year:</label>
+                <select id="dashYear" onchange="loadDashboard()">
+                    <option value="">All Years</option>
+                </select>
+                <span id="dashLoading" class="status-loading hidden" style="padding:0.2rem 0.5rem;font-size:0.8rem;"><span class="spinner"></span> Loading...</span>
+            </div>
+            <div class="dashboard-grid" id="dashKpiCards"></div>
+            <div class="dashboard-grid" id="dashSummaryCards">
+                <div class="card"><div class="value" id="dashHospitals">-</div><div class="label">Hospitals</div></div>
+                <div class="card"><div class="value" id="dashReports">-</div><div class="label">Reports</div></div>
+                <div class="card"><div class="value" id="dashAvgScore">-</div><div class="label">Avg Quality Score</div></div>
+                <div class="card"><div class="value" id="dashAlerts" style="color:#c62828;">-</div><div class="label">Active Alerts</div></div>
+            </div>
+            <div class="charts-row">
+                <div class="card chart-full"><h2>Quality Score Trend</h2><canvas id="trendChart"></canvas></div>
+                <div class="card chart-full"><h2>Year-over-Year Comparison</h2><canvas id="yoyChart"></canvas></div>
+                <div class="card"><h2>Confidence Distribution</h2><canvas id="confidenceChart"></canvas></div>
+                <div class="card"><h2>Quality Components</h2><canvas id="radarChart"></canvas></div>
+            </div>
+            <div class="card"><h2>Quality Score Heatmap <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:0.5rem;">Hospital × Month — darker = higher quality</span></h2>
+                <div style="overflow-x:auto;" id="heatmapContainer"></div>
+            </div>

@@ -1,0 +1,112 @@
+import { API, apiGet, apiPost, apiPut, uploadedData } from './api.js';
+import { toggleLang, applyLang, __, translateDOM, currentLang } from './i18n.js';
+import { _saveUIState, _restoreUIState, showLoader, hideLoader, SwitchTab, switchTab, _tabInited } from './main.js';
+import { confirmImport, cancelPreview, displayResults, filterPriorityTable, filterQualityReports, rerenderVal, rerenderAnom, loadQualityReports, showDetail } from './upload.js';
+import { loadOutliers, sortTableRows, loadRuleFailures } from './outliers.js';
+import { loadAlerts, updateAlertBadge, renderAlertTable } from './alerts.js';
+import { refreshSavedFiles, toggleAllSaved, analyzeSelectedSaved, analyzeSingleSaved, deleteSelectedSaved } from './saved_files.js';
+import { loadAllSettings, saveAllSettings, reanalyzeAll, showSettingsTab, saveAiSettings, loadAiSettings, onAiProviderChange, loadRulesManager, initRootCause, initDashboard, loadRootCause, populateMonthSelect, loadDashboard, saveControlSettings, updateWeightDisplay, updateCfgDisplay, updateCfgVal } from './settings.js';
+import { initTrends, initCompare, filterComparison, loadClinical, initClinical, renderClinical, loadTrends, loadComparison } from './validation.js';
+import { populateReportMonthSelect, generateReport, restoreReportData, applyReportFilter, showReportDetail, showRuleFailureDetail, showModal, closeModal } from './clinical.js';
+import { expandAllTree, collapseAllTree, initIndicatorTree, loadIndicatorTree, reanalyzeHospital, saveTreeConfig, setStatus, esc } from './tree.js';
+import { loadIndicators, _vbDragStart, _vbDragOver, _vbDragEnter, _vbDragLeave, _vbDrop, _vbRemoveFromZone, _vbOnPaletteSearch, _vbOnThresholdChange, _vbOnZThresholdChange, _vbOnFactorChange, ruleExprTemplate, toggleExprHelp, openRuleModal, closeRuleModal, saveRule, deleteRule } from './rules.js';
+
+// Attach to window for onclick backward compatibility
+window.API = API;
+window.uploadedData = uploadedData;
+window.apiGet = apiGet;
+window.apiPost = apiPost;
+window.apiPut = apiPut;
+window.toggleLang = toggleLang;
+window.__ = __;
+window.translateDOM = translateDOM;
+window.currentLang = currentLang;
+window.showLoader = showLoader;
+window.hideLoader = hideLoader;
+window._saveUIState = _saveUIState;
+window._restoreUIState = _restoreUIState;
+window._tabInited = _tabInited;
+window.SwitchTab = SwitchTab;
+window.switchTab = switchTab;
+window.confirmImport = confirmImport;
+window.cancelPreview = cancelPreview;
+window.displayResults = displayResults;
+window.filterPriorityTable = filterPriorityTable;
+window.filterQualityReports = filterQualityReports;
+window.loadQualityReports = loadQualityReports;
+window.refreshSavedFiles = refreshSavedFiles;
+window.analyzeSelectedSaved = analyzeSelectedSaved;
+window.analyzeSingleSaved = analyzeSingleSaved;
+window.deleteSelectedSaved = deleteSelectedSaved;
+window.loadOutliers = loadOutliers;
+window.updateAlertBadge = updateAlertBadge;
+window.loadAlerts = loadAlerts;
+window.renderAlertTable = renderAlertTable;
+window.loadRuleFailures = loadRuleFailures;
+window.loadAllSettings = loadAllSettings;
+window.saveAllSettings = saveAllSettings;
+window.reanalyzeAll = reanalyzeAll;
+window.showSettingsTab = showSettingsTab;
+window.saveAiSettings = saveAiSettings;
+window.loadAiSettings = loadAiSettings;
+window.saveControlSettings = saveControlSettings;
+window.updateWeightDisplay = updateWeightDisplay;
+window.updateCfgDisplay = updateCfgDisplay;
+window.updateCfgVal = updateCfgVal;
+window.loadRulesManager = loadRulesManager;
+window.onAiProviderChange = onAiProviderChange;
+window.loadRootCause = loadRootCause;
+window.initRootCause = initRootCause;
+window.loadDashboard = loadDashboard;
+window.initDashboard = initDashboard;
+window.initTrends = initTrends;
+window.initCompare = initCompare;
+window.filterComparison = filterComparison;
+window.loadClinical = loadClinical;
+window.loadTrends = loadTrends;
+window.loadComparison = loadComparison;
+window.generateReport = generateReport;
+window.applyReportFilter = applyReportFilter;
+window.populateReportMonthSelect = populateReportMonthSelect;
+window.restoreReportData = restoreReportData;
+window.showRuleFailureDetail = showRuleFailureDetail;
+window.closeModal = closeModal;
+window.showModal = showModal;
+window.expandAllTree = expandAllTree;
+window.collapseAllTree = collapseAllTree;
+window.initIndicatorTree = initIndicatorTree;
+window.loadIndicatorTree = loadIndicatorTree;
+window.saveTreeConfig = saveTreeConfig;
+window.esc = esc;
+window.ruleExprTemplate = ruleExprTemplate;
+window.saveRule = saveRule;
+window.closeRuleModal = closeRuleModal;
+window.openRuleModal = openRuleModal;
+window.deleteRule = deleteRule;
+window.toggleExprHelp = toggleExprHelp;
+window._vbDragStart = _vbDragStart;
+window._vbDragOver = _vbDragOver;
+window._vbDragEnter = _vbDragEnter;
+window._vbDragLeave = _vbDragLeave;
+window._vbDrop = _vbDrop;
+window._vbRemoveFromZone = _vbRemoveFromZone;
+window._vbOnPaletteSearch = _vbOnPaletteSearch;
+window._vbOnThresholdChange = _vbOnThresholdChange;
+window._vbOnZThresholdChange = _vbOnZThresholdChange;
+window._vbOnFactorChange = _vbOnFactorChange;
+
+// Bootstrap
+document.addEventListener('DOMContentLoaded', () => {
+    refreshSavedFiles();
+    fetch(API() + '/reports/').then(r => r.json()).then(reports => {
+        if (reports && reports.length > 0) {
+            document.getElementById('resultsSection')?.classList.remove('hidden');
+        }
+    }).catch(() => {});
+    const savedTab = localStorage.getItem('lastTab');
+    if (savedTab && savedTab !== 'dashboard') {
+        switchTab(savedTab);
+    } else {
+        switchTab('dashboard');
+    }
+});

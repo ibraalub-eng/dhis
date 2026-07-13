@@ -1,0 +1,53 @@
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+                        <div>
+                            <h2 style="margin:0;">Smart Alert Dashboard</h2>
+                            <span style="font-size:0.82rem;color:#888;">Real-time severity overview</span>
+                        </div>
+                        <div style="display:flex;gap:0.5rem;align-items:center;" id="alertSummaryBar"></div>
+                    </div>
+
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+                        <div class="card" style="padding:0.6rem 0.8rem;">
+                            <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:#333;">Top Hospitals by Alerts</h4>
+                            <div id="alertTopHospitals" style="font-size:0.8rem;"></div>
+                        </div>
+                        <div class="card" style="padding:0.6rem 0.8rem;">
+                            <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:#333;">Recent Critical Alerts</h4>
+                            <div id="alertCriticalList" style="max-height:220px;overflow-y:auto;font-size:0.8rem;"></div>
+                        </div>
+                    </div>
+
+                    <div class="card" style="padding:0.6rem 0.8rem;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;">
+                            <h3 style="margin:0;font-size:0.95rem;">All Alerts <span id="alertCount" class="count-badge" style="font-size:0.75rem;"></span></h3>
+                            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                                <label style="font-size:0.75rem;color:#666;">Hospital:</label>
+                                <select id="alertHospitalFilter" onchange="renderAlertTable()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
+                                    <option value="">All</option>
+                                </select>
+                                <label style="font-size:0.75rem;color:#666;">Severity:</label>
+                                <select id="alertSeverityFilter" onchange="renderAlertTable()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
+                                    <option value="">All</option>
+                                    <option value="CRITICAL">CRITICAL</option>
+                                    <option value="HIGH">HIGH</option>
+                                    <option value="MEDIUM">MEDIUM</option>
+                                    <option value="LOW">LOW</option>
+                                </select>
+                                <label style="font-size:0.75rem;color:#666;">Month:</label>
+                                <select id="alertMonthFilter" onchange="renderAlertTable()" style="font-size:0.75rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                                <label style="font-size:0.75rem;color:#666;">Type:</label>
+                                <select id="alertTypeFilter" onchange="renderAlertTable()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
+                                    <option value="">All</option>
+                                    <option value="LOGIC">LOGIC</option>
+                                    <option value="CLINICAL">CLINICAL</option>
+                                    <option value="BENCHMARK">BENCHMARK</option>
+                                    <option value="DATA_QUALITY">DATA_QUALITY</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="max-height:500px;overflow-y:auto;position:relative;">
+                            <span id="alertTableLoading" class="hidden" style="position:absolute;top:1rem;left:50%;transform:translateX(-50%);font-size:0.82rem;color:#888;background:white;padding:0.3rem 1rem;border-radius:4px;z-index:2;"><span class="spinner"></span> Loading...</span>
+                            <table><thead><tr><th>Severity</th><th>Hospital</th><th>Month</th><th>Rule</th><th>Description</th><th>Type</th><th>Details</th></tr></thead><tbody id="alertTbody"></tbody></table>
+                        </div>
+                    </div>
+

@@ -1,0 +1,30 @@
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                        <div>
+                            <h2 style="margin:0;">Cross-Hospital Comparison</h2>
+                            <span style="font-size:0.82rem;color:#888;">Compare indicators across hospitals for a given month</span>
+                        </div>
+                    </div>
+                    <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
+                        <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                            <label style="font-size:0.75rem;color:#666;">Month:</label>
+                            <select id="compareMonthSelect" onchange="_saveUIState('compare')" style="font-size:0.8rem;padding:0.25rem 0.4rem;"></select>
+                            <label style="font-size:0.75rem;color:#666;margin-left:0.3rem;">Indicator:</label>
+                            <select id="compareIndicatorFilter" onchange="filterComparison()" style="font-size:0.8rem;padding:0.25rem 0.4rem;">
+                                <option value="">All Indicators</option>
+                            </select>
+                            <button class="btn btn-sm" onclick="loadComparison()" style="font-size:0.78rem;padding:0.3rem 0.8rem;">Compare</button>
+                            <span id="compareLoading" class="hidden" style="font-size:0.75rem;color:#888;"><span class="spinner"></span></span>
+                        </div>
+                    </div>
+                    <div id="compareContent">
+                        <div id="compareEmpty" class="card" style="text-align:center;padding:2rem 1.5rem;color:#888;">
+                            <div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128200;</div>
+                            <p style="margin:0;font-size:0.85rem;">Select a month and click Compare.</p>
+                        </div>
+                        <table id="compareTable" style="display:none;"><thead><tr>
+                            <th>Hospital</th><th>Indicator</th><th>Value</th><th>Benchmark</th><th>Deviation %</th><th>Percentile</th><th>Assessment</th>
+                        </tr></thead><tbody id="compareTbody"></tbody></table>
+                    </div>
+                </div>
+            </div>
+

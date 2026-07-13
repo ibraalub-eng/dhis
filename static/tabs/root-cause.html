@@ -1,0 +1,54 @@
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                        <h2 style="margin:0;">Root Cause Analysis</h2>
+                        <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                            <label style="font-size:0.78rem;color:#666;">Hospital:</label>
+                            <select id="rcHospital" onchange="loadRootCause()" style="font-size:0.82rem;padding:0.3rem 0.5rem;min-width:180px;"></select>
+                            <label style="font-size:0.78rem;color:#666;">Month:</label>
+                            <select id="rcMonth" onchange="loadRootCause()" style="font-size:0.82rem;padding:0.3rem 0.5rem;min-width:110px;"></select>
+                        </div>
+                    </div>
+                    <div id="rcLoading" style="display:none;text-align:center;padding:2rem;color:#888;"><span class="spinner"></span> Loading...</div>
+                    <div id="rcContent" style="display:none;">
+
+                        <!-- KPI Banner -->
+                        <div id="rcKpiBar" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.8rem;margin-bottom:1rem;"></div>
+
+                        <!-- Summary + Narrative -->
+                        <div id="rcSummary" class="card" style="padding:0.7rem 1rem;margin-bottom:1rem;font-size:0.85rem;line-height:1.6;border-left:4px solid #3949ab;"></div>
+
+                        <!-- Priority Actions + AI Recommendations - side by side -->
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+                            <div class="card" style="padding:0.6rem 0.8rem;">
+                                <h3 style="margin:0 0 0.5rem 0;font-size:0.9rem;color:#c62828;">&#9888; Priority Actions</h3>
+                                <div id="rcActionsList"></div>
+                            </div>
+                            <div class="card" style="padding:0.6rem 0.8rem;">
+                                <h3 style="margin:0 0 0.5rem 0;font-size:0.9rem;color:#1a237e;">
+                                    <span style="background:#1a237e;color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:3px;margin-right:4px;">AI</span>
+                                    Recommendations
+                                </h3>
+                                <div id="rcAIList"></div>
+                            </div>
+                        </div>
+
+                        <!-- Diagnostic Grid: 2x2 -->
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid #c62828;">
+                                <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:#c62828;">&#9888; Rule Failures</h4>
+                                <div id="rcRuleFailures" style="font-size:0.8rem;"></div>
+                            </div>
+                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid #1565c0;">
+                                <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:#1565c0;">&#128202; Quality Drivers</h4>
+                                <div id="rcQualityDrivers" style="font-size:0.8rem;"></div>
+                            </div>
+                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid #e65100;">
+                                <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:#e65100;">&#128270; Confidence Gaps</h4>
+                                <div id="rcConfidenceGaps" style="font-size:0.8rem;"></div>
+                            </div>
+                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid #7b1fa2;">
+                                <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:#7b1fa2;">&#128200; Anomaly Patterns</h4>
+                                <div id="rcAnomalyPatterns" style="font-size:0.8rem;"></div>
+                            </div>
+                        </div>
+                    </div>
+

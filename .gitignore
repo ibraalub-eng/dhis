@@ -1,0 +1,28 @@
+# Environment variables (contains secrets!)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Uploads
+data/uploads/*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store

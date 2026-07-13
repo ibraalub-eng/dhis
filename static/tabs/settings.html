@@ -1,0 +1,691 @@
+                    <h2>System Settings</h2>
+                    <div id="settingsLoading" class="hidden" style="text-align:center;padding:2rem;color:#888;"><span class="spinner"></span> Loading...</div>
+                    <div style="display:flex;gap:0.5rem;margin-bottom:1rem;border-bottom:2px solid #eee;padding-bottom:0.5rem;flex-wrap:wrap;">
+                        <button class="btn btn-sm" onclick="showSettingsTab('quality')" id="stbtn-quality" style="background:#1a237e;color:white;">Quality Score</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('confidence')" id="stbtn-confidence">Confidence Score</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('thresholds')" id="stbtn-thresholds">Thresholds</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('rules')" id="stbtn-rules">Rules</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('clinical')" id="stbtn-clinical">Clinical</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('risk')" id="stbtn-risk">Risk Profile</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('trends')" id="stbtn-trends">Trends</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('rates')" id="stbtn-rates">Rate Benchmarks</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ai')" id="stbtn-ai" style="color:#d32f2f;border-color:#d32f2f;">AI Provider</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('control')" id="stbtn-control">Control</button>
+                    </div>
+
+                    <!-- Quality Score Settings -->
+                    <div id="settings-quality" class="settings-section">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Quality Score Formula Weights</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Formula:</strong> Score = (rule_compliance x W1 + completeness x W2 + consistency x W3 + (1 - outlier_penalty) x W4) x 100<br>
+                            <strong>Used in:</strong> <code>quality_score.py</code> &rarr; <code>run_full_analysis()</code> in <code>pipeline.py:138</code><br>
+                            <strong>Appears in:</strong> Quality Reports tab, Detail Modal (score badge)
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.8rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Rule Compliance (W1):</label>
+                                    <input type="range" id="cfg_quality_rule_compliance" min="0" max="1" step="0.05" style="flex:1;" oninput="updateCfgDisplay('quality')">
+                                    <span id="cfgval_quality_rule_compliance" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.35</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">How many of the 60 validation rules passed? Higher weight = rules dominate the score.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Completeness (W2):</label>
+                                    <input type="range" id="cfg_quality_completeness" min="0" max="1" step="0.05" style="flex:1;" oninput="updateCfgDisplay('quality')">
+                                    <span id="cfgval_quality_completeness" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.25</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">What % of expected indicators have values? More missing data = lower score.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Consistency (W3):</label>
+                                    <input type="range" id="cfg_quality_consistency" min="0" max="1" step="0.05" style="flex:1;" oninput="updateCfgDisplay('quality')">
+                                    <span id="cfgval_quality_consistency" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.25</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Weighted rule failures: HIGH severity rules hurt more than LOW. Uses severity weights below.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Outlier Penalty (W4):</label>
+                                    <input type="range" id="cfg_quality_outlier_penalty" min="0" max="1" step="0.05" style="flex:1;" oninput="updateCfgDisplay('quality')">
+                                    <span id="cfgval_quality_outlier_penalty" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.15</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Penalty for statistical outliers detected by anomaly detection. Higher = outliers hurt more.</div>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem;padding-top:0.5rem;border-top:1px solid #ddd;">
+                                <label style="width:180px;font-size:0.82rem;font-weight:700;">Total:</label>
+                                <span id="cfgtotal_quality" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">1.00</span>
+                                <span id="cfgtotal_status_quality" style="font-size:0.78rem;"></span>
+                            </div>
+                        </div>
+                        <h3 style="font-size:0.95rem;color:#333;margin:1.2rem 0 0.5rem;">Outlier & Severity Settings</h3>
+                        <div style="background:#f0f4ff;padding:0.6rem;border-radius:6px;margin-bottom:0.8rem;font-size:0.78rem;color:#555;">
+                            <strong>Outlier Multiplier:</strong> <code>quality_score.py:95</code> &rarr; <code>min(1.0, ratio * multiplier)</code>. At 2.0, 50% outliers = max penalty.<br>
+                            <strong>Severity Weights:</strong> <code>quality_score.py:74</code> &rarr; used in consistency calculation. HIGH=3 means one HIGH failure = three LOW failures.
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Outlier Multiplier:</label>
+                                    <input type="range" id="cfg_outlier_multiplier" min="0.5" max="5" step="0.5" style="flex:1;" oninput="updateCfgVal('outlier_multiplier')">
+                                    <span id="cfgval_outlier_multiplier" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Multiplies outlier ratio before capping at 1.0. Value 2 = max penalty at 50% outliers.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Severity HIGH Weight:</label>
+                                    <input type="range" id="cfg_severity_high" min="1" max="10" step="1" style="flex:1;" oninput="updateCfgVal('severity_high')">
+                                    <span id="cfgval_severity_high" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">3</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">One failed HIGH rule impacts consistency this many times more than one LOW rule.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Severity MEDIUM Weight:</label>
+                                    <input type="range" id="cfg_severity_medium" min="1" max="10" step="1" style="flex:1;" oninput="updateCfgVal('severity_medium')">
+                                    <span id="cfgval_severity_medium" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Impact multiplier for MEDIUM severity rule failures in consistency score.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Severity LOW Weight:</label>
+                                    <input type="range" id="cfg_severity_low" min="1" max="10" step="1" style="flex:1;" oninput="updateCfgVal('severity_low')">
+                                    <span id="cfgval_severity_low" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">1</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Baseline impact for LOW severity rule failures. Set HIGH higher to make critical rules matter more.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Confidence Score Settings -->
+                    <div id="settings-confidence" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Confidence Signal Weights</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Formula:</strong> confidence = sum(signal_score x signal_weight) x 100<br>
+                            <strong>Used in:</strong> <code>confidence.py:468</code> &rarr; called from <code>pipeline.py:145</code> and <code>confidence API</code><br>
+                            <strong>Appears in:</strong> Detail Modal (Priority Verification table, by_level badges)<br>
+                            <strong>Must sum to 1.0</strong> &mdash; enforced on save.
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.8rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Rule Compliance:</label>
+                                    <input type="range" id="weight_rule_compliance" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
+                                    <span id="val_rule_compliance" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.55</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Only rules referencing THIS indicator. Pass/total of relevant rules only (e.g. R003 for Age 25-29).</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Historical:</label>
+                                    <input type="range" id="weight_historical" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
+                                    <span id="val_historical" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.10</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Z-score vs this hospital's own history. Is the value normal compared to past months?</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Cross-Hospital:</label>
+                                    <input type="range" id="weight_cross_hospital" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
+                                    <span id="val_cross_hospital" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.10</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Z-score vs all other hospitals. Is this value normal compared to peers?</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Trend:</label>
+                                    <input type="range" id="weight_trend" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
+                                    <span id="val_trend" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.10</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Linear regression projection. Does the value follow the expected trend line?</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Completeness:</label>
+                                    <input type="range" id="weight_completeness" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
+                                    <span id="val_completeness" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.15</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Are child indicators present? e.g. for "Total Deliveries" checks sub-codes 2.a, 2.b, etc.</div>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem;padding-top:0.5rem;border-top:1px solid #ddd;">
+                                <label style="width:180px;font-size:0.82rem;font-weight:700;">Total:</label>
+                                <span id="weight_total" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">1.00</span>
+                                <span id="weight_total_status" style="font-size:0.78rem;"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Thresholds Settings -->
+                    <div id="settings-thresholds" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Confidence Level Cutoffs</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Used in:</strong> <code>confidence.py:349-355</code> &rarr; <code>_compute_level()</code><br>
+                            <strong>Appears in:</strong> Detail Modal (badge colors, by_level counts, Priority Verification table)
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">HIGH >= :</label>
+                                    <input type="range" id="cfg_confidence_high" min="50" max="100" step="5" style="flex:1;" oninput="updateCfgVal('confidence_high')">
+                                    <span id="cfgval_confidence_high" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">80</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Indicators at or above this score show green badge. Currently 80%+ = HIGH.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">MEDIUM >= :</label>
+                                    <input type="range" id="cfg_confidence_medium" min="20" max="80" step="5" style="flex:1;" oninput="updateCfgVal('confidence_medium')">
+                                    <span id="cfgval_confidence_medium" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">50</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Orange badge. Between MEDIUM and HIGH cutoffs = MEDIUM level.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">LOW >= :</label>
+                                    <input type="range" id="cfg_confidence_low" min="5" max="50" step="5" style="flex:1;" oninput="updateCfgVal('confidence_low')">
+                                    <span id="cfgval_confidence_low" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">25</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Light red badge. Between LOW and MEDIUM cutoffs = LOW level.</div>
+                            </div>
+                            <div style="font-size:0.78rem;color:#c62828;padding-left:185px;">Below LOW = CRITICAL (dark red). Needs immediate verification.</div>
+                        </div>
+                        <h3 style="font-size:0.95rem;color:#333;margin:1.2rem 0 0.5rem;">Global Z-Score Threshold</h3>
+                        <div style="background:#f0f4ff;padding:0.6rem;border-radius:6px;margin-bottom:0.8rem;font-size:0.78rem;color:#555;">
+                            <strong>Used in:</strong> <code>config.py:10</code> &rarr; referenced by <code>anomaly.py:61,102</code>, <code>trends.py:295,301</code>, <code>confidence.py:216,250,273</code><br>
+                            <strong>Controls:</strong> Outlier detection sensitivity. Lower = more values flagged as outliers.
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Z-Score Threshold:</label>
+                                    <input type="range" id="cfg_zscore_threshold" min="1" max="4" step="0.5" style="flex:1;" oninput="updateCfgVal('zscore_threshold')">
+                                    <span id="cfgval_zscore_threshold" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2.5</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Values beyond this many standard deviations from mean are flagged as outliers or anomalous.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rules Settings -->
+                    <div id="settings-rules" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Rule Thresholds</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Used in:</strong> <code>rules.py</code> &rarr; individual rule functions (_eq, _benchmark_rate, _month_over, etc.)<br>
+                            <strong>Appears in:</strong> Validation Results table in Detail Modal (PASS/FAIL per rule)
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Equality Tolerance:</label>
+                                    <input type="range" id="cfg_eq_tolerance" min="0.001" max="0.1" step="0.005" style="flex:1;" oninput="updateCfgVal('eq_tolerance')">
+                                    <span id="cfgval_eq_tolerance" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.01</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:92 &rarr; _eq(). Max allowed difference for "equal" check. 187 vs 186.99 passes at 0.01.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">C-Section Rate (%):</label>
+                                    <input type="range" id="cfg_cs_rate_threshold" min="30" max="100" step="5" style="flex:1;" oninput="updateCfgVal('cs_rate_threshold')">
+                                    <span id="cfgval_cs_rate_threshold" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">80</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:273 &rarr; R041. FAIL if (C-Sections / Total Deliveries) x 100 exceeds this.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">NVD Rate (%):</label>
+                                    <input type="range" id="cfg_nvd_rate_threshold" min="1" max="30" step="1" style="flex:1;" oninput="updateCfgVal('nvd_rate_threshold')">
+                                    <span id="cfgval_nvd_rate_threshold" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">10</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:274 &rarr; R042. FAIL if NVD rate falls below this (too few normal deliveries).</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Month Over Factor:</label>
+                                    <input type="range" id="cfg_month_over_factor" min="1.5" max="5" step="0.5" style="flex:1;" oninput="updateCfgVal('month_over_factor')">
+                                    <span id="cfgval_month_over_factor" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:288 &rarr; R051,R053. FAIL if current month > factor x previous month (sudden spike).</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Month Under Factor:</label>
+                                    <input type="range" id="cfg_month_under_factor" min="0.1" max="0.8" step="0.05" style="flex:1;" oninput="updateCfgVal('month_under_factor')">
+                                    <span id="cfgval_month_under_factor" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.5</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:289 &rarr; R052. FAIL if current month < factor x previous month (sudden drop).</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Maternal Over Factor:</label>
+                                    <input type="range" id="cfg_maternal_over_factor" min="2" max="10" step="1" style="flex:1;" oninput="updateCfgVal('maternal_over_factor')">
+                                    <span id="cfgval_maternal_over_factor" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">4.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:291 &rarr; R054. FAIL with CRITICAL if maternal deaths > factor x previous month.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Neonatal Over Factor:</label>
+                                    <input type="range" id="cfg_neonatal_over_factor" min="2" max="10" step="1" style="flex:1;" oninput="updateCfgVal('neonatal_over_factor')">
+                                    <span id="cfgval_neonatal_over_factor" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">4.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:292 &rarr; R055. FAIL with CRITICAL if neonatal deaths > factor x previous month.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Clinical Thresholds -->
+                    <div id="settings-clinical" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Clinical Indicator Thresholds</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Used in:</strong> <code>clinical_thresholds.py</code> &rarr; rate classification (Elevated / High / Critical)<br>
+                            <strong>Appears in:</strong> Clinical Assessment section of Detail Modal
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:900px;">
+                            <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+                                <thead><tr style="background:#e8eaf6;">
+                                    <th style="text-align:left;padding:0.4rem;">Indicator</th>
+                                    <th style="text-align:center;padding:0.4rem;width:200px;">Elevated</th>
+                                    <th style="text-align:center;padding:0.4rem;width:200px;">High</th>
+                                    <th style="text-align:center;padding:0.4rem;width:200px;">Critical</th>
+                                </tr></thead>
+                                <tbody>
+                                    <tr><td style="padding:0.3rem;font-weight:600;">C-Section Rate (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_cs_rate_elevated" min="5" max="30" step="1" style="width:90px;" oninput="updateCfgVal('clinical_cs_rate_elevated')"><span id="cfgval_clinical_cs_rate_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">15</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_cs_rate_high" min="15" max="40" step="1" style="width:90px;" oninput="updateCfgVal('clinical_cs_rate_high')"><span id="cfgval_clinical_cs_rate_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">25</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_cs_rate_critical" min="25" max="60" step="1" style="width:90px;" oninput="updateCfgVal('clinical_cs_rate_critical')"><span id="cfgval_clinical_cs_rate_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">40</span></td>
+                                    </tr>
+                                    <tr style="background:#fafafa;"><td style="padding:0.3rem;font-weight:600;">MMR (Maternal Mortality)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_mmr_elevated" min="10" max="100" step="5" style="width:90px;" oninput="updateCfgVal('clinical_mmr_elevated')"><span id="cfgval_clinical_mmr_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">50</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_mmr_high" min="50" max="250" step="5" style="width:90px;" oninput="updateCfgVal('clinical_mmr_high')"><span id="cfgval_clinical_mmr_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">150</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_mmr_critical" min="100" max="500" step="10" style="width:90px;" oninput="updateCfgVal('clinical_mmr_critical')"><span id="cfgval_clinical_mmr_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">300</span></td>
+                                    </tr>
+                                    <tr><td style="padding:0.3rem;font-weight:600;">NMR (Neonatal Mortality)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_nmr_elevated" min="5" max="30" step="1" style="width:90px;" oninput="updateCfgVal('clinical_nmr_elevated')"><span id="cfgval_clinical_nmr_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">15</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_nmr_high" min="15" max="50" step="1" style="width:90px;" oninput="updateCfgVal('clinical_nmr_high')"><span id="cfgval_clinical_nmr_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">30</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_nmr_critical" min="25" max="80" step="1" style="width:90px;" oninput="updateCfgVal('clinical_nmr_critical')"><span id="cfgval_clinical_nmr_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">45</span></td>
+                                    </tr>
+                                    <tr style="background:#fafafa;"><td style="padding:0.3rem;font-weight:600;">SMM Rate (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_smm_elevated" min="0.5" max="5" step="0.5" style="width:90px;" oninput="updateCfgVal('clinical_smm_elevated')"><span id="cfgval_clinical_smm_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">2.0</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_smm_high" min="2" max="10" step="0.5" style="width:90px;" oninput="updateCfgVal('clinical_smm_high')"><span id="cfgval_clinical_smm_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">5.0</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_smm_critical" min="5" max="20" step="0.5" style="width:90px;" oninput="updateCfgVal('clinical_smm_critical')"><span id="cfgval_clinical_smm_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">10.0</span></td>
+                                    </tr>
+                                    <tr><td style="padding:0.3rem;font-weight:600;">Preterm Births (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_preterm_elevated" min="5" max="20" step="1" style="width:90px;" oninput="updateCfgVal('clinical_preterm_elevated')"><span id="cfgval_clinical_preterm_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">10</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_preterm_high" min="10" max="25" step="1" style="width:90px;" oninput="updateCfgVal('clinical_preterm_high')"><span id="cfgval_clinical_preterm_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">15</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_preterm_critical" min="15" max="35" step="1" style="width:90px;" oninput="updateCfgVal('clinical_preterm_critical')"><span id="cfgval_clinical_preterm_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">20</span></td>
+                                    </tr>
+                                    <tr style="background:#fafafa;"><td style="padding:0.3rem;font-weight:600;">Stillbirth Rate</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_stillbirth_elevated" min="5" max="20" step="1" style="width:90px;" oninput="updateCfgVal('clinical_stillbirth_elevated')"><span id="cfgval_clinical_stillbirth_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">12</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_stillbirth_high" min="10" max="35" step="1" style="width:90px;" oninput="updateCfgVal('clinical_stillbirth_high')"><span id="cfgval_clinical_stillbirth_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">22</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_stillbirth_critical" min="20" max="60" step="1" style="width:90px;" oninput="updateCfgVal('clinical_stillbirth_critical')"><span id="cfgval_clinical_stillbirth_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">35</span></td>
+                                    </tr>
+                                    <tr><td style="padding:0.3rem;font-weight:600;">NICU Admission (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_nicu_elevated" min="5" max="25" step="1" style="width:90px;" oninput="updateCfgVal('clinical_nicu_elevated')"><span id="cfgval_clinical_nicu_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">15</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_nicu_high" min="15" max="40" step="1" style="width:90px;" oninput="updateCfgVal('clinical_nicu_high')"><span id="cfgval_clinical_nicu_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">25</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_nicu_critical" min="25" max="60" step="1" style="width:90px;" oninput="updateCfgVal('clinical_nicu_critical')"><span id="cfgval_clinical_nicu_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">40</span></td>
+                                    </tr>
+                                    <tr style="background:#fafafa;"><td style="padding:0.3rem;font-weight:600;">Low Birth Weight (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_lbw_elevated" min="5" max="15" step="1" style="width:90px;" oninput="updateCfgVal('clinical_lbw_elevated')"><span id="cfgval_clinical_lbw_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">10</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_lbw_high" min="10" max="25" step="1" style="width:90px;" oninput="updateCfgVal('clinical_lbw_high')"><span id="cfgval_clinical_lbw_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">15</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_lbw_critical" min="15" max="35" step="1" style="width:90px;" oninput="updateCfgVal('clinical_lbw_critical')"><span id="cfgval_clinical_lbw_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">20</span></td>
+                                    </tr>
+                                    <tr><td style="padding:0.3rem;font-weight:600;">Breastfeeding Rate (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_bf_elevated" min="30" max="80" step="5" style="width:90px;" oninput="updateCfgVal('clinical_bf_elevated')"><span id="cfgval_clinical_bf_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">80</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_bf_high" min="20" max="70" step="5" style="width:90px;" oninput="updateCfgVal('clinical_bf_high')"><span id="cfgval_clinical_bf_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">60</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_bf_critical" min="10" max="60" step="5" style="width:90px;" oninput="updateCfgVal('clinical_bf_critical')"><span id="cfgval_clinical_bf_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">40</span></td>
+                                    </tr>
+                                    <tr style="background:#fafafa;"><td style="padding:0.3rem;font-weight:600;">Assisted VD Rate (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_avd_elevated" min="5" max="25" step="1" style="width:90px;" oninput="updateCfgVal('clinical_avd_elevated')"><span id="cfgval_clinical_avd_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">15</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_avd_high" min="10" max="35" step="1" style="width:90px;" oninput="updateCfgVal('clinical_avd_high')"><span id="cfgval_clinical_avd_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">20</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_avd_critical" min="20" max="50" step="1" style="width:90px;" oninput="updateCfgVal('clinical_avd_critical')"><span id="cfgval_clinical_avd_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">30</span></td>
+                                    </tr>
+                                    <tr><td style="padding:0.3rem;font-weight:600;">Hemorrhage % of SMM</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hemorrhage_elevated" min="20" max="60" step="5" style="width:90px;" oninput="updateCfgVal('clinical_hemorrhage_elevated')"><span id="cfgval_clinical_hemorrhage_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">40</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hemorrhage_high" min="30" max="80" step="5" style="width:90px;" oninput="updateCfgVal('clinical_hemorrhage_high')"><span id="cfgval_clinical_hemorrhage_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">55</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hemorrhage_critical" min="40" max="95" step="5" style="width:90px;" oninput="updateCfgVal('clinical_hemorrhage_critical')"><span id="cfgval_clinical_hemorrhage_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">70</span></td>
+                                    </tr>
+                                    <tr style="background:#fafafa;"><td style="padding:0.3rem;font-weight:600;">Hypertensive % of SMM</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hypertensive_elevated" min="10" max="50" step="5" style="width:90px;" oninput="updateCfgVal('clinical_hypertensive_elevated')"><span id="cfgval_clinical_hypertensive_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">25</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hypertensive_high" min="20" max="60" step="5" style="width:90px;" oninput="updateCfgVal('clinical_hypertensive_high')"><span id="cfgval_clinical_hypertensive_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">40</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hypertensive_critical" min="30" max="80" step="5" style="width:90px;" oninput="updateCfgVal('clinical_hypertensive_critical')"><span id="cfgval_clinical_hypertensive_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">55</span></td>
+                                    </tr>
+                                    <tr><td style="padding:0.3rem;font-weight:600;">High-Risk Delivery (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_high_risk_elevated" min="10" max="35" step="5" style="width:90px;" oninput="updateCfgVal('clinical_high_risk_elevated')"><span id="cfgval_clinical_high_risk_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">20</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_high_risk_high" min="20" max="50" step="5" style="width:90px;" oninput="updateCfgVal('clinical_high_risk_high')"><span id="cfgval_clinical_high_risk_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">35</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_high_risk_critical" min="30" max="70" step="5" style="width:90px;" oninput="updateCfgVal('clinical_high_risk_critical')"><span id="cfgval_clinical_high_risk_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">50</span></td>
+                                    </tr>
+                                    <tr style="background:#fafafa;"><td style="padding:0.3rem;font-weight:600;">Adolescent Pregnancy (%)</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_adolescent_elevated" min="5" max="20" step="1" style="width:90px;" oninput="updateCfgVal('clinical_adolescent_elevated')"><span id="cfgval_clinical_adolescent_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">10</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_adolescent_high" min="10" max="35" step="1" style="width:90px;" oninput="updateCfgVal('clinical_adolescent_high')"><span id="cfgval_clinical_adolescent_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">20</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_adolescent_critical" min="20" max="50" step="1" style="width:90px;" oninput="updateCfgVal('clinical_adolescent_critical')"><span id="cfgval_clinical_adolescent_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">30</span></td>
+                                    </tr>
+                                    <tr><td style="padding:0.3rem;font-weight:600;">Hysterectomy per 1000</td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hysterectomy_elevated" min="0" max="2" step="0.1" style="width:90px;" oninput="updateCfgVal('clinical_hysterectomy_elevated')"><span id="cfgval_clinical_hysterectomy_elevated" style="display:inline-block;width:35px;text-align:right;font-weight:700;">0.5</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hysterectomy_high" min="0.5" max="3" step="0.1" style="width:90px;" oninput="updateCfgVal('clinical_hysterectomy_high')"><span id="cfgval_clinical_hysterectomy_high" style="display:inline-block;width:35px;text-align:right;font-weight:700;">1.0</span></td>
+                                        <td style="text-align:center;"><input type="range" id="cfg_clinical_hysterectomy_critical" min="1" max="5" step="0.1" style="width:90px;" oninput="updateCfgVal('clinical_hysterectomy_critical')"><span id="cfgval_clinical_hysterectomy_critical" style="display:inline-block;width:35px;text-align:right;font-weight:700;">2.0</span></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div style="font-size:0.75rem;color:#666;padding:0.4rem;">Higher values in the "Elevated/High/Critical" columns mean thresholds are less strict (i.e. require more extreme rates to flag).</div>
+                        </div>
+                    </div>
+
+                    <!-- Risk Profile Settings -->
+                    <div id="settings-risk" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Risk Profile Thresholds</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Used in:</strong> <code>clinical_risk.py</code> &rarr; risk classification (Moderate / High / Critical)<br>
+                            <strong>Appears in:</strong> Risk Profile section of Detail Modal
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Peer Multiplier (High):</label>
+                                    <input type="range" id="cfg_risk_peer_multiplier_high" min="1.0" max="2.0" step="0.1" style="flex:1;" oninput="updateCfgVal('risk_peer_multiplier_high')">
+                                    <span id="cfgval_risk_peer_multiplier_high" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">1.2</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">Compare vs peers; values > this multiplier flag HIGH risk.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Peer Multiplier (Critical):</label>
+                                    <input type="range" id="cfg_risk_peer_multiplier_critical" min="1.1" max="3.0" step="0.1" style="flex:1;" oninput="updateCfgVal('risk_peer_multiplier_critical')">
+                                    <span id="cfgval_risk_peer_multiplier_critical" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">1.5</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">Values > this multiplier flag CRITICAL risk.</div>
+                            </div>
+                            <hr style="border:none;border-top:1px solid #ddd;margin:0.3rem 0;">
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.4rem;font-size:0.78rem;">
+                                <div style="font-weight:600;padding:0.4rem;">Risk Dimension</div>
+                                <div style="font-weight:600;text-align:center;padding:0.4rem;">Moderate</div>
+                                <div style="font-weight:600;text-align:center;padding:0.4rem;">High</div>
+                                <div style="font-weight:600;text-align:center;padding:0.4rem;">Critical</div>
+                                <div style="padding:0.4rem;">High-Risk Delivery (%)</div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_high_risk_rate_moderate" min="5" max="40" step="5" style="width:60px;" oninput="updateCfgVal('risk_high_risk_rate_moderate')"><br><span id="cfgval_risk_high_risk_rate_moderate" style="font-weight:700;">20</span></div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_high_risk_rate_high" min="20" max="60" step="5" style="width:60px;" oninput="updateCfgVal('risk_high_risk_rate_high')"><br><span id="cfgval_risk_high_risk_rate_high" style="font-weight:700;">35</span></div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_high_risk_rate_critical" min="30" max="80" step="5" style="width:60px;" oninput="updateCfgVal('risk_high_risk_rate_critical')"><br><span id="cfgval_risk_high_risk_rate_critical" style="font-weight:700;">50</span></div>
+                                <div style="padding:0.4rem;">Adolescent Pregnancy (%)</div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_adolescent_moderate" min="5" max="20" step="1" style="width:60px;" oninput="updateCfgVal('risk_adolescent_moderate')"><br><span id="cfgval_risk_adolescent_moderate" style="font-weight:700;">10</span></div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_adolescent_high" min="10" max="35" step="1" style="width:60px;" oninput="updateCfgVal('risk_adolescent_high')"><br><span id="cfgval_risk_adolescent_high" style="font-weight:700;">20</span></div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_adolescent_critical" min="20" max="50" step="1" style="width:60px;" oninput="updateCfgVal('risk_adolescent_critical')"><br><span id="cfgval_risk_adolescent_critical" style="font-weight:700;">30</span></div>
+                                <div style="padding:0.4rem;">Emergency C/S (%)</div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_emergency_cs_moderate" min="30" max="70" step="5" style="width:60px;" oninput="updateCfgVal('risk_emergency_cs_moderate')"><br><span id="cfgval_risk_emergency_cs_moderate" style="font-weight:700;">50</span></div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_emergency_cs_high" min="50" max="85" step="5" style="width:60px;" oninput="updateCfgVal('risk_emergency_cs_high')"><br><span id="cfgval_risk_emergency_cs_high" style="font-weight:700;">70</span></div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_emergency_cs_critical" min="70" max="100" step="5" style="width:60px;" oninput="updateCfgVal('risk_emergency_cs_critical')"><br><span id="cfgval_risk_emergency_cs_critical" style="font-weight:700;">85</span></div>
+                                <div style="padding:0.4rem;">In-Facility Delivery (%)</div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_infacility_moderate" min="50" max="95" step="5" style="width:60px;" oninput="updateCfgVal('risk_infacility_moderate')"><br><span id="cfgval_risk_infacility_moderate" style="font-weight:700;">80</span></div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_infacility_high" min="30" max="85" step="5" style="width:60px;" oninput="updateCfgVal('risk_infacility_high')"><br><span id="cfgval_risk_infacility_high" style="font-weight:700;">60</span></div>
+                                <div style="text-align:center;"><input type="range" id="cfg_risk_infacility_critical" min="20" max="70" step="5" style="width:60px;" oninput="updateCfgVal('risk_infacility_critical')"><br><span id="cfgval_risk_infacility_critical" style="font-weight:700;">40</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trends Settings -->
+                    <div id="settings-trends" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Trend Analysis Thresholds</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Used in:</strong> <code>trends.py</code> &rarr; slope classification, severity, finding generation<br>
+                            <strong>Appears in:</strong> Trend Chart, flags, recommendations
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Slope Stable (%):</label>
+                                    <input type="range" id="cfg_trend_slope_stable" min="0.5" max="10" step="0.5" style="flex:1;" oninput="updateCfgVal('trend_slope_stable')">
+                                    <span id="cfgval_trend_slope_stable" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">2.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Slope below this = STABLE. e.g. 1.5% means "no significant change".</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Slope Low Severity (%):</label>
+                                    <input type="range" id="cfg_trend_slope_low" min="2" max="15" step="1" style="flex:1;" oninput="updateCfgVal('trend_slope_low')">
+                                    <span id="cfgval_trend_slope_low" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">5.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py:severity. Slope above this = LOW severity.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Slope Moderate Severity (%):</label>
+                                    <input type="range" id="cfg_trend_slope_moderate" min="5" max="30" step="1" style="flex:1;" oninput="updateCfgVal('trend_slope_moderate')">
+                                    <span id="cfgval_trend_slope_moderate" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">15.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py:severity. Slope above this = MODERATE severity.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Slope High Severity (%):</label>
+                                    <input type="range" id="cfg_trend_slope_high" min="15" max="60" step="5" style="flex:1;" oninput="updateCfgVal('trend_slope_high')">
+                                    <span id="cfgval_trend_slope_high" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">30.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py:severity. Slope above this = HIGH severity.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">R-Squared Threshold:</label>
+                                    <input type="range" id="cfg_trend_r_squared" min="0.1" max="0.9" step="0.05" style="flex:1;" oninput="updateCfgVal('trend_r_squared')">
+                                    <span id="cfgval_trend_r_squared" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">0.50</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Min R-squared to consider a trend meaningful.</div>
+                            </div>
+                            <hr style="border:none;border-top:1px solid #ddd;margin:0.3rem 0;">
+                            <div style="font-size:0.82rem;font-weight:600;padding:0.2rem 0;">Finding Generation</div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Finding Slope (%):</label>
+                                    <input type="range" id="cfg_trend_finding_slope" min="2" max="30" step="1" style="flex:1;" oninput="updateCfgVal('trend_finding_slope')">
+                                    <span id="cfgval_trend_finding_slope" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">10.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Slope above this triggers a finding.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Finding Consecutive Months:</label>
+                                    <input type="range" id="cfg_trend_finding_consecutive" min="1" max="6" step="1" style="flex:1;" oninput="updateCfgVal('trend_finding_consecutive')">
+                                    <span id="cfgval_trend_finding_consecutive" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">3</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. N consecutive months going up triggers finding.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Finding Deviation (%):</label>
+                                    <input type="range" id="cfg_trend_finding_deviation" min="5" max="50" step="5" style="flex:1;" oninput="updateCfgVal('trend_finding_deviation')">
+                                    <span id="cfgval_trend_finding_deviation" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">20.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Deviation from expected triggers finding.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Finding CV (%):</label>
+                                    <input type="range" id="cfg_trend_finding_cv" min="10" max="60" step="5" style="flex:1;" oninput="updateCfgVal('trend_finding_cv')">
+                                    <span id="cfgval_trend_finding_cv" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">30.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Coefficient of variation above this triggers finding.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Finding R-Squared:</label>
+                                    <input type="range" id="cfg_trend_finding_r_squared" min="0.2" max="0.95" step="0.05" style="flex:1;" oninput="updateCfgVal('trend_finding_r_squared')">
+                                    <span id="cfgval_trend_finding_r_squared" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">0.70</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Min R-squared to generate a trend finding.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rate Benchmarks Settings -->
+                    <div id="settings-rates" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Rate Benchmarks (Anomaly Detection)</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Used in:</strong> <code>anomaly.py</code> &rarr; z-score calculation (expected rates per indicator)<br>
+                            <strong>Appears in:</strong> Anomaly Detection section of Detail Modal, outlier flagging
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">C-Section Rate Benchmark (%):</label>
+                                    <input type="range" id="cfg_rate_cs_benchmark" min="10" max="80" step="5" style="flex:1;" oninput="updateCfgVal('rate_cs_benchmark')">
+                                    <span id="cfgval_rate_cs_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">50.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected proportion of C-sections among all deliveries.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">MMR Benchmark:</label>
+                                    <input type="range" id="cfg_rate_mmr_benchmark" min="0.1" max="10" step="0.1" style="flex:1;" oninput="updateCfgVal('rate_mmr_benchmark')">
+                                    <span id="cfgval_rate_mmr_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">1.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected maternal deaths per 100,000 live births.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">NMR Benchmark:</label>
+                                    <input type="range" id="cfg_rate_nmr_benchmark" min="5" max="60" step="1" style="flex:1;" oninput="updateCfgVal('rate_nmr_benchmark')">
+                                    <span id="cfgval_rate_nmr_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">30.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected neonatal deaths per 1,000 live births.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Preterm Birth Benchmark (%):</label>
+                                    <input type="range" id="cfg_rate_preterm_benchmark" min="5" max="30" step="1" style="flex:1;" oninput="updateCfgVal('rate_preterm_benchmark')">
+                                    <span id="cfgval_rate_preterm_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">15.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected proportion of preterm births among all deliveries.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">SMM Rate Benchmark (%):</label>
+                                    <input type="range" id="cfg_rate_smm_benchmark" min="1" max="25" step="1" style="flex:1;" oninput="updateCfgVal('rate_smm_benchmark')">
+                                    <span id="cfgval_rate_smm_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">10.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected severe maternal morbidity rate.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Stillbirth Rate Benchmark:</label>
+                                    <input type="range" id="cfg_rate_stillbirth_benchmark" min="1" max="20" step="1" style="flex:1;" oninput="updateCfgVal('rate_stillbirth_benchmark')">
+                                    <span id="cfgval_rate_stillbirth_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">5.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected stillbirths per 1,000 births.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">NICU Admission Benchmark (%):</label>
+                                    <input type="range" id="cfg_rate_nicu_benchmark" min="5" max="40" step="1" style="flex:1;" oninput="updateCfgVal('rate_nicu_benchmark')">
+                                    <span id="cfgval_rate_nicu_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">20.0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected proportion of NICU admissions among all deliveries.</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="margin-top:1.2rem;padding-top:0.8rem;border-top:1px solid #eee;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                        <button class="btn" onclick="saveAllSettings()" style="background:#1a237e;color:white;">Save All Settings</button>
+                        <button class="btn btn-outline" onclick="loadAllSettings()">Reload</button>
+                        <button class="btn" onclick="reanalyzeAll(this)" style="background:#e65100;color:white;">Re-analyze All</button>
+                        <span id="settingsStatus" style="font-size:0.8rem;margin-left:0.5rem;"></span>
+                    </div>
+
+                    <!-- AI Provider Settings -->
+                    <div id="settings-ai" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#d32f2f;margin-bottom:0.5rem;">AI Provider Configuration</h3>
+                        <div style="background:#fff5f5;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>Function:</strong> Configures the AI model used to generate clinical and root cause recommendations.<br>
+                            <strong>Providers:</strong> Gemini (Google AI Studio - free), DeepSeek, Minimax, Kimi (Moonshot), OpenAI-compatible APIs, or Local Fallback (rule-based, no API).<br>
+                            <strong>Tip:</strong> If a provider's quota is exhausted, the system automatically falls back to local rule-based recommendations.
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:1rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Enable AI Recommendations</label>
+                                <select id="ai_enabled" style="width:120px;">
+                                    <option value="true">Enabled</option>
+                                    <option value="false">Disabled (Local only)</option>
+                                </select>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">When disabled, only local rule-based recommendations are generated.</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Provider</label>
+                                <select id="ai_provider" onchange="onAiProviderChange()" style="width:220px;">
+                                    <option value="gemini">Google Gemini (AI Studio)</option>
+                                    <option value="deepseek">DeepSeek API</option>
+                                    <option value="minimax">MiniMax API</option>
+                                    <option value="kimi">Kimi (Moonshot) API</option>
+                                    <option value="openai">OpenAI / Custom</option>
+                                </select>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">Select your AI provider. Recommended: Gemini (free tier, 60 req/min).</div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">API Key</label>
+                                <input type="password" id="ai_api_key" placeholder="Paste your API key here" style="width:100%;max-width:500px;">
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">
+                                    Gemini: get a free key from <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#3f51b5;">aistudio.google.com</a><br>
+                                    DeepSeek: register at <a href="https://platform.deepseek.com" target="_blank" style="color:#3f51b5;">platform.deepseek.com</a><br>
+                                    MiniMax: get a key from <a href="https://platform.minimax.chat" target="_blank" style="color:#3f51b5;">platform.minimax.chat</a><br>
+                                    Kimi: register at <a href="https://platform.moonshot.cn" target="_blank" style="color:#3f51b5;">platform.moonshot.cn</a>
+                                </div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Model Name</label>
+                                <input type="text" id="ai_model" placeholder="gemini-2.0-flash-lite" style="width:100%;max-width:400px;">
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">
+                                    Gemini: gemini-2.0-flash-lite (recommended free)<br>
+                                    DeepSeek: deepseek-chat<br>
+                                    MiniMax: minimax-abab5.5s-chat<br>
+                                    Kimi: moonshot-v1-8k<br>
+                                    OpenAI: gpt-4o-mini
+                                </div>
+                            </div>
+                            <div id="ai_api_url_row" style="background:#fafafa;padding:0.8rem;border-radius:6px;display:none;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">API URL (OpenAI-compatible only)</label>
+                                <input type="text" id="ai_api_url" placeholder="https://api.openai.com/v1/chat/completions" style="width:100%;max-width:500px;">
+                            </div>
+                            <div style="background:#fafafa;padding:0.8rem;border-radius:6px;display:flex;gap:1rem;flex-wrap:wrap;">
+                                <div>
+                                    <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Max Recommendations</label>
+                                    <input type="number" id="ai_max_recommendations" min="1" max="20" value="8" style="width:80px;">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Timeout (seconds)</label>
+                                    <input type="number" id="ai_timeout" min="5" max="120" value="30" style="width:80px;">
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;padding-top:0.5rem;">
+                                <button class="btn" onclick="saveAiSettings()" style="background:#d32f2f;color:white;">Save AI Settings</button>
+                                <button class="btn btn-outline" onclick="loadAiSettings()">Reload</button>
+                                <span id="aiSaveStatus" style="font-size:0.8rem;color:#888;"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Control Settings -->
+                    <div id="settings-control" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Analysis Control</h3>
+                        <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            Controls how null/missing indicator values are handled during analysis and in the indicator tree.
+                        </div>
+                        <div style="background:#fafafa;padding:0.8rem;border-radius:6px;max-width:700px;">
+                            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                                <input type="checkbox" id="cfg_auto_disable_null" onchange="saveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                                <div>
+                                    <strong>Auto-disable null indicators</strong><br>
+                                    <span style="font-size:0.8rem;color:#666;">When enabled, all indicators with null (missing) values for a hospital are treated as disabled. They will:</span>
+                                    <ul style="font-size:0.8rem;color:#666;margin:0.4rem 0 0 1.2rem;line-height:1.5;">
+                                        <li>Appear as disabled (&#x2717;) in the Hospital Indicator Tree</li>
+                                        <li>Be excluded from quality score completeness calculation</li>
+                                        <li>Be excluded from all analysis calculations</li>
+                                    </ul>
+                                </div>
+                            </label>
+                            <div style="margin-top:0.6rem;">
+                                <span id="controlSaveStatus" style="font-size:0.8rem;color:#888;"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+

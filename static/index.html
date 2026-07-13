@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Health AI - لوحة جودة بيانات صحة الأم والوليد</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <a href="#main-content" class="skip-link" data-i18n="Skip to main content">تخطي إلى المحتوى الرئيسي</a>
+    <div class="header" role="banner">
+        <div>
+            <h1>Health AI <span style="font-weight:300;opacity:0.7;">|</span> <span id="headerTitle" data-i18n="نظام جودة بيانات صحة الأم والوليد">نظام جودة بيانات صحة الأم والوليد</span></h1>
+            <div class="subtitle" id="headerSubtitle" data-i18n="تحليل مؤشرات صحة الأم والوليد">تحليل مؤشرات صحة الأم والوليد</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+            <span style="font-size:0.8rem;opacity:0.7;">API:</span>
+            <input id="apiBase" value="" style="width:180px;color:#333;" placeholder="API Base URL">
+            <button class="lang-btn" id="langToggle" onclick="toggleLang()">English</button>
+        </div>
+    </div>
+
+    <div class="container" id="main-content" role="main">
+        <!-- Upload Card -->
+        <div class="card">
+            <h2 data-i18n="Smart Data Entry">إدخال البيانات الذكي</h2>
+            <!-- Step indicator -->
+            <div id="uploadSteps" style="display:flex;gap:0.3rem;margin-bottom:1rem;font-size:0.78rem;align-items:center;">
+                <span class="step-dot active" data-step="1" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:#1a237e;color:white;font-weight:600;">1. Upload</span>
+                <span style="color:#bbb;">→</span>
+                <span class="step-dot" data-step="2" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:#e0e0e0;color:#888;">2. Preview</span>
+                <span style="color:#bbb;">→</span>
+                <span class="step-dot" data-step="3" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:#e0e0e0;color:#888;">3. Analyze</span>
+                <span style="color:#bbb;">→</span>
+                <span class="step-dot" data-step="4" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:#e0e0e0;color:#888;">4. Results</span>
+            </div>
+            <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+                <div style="flex:1;min-width:300px;">
+                    <h3 data-i18n="Upload Excel File">رفع ملف إكسل</h3>
+                    <div class="upload-area" id="dropZone">
+                        <div class="upload-icon">📂</div>
+                        <div class="upload-text"><span data-i18n="Drag & drop or click to browse">اسحب وأفلت أو انقر للتصفح</span></div>
+                        <div class="upload-hint" data-i18n=".xlsx, .xls, .csv | Multi-file supported">يدعم ملفات متعددة</div>
+                        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple>
+                    </div>
+                    <div id="fileList" class="file-list hidden" style="margin-top:0.5rem;"></div>
+                </div>
+            </div>
+            <div id="previewArea" style="margin-top:1rem;display:none;">
+                <h3 data-i18n="Preview Before Import">معاينة قبل الاستيراد <span id="previewInfo" style="font-size:0.8rem;color:#888;"></span></h3>
+                <div style="max-height:300px;overflow-y:auto;border:1px solid #eee;border-radius:4px;">
+                    <table id="previewTable" style="font-size:0.78rem;"><thead></thead><tbody></tbody></table>
+                </div>
+                <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
+                    <button class="btn btn-sm" onclick="confirmImport()" data-i18n="Confirm & Import">تأكيد واستيراد</button>
+                    <button class="btn btn-sm btn-outline" onclick="cancelPreview()" data-i18n="Cancel">إلغاء</button>
+                </div>
+            </div>
+            <div id="status"></div>
+            <div id="uploadProgress" class="hidden" style="margin-top:0.5rem;">
+                <div class="progress-bar"><div class="progress-bar-fill" id="uploadProgressFill" style="width:0%;background:#3f51b5;"></div></div>
+                <p id="uploadProgressText" style="font-size:0.8rem;color:#888;margin-top:0.3rem;"></p>
+            </div>
+        </div>
+
+        <!-- Saved Files Card -->
+        <div class="card" id="savedFilesCard">
+            <h2 data-i18n="Previously Uploaded Files">الملفات المرفوعة سابقاً
+                <span id="savedCount" class="count-badge" style="font-size:0.75rem;"></span>
+                <button class="btn btn-sm btn-outline" onclick="refreshSavedFiles()" style="float:right;font-size:0.75rem;" data-i18n="Refresh">تحديث</button>
+            </h2>
+            <div id="savedFilesList">
+                <p style="font-size:0.85rem;color:#888;" data-i18n="Loading saved files...">جاري تحميل الملفات المحفوظة...</p>
+            </div>
+            <div style="margin-top:0.5rem;display:none;" id="savedActions">
+                <button class="btn btn-sm" onclick="analyzeSelectedSaved()" id="analyzeSavedBtn" data-i18n="Analyze Selected">تحليل المحدد</button>
+                <button class="btn btn-sm btn-outline" onclick="deleteSelectedSaved()" style="margin-left:0.5rem;" data-i18n="Delete Selected">حذف المحدد</button>
+            </div>
+        </div>
+
+        <!-- Results Section -->
+        <div id="resultsSection" class="hidden">
+            <div class="tab-bar" role="tablist" aria-label="التقارير والأقسام">
+                <div class="tab active" data-tab="dashboard" role="tab" aria-selected="true" aria-controls="tab-dashboard" tabindex="0">Dashboard</div>
+                <div class="tab" data-tab="quality" role="tab" aria-selected="false" aria-controls="tab-quality" tabindex="-1">Quality Reports</div>
+                <div class="tab" data-tab="trends" role="tab" aria-selected="false" aria-controls="tab-trends" tabindex="-1">Trend Analysis</div>
+                <div class="tab" data-tab="compare" role="tab" aria-selected="false" aria-controls="tab-compare" tabindex="-1">Hospital Comparison</div>
+                <div class="tab" data-tab="clinical" role="tab" aria-selected="false" aria-controls="tab-clinical" tabindex="-1">Clinical Intelligence</div>
+                <div class="tab" data-tab="ai-reports" role="tab" aria-selected="false" aria-controls="tab-ai-reports" tabindex="-1" style="color:#d32f2f;font-weight:600;">AI Reports</div>
+                <div class="tab" data-tab="outliers" role="tab" aria-selected="false" aria-controls="tab-outliers" tabindex="-1">Outliers</div>
+                <div class="tab" data-tab="alerts" role="tab" aria-selected="false" aria-controls="tab-alerts" tabindex="-1" style="position:relative;">Alerts <span id="alertBadge" class="count-badge" style="display:none;background:#c62828;color:#fff;"></span></div>
+                <div class="tab" data-tab="rulefailures" role="tab" aria-selected="false" aria-controls="tab-rulefailures" tabindex="-1">Rule Failures</div>
+                <div class="tab" data-tab="indicator-tree" role="tab" aria-selected="false" aria-controls="tab-indicator-tree" tabindex="-1">Indicator Tree</div>
+                <div class="tab" data-tab="rules-manager" role="tab" aria-selected="false" aria-controls="tab-rules-manager" tabindex="-1">Rules Manager</div>
+                <div class="tab" data-tab="root-cause" role="tab" aria-selected="false" aria-controls="tab-root-cause" tabindex="-1">Root Cause</div>
+                <div class="tab" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings" tabindex="-1">Settings</div>
+            </div>
+
+            <!-- Dashboard Tab -->
+        <div id="tab-dashboard" class="tab-content active" data-loaded="false" role="tabpanel" aria-labelledby="tab-dashboard" data-src="/static/tabs/dashboard.html">
+        </div>
+
+        <div id="tab-quality" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-quality" data-src="/static/tabs/quality.html">
+        </div>
+
+        <div id="tab-trends" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-trends" data-src="/static/tabs/trends.html"></div>
+
+        <div id="tab-compare" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-compare" data-src="/static/tabs/compare.html"></div>
+
+        <div id="tab-clinical" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-clinical" data-src="/static/tabs/clinical.html"></div>
+
+        <div id="tab-ai-reports" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-ai-reports" data-src="/static/tabs/ai-reports.html"></div>
+
+        <div id="tab-outliers" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-outliers" data-src="/static/tabs/outliers.html"></div>
+
+        <div id="tab-alerts" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-alerts" data-src="/static/tabs/alerts.html"></div>
+
+        <div id="tab-rulefailures" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-rulefailures" data-src="/static/tabs/rulefailures.html"></div>
+
+        <div id="tab-indicator-tree" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-indicator-tree" data-src="/static/tabs/indicator-tree.html"></div>
+
+        <div id="tab-rules-manager" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-rules-manager" data-src="/static/tabs/rules-manager.html"></div>
+
+        <div id="tab-root-cause" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-root-cause" data-src="/static/tabs/root-cause.html"></div>
+
+        <div id="tab-settings" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-settings" data-src="/static/tabs/settings.html"></div>
+        </div>
+
+        <!-- Detail Modal -->
+        <div id="detailModal">
+            <div class="modal-content">
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+                <h2 id="modalTitle" style="color:#1a237e;margin-bottom:1rem;"></h2>
+                <div id="modalBody"></div>
+            </div>
+        </div>
+
+        <!-- Rule Edit Modal -->
+        <div id="ruleEditModal">
+            <div class="modal-content" style="max-width:750px;">
+                <button class="modal-close" onclick="closeRuleModal()">&times;</button>
+                <h2 id="ruleEditTitle" style="color:#1a237e;margin-bottom:1rem;">New Rule</h2>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+                    <div><label style="font-size:0.8rem;color:#666;">Code</label><br><input id="ruleEditCode" style="width:100%;" placeholder="R061"></div>
+                    <div><label style="font-size:0.8rem;color:#666;">Name</label><br><input id="ruleEditName" style="width:100%;" placeholder="Rule description"></div>
+                    <div><label style="font-size:0.8rem;color:#666;">Rule Type</label><br>
+                        <select id="ruleEditType" style="width:100%;">
+                            <option value="LOGIC">LOGIC</option>
+                            <option value="CLINICAL">CLINICAL</option>
+                            <option value="BENCHMARK">BENCHMARK</option>
+                            <option value="DATA_QUALITY">DATA_QUALITY</option>
+                        </select>
+                    </div>
+                    <div><label style="font-size:0.8rem;color:#666;">Severity</label><br>
+                        <select id="ruleEditSeverity" style="width:100%;">
+                            <option value="CRITICAL">CRITICAL</option>
+                            <option value="HIGH">HIGH</option>
+                            <option value="MEDIUM">MEDIUM</option>
+                            <option value="LOW">LOW</option>
+                        </select>
+                    </div>
+                    <div><label style="font-size:0.8rem;color:#666;">Category</label><br>
+                        <select id="ruleEditCategory" style="width:100%;">
+                            <option value="BASIC_LOGIC">BASIC_LOGIC</option>
+                            <option value="CLINICAL_CONSISTENCY">CLINICAL_CONSISTENCY</option>
+                            <option value="STATISTICAL_BENCHMARK">STATISTICAL_BENCHMARK</option>
+                            <option value="TREND_DATA_QUALITY">TREND_DATA_QUALITY</option>
+                        </select>
+                    </div>
+                    <div><label style="font-size:0.8rem;color:#666;">Expression Type</label><br>
+                        <select id="ruleEditExpr" style="width:100%;" onchange="ruleExprTemplate()">
+                            <option value="ge">ge — parent >= sum(children)</option>
+                            <option value="eq">eq — parent == sum(children)</option>
+                            <option value="le">le — child <= parent</option>
+                            <option value="le_sum">le_sum — child >= sum(children)</option>
+                            <option value="benchmark_rate">benchmark_rate — rate > threshold</option>
+                            <option value="benchmark_low_rate">benchmark_low_rate — rate < threshold</option>
+                            <option value="cross_hospital_rate">cross_hospital_rate — z-score outlier</option>
+                            <option value="month_over">month_over — current > factor * prev</option>
+                            <option value="month_under">month_under — current < factor * prev</option>
+                            <option value="neg_check">neg_check — negative values</option>
+                            <option value="decimal_check">decimal_check — decimal values</option>
+                            <option value="missing">missing — missing indicator</option>
+                            <option value="all_zero">all_zero — all indicators zero</option>
+                        </select>
+                    </div>
+                    <div><label style="font-size:0.8rem;color:#666;">Enabled</label><br>
+                        <select id="ruleEditEnabled" style="width:100%;">
+                            <option value="true">Enabled</option>
+                            <option value="false">Disabled</option>
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-top:0.6rem;">
+                    <label style="font-size:0.8rem;color:#666;">Description</label><br>
+                    <input id="ruleEditDesc" style="width:100%;" placeholder="Optional description">
+                </div>
+                <div id="ruleVisualBuilderContainer" style="margin-top:0.6rem;">
+                    <div id="ruleVisualBuilder"></div>
+                    <div id="ruleExprExplanation" style="margin-top:0.5rem;padding:0.5rem;background:#f5f5f5;border-radius:4px;font-size:0.78rem;color:#666;display:none;">
+                        <strong id="ruleExprExplTitle"></strong><br>
+                        <span id="ruleExprExplText"></span>
+                    </div>
+                </div>
+                <textarea id="ruleEditParams" style="display:none;"></textarea>
+                <div style="margin-top:0.8rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+                    <button class="btn btn-sm btn-outline" onclick="closeRuleModal()">Cancel</button>
+                    <button class="btn btn-sm" onclick="saveRule()">Save Rule</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="loaderOverlay" class="loader-overlay" role="alert" aria-live="assertive">
+        <div class="spinner spinner-lg"></div>
+        <div class="loader-text" id="loaderText">Loading...</div>
+    </div>
+    <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

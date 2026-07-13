@@ -1,0 +1,39 @@
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                        <div>
+                            <h2 style="margin:0;">Outlier Analysis</h2>
+                            <span style="font-size:0.82rem;color:#888;">Statistical outliers via Z-score analysis</span>
+                        </div>
+                        <div id="outlierSummary" style="display:flex;gap:0.4rem;"></div>
+                    </div>
+                    <div class="card" style="padding:0.6rem 0.8rem;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                                <label style="font-size:0.75rem;color:#666;">Hospital:</label>
+                                <select id="outlierHospitalFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                                <label style="font-size:0.75rem;color:#666;">Month:</label>
+                                <select id="outlierMonthFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                                <label style="font-size:0.75rem;color:#666;">Rate:</label>
+                                <select id="outlierRateFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                            </div>
+                            <div style="display:flex;align-items:center;gap:0.4rem;">
+                                <span id="outlierCount" style="font-size:0.75rem;color:#888;"></span>
+                                <span id="outlierLoading" class="hidden" style="font-size:0.75rem;color:#888;"><span class="spinner"></span></span>
+                            </div>
+                        </div>
+                        <div style="max-height:500px;overflow-y:auto;">
+                            <table id="outlierTable">
+                                <thead><tr>
+                                    <th class="sortable" data-col="hospital">Hospital</th>
+                                    <th class="sortable" data-col="month">Month</th>
+                                    <th class="sortable" data-col="rate_name">Indicator</th>
+                                    <th class="sortable" data-col="value">Value</th>
+                                    <th class="sortable" data-col="benchmark">Benchmark</th>
+                                    <th class="sortable" data-col="z_score">Z-Score</th>
+                                </tr></thead>
+                                <tbody id="outlierTbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+

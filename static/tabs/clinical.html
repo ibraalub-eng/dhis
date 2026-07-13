@@ -1,0 +1,25 @@
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                        <div>
+                            <h2 style="margin:0;">Clinical Intelligence</h2>
+                            <span style="font-size:0.82rem;color:#888;">WHO/FIGO-based classification, risk analysis & recommendations</span>
+                        </div>
+                    </div>
+                    <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
+                        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+                            <label style="font-size:0.75rem;color:#666;">Hospital:</label>
+                            <select id="clinicalHospitalSelect" onchange="loadClinical()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"></select>
+                            <label style="font-size:0.75rem;color:#666;">Month:</label>
+                            <select id="clinicalMonthSelect" onchange="loadClinical()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"></select>
+                            <button class="btn btn-sm" onclick="loadClinical()" style="font-size:0.75rem;padding:0.2rem 0.6rem;">Analyze</button>
+                            <span id="clinicalLoading" class="hidden" style="font-size:0.75rem;color:#888;"><span class="spinner"></span></span>
+                        </div>
+                    </div>
+                    <div id="clinicalResults" style="min-height:100px;">
+                        <div class="card" style="text-align:center;padding:2rem 1.5rem;color:#888;">
+                            <div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128202;</div>
+                            <p style="margin:0;font-size:0.85rem;">Select a hospital and month, then click Analyze.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
