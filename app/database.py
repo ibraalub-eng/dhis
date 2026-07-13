@@ -16,4 +16,5 @@ def get_db():
 
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
+    """No-op — Alembic manages all schema. Kept for backward compatibility."""
+    pass
