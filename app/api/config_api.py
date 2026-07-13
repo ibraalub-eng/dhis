@@ -8,6 +8,7 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 CONTROL_KEY = "auto_disable_null_indicators"
 LOGGING_KEY = "structured_logging_enabled"
+MONTH_SETTINGS_PREFIX = "month_enabled_"
 
 
 @router.get("/control/settings")
@@ -94,3 +95,35 @@ def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
     from app.plugins.ai import reload_ai_config
     reload_ai_config()
     return {"status": "ok", "updated": len(updates)}
+
+
+@router.get("/month-settings")
+def get_month_settings(db: Session = Depends(get_db)):
+    """Get list of enabled months for analysis."""
+    rows = db.query(SystemSetting).filter(
+        SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
+    ).all()
+    enabled_months = [
+        row.key[len(MONTH_SETTINGS_PREFIX):]
+        for row in rows
+        if row.value == "true"
+    ]
+    return {"enabled_months": enabled_months}
+
+
+@router.put("/month-settings")
+def update_month_setting(updates: dict, db: Session = Depends(get_db)):
+    """Enable or disable a specific month for analysis."""
+    month = updates.get("month")
+    enabled = updates.get("enabled", True)
+    if not month:
+        raise HTTPException(status_code=400, detail="month is required")
+    key = MONTH_SETTINGS_PREFIX + month
+    val = "true" if enabled else "false"
+    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if row:
+        row.value = val
+    else:
+        db.add(SystemSetting(key=key, value=val))
+    db.commit()
+    return {"status": "ok", "month": month, "enabled": enabled}

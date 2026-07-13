@@ -408,6 +408,21 @@ def list_months_with_data(db: Session = Depends(get_db)):
     return result
 
 
+def get_enabled_months(db: Session) -> list:
+    """Get list of months enabled for analysis (filters out disabled months)."""
+    from app.models import SystemSetting
+    all_months = list_months_with_data(db)
+    rows = db.query(SystemSetting).filter(
+        SystemSetting.key.like("month_enabled_%")
+    ).all()
+    disabled = {
+        row.key[len("month_enabled_"):]: True
+        for row in rows
+        if row.value == "false"
+    }
+    return [m for m in all_months if m not in disabled]
+
+
 @router.post("/reanalyze-all")
 def reanalyze_all(
     force: bool = Query(False, description="Force re-analysis even if cached results exist"),
@@ -415,7 +430,7 @@ def reanalyze_all(
     db: Session = Depends(get_db),
 ):
     hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
-    months = list_months_with_data(db)
+    months = get_enabled_months(db)
     task_id = create_task("Re-analyze All", lambda: None)
 
     def _run(tid, hosp_list, month_list, frc):
@@ -460,8 +475,8 @@ def reanalyze_all(
 
 @router.get("/cache-status")
 def analysis_cache_status(db: Session = Depends(get_db)):
-    hospitals = db.query(Hospital).order_by(Hospital.name).all()
-    months = list_months_with_data(db)
+    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).order_by(Hospital.name).all()
+    months = get_enabled_months(db)
     from app.engine.pipeline import check_analysis_exists
     status = []
     for h in hospitals:

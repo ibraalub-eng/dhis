@@ -23,6 +23,16 @@
                             <button class="btn btn-sm btn-outline" onclick="expandAllTree()" style="padding:0.2rem 0.5rem;font-size:0.72rem;">Expand All</button>
                             <button class="btn btn-sm btn-outline" onclick="collapseAllTree()" style="padding:0.2rem 0.5rem;font-size:0.72rem;">Collapse All</button>
                         </div>
+                        <!-- Month Enable/Disable Checkboxes -->
+                        <div style="background:#f8f9fa;padding:0.6rem 0.8rem;border-radius:6px;margin-bottom:0.6rem;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
+                                <strong style="font-size:0.8rem;">Analysis Months:</strong>
+                                <button class="btn btn-sm btn-outline" onclick="toggleAllMonths(true)" style="font-size:0.68rem;padding:0.1rem 0.4rem;">Enable All</button>
+                                <button class="btn btn-sm btn-outline" onclick="toggleAllMonths(false)" style="font-size:0.68rem;padding:0.1rem 0.4rem;">Disable All</button>
+                                <span id="monthSaveStatus" style="font-size:0.72rem;color:#888;"></span>
+                            </div>
+                            <div id="monthCheckboxes" style="display:flex;flex-wrap:wrap;gap:0.6rem;font-size:0.78rem;"></div>
+                        </div>
                         <div id="treeContainer" style="max-height:600px;overflow-y:auto;font-size:0.85rem;border:1px solid #e0e0e0;border-radius:4px;padding:0.5rem;">
                             <div style="text-align:center;padding:2rem 1rem;color:#888;">
                                 <div style="font-size:1.5rem;margin-bottom:0.3rem;opacity:0.3;">&#127795;</div>

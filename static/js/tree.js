@@ -35,8 +35,53 @@
             ]).then(() => {
                 _restoreUIState('indicator-tree');
                 if (hsel.value && msel.value) loadIndicatorTree();
+                loadMonthCheckboxes();
             }).catch(() => {});
         }
+
+        // ── Month Enable/Disable Checkboxes ──────────────────────────────
+        export function loadMonthCheckboxes() {
+            apiGet('/analysis/months').then(months => {
+                const container = document.getElementById('monthCheckboxes');
+                if (!container) return;
+                // Get current enabled months
+                apiGet('/config/month-settings').then(settings => {
+                    const enabled = settings.enabled_months || months;
+                    container.innerHTML = months.map(m => {
+                        const checked = enabled.includes(m) ? 'checked' : '';
+                        return '<label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer;">' +
+                            '<input type="checkbox" value="' + m + '" ' + checked + ' onchange="saveMonthSetting(\'' + m + '\', this.checked)" style="width:14px;height:14px;">' +
+                            '<span>' + m + '</span></label>';
+                    }).join('');
+                }).catch(() => {
+                    container.innerHTML = months.map(m =>
+                        '<label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer;">' +
+                        '<input type="checkbox" value="' + m + '" checked onchange="saveMonthSetting(\'' + m + '\', this.checked)" style="width:14px;height:14px;">' +
+                        '<span>' + m + '</span></label>'
+                    ).join('');
+                });
+            }).catch(() => {});
+        }
+
+        window.saveMonthSetting = function(month, enabled) {
+            const status = document.getElementById('monthSaveStatus');
+            if (status) { status.textContent = 'Saving...'; status.style.color = '#1565c0'; }
+            apiPut('/config/month-settings', { month: month, enabled: enabled }).then(() => {
+                if (status) { status.textContent = '\u2713 Saved'; status.style.color = '#2e7d32'; }
+            }).catch(e => {
+                if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }
+            });
+        };
+
+        window.toggleAllMonths = function(enabled) {
+            const container = document.getElementById('monthCheckboxes');
+            if (!container) return;
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            checkboxes.forEach(cb => {
+                cb.checked = enabled;
+                saveMonthSetting(cb.value, enabled);
+            });
+        };
 
         export function loadIndicatorTree() {
             let hospId = document.getElementById('treeHospitalSelect').value;
