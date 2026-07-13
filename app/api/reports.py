@@ -127,11 +127,37 @@ def generate_report_background(
 
 @router.get("/detail/{hospital_id}", response_model=ReportSummaryOut)
 def detailed_report(hospital_id: int, month: str = Query(..., description="Month YYYY-MM"), db: Session = Depends(get_db)):
-    try:
-        report = run_full_analysis(db, hospital_id, month, force=True)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
     hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hosp:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+
+    # Read stored score from database (consistent with list endpoint)
+    qs = db.query(QualityScore).filter(
+        QualityScore.hospital_id == hospital_id,
+        QualityScore.month == month,
+    ).first()
+    if not qs:
+        # Run analysis if no stored score exists
+        try:
+            report = run_full_analysis(db, hospital_id, month, force=True)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        data_quality_score = report["data_quality_score"]
+        rule_compliance = report.get("rule_compliance")
+        completeness = report.get("completeness")
+        consistency = report.get("consistency")
+        outlier_penalty = report.get("outlier_penalty")
+        issues = report["issues"]
+        confidence = report.get("confidence")
+    else:
+        data_quality_score = qs.score
+        rule_compliance = qs.rule_compliance
+        completeness = qs.completeness
+        consistency = qs.consistency
+        outlier_penalty = qs.outlier_penalty
+        issues = json.loads(qs.issues) if qs.issues else []
+        confidence = None
+
     validation_rows = db.query(ValidationResult).filter(
         ValidationResult.hospital_id == hospital_id,
         ValidationResult.month == month,
@@ -141,17 +167,17 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
         AnomalyResult.month == month,
     ).all()
     return ReportSummaryOut(
-        hospital=hosp.name if hosp else "Unknown",
+        hospital=hosp.name,
         month=month,
-        data_quality_score=report["data_quality_score"],
-        rule_compliance=report.get("rule_compliance"),
-        completeness=report.get("completeness"),
-        consistency=report.get("consistency"),
-        outlier_penalty=report.get("outlier_penalty"),
-        issues=report["issues"],
+        data_quality_score=data_quality_score,
+        rule_compliance=rule_compliance,
+        completeness=completeness,
+        consistency=consistency,
+        outlier_penalty=outlier_penalty,
+        issues=issues,
         validation_results=validation_rows,
         anomaly_results=anomaly_rows,
-        confidence=report.get("confidence"),
+        confidence=confidence,
     )
 
 
