@@ -608,6 +608,8 @@
                     statusEl.textContent += ' | Errors: ' + data.errors.length;
                     statusEl.style.color = '#e65100';
                 }
+                // Redirect to dashboard to show fresh data
+                switchTab('dashboard');
             }).catch(e => {
                 const statusEl = document.getElementById('settingsStatus');
                 statusEl.textContent = '\u2717 Error: ' + e.message;

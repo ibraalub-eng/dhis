@@ -440,6 +440,8 @@ def reanalyze_all(
                     done += 1
                     from app.tasks import set_progress
                     set_progress(tid, int(done / total_work * 100))
+            # Clear cache after re-analysis so fresh data is served
+            cache.invalidate()
             from app.tasks import set_status
             set_status(tid, "done")
         finally:

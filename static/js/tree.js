@@ -132,6 +132,8 @@
                             displayResults(window.uploadedData);
                         }
                     }
+                    // Redirect to dashboard to show fresh data
+                    switchTab('dashboard');
                 })
                 .catch(e => {
                     if (btn) { btn.textContent = __('Re-analyze'); btn.disabled = false; }

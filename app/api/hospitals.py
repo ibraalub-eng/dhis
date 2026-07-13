@@ -57,6 +57,8 @@ def reanalyze_hospital(
         raise HTTPException(status_code=404, detail="Hospital not found")
     try:
         report = run_full_analysis(db, hospital_id, month, force=force)
+        # Clear cache so fresh data is served
+        cache.invalidate()
         return report
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
