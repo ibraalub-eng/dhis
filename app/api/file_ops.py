@@ -6,7 +6,7 @@ from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
 from app.models import Hospital, IndicatorValue, QualityScore, ValidationResult
 from app.engine.pipeline import run_full_analysis, get_enabled_values_for_hospital_month
-from app.engine.anomaly_trends import analyze_historical_trends, compare_hospitals
+from app.engine.anomaly import analyze_historical_trends, compare_hospitals
 from app.engine.clinical import run_clinical_analysis
 from app.utils.excel_parser import process_excel_upload
 from datetime import datetime

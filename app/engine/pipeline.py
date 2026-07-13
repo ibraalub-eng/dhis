@@ -1,7 +1,7 @@
 import re
 from typing import List, Dict
 from app.engine.quality import ValidationContext, run_all_rules, run_rules_from_db, RuleResult, set_rules_config, calculate_quality_score
-from app.engine.anomaly_trends import detect_anomalies, detect_monthly_trend, set_trends_config
+from app.engine.anomaly import detect_anomalies, detect_monthly_trend, set_trends_config
 
 from app.engine.confidence import calculate_confidence, build_indicator_rule_map
 

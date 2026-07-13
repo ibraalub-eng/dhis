@@ -69,7 +69,7 @@ def test_score_never_negative():
 
 
 def test_outlier_penalty_zero():
-    from app.engine.anomaly_trends import AnomalyResultData
+    from app.engine.anomaly import AnomalyResultData
     results = []
     values = {str(i): float(i) for i in range(60)}
     score = calculate_quality_score(results, values, [], 60)
@@ -77,7 +77,7 @@ def test_outlier_penalty_zero():
 
 
 def test_outlier_penalty_with_anomalies():
-    from app.engine.anomaly_trends import AnomalyResultData
+    from app.engine.anomaly import AnomalyResultData
     anomalies = [
         AnomalyResultData("5", "C-section rate", 50.0, 25.0, 3.5, True),
         AnomalyResultData("10", "SMM rate", 30.0, 10.0, 2.8, True),

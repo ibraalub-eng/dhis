@@ -12,8 +12,8 @@ from app.models import (
 )
 from datetime import datetime
 from app.engine.pipeline import run_full_analysis, get_enabled_values_for_hospital_month, get_all_hospital_data_for_month
-from app.engine.anomaly_trends import detect_anomalies
-from app.engine.anomaly_trends import (
+from app.engine.anomaly import detect_anomalies
+from app.engine.anomaly import (
     analyze_historical_trends,
     compare_hospitals,
     detect_trend_anomalies,

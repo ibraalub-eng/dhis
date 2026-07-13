@@ -1,7 +1,7 @@
-"""Tests for anomaly detection and statistical trend analysis (engine.anomaly_trends)."""
+"""Tests for anomaly detection and statistical trend analysis (engine.anomaly)."""
 import pytest
 import numpy as np
-from app.engine.anomaly_trends import (
+from app.engine.anomaly import (
     compute_rate,
     detect_anomalies,
     detect_monthly_trend,

@@ -1,129 +1,8 @@
-# =============================================================================
-# engine/anomaly_trends.py -- Merged anomaly + trends module
-# =============================================================================
-
-# Source: anomaly.py
-
-import numpy as np
-from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass
-
-
-@dataclass
-class AnomalyResultData:
-    indicator_code: str
-    rate_name: str
-    value: Optional[float]
-    benchmark: Optional[float]
-    z_score: Optional[float]
-    is_outlier: bool
-
-
-def compute_rate(values: Dict[str, float], numerator_code: str, denominator_code: str) -> Optional[float]:
-    num = values.get(numerator_code)
-    den = values.get(denominator_code)
-    if num is None or den is None or den == 0:
-        return None
-    return (num / den) * 100
-
-
-RATE_DEFINITIONS = [
-    ("C-section rate", "5", "2", 50.0),
-    ("Maternal mortality ratio", "11", "2", 1.0),
-    ("Neonatal mortality rate", "17", "6", 30.0),
-    ("Preterm birth rate", "6.f", "6", 15.0),
-    ("SMM rate", "10", "2", 10.0),
-    ("Stillbirth rate", "7", "2", 5.0),
-    ("NICU admission rate", "16", "6", 20.0),
-]
-
-
-def detect_anomalies(
-    all_hospital_data: Dict[str, Dict[str, float]],
-    current_hospital: str,
-    month: str,
-    config: Optional[dict] = None,
-) -> List[AnomalyResultData]:
-    results = []
-    z_thresh = (config or {}).get("zscore_threshold", 2.5)
-    for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
-        rates = {}
-        for hosp_name, hosp_values in all_hospital_data.items():
-            rate = compute_rate(hosp_values, num_code, den_code)
-            if rate is not None:
-                rates[hosp_name] = rate
-        if len(rates) < 2:
-            continue
-        rate_values = list(rates.values())
-        mean_rate = np.mean(rate_values)
-        std_rate = np.std(rate_values)
-        current_values = all_hospital_data.get(current_hospital, {})
-        current_rate = compute_rate(current_values, num_code, den_code)
-        if current_rate is None:
-            continue
-        if std_rate == 0:
-            z_score = 0.0
-        else:
-            z_score = (current_rate - mean_rate) / std_rate
-        is_outlier = abs(z_score) > z_thresh
-        results.append(
-            AnomalyResultData(
-                indicator_code=num_code,
-                rate_name=rate_name,
-                value=round(current_rate, 2),
-                benchmark=round(mean_rate, 2),
-                z_score=round(z_score, 2),
-                is_outlier=is_outlier,
-            )
-        )
-    return results
-
-
-def detect_monthly_trend(
-    historical_months: Dict[str, Dict[str, float]],
-    current_month: str,
-    current_values: Dict[str, float],
-    config: Optional[dict] = None,
-) -> List[AnomalyResultData]:
-    results = []
-    z_thresh = (config or {}).get("zscore_threshold", 2.5)
-    if len(historical_months) < 2:
-        return results
-    for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
-        current_rate = compute_rate(current_values, num_code, den_code)
-        if current_rate is None:
-            continue
-        historical_rates = []
-        for month, m_values in historical_months.items():
-            if month == current_month:
-                continue
-            rate = compute_rate(m_values, num_code, den_code)
-            if rate is not None:
-                historical_rates.append(rate)
-        if len(historical_rates) < 2:
-            continue
-        mean_h = np.mean(historical_rates)
-        std_h = np.std(historical_rates)
-        if std_h == 0:
-            z = 0.0
-        else:
-            z = (current_rate - mean_h) / std_h
-        is_outlier = abs(z) > z_thresh
-        results.append(
-            AnomalyResultData(
-                indicator_code=num_code,
-                rate_name=f"{rate_name} (trend)",
-                value=round(current_rate, 2),
-                benchmark=round(mean_h, 2),
-                z_score=round(z, 2),
-                is_outlier=is_outlier,
-            )
-        )
-    return results
-
-
 from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+import numpy as np
+
+from .zscore import compute_rate, RATE_DEFINITIONS, AnomalyResultData
 
 
 _TRENDS_CONFIG = {
@@ -170,29 +49,6 @@ class TrendResult:
     consecutive_direction: str
     consecutive_count: int
     findings: List[str]
-
-
-@dataclass
-class HospitalComparison:
-    hospital: str
-    indicator_code: str
-    rate_name: str
-    value: float
-    benchmark: float
-    deviation_pct: float
-    percentile_rank: float
-    comparison_label: str
-
-
-@dataclass
-class HistoricalAnalysisResult:
-    hospital: str
-    months_analyzed: List[str]
-    trends: List[TrendResult]
-    hospital_comparisons: List[HospitalComparison]
-    cross_hospital_anomalies: List[AnomalyResultData]
-    trend_anomalies: List[AnomalyResultData]
-    summary: Dict
 
 
 def _linear_regression(x: List[float], y: List[float]) -> Tuple[float, float, float]:
@@ -347,60 +203,6 @@ def analyze_historical_trends(
     return results
 
 
-def compare_hospitals(
-    all_hospital_data: Dict[str, Dict[str, Dict[str, float]]],
-    month: str,
-) -> List[HospitalComparison]:
-    results = []
-    for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
-        rates = {}
-        for hosp_name, monthly_data in all_hospital_data.items():
-            if month in monthly_data:
-                vals = monthly_data[month]
-                rate = compute_rate(vals, num_code, den_code)
-                if rate is not None:
-                    rates[hosp_name] = rate
-
-        if len(rates) < 2:
-            continue
-
-        rate_vals = list(rates.values())
-        benchmark = float(np.mean(rate_vals))
-
-        sorted_rates = sorted(rate_vals)
-        n = len(sorted_rates)
-
-        for hosp_name, rate in rates.items():
-            rank_idx = sorted_rates.index(rate) if rate in sorted_rates else 0
-            percentile = (rank_idx / (n - 1) * 100) if n > 1 else 50.0
-            deviation = ((rate - benchmark) / benchmark * 100) if benchmark != 0 else 0.0
-
-            if abs(deviation) < 10:
-                label = "normal"
-            elif deviation > 0:
-                label = "above average"
-            else:
-                label = "below average"
-
-            if abs(deviation) > 50:
-                label = "critically " + label
-            elif abs(deviation) > 25:
-                label = "significantly " + label
-
-            results.append(HospitalComparison(
-                hospital=hosp_name,
-                indicator_code=num_code,
-                rate_name=rate_name,
-                value=round(rate, 2),
-                benchmark=round(benchmark, 2),
-                deviation_pct=round(deviation, 2),
-                percentile_rank=round(percentile, 1),
-                comparison_label=label,
-            ))
-
-    return results
-
-
 def detect_trend_anomalies(
     hospital_name: str,
     monthly_data: Dict[str, Dict[str, float]],
@@ -466,7 +268,7 @@ def detect_trend_anomalies(
 
 def generate_historical_summary(
     trends: List[TrendResult],
-    comparisons: List[HospitalComparison],
+    comparisons: List["HospitalComparison"],
     trend_anomalies: List[AnomalyResultData],
     cross_hospital_anomalies: List[AnomalyResultData],
 ) -> Dict:
@@ -492,7 +294,7 @@ def generate_historical_summary(
         "cross_hospital_outliers": cross_outlier_count,
         "hospital_comparison_flags": len(critical_comparisons),
         "key_findings": [
-            *["↑ " + f.finding for t in trends for f in [] if t.findings for f in [t.findings[0]] if t.is_significant][:5],
+            *["\u2191 " + f.finding for t in trends for f in [] if t.findings for f in [t.findings[0]] if t.is_significant][:5],
             *[f"{a.rate_name}: value={a.value}, benchmark={a.benchmark}, z={a.z_score}" for a in trend_anomalies if a.is_outlier][:3],
             *[f"{c.hospital} {c.rate_name}: {c.comparison_label} ({c.deviation_pct:+.1f}%)" for c in critical_comparisons[:3]],
         ],
