@@ -9,7 +9,7 @@ import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
 from app.cache import cache
-from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue, ConfidenceScore
+from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue
 from app.schemas import ReportOut, ReportSummaryOut
 from app.engine.pipeline import run_full_analysis
 
@@ -24,9 +24,15 @@ def list_reports(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
+    from app.api.analysis import get_enabled_months
+    enabled_months = get_enabled_months(db)
     query = db.query(QualityScore)
     if month:
         query = query.filter(QualityScore.month == month)
+    else:
+        # Filter by enabled months when no specific month is requested
+        if enabled_months:
+            query = query.filter(QualityScore.month.in_(enabled_months))
     if source_file:
         file_subs = (
             db.query(IndicatorValue.hospital_id, IndicatorValue.month)
@@ -166,12 +172,7 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
         consistency = qs.consistency
         outlier_penalty = qs.outlier_penalty
         issues = json.loads(qs.issues) if qs.issues else []
-        # Try to read confidence from database
-        cs = db.query(ConfidenceScore).filter(
-            ConfidenceScore.hospital_id == hospital_id,
-            ConfidenceScore.month == month,
-        ).first()
-        confidence = json.loads(cs.confidence_data) if cs and cs.confidence_data else None
+        confidence = None
 
     validation_rows = db.query(ValidationResult).filter(
         ValidationResult.hospital_id == hospital_id,

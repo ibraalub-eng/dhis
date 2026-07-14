@@ -254,3 +254,10 @@ def root():
             "docs": "/docs",
         },
     }
+
+
+@app.get("/favicon.ico")
+def favicon():
+    from fastapi.responses import Response
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="#1a237e"/><text x="16" y="22" text-anchor="middle" fill="white" font-size="16" font-family="sans-serif">H</text></svg>'
+    return Response(content=svg, media_type="image/svg+xml")

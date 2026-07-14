@@ -10,14 +10,25 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/overview")
 def dashboard_overview(hospital_id: int | None = None, month: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
+    from app.api.analysis import get_enabled_months
+    enabled_months = get_enabled_months(db)
+
+    # Filter hospitals by active status
     total_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).count()
-    total_reports = db.query(QualityScore).distinct(
+
+    # Filter reports by enabled months
+    reports_q = db.query(QualityScore).distinct(
         QualityScore.hospital_id, QualityScore.month
-    ).count()
+    )
+    if enabled_months:
+        reports_q = reports_q.filter(QualityScore.month.in_(enabled_months))
+    total_reports = reports_q.count()
 
     q = db.query(func.avg(QualityScore.score))
     if hospital_id:
         q = q.filter(QualityScore.hospital_id == hospital_id)
+    if enabled_months:
+        q = q.filter(QualityScore.month.in_(enabled_months))
     avg_score = round(q.scalar() or 0, 1)
 
     alerts_total = db.query(ValidationResult).filter(
@@ -34,6 +45,9 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
             return {"error": "Invalid year format"}
         trend_conditions.append("qs.month LIKE :year_pattern")
         trend_params["year_pattern"] = f"{year}-%"
+    if enabled_months:
+        trend_conditions.append("qs.month IN :enabled_months")
+        trend_params["enabled_months"] = tuple(enabled_months)
     where_clause = " AND ".join(trend_conditions) if trend_conditions else "1=1"
 
     # quality trend (last 12 months, optionally filtered by year)
@@ -50,7 +64,7 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     )
 
     # hospital comparison
-    comp = db.query(
+    comp_q = db.query(
         Hospital.id,
         Hospital.name,
         func.coalesce(func.avg(QualityScore.score), 0).label("avg_score"),
@@ -59,7 +73,10 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
         QualityScore, QualityScore.hospital_id == Hospital.id
     ).filter(
         Hospital.is_active.is_(True)
-    ).group_by(Hospital.id, Hospital.name).order_by(
+    )
+    if enabled_months:
+        comp_q = comp_q.filter(QualityScore.month.in_(enabled_months))
+    comp = comp_q.group_by(Hospital.id, Hospital.name).order_by(
         func.avg(QualityScore.score).desc().nullslast()
     ).all()
 
@@ -95,6 +112,8 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
         radar_q = radar_q.filter(QualityScore.hospital_id == hospital_id)
     if month:
         radar_q = radar_q.filter(QualityScore.month == month)
+    elif enabled_months:
+        radar_q = radar_q.filter(QualityScore.month.in_(enabled_months))
     if year:
         radar_q = radar_q.filter(QualityScore.month.like(f"{year}-%"))
     radar_row = radar_q.first()
@@ -108,6 +127,8 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
         outlier_q = outlier_q.filter(QualityScore.hospital_id == hospital_id)
     if month:
         outlier_q = outlier_q.filter(QualityScore.month == month)
+    elif enabled_months:
+        outlier_q = outlier_q.filter(QualityScore.month.in_(enabled_months))
     if year:
         outlier_q = outlier_q.filter(QualityScore.month.like(f"{year}-%"))
     outlier_row = outlier_q.first()
