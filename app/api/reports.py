@@ -19,14 +19,17 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 @router.get("/", response_model=List[ReportOut])
 def list_reports(
     month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),
+    hospital_id: Optional[int] = Query(None, description="Filter by hospital ID"),
     source_file: Optional[str] = Query(None, description="Filter by source file name"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
     from app.api.analysis import get_enabled_months
-    enabled_months = get_enabled_months(db)
+    enabled_months = get_enabled_months(db, hospital_id=hospital_id)
     query = db.query(QualityScore)
+    if hospital_id:
+        query = query.filter(QualityScore.hospital_id == hospital_id)
     if month:
         query = query.filter(QualityScore.month == month)
     else:

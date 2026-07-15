@@ -746,28 +746,54 @@
         };
 
         // ── Month Toggle Settings ──────────────────────────────────────────
-        let _monthSettings = {};
+        window._monthSettings = {};
+        window._monthHospitalId = null;
 
         export function loadMonthToggles() {
+            apiGet('/hospitals/').then(hospitals => {
+                const list = hospitals.filter(h => h.is_active !== false);
+                if (list.length === 0) return;
+                window._monthHospitalId = list[0].id;
+                renderMonthHospitalSelector(list);
+                loadMonthTogglesForHospital(list[0].id);
+            }).catch(() => {});
+        }
+
+        function renderMonthHospitalSelector(hospitals) {
+            const container = document.getElementById('monthHospitalSelect');
+            if (!container) return;
+            container.innerHTML = hospitals.map(h =>
+                '<option value="' + h.id + '">' + esc(h.name) + '</option>'
+            ).join('');
+            if (window._monthHospitalId) container.value = window._monthHospitalId;
+        }
+
+        function loadMonthTogglesForHospital(hospitalId) {
+            window._monthHospitalId = hospitalId;
             apiGet('/analysis/months').then(months => {
-                apiGet('/config/month-settings').then(settings => {
+                apiGet('/config/month-settings?hospital_id=' + hospitalId).then(settings => {
                     const enabled = Array.isArray(settings.enabled_months) ? settings.enabled_months : months;
-                    _monthSettings = {};
-                    months.forEach(m => { _monthSettings[m] = enabled.includes(m); });
+                    window._monthSettings = {};
+                    months.forEach(m => { window._monthSettings[m] = enabled.includes(m); });
                     renderMonthToggles(months);
                 }).catch(() => {
-                    _monthSettings = {};
-                    months.forEach(m => { _monthSettings[m] = true; });
+                    window._monthSettings = {};
+                    months.forEach(m => { window._monthSettings[m] = true; });
                     renderMonthToggles(months);
                 });
             }).catch(() => {});
         }
 
+        window.onMonthHospitalChange = function() {
+            const sel = document.getElementById('monthHospitalSelect');
+            if (sel && sel.value) loadMonthTogglesForHospital(parseInt(sel.value));
+        };
+
         function renderMonthToggles(months) {
             const container = document.getElementById('monthToggleList');
             if (!container) return;
             container.innerHTML = months.map(m => {
-                const checked = _monthSettings[m] ? 'checked' : '';
+                const checked = window._monthSettings[m] ? 'checked' : '';
                 return '<label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.6rem;background:#f5f5f5;border-radius:4px;cursor:pointer;font-size:0.82rem;">' +
                     '<input type="checkbox" value="' + m + '" ' + checked + ' onchange="window._monthSettings[\'' + m + '\']=this.checked" style="width:14px;height:14px;">' +
                     '<span>' + m + '</span></label>';
@@ -775,8 +801,8 @@
         }
 
         window.toggleAllAnalysisMonths = function(enabled) {
-            for (const m in _monthSettings) {
-                _monthSettings[m] = enabled;
+            for (const m in window._monthSettings) {
+                window._monthSettings[m] = enabled;
             }
             const container = document.getElementById('monthToggleList');
             if (container) {
@@ -785,15 +811,20 @@
         };
 
         window.saveAllMonthSettings = function() {
+            const hospitalId = window._monthHospitalId;
+            if (!hospitalId) {
+                const status = document.getElementById('monthSaveStatus');
+                if (status) { status.textContent = '\u2717 No hospital selected'; status.style.color = '#c62828'; }
+                return;
+            }
             const status = document.getElementById('monthSaveStatus');
             if (status) { status.textContent = 'Saving...'; status.style.color = '#1565c0'; }
             const promises = [];
-            for (const m in _monthSettings) {
-                promises.push(apiPut('/config/month-settings', { month: m, enabled: _monthSettings[m] }));
+            for (const m in window._monthSettings) {
+                promises.push(apiPut('/config/month-settings', { month: m, enabled: window._monthSettings[m], hospital_id: hospitalId }));
             }
             Promise.all(promises).then(() => {
                 if (status) { status.textContent = '\u2713 Saved'; status.style.color = '#2e7d32'; }
-                // Refresh cached data
                 if (typeof loadDashboard === 'function') loadDashboard();
             }).catch(e => {
                 if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }

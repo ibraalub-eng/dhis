@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AppConfig, SystemSetting
@@ -98,15 +98,19 @@ def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
 
 
 @router.get("/month-settings")
-def get_month_settings(db: Session = Depends(get_db)):
-    """Get list of enabled months for analysis."""
+def get_month_settings(
+    hospital_id: int = Query(..., description="Hospital ID"),
+    db: Session = Depends(get_db),
+):
+    """Get list of enabled months for a specific hospital."""
     from app.api.analysis import list_months_with_data
     all_months = list_months_with_data(db)
+    prefix = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_"
     rows = db.query(SystemSetting).filter(
-        SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
+        SystemSetting.key.like(prefix + "%")
     ).all()
     disabled = {
-        row.key[len(MONTH_SETTINGS_PREFIX):]
+        row.key[len(prefix):]
         for row in rows
         if row.value == "false"
     }
@@ -116,12 +120,13 @@ def get_month_settings(db: Session = Depends(get_db)):
 
 @router.put("/month-settings")
 def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db)):
-    """Enable or disable a specific month for analysis."""
+    """Enable or disable a specific month for a specific hospital."""
     month = updates.get("month")
+    hospital_id = updates.get("hospital_id")
     enabled = updates.get("enabled", True)
-    if not month:
-        raise HTTPException(status_code=400, detail="month is required")
-    key = MONTH_SETTINGS_PREFIX + month
+    if not month or hospital_id is None:
+        raise HTTPException(status_code=400, detail="month and hospital_id are required")
+    key = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_" + month
     val = "true" if enabled else "false"
     row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
     if row:
@@ -129,7 +134,7 @@ def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db
     else:
         db.add(SystemSetting(key=key, value=val))
     db.commit()
-    return {"status": "ok", "month": month, "enabled": enabled}
+    return {"status": "ok", "month": month, "hospital_id": hospital_id, "enabled": enabled}
 
 
 @router.get("/")

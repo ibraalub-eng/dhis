@@ -408,15 +408,20 @@ def list_months_with_data(db: Session = Depends(get_db)):
     return result
 
 
-def get_enabled_months(db: Session) -> list:
+def get_enabled_months(db: Session, hospital_id: int = None) -> list:
     """Get list of months enabled for analysis (filters out disabled months)."""
     from app.models import SystemSetting
+    from app.api.config_api import MONTH_SETTINGS_PREFIX
     all_months = list_months_with_data(db)
+    if hospital_id is not None:
+        prefix = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_"
+    else:
+        prefix = MONTH_SETTINGS_PREFIX
     rows = db.query(SystemSetting).filter(
-        SystemSetting.key.like("month_enabled_%")
+        SystemSetting.key.like(prefix + "%")
     ).all()
     disabled = {
-        row.key[len("month_enabled_"):]: True
+        row.key[len(prefix):]
         for row in rows
         if row.value == "false"
     }
@@ -430,19 +435,23 @@ def reanalyze_all(
     db: Session = Depends(get_db),
 ):
     hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
-    months = get_enabled_months(db)
     task_id = create_task("Re-analyze All", lambda: None)
 
-    def _run(tid, hosp_list, month_list, frc):
+    def _run(tid, hosp_list, frc):
         bg_db = SessionLocal()
         try:
             total = 0
             skipped = 0
             errors = []
-            total_work = len(hosp_list) * len(month_list)
+            # Calculate total work across all hospitals with their enabled months
+            total_work = 0
+            for h in hosp_list:
+                h_months = get_enabled_months(bg_db, hospital_id=h.id)
+                total_work += len(h_months)
             done = 0
             for h in hosp_list:
-                for m in month_list:
+                h_months = get_enabled_months(bg_db, hospital_id=h.id)
+                for m in h_months:
                     try:
                         from app.engine.pipeline import check_analysis_exists
                         if not frc and check_analysis_exists(bg_db, h.id, m):
@@ -454,7 +463,7 @@ def reanalyze_all(
                         errors.append(f"H{h.id}/{m}: {e}")
                     done += 1
                     from app.tasks import set_progress
-                    set_progress(tid, int(done / total_work * 100))
+                    set_progress(tid, int(done / total_work * 100) if total_work > 0 else 0)
             # Clear cache after re-analysis so fresh data is served
             cache.invalidate()
             from app.tasks import set_status
@@ -463,9 +472,9 @@ def reanalyze_all(
             bg_db.close()
 
     if background_tasks is not None:
-        background_tasks.add_task(run_task, task_id, _run, task_id, hospitals, months, force)
+        background_tasks.add_task(run_task, task_id, _run, task_id, hospitals, force)
     else:
-        threading.Thread(target=run_task, args=(task_id, _run, task_id, hospitals, months, force), daemon=True).start()
+        threading.Thread(target=run_task, args=(task_id, _run, task_id, hospitals, force), daemon=True).start()
 
     return {
         "task_id": task_id,
