@@ -9,6 +9,7 @@
                 trends: [['trendHospitalSelect','lastTrendHospital']],
                 comparison: [['compareHospital1','lastCompareH1'],['compareHospital2','lastCompareH2'],['compareMonthSelect','lastCompareMonth']],
                 clinical: [['clinicalHospitalSelect','lastClinHospital'],['clinicalMonthSelect','lastClinMonth']],
+                audit: [['auditHospitalSelect','lastAuditHospital'],['auditMonthSelect','lastAuditMonth']],
                 'indicator-tree': [['treeHospitalSelect','lastTreeHospital'],['treeMonthSelect','lastTreeMonth']],
             };
             const map = mappings[activeTab] || [];
@@ -26,6 +27,7 @@
                 trends: [['trendHospitalSelect','lastTrendHospital']],
                 comparison: [['compareHospital1','lastCompareH1'],['compareHospital2','lastCompareH2'],['compareMonthSelect','lastCompareMonth']],
                 clinical: [['clinicalHospitalSelect','lastClinHospital'],['clinicalMonthSelect','lastClinMonth']],
+                audit: [['auditHospitalSelect','lastAuditHospital'],['auditMonthSelect','lastAuditMonth']],
                 'indicator-tree': [['treeHospitalSelect','lastTreeHospital'],['treeMonthSelect','lastTreeMonth']],
             };
             const map = mappings[tab] || [];
@@ -93,6 +95,7 @@
             if (name === 'ai-reports') { if (!window.restoreReportData()) window.populateReportMonthSelect(); }
             if (name === 'indicator-tree') window.initIndicatorTree();
             if (name === 'rules-manager') window.loadRulesManager();
+            if (name === 'audit') window.initAudit();
         }
 
         document.querySelectorAll('.tab').forEach(tab => {

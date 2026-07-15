@@ -10,6 +10,7 @@ import { initTrends, initCompare, filterComparison, loadClinical, initClinical, 
 import { populateReportMonthSelect, generateReport, restoreReportData, applyReportFilter, showReportDetail, showRuleFailureDetail, showModal, closeModal } from './clinical.js';
 import { expandAllTree, collapseAllTree, initIndicatorTree, loadIndicatorTree, reanalyzeHospital, saveTreeConfig, setStatus, esc } from './tree.js';
 import { loadIndicators, _vbDragStart, _vbDragOver, _vbDragEnter, _vbDragLeave, _vbDrop, _vbRemoveFromZone, _vbOnPaletteSearch, _vbOnThresholdChange, _vbOnZThresholdChange, _vbOnFactorChange, ruleExprTemplate, toggleExprHelp, openRuleModal, closeRuleModal, saveRule, deleteRule } from './rules.js';
+import { initAudit, loadAudit, downloadAuditJSON, downloadAuditCSV } from './audit.js';
 
 // Attach to window for onclick backward compatibility
 window.API = API;
@@ -96,6 +97,10 @@ window._vbOnPaletteSearch = _vbOnPaletteSearch;
 window._vbOnThresholdChange = _vbOnThresholdChange;
 window._vbOnZThresholdChange = _vbOnZThresholdChange;
 window._vbOnFactorChange = _vbOnFactorChange;
+window.initAudit = initAudit;
+window.loadAudit = loadAudit;
+window.downloadAuditJSON = downloadAuditJSON;
+window.downloadAuditCSV = downloadAuditCSV;
 
 // Bootstrap
 document.addEventListener('DOMContentLoaded', () => {
