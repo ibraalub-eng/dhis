@@ -63,6 +63,7 @@ window.initTrends = initTrends;
 window.initCompare = initCompare;
 window.filterComparison = filterComparison;
 window.loadClinical = loadClinical;
+window.initClinical = initClinical;
 window.loadTrends = loadTrends;
 window.loadComparison = loadComparison;
 window.generateReport = generateReport;

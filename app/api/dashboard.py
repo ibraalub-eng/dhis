@@ -11,7 +11,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 @router.get("/overview")
 def dashboard_overview(hospital_id: int | None = None, month: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
     from app.api.analysis import get_enabled_months
-    enabled_months = get_enabled_months(db)
+    enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
     # Filter hospitals by active status
     total_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).count()
@@ -46,8 +46,10 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
         trend_conditions.append("qs.month LIKE :year_pattern")
         trend_params["year_pattern"] = f"{year}-%"
     if enabled_months:
-        trend_conditions.append("qs.month IN :enabled_months")
-        trend_params["enabled_months"] = tuple(enabled_months)
+        placeholders = ", ".join([f":m{i}" for i in range(len(enabled_months))])
+        trend_conditions.append(f"qs.month IN ({placeholders})")
+        for i, m in enumerate(enabled_months):
+            trend_params[f"m{i}"] = m
     where_clause = " AND ".join(trend_conditions) if trend_conditions else "1=1"
 
     # quality trend (last 12 months, optionally filtered by year)

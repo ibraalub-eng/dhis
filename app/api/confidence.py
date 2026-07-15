@@ -200,7 +200,6 @@ def get_confidence_weights(db: Session = Depends(get_db)):
         "cross_hospital": cw.cross_hospital,
         "trend": cw.trend,
         "completeness": cw.completeness,
-        "updated_at": cw.updated_at.isoformat() if cw.updated_at else None,
     }
 
 
