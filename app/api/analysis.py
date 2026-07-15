@@ -302,12 +302,16 @@ def list_outliers(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    cache_key = cache.make_key("analysis:outliers", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
+    cache_key = cache.make_key("analysis:outliers_v2", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
 
     query = db.query(AnomalyResult).options(selectinload(AnomalyResult.hospital)).join(Hospital, AnomalyResult.hospital_id == Hospital.id).filter(AnomalyResult.is_outlier, Hospital.is_active.is_(True))
+    if hospital_id:
+        enabled_months = get_enabled_months(db, hospital_id=hospital_id)
+        if enabled_months:
+            query = query.filter(AnomalyResult.month.in_(enabled_months))
     if month:
         query = query.filter(AnomalyResult.month == month)
     if hospital_id:
@@ -347,12 +351,16 @@ def list_rule_failures(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    cache_key = cache.make_key("analysis:rule-failures", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, skip=skip, limit=limit)
+    cache_key = cache.make_key("analysis:rule-failures_v2", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
 
     query = db.query(ValidationResult).options(selectinload(ValidationResult.hospital)).join(Hospital, ValidationResult.hospital_id == Hospital.id).filter(ValidationResult.status == "FAIL", Hospital.is_active.is_(True))
+    if hospital_id:
+        enabled_months = get_enabled_months(db, hospital_id=hospital_id)
+        if enabled_months:
+            query = query.filter(ValidationResult.month.in_(enabled_months))
     if month:
         query = query.filter(ValidationResult.month == month)
     if hospital_id:
@@ -505,33 +513,52 @@ def analysis_cache_status(db: Session = Depends(get_db)):
 
 @router.get("/heatmap")
 def heatmap_data(month: str = Query(None), db: Session = Depends(get_db)):
-    cache_key = cache.make_key("analysis:heatmap", month=month)
+    cache_key = cache.make_key("analysis:heatmap_v2", month=month)
     cached = cache.get(cache_key)
     if cached:
         return cached
 
     q = db.query(
-        Hospital.name.label("hospital"),
+        QualityScore.hospital_id,
         QualityScore.month,
         QualityScore.score,
-    ).join(Hospital, QualityScore.hospital_id == Hospital.id).filter(Hospital.is_active.is_(True))
+    )
     if month:
         q = q.filter(QualityScore.month == month)
-    rows = q.order_by(Hospital.name, QualityScore.month).all()
+    rows = q.all()
 
-    hospitals = sorted(set(r.hospital for r in rows))
+    # Get hospital names and active status
+    hosp_map = {h.id: h for h in db.query(Hospital).all()}
+    active_ids = {h.id for h in hosp_map.values() if h.is_active}
+
+    # Get enabled months per hospital
+    from app.api.analysis import get_enabled_months
+    enabled_by_hid: dict = {}
+    for hid in set(r.hospital_id for r in rows):
+        if hid in active_ids:
+            enabled_by_hid[hid] = set(get_enabled_months(db, hospital_id=hid))
+
+    hospitals = sorted([h.name for h in hosp_map.values() if h.is_active])
     months = sorted(set(r.month for r in rows))
 
-    matrix = {}
+    matrix: dict = {}
     for r in rows:
-        key = f"{r.hospital}||{r.month}"
+        key = f"{r.hospital_id}||{r.month}"
         matrix[key] = round(float(r.score), 1)
 
     data = []
-    for h in hospitals:
-        row = {"hospital": h}
+    for hid, hname in sorted([(h.id, h.name) for h in hosp_map.values() if h.is_active]):
+        row = {"hospital": hname}
         for m in months:
-            row[m] = matrix.get(f"{h}||{m}", None)
+            key = f"{hid}||{m}"
+            if key in matrix:
+                enabled_set = enabled_by_hid.get(hid)
+                if enabled_set is not None and m not in enabled_set:
+                    row[m] = None  # Disabled month → show as "--"
+                else:
+                    row[m] = matrix[key]
+            else:
+                row[m] = None
         data.append(row)
 
     result = {"hospitals": hospitals, "months": months, "data": data}
@@ -608,8 +635,14 @@ def generate_report(
     reports = []
     errors = []
 
+    enabled_cache = {}
+    for h in hospitals:
+        h_enabled = get_enabled_months(db, hospital_id=h.id)
+        enabled_cache[h.id] = set(h_enabled)
     for h in hospitals:
         for m in months_list:
+            if m not in enabled_cache.get(h.id, set()):
+                continue
             try:
                 vals = values_by_key.get((h.id, m))
                 if not vals:

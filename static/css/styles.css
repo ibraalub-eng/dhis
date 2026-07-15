@@ -82,6 +82,8 @@ tbody tr { transition: background 0.12s; }
 .reports-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
 .report-card { background: white; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); padding: 1.1rem; cursor: pointer; transition: all 0.2s; border:1px solid transparent; border-top:3px solid #e0e0e0; }
 .report-card:hover { box-shadow: 0 6px 20px rgba(0,0,0,0.08); transform:translateY(-2px); border-color:#e8eaf6; }
+.report-card.disabled { border-top-color:#e0e0e0; cursor:default; }
+.report-card.disabled:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.06); transform:none; border-color:transparent; }
 .report-card.good { border-top-color:#4caf50; }
 .report-card.medium { border-top-color:#ff9800; }
 .report-card.poor { border-top-color:#f44336; }

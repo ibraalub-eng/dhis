@@ -5,20 +5,61 @@
         import { renderClinical } from './validation.js';
 
         // ── AI Reports ──────────────────────────────────────────
-        export function populateReportMonthSelect() {
+        let _reportHospitals = [];
+
+        function _populateReportMonthSelect(months) {
             const mSel = document.getElementById('reportMonthSelect');
+            const currentVal = mSel.value;
+            mSel.innerHTML = '<option value="">All Months</option>' + (months || []).map(m => '<option value="' + m + '">' + m + '</option>').join('');
+            if (currentVal && months.includes(currentVal)) mSel.value = currentVal;
+        }
+
+        export function onReportHospitalChange() {
             const hSel = document.getElementById('reportHospitalSelect');
-            if (mSel.options.length > 1 && hSel.options.length > 1) return;
-            Promise.all([
+            const opt = hSel.options[hSel.selectedIndex];
+            const hid = opt ? opt.getAttribute('data-id') : null;
+            if (hid) {
+                fetch(API() + '/config/month-settings?hospital_id=' + hid)
+                    .then(r => r.json())
+                    .then(data => {
+                        _populateReportMonthSelect(data.enabled_months || []);
+                    }).catch(() => {});
+            } else {
                 fetch(API() + '/analysis/months').then(r => r.json()).then(data => {
                     const months = data.months || data || [];
-                    mSel.innerHTML = '<option value="">All Months</option>' + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-                }).catch(() => {}),
-                apiGet('/hospitals/').then(data => {
-                    const list = data.value || data || [];
-                    hSel.innerHTML = '<option value="">All Hospitals</option>' + list.map(h => '<option value="' + h.name + '">' + h.name + '</option>').join('');
-                }).catch(() => {}),
-            ]);
+                    _populateReportMonthSelect(months);
+                }).catch(() => {});
+            }
+            applyReportFilter();
+        }
+
+        function _loadReportHospitals() {
+            const hSel = document.getElementById('reportHospitalSelect');
+            apiGet('/hospitals/').then(data => {
+                const list = data.value || data || [];
+                _reportHospitals = list;
+                const currentVal = hSel.value;
+                if (hSel.options.length <= 1) {
+                    hSel.innerHTML = '<option value="">All Hospitals</option>' + list.map(h => '<option value="' + h.name + '" data-id="' + h.id + '">' + h.name + '</option>').join('');
+                } else {
+                    list.forEach(h => {
+                        const opt = Array.from(hSel.options).find(o => o.value === h.name);
+                        if (opt) opt.setAttribute('data-id', h.id);
+                    });
+                }
+                if (currentVal && list.some(h => h.name === currentVal)) hSel.value = currentVal;
+            }).catch(() => {});
+        }
+
+        export function populateReportMonthSelect() {
+            const mSel = document.getElementById('reportMonthSelect');
+            if (mSel.options.length <= 1) {
+                fetch(API() + '/analysis/months').then(r => r.json()).then(data => {
+                    const months = data.months || data || [];
+                    _populateReportMonthSelect(months);
+                }).catch(() => {});
+            }
+            _loadReportHospitals();
         }
 
         export function generateReport() {
@@ -64,6 +105,15 @@
 
         function renderReport(data) {
             _reportData = data;
+            if (data.hospitals && typeof data.hospitals[0] === 'string') {
+                data.hospitals = data.hospitals.map(h => {
+                    if (typeof h === 'string') {
+                        const found = _reportHospitals.find(x => x.name === h);
+                        return found || { name: h };
+                    }
+                    return h;
+                });
+            }
             try { localStorage.setItem('ai_report_data', JSON.stringify(data)); } catch(e) {}
             const container = document.getElementById('reportResults');
             if (!data.reports || !data.reports.length) {
@@ -87,15 +137,43 @@
                 if (saved) {
                     const data = JSON.parse(saved);
                     if (data && data.reports && data.reports.length) {
-                        _reportData = data;
-                        document.getElementById('reportMonthSelect').innerHTML = '<option value="">' + __('All Months') + '</option>' + (data.months || []).map(m => '<option value="' + m + '">' + m + '</option>').join('');
-                        document.getElementById('reportHospitalSelect').innerHTML = '<option value="">' + __('All Hospitals') + '</option>' + (data.hospitals || []).map(h => '<option value="' + h + '">' + h + '</option>').join('');
-                        renderReport(data);
-                        return true;
+                _reportData = data;
+                _populateReportMonthSelect(data.months || []);
+                const hlist = data.hospitals || [];
+                document.getElementById('reportHospitalSelect').innerHTML = '<option value="">' + __('All Hospitals') + '</option>' + hlist.map(h => {
+                    const name = typeof h === 'string' ? h : h.name;
+                    const id = typeof h === 'object' ? h.id : null;
+                    return '<option value="' + name + '"' + (id ? ' data-id="' + id + '"' : '') + '>' + name + '</option>';
+                }).join('');
+                _loadReportHospitals();
+                renderReport(data);
+                return true;
                     }
                 }
             } catch(e) {}
             return false;
+        }
+
+        function _riskColor(level) {
+            if (!level) return '#888';
+            const l = level.toLowerCase();
+            if (l === 'critical') return '#b71c1c';
+            if (l === 'high') return '#c62828';
+            if (l === 'moderate') return '#e65100';
+            if (l === 'low') return '#2e7d32';
+            return '#888';
+        }
+
+        function _scoreBadge(score) {
+            if (!score) return '';
+            const g = score === 'Good' || score === 'جيد';
+            const m = score === 'Needs Improvement' || score === __('Needs Improvement');
+            const c = g ? '#2e7d32' : m ? '#e65100' : '#c62828';
+            return '<span style="display:inline-block;font-size:0.72rem;font-weight:600;color:#fff;background:' + c + ';padding:0.1rem 0.5rem;border-radius:10px;">' + esc(score) + '</span>';
+        }
+
+        function _pill(label, value, color) {
+            return '<span style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;background:' + color + '11;border:1px solid ' + color + '44;border-radius:4px;padding:0.1rem 0.45rem;"><strong style="color:' + color + ';">' + esc(value) + '</strong><span style="color:' + color + '88;">' + esc(label) + '</span></span>';
         }
 
         export function applyReportFilter() {
@@ -136,38 +214,140 @@
             Object.keys(byHospital).sort().forEach(hospital => {
                 const reports = byHospital[hospital];
                 html += '<div class="card" style="margin-bottom:0.8rem;padding:0.6rem 0.8rem;">';
-                html += '<h3 style="margin:0 0 0.3rem 0;color:#1a237e;font-size:0.95rem;">' + esc(hospital) + ' <span style="font-weight:400;font-size:0.78rem;color:#888;">(' + reports.length + ')</span></h3>';
+                html += '<h3 style="margin:0 0 0.5rem 0;color:#1a237e;font-size:0.95rem;">' + esc(hospital) + ' <span style="font-weight:400;font-size:0.78rem;color:#888;">(' + reports.length + ')</span></h3>';
 
                 reports.sort((a, b) => a.month.localeCompare(b.month)).forEach(r => {
                     const s = r.summary || {};
                     const score = s.overall_assessment || '';
-                    const scoreIsGood = score === 'Good' || score === 'جيد';
-                    const scoreIsMixed = score === __('Needs Improvement') || score === 'Needs Improvement';
-                    const scoreColor = scoreIsGood ? '#2e7d32' : scoreIsMixed ? '#e65100' : '#c62828';
+                    const rp = r.risk_profile || {};
+                    const mp = r.morbidity_profile || {};
+                    const recs = r.recommendations || [];
+                    const cls = r.classifications || [];
 
-                    html += '<div style="margin:0.4rem 0;padding:0.5rem 0.6rem;background:#fafafa;border-left:3px solid ' + scoreColor + ';border-radius:3px;">';
-                    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.3rem;">';
-                    html += '<strong style="font-size:0.82rem;">' + r.month + '</strong>';
-                    if (score) html += '<span style="font-size:0.78rem;color:' + scoreColor + ';font-weight:600;">' + score + '</span>';
+                    const deliveries = rp.total_deliveries || mp.total_deliveries || 0;
+                    const csRate = cls.find(c => c.indicator_code === 'rate_cs');
+                    const mmrRate = cls.find(c => c.indicator_code === 'rate_mmr');
+                    const smmRate = cls.find(c => c.indicator_code === 'rate_smm');
+                    const nmrRate = cls.find(c => c.indicator_code === 'rate_nmr');
+
+                    html += '<div style="margin:0.4rem 0;padding:0.6rem 0.7rem;background:#fafafa;border-left:3px solid ' + _riskColor(rp.overall_risk_level) + ';border-radius:4px;">';
+
+                    // ── Header row: month + score + risk + deliveries ──
+                    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.3rem;">';
+                    html += '<div style="display:flex;align-items:center;gap:0.5rem;">';
+                    html += '<strong style="font-size:0.85rem;">' + r.month + '</strong>';
+                    html += _scoreBadge(score);
+                    if (rp.overall_risk_level) {
+                        html += '<span style="font-size:0.72rem;color:' + _riskColor(rp.overall_risk_level) + ';font-weight:600;">Risk: ' + rp.overall_risk_level + '</span>';
+                    }
+                    html += '</div>';
+                    html += '<span style="font-size:0.72rem;color:#888;">Deliveries: ' + deliveries + '</span>';
                     html += '</div>';
 
+                    // ── Key indicator pills ──
+                    let pills = '';
+                    if (csRate) pills += _pill('CS Rate', (csRate.value != null ? Number(csRate.value).toFixed(1) : '--') + csRate.unit.replace('%',''), csRate.color);
+                    if (mmrRate) pills += _pill('MMR', (mmrRate.value != null ? Number(mmrRate.value).toFixed(0) : '--'), mmrRate.color);
+                    if (smmRate) pills += _pill('SMM Rate', (smmRate.value != null ? Number(smmRate.value).toFixed(1) : '--') + '%', smmRate.color);
+                    if (nmrRate) pills += _pill('NMR', (nmrRate.value != null ? Number(nmrRate.value).toFixed(1) : '--'), nmrRate.color);
+                    html += '<div style="display:flex;gap:0.3rem;flex-wrap:wrap;margin-bottom:0.3rem;">' + pills + '</div>';
+
+                    // ── Key findings ──
                     if (s.key_findings && s.key_findings.length) {
-                        html += '<ul style="font-size:0.75rem;margin:0.2rem 0;padding-left:1.1rem;color:#555;">';
-                        s.key_findings.slice(0, 2).forEach(f => { html += '<li>' + esc(f) + '</li>'; });
-                        html += '</ul>';
-                    }
-
-                    const rp = r.risk_profile || {};
-                    if (rp.overall_risk_level) {
-                        const c = rp.overall_risk_level === __('Critical') || rp.overall_risk_level === 'Critical' ? '#b71c1c' : rp.overall_risk_level === 'High' ? '#c62828' : rp.overall_risk_level === __('Moderate') || rp.overall_risk_level === 'Moderate' ? '#e65100' : '#2e7d32';
-                        html += '<span style="font-size:0.72rem;">' + __('Risk') + ': <strong style="color:' + c + ';">' + rp.overall_risk_level + '</strong></span>';
-                    }
-
-                    if (s.executive_summary) {
-                        html += '<div style="margin-top:0.4rem;padding:0.5rem 0.6rem;background:#f3e5f5;border-left:3px solid #7b1fa2;border-radius:4px;font-size:0.75rem;color:#4a148c;line-height:1.5;">';
-                        html += '<div style="font-weight:600;font-size:0.82rem;color:#6a1b9a;margin-bottom:0.3rem;">' + __('AI Assessment') + '</div>';
-                        html += esc(s.executive_summary).replace(/\n/g,'<br>');
+                        html += '<div style="margin:0.2rem 0;">';
+                        s.key_findings.forEach(f => {
+                            html += '<div style="font-size:0.74rem;color:#555;padding:0.05rem 0;padding-left:0.6rem;">▸ ' + esc(f) + '</div>';
+                        });
                         html += '</div>';
+                    }
+
+                    // ── Clinical indicators ──
+                    if (s.clinical_indicators && s.clinical_indicators.length) {
+                        html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
+                        html += '<summary style="cursor:pointer;color:#1a237e;font-weight:600;font-size:0.76rem;">Clinical Indicators</summary>';
+                        s.clinical_indicators.forEach(ci => {
+                            html += '<div style="padding:0.05rem 0;padding-left:0.6rem;color:#555;">▸ ' + esc(ci) + '</div>';
+                        });
+                        html += '</details>';
+                    }
+
+                    // ── Risk profile metrics (critical/high only) ──
+                    if (rp.metrics && rp.metrics.length) {
+                        const bad = rp.metrics.filter(m => m.severity === 'critical' || m.severity === 'high');
+                        if (bad.length) {
+                            html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
+                            html += '<summary style="cursor:pointer;color:' + _riskColor('critical') + ';font-weight:600;font-size:0.76rem;">Risk Metrics (' + bad.length + ' critical/high)</summary>';
+                            bad.forEach(m => {
+                                const sevColor = _riskColor(m.severity);
+                                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.1rem 0.6rem;background:' + sevColor + '08;border-left:2px solid ' + sevColor + ';margin:0.15rem 0;border-radius:2px;">';
+                                html += '<span style="color:#333;">' + esc(m.metric_name) + ': <strong>' + (m.value != null ? Number(m.value).toFixed(1) : '--') + m.unit + '</strong></span>';
+                                html += '<span style="font-size:0.7rem;color:' + sevColor + ';font-weight:600;">' + m.severity + '</span>';
+                                html += '</div>';
+                            });
+                            html += '</details>';
+                        }
+                    }
+
+                    // ── Morbidity profile key data ──
+                    if (mp.maternal_deaths > 0 || mp.mortality_preventability_signals?.length) {
+                        html += '<div style="margin:0.2rem 0;padding:0.2rem 0.5rem;background:#b71c1c08;border-left:2px solid #b71c1c;border-radius:2px;font-size:0.74rem;">';
+                        if (mp.maternal_deaths > 0) {
+                            html += '<div style="font-weight:600;color:#b71c1c;">Maternal Deaths: ' + mp.maternal_deaths + '</div>';
+                        }
+                        if (mp.mortality_preventability_signals?.length) {
+                            mp.mortality_preventability_signals.forEach(sig => {
+                                html += '<div style="color:#555;padding:0.05rem 0;">⚠ ' + esc(sig) + '</div>';
+                            });
+                        }
+                        html += '</div>';
+                    }
+
+                    // ── Recommendations ──
+                    if (recs.length) {
+                        html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
+                        html += '<summary style="cursor:pointer;color:#1a237e;font-weight:600;font-size:0.76rem;">Recommendations (' + recs.length + ')</summary>';
+                        recs.forEach(rec => {
+                            const pColor = _riskColor(rec.priority);
+                            html += '<div style="margin:0.2rem 0;padding:0.3rem 0.5rem;background:' + pColor + '06;border-left:2px solid ' + pColor + ';border-radius:2px;">';
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.3rem;">';
+                            html += '<strong style="font-size:0.74rem;color:#333;">' + esc(rec.title) + '</strong>';
+                            html += '<span style="font-size:0.65rem;font-weight:600;color:' + pColor + ';text-transform:uppercase;">' + rec.priority + '</span>';
+                            html += '</div>';
+                            if (rec.description) {
+                                html += '<div style="font-size:0.72rem;color:#555;margin:0.1rem 0;">' + esc(rec.description) + '</div>';
+                            }
+                            if (rec.action_items?.length) {
+                                html += '<div style="font-size:0.7rem;color:#666;padding:0.1rem 0;">Actions: ' + esc(rec.action_items.join('; ')) + '</div>';
+                            }
+                            if (rec.data_reliable === false) {
+                                html += '<span style="font-size:0.65rem;color:#c62828;">⚠ Data may be unreliable</span>';
+                            }
+                            html += '</div>';
+                        });
+                        html += '</details>';
+                    }
+
+                    // ── Overview / risk assessment text ──
+                    if (s.risk_assessment || s.morbidity_assessment) {
+                        html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
+                        html += '<summary style="cursor:pointer;color:#1a237e;font-weight:600;font-size:0.76rem;">Assessments</summary>';
+                        if (s.overview) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#e8eaf608;border-radius:2px;">' + esc(s.overview) + '</div>';
+                        if (s.risk_assessment) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fff3e008;border-left:2px solid #e65100;border-radius:2px;">' + esc(s.risk_assessment) + '</div>';
+                        if (s.morbidity_assessment) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fce4ec08;border-left:2px solid #c62828;border-radius:2px;">' + esc(s.morbidity_assessment) + '</div>';
+                        html += '</details>';
+                    }
+
+                    // ── All classification details ──
+                    if (cls.length) {
+                        html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
+                        html += '<summary style="cursor:pointer;color:#555;font-size:0.74rem;">All Classifications (' + cls.length + ' indicators)</summary>';
+                        cls.forEach(c => {
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.1rem 0.5rem;border-bottom:1px solid #eee;">';
+                            html += '<span style="color:#333;">' + esc(c.rate_name) + '</span>';
+                            html += '<span><span style="color:' + c.color + ';font-weight:600;">' + (c.value != null ? Number(c.value).toFixed(1) : '--') + '</span> <span style="font-size:0.7rem;color:' + c.color + ';">' + esc(c.label) + '</span></span>';
+                            html += '</div>';
+                        });
+                        html += '</details>';
                     }
 
                     html += '</div>';

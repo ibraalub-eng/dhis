@@ -219,6 +219,7 @@ class ReportOut(BaseModel):
     issues: List[str]
     outliers: List[dict]
     confidence: Optional[ConfidenceSummaryOut] = None
+    is_enabled: bool = True
 
 
 class ReportSummaryOut(BaseModel):

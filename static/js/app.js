@@ -1,4 +1,4 @@
-import { API, apiGet, apiPost, apiPut, uploadedData } from './api.js';
+import { API, apiGet, apiPost, apiPut, uploadedData, clearApiCache } from './api.js';
 import { toggleLang, applyLang, __, translateDOM, currentLang } from './i18n.js';
 import { _saveUIState, _restoreUIState, showLoader, hideLoader, SwitchTab, switchTab, _tabInited } from './main.js';
 import { confirmImport, cancelPreview, displayResults, filterPriorityTable, filterQualityReports, rerenderVal, rerenderAnom, loadQualityReports, showDetail } from './upload.js';
@@ -17,6 +17,7 @@ window.uploadedData = uploadedData;
 window.apiGet = apiGet;
 window.apiPost = apiPost;
 window.apiPut = apiPut;
+window.clearApiCache = clearApiCache;
 window.toggleLang = toggleLang;
 window.__ = __;
 window.translateDOM = translateDOM;

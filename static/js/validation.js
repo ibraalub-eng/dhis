@@ -305,6 +305,26 @@
             }
         }
 
+        window.onClinicalHospitalChange = async function() {
+            const hsel = document.getElementById('clinicalHospitalSelect');
+            const msel = document.getElementById('clinicalMonthSelect');
+            const hid = hsel.value;
+            const phM = '<option value="">' + __('Select Month') + '</option>';
+            if (!hid) {
+                msel.innerHTML = phM;
+                document.getElementById('clinicalResults').innerHTML = '<div class="card" style="text-align:center;padding:2rem 1.5rem;color:#888;"><div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128202;</div><p style="margin:0;font-size:0.85rem;">Select a hospital and month, then click Analyze.</p></div>';
+                return;
+            }
+            try {
+                const settings = await apiGet('/config/month-settings?hospital_id=' + hid);
+                const enabled = settings.enabled_months || [];
+                msel.innerHTML = phM + enabled.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                if (msel.value) loadClinical();
+            } catch {
+                msel.innerHTML = phM;
+            }
+        };
+
         export function initClinical() {
             const hsel = document.getElementById('clinicalHospitalSelect');
             const msel = document.getElementById('clinicalMonthSelect');
@@ -312,18 +332,22 @@
             const phM = '<option value="">' + __('Select Month') + '</option>';
             hsel.innerHTML = phH;
             msel.innerHTML = phM;
-            Promise.all([
-                apiGet('/hospitals/').then(data => {
-                    const list = data.value || data || [];
-                    hsel.innerHTML = phH + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
-                }),
-                apiGet('/analysis/months').then(months => {
-                    msel.innerHTML = phM + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-                }),
-            ]).then(() => {
+            apiGet('/hospitals/').then(data => {
+                const list = data.value || data || [];
+                hsel.innerHTML = phH + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
+                _restoreUIState('clinical');
+                if (hsel.value) {
+                    // Filter months for restored hospital
+                    return apiGet('/config/month-settings?hospital_id=' + hsel.value).then(settings => {
+                        const enabled = settings.enabled_months || [];
+                        msel.innerHTML = phM + enabled.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                        if (hsel.value && msel.value) loadClinical();
+                    });
+                }
+            }).catch(() => {
                 _restoreUIState('clinical');
                 if (hsel.value && msel.value) loadClinical();
-            }).catch(() => {});
+            });
         }
 
         function _badgeHtml(color, text) {

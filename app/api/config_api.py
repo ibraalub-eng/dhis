@@ -55,6 +55,46 @@ def get_all_config(db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/month-settings")
+def get_month_settings(
+    hospital_id: int = Query(..., description="Hospital ID"),
+    db: Session = Depends(get_db),
+):
+    """Get list of enabled months for a specific hospital."""
+    from app.api.analysis import list_months_with_data
+    all_months = list_months_with_data(db)
+    prefix = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_"
+    rows = db.query(SystemSetting).filter(
+        SystemSetting.key.like(prefix + "%")
+    ).all()
+    disabled = {
+        row.key[len(prefix):]
+        for row in rows
+        if row.value == "false"
+    }
+    enabled_months = [m for m in all_months if m not in disabled]
+    return {"enabled_months": enabled_months}
+
+
+@router.put("/month-settings")
+def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db)):
+    """Enable or disable a specific month for a specific hospital."""
+    month = updates.get("month")
+    hospital_id = updates.get("hospital_id")
+    enabled = updates.get("enabled", True)
+    if not month or hospital_id is None:
+        raise HTTPException(status_code=400, detail="month and hospital_id are required")
+    key = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_" + month
+    val = "true" if enabled else "false"
+    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if row:
+        row.value = val
+    else:
+        db.add(SystemSetting(key=key, value=val))
+    db.commit()
+    return {"status": "ok", "month": month, "hospital_id": hospital_id, "enabled": enabled}
+
+
 @router.get("/{category}")
 def get_config_by_category(category: str, db: Session = Depends(get_db)):
     rows = db.query(AppConfig).filter(AppConfig.category == category).all()
@@ -95,46 +135,6 @@ def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
     from app.plugins.ai import reload_ai_config
     reload_ai_config()
     return {"status": "ok", "updated": len(updates)}
-
-
-@router.get("/month-settings")
-def get_month_settings(
-    hospital_id: int = Query(..., description="Hospital ID"),
-    db: Session = Depends(get_db),
-):
-    """Get list of enabled months for a specific hospital."""
-    from app.api.analysis import list_months_with_data
-    all_months = list_months_with_data(db)
-    prefix = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_"
-    rows = db.query(SystemSetting).filter(
-        SystemSetting.key.like(prefix + "%")
-    ).all()
-    disabled = {
-        row.key[len(prefix):]
-        for row in rows
-        if row.value == "false"
-    }
-    enabled_months = [m for m in all_months if m not in disabled]
-    return {"enabled_months": enabled_months}
-
-
-@router.put("/month-settings")
-def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db)):
-    """Enable or disable a specific month for a specific hospital."""
-    month = updates.get("month")
-    hospital_id = updates.get("hospital_id")
-    enabled = updates.get("enabled", True)
-    if not month or hospital_id is None:
-        raise HTTPException(status_code=400, detail="month and hospital_id are required")
-    key = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_" + month
-    val = "true" if enabled else "false"
-    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-    if row:
-        row.value = val
-    else:
-        db.add(SystemSetting(key=key, value=val))
-    db.commit()
-    return {"status": "ok", "month": month, "hospital_id": hospital_id, "enabled": enabled}
 
 
 @router.get("/")

@@ -16,7 +16,7 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     # Filter hospitals by active status
     total_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).count()
 
-    # Filter reports by enabled months
+    # Count reports only for enabled months
     reports_q = db.query(QualityScore).distinct(
         QualityScore.hospital_id, QualityScore.month
     )
@@ -65,7 +65,7 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
         key=lambda x: x["month"],
     )
 
-    # hospital comparison
+    # hospital comparison (only enabled months)
     comp_q = db.query(
         Hospital.id,
         Hospital.name,
@@ -104,7 +104,7 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     for c in conf_dist:
         dist_map[c.level] = c.count
 
-    # radar components
+    # radar components (only enabled months)
     radar_q = db.query(
         func.avg(QualityScore.rule_compliance).label("rule_compliance"),
         func.avg(QualityScore.completeness).label("completeness"),
@@ -186,11 +186,15 @@ def year_over_year(hospital_id: int | None = None, db: Session = Depends(get_db)
 
 @router.get("/kpi")
 def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, db: Session = Depends(get_db)):
+    from app.api.analysis import get_enabled_months
+    enabled_months = get_enabled_months(db, hospital_id=hospital_id)
     base = db.query(QualityScore)
     if hospital_id:
         base = base.filter(QualityScore.hospital_id == hospital_id)
     if month:
         base = base.filter(QualityScore.month == month)
+    if enabled_months:
+        base = base.filter(QualityScore.month.in_(enabled_months))
 
     agg = base.with_entities(
         func.avg(QualityScore.score).label("avg_score"),

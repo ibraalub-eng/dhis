@@ -128,7 +128,7 @@
             const hospOptsTree = result.hospitals.map(h => '<option value="' + h.id + '">' + esc(h.name) + '</option>').join('');
             const monthOptsTree = result.months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
 
-            _setHtml('qualityMonthFilter', '<option value="all">All Months</option>' + monthOpts);
+            _setHtml('qualityMonthFilter', '<option value="all">All Months</option>' + monthOptsAll);
             _setHtml('qualityHospitalFilter', '<option value="all">All Hospitals</option>' + result.hospitals.map(h => '<option value="' + esc(h.name) + '">' + esc(h.name) + '</option>').join(''));
             _setHtml('trendHospitalSelect', hospOpts);
             _setHtml('compareMonthSelect', monthOptsAll);
@@ -171,16 +171,18 @@
         export async function loadQualityReports(skipRestore) {
             document.getElementById('qualityLoading').classList.remove('hidden');
             try {
-                const data = await apiGet('/reports/');
+                const [data, months] = await Promise.all([
+                    apiGet('/reports/'),
+                    apiGet('/analysis/months')
+                ]);
                 document.getElementById('qualityLoading').classList.add('hidden');
                 if (data && data.length > 0) {
                     document.getElementById('resultsSection').classList.remove('hidden');
                 }
                 allQualityReports = data || [];
-                // Populate filters
+                // Populate month filter from ALL months (not just report data)
                 const qFilter = document.getElementById('qualityMonthFilter');
-                const months = [...new Set(allQualityReports.map(r => r.month))].sort();
-                qFilter.innerHTML = '<option value="all">All Months</option>' + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                qFilter.innerHTML = '<option value="all">All Months</option>' + (months || []).map(m => '<option value="' + m + '">' + m + '</option>').join('');
                 const hFilter = document.getElementById('qualityHospitalFilter');
                 const hospitals = [...new Set(allQualityReports.map(r => r.hospital))].sort();
                 hFilter.innerHTML = '<option value="all">All Hospitals</option>' + hospitals.map(h => '<option value="' + esc(h) + '">' + esc(h) + '</option>').join('');
@@ -206,18 +208,30 @@
             document.getElementById('qualityCount').textContent = filtered.length + ' report' + (filtered.length !== 1 ? 's' : '');
             if (!filtered.length) { grid.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">No reports match the selected filters.</p>'; return; }
             filtered.forEach(r => {
-                const score = r.data_quality_score;
-                const scoreColor = score >= 80 ? '#2e7d32' : score >= 50 ? '#e65100' : '#c62828';
-                const barColor = score >= 80 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336';
-                const issueCount = r.issues ? r.issues.length : 0;
-                const outlierCount = r.outliers ? r.outliers.length : 0;
-                const card = document.createElement('div');
-                card.className = 'report-card ' + (score >= 80 ? 'good' : score >= 50 ? 'medium' : 'poor');
-                card.setAttribute('data-hospital', r.hospital);
-                card.setAttribute('data-month', r.month);
-                card.innerHTML = '<h3>' + r.hospital + '</h3><div class="month">' + r.month + '</div><div class="score" style="color:' + scoreColor + '">' + score + '</div><div class="progress-bar"><div class="progress-bar-fill" style="width:' + score + '%;background:' + barColor + '"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:#666;">' + issueCount + ' issues &bull; ' + outlierCount + ' outliers</div>';
-                card.addEventListener('click', function() { showDetail(r.hospital, r.month); });
-                grid.appendChild(card);
+                const enabled = r.is_enabled !== false;
+                if (enabled) {
+                    const score = r.data_quality_score;
+                    const scoreColor = score >= 80 ? '#2e7d32' : score >= 50 ? '#e65100' : '#c62828';
+                    const barColor = score >= 80 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336';
+                    const issueCount = r.issues ? r.issues.length : 0;
+                    const outlierCount = r.outliers ? r.outliers.length : 0;
+                    const card = document.createElement('div');
+                    card.className = 'report-card ' + (score >= 80 ? 'good' : score >= 50 ? 'medium' : 'poor');
+                    card.setAttribute('data-hospital', r.hospital);
+                    card.setAttribute('data-month', r.month);
+                    card.innerHTML = '<h3>' + r.hospital + '</h3><div class="month">' + r.month + '</div><div class="score" style="color:' + scoreColor + '">' + score + '</div><div class="progress-bar"><div class="progress-bar-fill" style="width:' + score + '%;background:' + barColor + '"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:#666;">' + issueCount + ' issues &bull; ' + outlierCount + ' outliers</div>';
+                    card.addEventListener('click', function() { showDetail(r.hospital, r.month); });
+                    grid.appendChild(card);
+                } else {
+                    const card = document.createElement('div');
+                    card.className = 'report-card disabled';
+                    card.setAttribute('data-hospital', r.hospital);
+                    card.setAttribute('data-month', r.month);
+                    card.innerHTML = '<h3 style="color:#999;">' + r.hospital + '</h3><div class="month" style="color:#bbb;">' + r.month + '</div><div class="score" style="color:#ccc;">-</div><div class="progress-bar" style="background:#eee;"><div class="progress-bar-fill" style="width:0%;background:#ddd;"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:#bbb;">Analysis disabled</div>';
+                    card.style.opacity = '0.6';
+                    card.style.cursor = 'default';
+                    grid.appendChild(card);
+                }
             });
         }
 

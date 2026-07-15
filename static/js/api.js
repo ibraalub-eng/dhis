@@ -23,4 +23,7 @@
             if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + await res.text());
             return res.json();
         }
+        export function clearApiCache() {
+            _apiCache.clear();
+        }
 

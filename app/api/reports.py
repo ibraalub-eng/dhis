@@ -25,17 +25,11 @@ def list_reports(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    from app.api.analysis import get_enabled_months
-    enabled_months = get_enabled_months(db, hospital_id=hospital_id)
     query = db.query(QualityScore)
     if hospital_id:
         query = query.filter(QualityScore.hospital_id == hospital_id)
     if month:
         query = query.filter(QualityScore.month == month)
-    else:
-        # Filter by enabled months when no specific month is requested
-        if enabled_months:
-            query = query.filter(QualityScore.month.in_(enabled_months))
     if source_file:
         file_subs = (
             db.query(IndicatorValue.hospital_id, IndicatorValue.month)
@@ -47,7 +41,7 @@ def list_reports(
             file_subs,
             (QualityScore.hospital_id == file_subs.c.hospital_id) & (QualityScore.month == file_subs.c.month),
         )
-    cache_key = cache.make_key("reports:list", month=month, source_file=source_file, skip=skip, limit=limit)
+    cache_key = cache.make_key("reports:list_v2", month=month, source_file=source_file, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -80,6 +74,12 @@ def list_reports(
         key = (a.hospital_id, a.month)
         anomaly_by_key.setdefault(key, []).append(a)
 
+    # Determine enabled months per hospital
+    from app.api.analysis import get_enabled_months
+    enabled_by_hospital: dict = {}
+    for hid in hospital_ids:
+        enabled_by_hospital[hid] = set(get_enabled_months(db, hospital_id=hid))
+
     results = []
     for s in scores:
         hosp = hospitals.get(s.hospital_id)
@@ -88,6 +88,7 @@ def list_reports(
             {"indicator": a.rate_name, "value": a.value, "benchmark": a.benchmark}
             for a in anomaly_by_key.get((s.hospital_id, s.month), [])
         ]
+        is_enabled = s.month in enabled_by_hospital.get(s.hospital_id, set())
         results.append(ReportOut(
             hospital=hosp.name if hosp else "Unknown",
             month=s.month,
@@ -98,6 +99,7 @@ def list_reports(
             outlier_penalty=s.outlier_penalty,
             issues=issues,
             outliers=outliers,
+            is_enabled=is_enabled,
         ))
     cache.set(cache_key, results)
     return results
