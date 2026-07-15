@@ -695,6 +695,23 @@
                             </div>
                         </div>
                         <div style="background:#fafafa;padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;">
+                                <div>
+                                    <strong>Analysis Months</strong>
+                                    <span style="font-size:0.8rem;color:#666;display:block;">Toggle months on/off. Disabled months are excluded from all analysis, reports, and dashboard.</span>
+                                </div>
+                                <div style="display:flex;gap:0.4rem;">
+                                    <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(true)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Enable All</button>
+                                    <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(false)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Disable All</button>
+                                    <button class="btn btn-sm" onclick="saveAllMonthSettings()" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Save</button>
+                                </div>
+                            </div>
+                            <div id="monthToggleList" style="display:flex;flex-wrap:wrap;gap:0.5rem;"></div>
+                            <div style="margin-top:0.5rem;">
+                                <span id="monthSaveStatus" style="font-size:0.8rem;color:#888;"></span>
+                            </div>
+                        </div>
+                        <div style="background:#fafafa;padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                             <strong>Hospital Status</strong>
                             <span style="font-size:0.8rem;color:#666;display:block;margin-bottom:0.5rem;">Toggle hospitals on/off. Disabled hospitals are excluded from all analysis and reports.</span>
                             <div id="hospitalToggleList" style="max-height:300px;overflow-y:auto;"></div>

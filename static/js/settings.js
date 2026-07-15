@@ -79,7 +79,7 @@
                 }
             });
             if (name === 'ai') loadAiSettings();
-            if (name === 'control') { loadControlSettings(); loadHospitalToggles(); }
+            if (name === 'control') { loadControlSettings(); loadHospitalToggles(); loadMonthToggles(); }
         }
 
         function loadWeights() {
@@ -742,6 +742,61 @@
                 if (typeof loadDashboard === 'function') loadDashboard();
             }).catch(e => {
                 alert('Error: ' + e.message);
+            });
+        };
+
+        // ── Month Toggle Settings ──────────────────────────────────────────
+        let _monthSettings = {};
+
+        export function loadMonthToggles() {
+            apiGet('/analysis/months').then(months => {
+                apiGet('/config/month-settings').then(settings => {
+                    const enabled = Array.isArray(settings.enabled_months) ? settings.enabled_months : months;
+                    _monthSettings = {};
+                    months.forEach(m => { _monthSettings[m] = enabled.includes(m); });
+                    renderMonthToggles(months);
+                }).catch(() => {
+                    _monthSettings = {};
+                    months.forEach(m => { _monthSettings[m] = true; });
+                    renderMonthToggles(months);
+                });
+            }).catch(() => {});
+        }
+
+        function renderMonthToggles(months) {
+            const container = document.getElementById('monthToggleList');
+            if (!container) return;
+            container.innerHTML = months.map(m => {
+                const checked = _monthSettings[m] ? 'checked' : '';
+                return '<label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.6rem;background:#f5f5f5;border-radius:4px;cursor:pointer;font-size:0.82rem;">' +
+                    '<input type="checkbox" value="' + m + '" ' + checked + ' onchange="window._monthSettings[\'' + m + '\']=this.checked" style="width:14px;height:14px;">' +
+                    '<span>' + m + '</span></label>';
+            }).join('');
+        }
+
+        window.toggleAllAnalysisMonths = function(enabled) {
+            for (const m in _monthSettings) {
+                _monthSettings[m] = enabled;
+            }
+            const container = document.getElementById('monthToggleList');
+            if (container) {
+                container.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = enabled; });
+            }
+        };
+
+        window.saveAllMonthSettings = function() {
+            const status = document.getElementById('monthSaveStatus');
+            if (status) { status.textContent = 'Saving...'; status.style.color = '#1565c0'; }
+            const promises = [];
+            for (const m in _monthSettings) {
+                promises.push(apiPut('/config/month-settings', { month: m, enabled: _monthSettings[m] }));
+            }
+            Promise.all(promises).then(() => {
+                if (status) { status.textContent = '\u2713 Saved'; status.style.color = '#2e7d32'; }
+                // Refresh cached data
+                if (typeof loadDashboard === 'function') loadDashboard();
+            }).catch(e => {
+                if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }
             });
         };
 

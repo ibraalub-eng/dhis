@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import AppConfig, SystemSetting
@@ -22,7 +22,7 @@ def get_control_settings(db: Session = Depends(get_db)):
 
 
 @router.put("/control/settings")
-def update_control_settings(updates: dict, db: Session = Depends(get_db)):
+def update_control_settings(updates: dict = Body(...), db: Session = Depends(get_db)):
     updated = {}
     for key in (CONTROL_KEY, LOGGING_KEY):
         if key in updates:
@@ -115,7 +115,7 @@ def get_month_settings(db: Session = Depends(get_db)):
 
 
 @router.put("/month-settings")
-def update_month_setting(updates: dict, db: Session = Depends(get_db)):
+def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db)):
     """Enable or disable a specific month for analysis."""
     month = updates.get("month")
     enabled = updates.get("enabled", True)
