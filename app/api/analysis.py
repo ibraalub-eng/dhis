@@ -171,7 +171,7 @@ def quality_trend(hospital_id: int, db: Session = Depends(get_db)):
         return cached
 
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hospital:
+    if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail="Hospital not found")
 
     scores = (
@@ -307,7 +307,7 @@ def list_outliers(
     if cached:
         return cached
 
-    query = db.query(AnomalyResult).options(selectinload(AnomalyResult.hospital)).filter(AnomalyResult.is_outlier)
+    query = db.query(AnomalyResult).options(selectinload(AnomalyResult.hospital)).join(Hospital, AnomalyResult.hospital_id == Hospital.id).filter(AnomalyResult.is_outlier, Hospital.is_active.is_(True))
     if month:
         query = query.filter(AnomalyResult.month == month)
     if hospital_id:
@@ -352,7 +352,7 @@ def list_rule_failures(
     if cached:
         return cached
 
-    query = db.query(ValidationResult).options(selectinload(ValidationResult.hospital)).filter(ValidationResult.status == "FAIL")
+    query = db.query(ValidationResult).options(selectinload(ValidationResult.hospital)).join(Hospital, ValidationResult.hospital_id == Hospital.id).filter(ValidationResult.status == "FAIL", Hospital.is_active.is_(True))
     if month:
         query = query.filter(ValidationResult.month == month)
     if hospital_id:
@@ -505,7 +505,7 @@ def heatmap_data(month: str = Query(None), db: Session = Depends(get_db)):
         Hospital.name.label("hospital"),
         QualityScore.month,
         QualityScore.score,
-    ).join(Hospital, QualityScore.hospital_id == Hospital.id)
+    ).join(Hospital, QualityScore.hospital_id == Hospital.id).filter(Hospital.is_active.is_(True))
     if month:
         q = q.filter(QualityScore.month == month)
     rows = q.order_by(Hospital.name, QualityScore.month).all()

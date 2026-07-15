@@ -17,7 +17,7 @@ def get_clinical_analysis(
     db: Session = Depends(get_db),
 ):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hospital:
+    if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail=f"Hospital id {hospital_id} not found")
 
     values = get_enabled_values_for_hospital_month(db, hospital_id, month)

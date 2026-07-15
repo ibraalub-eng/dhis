@@ -46,7 +46,7 @@
                 if (!container) return;
                 // Get current enabled months
                 apiGet('/config/month-settings').then(settings => {
-                    const enabled = settings.enabled_months || months;
+                    const enabled = Array.isArray(settings.enabled_months) ? settings.enabled_months : months;
                     container.innerHTML = months.map(m => {
                         const checked = enabled.includes(m) ? 'checked' : '';
                         return '<label style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer;">' +
@@ -68,6 +68,8 @@
             if (status) { status.textContent = 'Saving...'; status.style.color = '#1565c0'; }
             apiPut('/config/month-settings', { month: month, enabled: enabled }).then(() => {
                 if (status) { status.textContent = '\u2713 Saved'; status.style.color = '#2e7d32'; }
+                // Reload checkboxes to reflect saved state
+                loadMonthCheckboxes();
             }).catch(e => {
                 if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }
             });

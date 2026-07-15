@@ -31,7 +31,7 @@ def _run_confidence_for_hospital(
     month: str,
 ) -> HospitalConfidenceResult:
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hospital:
+    if not hospital or not hospital.is_active:
         raise ValueError(f"Hospital id {hospital_id} not found")
 
     values = get_enabled_values_for_hospital_month(db, hospital_id, month)

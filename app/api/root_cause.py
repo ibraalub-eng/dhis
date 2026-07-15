@@ -16,7 +16,7 @@ def get_root_cause_analysis(
     db: Session = Depends(get_db),
 ):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hospital:
+    if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail="Hospital not found")
 
     quality_data = None
