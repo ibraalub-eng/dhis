@@ -1,10 +1,15 @@
 import json
 from sqlalchemy.orm import Session
-from app.models import Hospital, QualityScore, ConfidenceScore
+from app.models import Hospital, QualityScore, ConfidenceScore, Indicator, IndicatorValue
 from app.engine.clinical import compute_all_classifications, CLINICAL_THRESHOLDS
 from app.engine.clinical.risk_profile import compute_risk_profile
 from app.engine.clinical.morbidity import compute_morbidity_profile
 from app.engine.pipeline import get_enabled_values_for_hospital_month
+from app.indicators import INDICATOR_CODE_TO_NAME
+
+
+def _name(code):
+    return INDICATOR_CODE_TO_NAME.get(code, code)
 
 
 def get_calculation_steps(db: Session, hospital_id: int, month: str) -> dict:
@@ -24,14 +29,23 @@ def get_calculation_steps(db: Session, hospital_id: int, month: str) -> dict:
             if t.indicator_code == c.indicator_code:
                 threshold = t
                 break
-        num_val = sum(values.get(code, 0) or 0 for code in (threshold.numerator_codes if threshold else []))
-        den_val = values.get(threshold.denominator_code, 0) if threshold else 0
+        num_codes = list(threshold.numerator_codes) if threshold else []
+        den_code = threshold.denominator_code if threshold else None
+        num_val = sum(values.get(code, 0) or 0 for code in num_codes)
+        den_val = values.get(den_code, 0) if den_code else 0
+        num_names = [_name(c) for c in num_codes]
+        den_name = _name(den_code) if den_code else None
+        raw_numerators = {code: values.get(code, 0) or 0 for code in num_codes}
         cls_steps.append({
             "indicator_code": c.indicator_code,
             "rate_name": c.rate_name,
             "formula": _rate_formula(c.indicator_code, threshold),
-            "numerator_codes": list(threshold.numerator_codes) if threshold else [],
-            "denominator_code": threshold.denominator_code if threshold else None,
+            "formula_readable": _rate_formula_readable(threshold),
+            "numerator_codes": num_codes,
+            "numerator_names": num_names,
+            "raw_numerators": raw_numerators,
+            "denominator_code": den_code,
+            "denominator_name": den_name,
             "numerator_value": num_val,
             "denominator_value": den_val,
             "unit": c.unit,
@@ -106,6 +120,15 @@ def get_calculation_steps(db: Session, hospital_id: int, month: str) -> dict:
             "severity": m.severity,
         })
 
+    # Raw data store — all indicators with codes, names, and values
+    raw_data = []
+    for code in sorted(values.keys(), key=lambda c: (len(c), c)):
+        raw_data.append({
+            "code": code,
+            "name": _name(code),
+            "value": values[code],
+        })
+
     return {
         "hospital": hospital_name,
         "month": month,
@@ -121,6 +144,7 @@ def get_calculation_steps(db: Session, hospital_id: int, month: str) -> dict:
             "total_smm": morb.total_smm if morb else 0,
             "maternal_deaths": morb.maternal_deaths if morb else 0,
         },
+        "raw_data": raw_data,
     }
 
 
@@ -129,5 +153,14 @@ def _rate_formula(code, threshold):
         return ""
     num = " + ".join(threshold.numerator_codes) if len(threshold.numerator_codes) > 1 else threshold.numerator_codes[0]
     den = threshold.denominator_code
+    mult = "100" if threshold.unit == "%" else "1,000" if "1,000" in threshold.unit else "100,000"
+    return f"({num}) / ({den}) x {mult}"
+
+
+def _rate_formula_readable(threshold):
+    if not threshold:
+        return ""
+    num = " + ".join(_name(c) for c in threshold.numerator_codes)
+    den = _name(threshold.denominator_code)
     mult = "100" if threshold.unit == "%" else "1,000" if "1,000" in threshold.unit else "100,000"
     return f"({num}) / ({den}) x {mult}"

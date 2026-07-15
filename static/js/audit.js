@@ -76,8 +76,21 @@ function renderAudit() {
             html += '<strong>' + esc(c.rate_name) + '</strong>';
             html += '<span style="color:' + color + ';font-weight:600;">' + esc(c.label) + '</span>';
             html += '</div>';
-            if (c.formula) html += '<div style="font-size:0.72rem;color:#666;margin:0.1rem 0;">Formula: ' + esc(c.formula) + '</div>';
-            html += '<div style="font-size:0.72rem;color:#555;">Inputs: ' + esc((c.numerator_codes || []).join(' + ')) + ' / ' + esc(c.denominator_code || '?') + ' = ' + esc((c.numerator_value || 0) + ' / ' + (c.denominator_value || 0)) + ' = <strong>' + (c.raw_rate != null ? Number(c.raw_rate).toFixed(2) : '--') + '</strong> ' + esc(c.unit || '') + '</div>';
+            if (c.formula_readable) html += '<div style="font-size:0.72rem;color:#666;margin:0.1rem 0;">Formula: <span title="' + esc(c.formula) + '">' + esc(c.formula_readable) + '</span></div>';
+            else if (c.formula) html += '<div style="font-size:0.72rem;color:#666;margin:0.1rem 0;">Formula: ' + esc(c.formula) + '</div>';
+            // Inputs with names
+            const numParts = (c.numerator_codes || []).map((code, i) => {
+                const name = (c.numerator_names && c.numerator_names[i]) || code;
+                return esc(name) + ' (' + esc(code) + ')';
+            });
+            const denName = c.denominator_name ? esc(c.denominator_name) + ' (' + esc(c.denominator_code) + ')' : esc(c.denominator_code || '?');
+            html += '<div style="font-size:0.72rem;color:#555;margin:0.1rem 0;">';
+            html += '<strong>Input Data:</strong> '
+                + numParts.join(' + ')
+                + ' / ' + denName
+                + ' = ' + esc((c.numerator_value || 0) + ' / ' + (c.denominator_value || 0))
+                + ' = <strong>' + (c.raw_rate != null ? Number(c.raw_rate).toFixed(2) : '--') + '</strong> ' + esc(c.unit || '');
+            html += '</div>';
             if (c.narrative) html += '<div style="font-size:0.7rem;color:#777;margin:0.1rem 0;">' + esc(c.narrative) + '</div>';
             html += '</div>';
         });
@@ -114,6 +127,19 @@ function renderAudit() {
     if (steps.morbidity_profile && steps.morbidity_profile.metrics && steps.morbidity_profile.metrics.length) {
         html += '<div style="margin:0.5rem 0 0.3rem 0;font-weight:600;font-size:0.8rem;color:#333;">Morbidity Profile</div>';
         html += '<div style="font-size:0.72rem;color:#555;padding:0.2rem 0.4rem;">SMM: ' + (steps.morbidity_profile.total_smm || 0) + ' | Maternal Deaths: ' + (steps.morbidity_profile.maternal_deaths || 0) + '</div>';
+    }
+
+    // Raw Data Store
+    if (steps.raw_data && steps.raw_data.length) {
+        html += '<div style="margin:0.5rem 0 0.3rem 0;font-weight:600;font-size:0.8rem;color:#333;">Raw Data Store <span style="font-weight:400;color:#888;">(' + steps.raw_data.length + ' indicators)</span></div>';
+        html += '<div style="margin:0.3rem 0;padding:0.3rem 0.5rem;background:#fafafa;border-radius:3px;font-size:0.72rem;">';
+        steps.raw_data.forEach(r => {
+            html += '<div style="display:flex;justify-content:space-between;padding:0.1rem 0;border-bottom:1px solid #f0f0f0;">';
+            html += '<span><strong>' + esc(r.code) + '</strong> — ' + esc(r.name) + '</span>';
+            html += '<span>' + esc(r.value) + '</span>';
+            html += '</div>';
+        });
+        html += '</div>';
     }
 
     html += '</details></div>';
