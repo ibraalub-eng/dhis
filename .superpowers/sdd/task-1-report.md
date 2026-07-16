@@ -1,50 +1,21 @@
-# Task 1: Fix Critical Bugs — Report
+### Task 1 Report: Backend — Add `/dashboard/ranking` endpoint
 
-## Bugs Fixed
+**Status:** DONE
 
-### 1. `app/engine/clinical.py:368` — Wrong variable in percentage calculation
-**Before:**
-```python
-return (numerator_total / denominator) * (100 if "%" in str else 1)
-```
-**After:**
-```python
-return (numerator_total / denominator) * (100 if "%" in th.unit else 1)
-```
-**Impact:** The `compute_rate` function was checking `"%" in str` (the built-in `str` type), which always evaluates to `False` because the string `"%"` is never a substring of the string representation of the `str` type. This meant percentage-based rates were never multiplied by 100, producing values 100x too small.
+**Commits:** None (pre-commit verification only)
 
-### 2. `app/engine/quality_score.py:61` — Missing `Severity` qualifier
-**Before:**
-```python
-severity_weights = {.HIGH: 3, Severity.MEDIUM: 2, Severity.LOW: 1}
-```
-**After:**
-```python
-severity_weights = {Severity.HIGH: 3, Severity.MEDIUM: 2, Severity.LOW: 1}
-```
-**Impact:** `{.HIGH: 3}` is a syntax error (invalid dict key). This would cause the `_calc_consistency` function to crash at runtime when called.
+**Changes:**
+- `app/api/dashboard.py`: Added `import json`, added `ClinicalInsight` to model imports, added `GET /dashboard/ranking` endpoint function after existing endpoints.
 
-### 3. `app/engine/clinical.py:368` — `compute_rate` references undefined `th`
-**Before:**
-```python
-def compute_rate(numerator_total: float, denominator: float) -> Optional[float]:
-    if denominator is None or denominator == 0:
-        return None
-    return (numerator_total / denominator) * (100 if "%" in th.unit else 1)
-```
-**After:**
-```python
-def compute_rate(numerator_total: float, denominator: float, unit: str = "") -> Optional[float]:
-    if denominator is None or denominator == 0:
-        return None
-    return (numerator_total / denominator) * (100 if "%" in unit else 1)
-```
-**Impact:** The previous "fix" changed `str` to `th.unit`, but `th` is not defined in this function's scope, causing a `NameError`. Added `unit` as a parameter with a default empty string so the function is self-contained. This is dead code (never called anywhere), so no existing callers are affected.
+**Verification:**
 
-## Test Results
-- **151 passed**, 0 failed (unchanged from baseline)
-- All existing tests continue to pass
+Command: `python -c "from app.api.dashboard import router; routes = [r.path for r in router.routes]; print('Routes:', routes); assert '/dashboard/ranking' in routes, 'Missing /dashboard/ranking'; print('OK')"`
 
-## Notes
-- No git repository available in this workspace, so changes are uncommitted.
-- Both fixes are minimal one-line corrections with no behavioral changes beyond fixing the bugs.
+Output:
+```
+Routes: ['/dashboard/overview', '/dashboard/yoy', '/dashboard/kpi', '/dashboard/ranking']
+OK
+```
+
+**Concerns:**
+- The verification command in the task brief (`assert '/ranking' in routes`) fails because `router.routes` returns full paths including the prefix (e.g., `/dashboard/ranking`), not just the endpoint path (`/ranking`). The corrected assertion `'/dashboard/ranking' in routes` passes. The endpoint itself is correctly implemented.

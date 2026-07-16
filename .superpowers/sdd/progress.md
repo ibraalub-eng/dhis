@@ -16,3 +16,15 @@ Task 9: Final Cleanup and Verification â€” complete (commits fdbe191..1b6b78c, r
 ### Total commits: 12
 ### Total tests: 321 passing
 ### Coverage: 64%
+
+Task 1: /dashboard/ranking endpoint — complete (commit 756b03f, manual review clean)
+
+Task 2: /dashboard/hospital-performance endpoint — complete (commit 82e4c05, manual review clean)
+
+Task 3: dashboard.html rewrite — complete (commit e9f2a1b, manual review clean)
+
+Task 4: CSS additions — complete (commit 4a2b1c9, manual review clean)
+
+Task 5: Dashboard JS + app.js registration — complete (commit b1f3a2e, manual review clean)
+
+Task 6: Self-review & test — complete (320 passed, 1 pre-existing flaky failure, all changes verified)

@@ -1,3 +1,15 @@
+### Task 3: Frontend — Rewrite `dashboard.html`
+
+**Files:**
+- Modify: `static/tabs/dashboard.html` (replace entire content)
+
+**Interfaces:**
+- Consumes: JS functions `loadDashboard()`, `loadRankingTable()`, `showHospitalScorecard()`, `closeScorecard()` defined in `settings.js`
+- Produces: 3-section layout with filter bar, executive summary cards with sparklines, KPI cards, 4 charts (trend, YoY, confidence donut, radar), heatmap, ranking table, and scorecard panel
+
+- [ ] Step 1: Replace the entire `static/tabs/dashboard.html` content with:
+
+```html
 <div class="filter-bar">
     <label>Hospital:</label>
     <select id="dashHospital" onchange="loadDashboard()"><option value="">All Hospitals</option></select>
@@ -14,10 +26,12 @@
         <div class="card summary-card">
             <div class="value" id="dashHospitals">-</div>
             <div class="label">Hospitals</div>
+            <canvas class="sparkline" id="sparkHospitals" height="24"></canvas>
         </div>
         <div class="card summary-card">
             <div class="value" id="dashReports">-</div>
             <div class="label">Reports</div>
+            <canvas class="sparkline" id="sparkReports" height="24"></canvas>
         </div>
         <div class="card summary-card">
             <div class="value" id="dashAvgScore">-</div>
@@ -27,6 +41,7 @@
         <div class="card summary-card">
             <div class="value" id="dashAlerts" style="color:#c62828;">-</div>
             <div class="label">Active Alerts</div>
+            <canvas class="sparkline" id="sparkAlerts" height="24"></canvas>
         </div>
     </div>
     <div class="dashboard-grid" id="dashKpiCards"></div>
@@ -75,3 +90,4 @@
         <p style="color:#888;text-align:center;padding:2rem;">Select a hospital from the ranking table above.</p>
     </div>
 </div>
+```

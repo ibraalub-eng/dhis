@@ -120,12 +120,12 @@ def get_calculation_steps(db: Session, hospital_id: int, month: str) -> dict:
             "severity": m.severity,
         })
 
-    # Raw data store — all indicators with codes, names, and values
+    # Raw data store — all indicators with names and values
     raw_data = []
     for code in sorted(values.keys(), key=lambda c: (len(c), c)):
         raw_data.append({
-            "code": code,
             "name": _name(code),
+            "code": code,
             "value": values[code],
         })
 

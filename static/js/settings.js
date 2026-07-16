@@ -287,6 +287,7 @@
 
         // ── Dashboard ──────────────────────────────────────────────
         let trendChartInstance = null, yoyChartInstance = null, confidenceChartInstance = null, radarChartInstance = null;
+        let scorecardTrendInstance = null, scorecardRatesInstance = null;
 
         function renderKpiCards(hid) {
             let url = '/dashboard/kpi?';
@@ -459,9 +460,12 @@
 
                 document.getElementById('scorecardContent').innerHTML = html;
 
+                if (scorecardTrendInstance) { scorecardTrendInstance.destroy(); scorecardTrendInstance = null; }
+                if (scorecardRatesInstance) { scorecardRatesInstance.destroy(); scorecardRatesInstance = null; }
+
                 const trendCtx = document.getElementById('scorecardTrendChart');
                 if (trendCtx && d.quality_trend && d.quality_trend.length) {
-                    new Chart(trendCtx, {
+                    scorecardTrendInstance = new Chart(trendCtx, {
                         type: 'line',
                         data: {
                             labels: d.quality_trend.map(p => p.month.slice(-2)),
@@ -483,7 +487,7 @@
                 const ratesCtx = document.getElementById('scorecardRatesChart');
                 if (ratesCtx && d.clinical_rates && d.clinical_rates.length) {
                     const labels = d.clinical_rates.map(r => r.rate_name.replace(' Rate', '').replace(' Ratio', ''));
-                    new Chart(ratesCtx, {
+                    scorecardRatesInstance = new Chart(ratesCtx, {
                         type: 'bar',
                         data: {
                             labels: labels,
