@@ -5,7 +5,7 @@ import { confirmImport, cancelPreview, displayResults, filterPriorityTable, filt
 import { loadOutliers, sortTableRows, loadRuleFailures } from './outliers.js';
 import { loadAlerts, updateAlertBadge, renderAlertTable } from './alerts.js';
 import { refreshSavedFiles, toggleAllSaved, analyzeSelectedSaved, analyzeSingleSaved, deleteSelectedSaved } from './saved_files.js';
-import { loadAllSettings, saveAllSettings, reanalyzeAll, showSettingsTab, saveAiSettings, loadAiSettings, onAiProviderChange, loadRulesManager, initRootCause, initDashboard, loadRootCause, populateMonthSelect, loadDashboard, saveControlSettings, updateWeightDisplay, updateCfgDisplay, updateCfgVal } from './settings.js';
+import { loadAllSettings, saveAllSettings, reanalyzeAll, showSettingsTab, saveAiSettings, loadAiSettings, onAiProviderChange, loadRulesManager, initRootCause, initDashboard, loadRootCause, populateMonthSelect, loadDashboard, saveControlSettings, updateWeightDisplay, updateCfgDisplay, updateCfgVal, loadRankingTable, showHospitalScorecard, closeScorecard } from './settings.js';
 import { initTrends, initCompare, filterComparison, loadClinical, initClinical, renderClinical, loadTrends, loadComparison } from './validation.js';
 import { populateReportMonthSelect, generateReport, restoreReportData, applyReportFilter, showReportDetail, showRuleFailureDetail, showModal, closeModal } from './clinical.js';
 import { expandAllTree, collapseAllTree, initIndicatorTree, loadIndicatorTree, reanalyzeHospital, saveTreeConfig, setStatus, esc } from './tree.js';
@@ -61,6 +61,9 @@ window.loadRootCause = loadRootCause;
 window.initRootCause = initRootCause;
 window.loadDashboard = loadDashboard;
 window.initDashboard = initDashboard;
+window.loadRankingTable = loadRankingTable;
+window.showHospitalScorecard = showHospitalScorecard;
+window.closeScorecard = closeScorecard;
 window.initTrends = initTrends;
 window.initCompare = initCompare;
 window.filterComparison = filterComparison;
