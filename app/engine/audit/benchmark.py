@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import stats as scipy_stats
 from sqlalchemy.orm import Session
 from app.models import Hospital
 from app.engine.anomaly.zscore import RATE_DEFINITIONS
@@ -42,6 +43,11 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
         pct_dev = round(((tval - avg) / avg) * 100, 1) if avg else 0
         percentile = round(sum(1 for p in peers if p <= tval) / len(peers) * 100, 0) if peers else 50
         status = "critical" if abs(z) >= 3 else ("high" if abs(z) >= 2 else ("elevated" if abs(z) >= 1.5 else "normal"))
+        ci = None
+        if len(peers) >= 3 and std > 0:
+            se = std / (len(peers) ** 0.5)
+            ci_low, ci_high = scipy_stats.norm.interval(0.95, loc=avg, scale=se)
+            ci = (round(float(ci_low), 2), round(float(ci_high), 2))
 
         comparisons[rname] = {
             "hospital_value": tval,
@@ -54,6 +60,7 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
             "percent_deviation": pct_dev,
             "percentile": percentile,
             "status": status,
+            "confidence_interval_95": ci,
         }
 
     return {
