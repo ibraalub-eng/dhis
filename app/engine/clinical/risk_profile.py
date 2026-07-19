@@ -258,6 +258,16 @@ def correlate_risk_outcomes(values: Dict[str, float], all_hospital_data: Dict[st
                 pt = v.get("6.f", 0) or 0
                 preterm_rates.append((pt / lb * 100) if lb > 0 else 0)
 
+        if risk_rates and preterm_rates:
+            avg_risk = sum(risk_rates) / len(risk_rates)
+            _avg_preterm = sum(preterm_rates) / len(preterm_rates)
+            if high_risk_rate > avg_risk * 1.2:
+                findings.append({
+                    "finding": "High-risk proportion significantly above peer average",
+                    "detail": f"{high_risk_rate:.1f}% vs peer avg {avg_risk:.1f}%",
+                    "severity": "high" if high_risk_rate > avg_risk * 1.5 else "moderate",
+                })
+
         if risk_rates and preterm_rates and len(risk_rates) >= 3:
             try:
                 if len(risk_rates) >= 30:
