@@ -23,6 +23,16 @@
             if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + await res.text());
             return res.json();
         }
+        export async function apiDelete(path) {
+            const res = await fetch(API() + path, { method: 'DELETE' });
+            if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + await res.text());
+            return res.json();
+        }
+        export async function apiPostJSON(path, data) {
+            const res = await fetch(API() + path, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+            if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + await res.text());
+            return res.json();
+        }
         export function clearApiCache() {
             _apiCache.clear();
         }
