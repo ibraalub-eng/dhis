@@ -4,12 +4,35 @@ from sqlalchemy.orm import relationship
 from app.database import Base
 
 
+class Governorate(Base):
+    __tablename__ = "governorates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    hospitals = relationship("Hospital", back_populates="governorate")
+
+
+class HospitalType(Base):
+    __tablename__ = "hospital_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    hospitals = relationship("Hospital", back_populates="hospital_type")
+
+
 class Hospital(Base):
     __tablename__ = "hospitals"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), unique=True, nullable=False, index=True)
     region = Column(String(100), nullable=True)
+    governorate_id = Column(Integer, ForeignKey("governorates.id"), nullable=True)
+    hospital_type_id = Column(Integer, ForeignKey("hospital_types.id"), nullable=True)
+    address = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -19,6 +42,8 @@ class Hospital(Base):
     quality_scores = relationship("QualityScore", back_populates="hospital")
     clinical_insights = relationship("ClinicalInsight", back_populates="hospital")
     indicator_configs = relationship("HospitalIndicatorConfig", back_populates="hospital", cascade="all, delete-orphan")
+    governorate = relationship("Governorate", back_populates="hospitals")
+    hospital_type = relationship("HospitalType", back_populates="hospitals")
 
 
 class Indicator(Base):
