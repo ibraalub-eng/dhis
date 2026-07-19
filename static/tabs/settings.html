@@ -16,6 +16,12 @@
 
                     <!-- Quality Score Settings -->
                     <div id="settings-quality" class="settings-section">
+                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.8rem;">
+                            <button class="btn" onclick="saveAllSettings()" style="background:#1a237e;color:white;">Save All Settings</button>
+                            <button class="btn btn-outline" onclick="loadAllSettings()">Reload</button>
+                            <button class="btn" onclick="reanalyzeAll(this)" style="background:#e65100;color:white;">Re-analyze All</button>
+                            <span id="settingsStatus" style="font-size:0.8rem;"></span>
+                        </div>
                         <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Quality Score Formula Weights</h3>
                         <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
                             <strong>Formula:</strong> Score = (rule_compliance x W1 + completeness x W2 + consistency x W3 + (1 - outlier_penalty) x W4) x 100<br>
@@ -763,13 +769,6 @@
                                 </div>
                             </div>
                         </div>
-                    </div>
-
-                    <div style="margin-top:1.2rem;padding-top:0.8rem;border-top:1px solid #eee;display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
-                        <button class="btn" onclick="saveAllSettings()" style="background:#1a237e;color:white;">Save All Settings</button>
-                        <button class="btn btn-outline" onclick="loadAllSettings()">Reload</button>
-                        <button class="btn" onclick="reanalyzeAll(this)" style="background:#e65100;color:white;">Re-analyze All</button>
-                        <span id="settingsStatus" style="font-size:0.8rem;margin-left:0.5rem;"></span>
                     </div>
 
                     <!-- AI Provider Settings -->
