@@ -262,7 +262,7 @@ def _signal_cross_hospital(
     )
     if current_rate is None:
         return ConfidenceSignal("cross_hospital", False, 0.0, "Cannot compute rate for comparison")
-    rate_vals = list(rates.values())
+    rate_vals = [r for h, r in rates.items() if h != current_hospital]
     all_rates_list = rate_vals + [current_rate]
     if len(set(all_rates_list)) == 1:
         return ConfidenceSignal("cross_hospital", True, 0.9, f"Rate={current_rate:.1f}, no variation across hospitals")
