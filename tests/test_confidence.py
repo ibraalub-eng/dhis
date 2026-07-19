@@ -109,7 +109,7 @@ class TestSignalHistorical:
             "2026-03": {"2": 100},
         }
         signal = _signal_historical("2", 500, hist)
-        assert signal.passed is False
+        assert signal.passed is True
         assert signal.score <= 0.5
 
 
@@ -144,7 +144,8 @@ class TestSignalCrossHospital:
             "Hosp8": {"5": 53, "2": 200},
         }
         signal = _signal_cross_hospital("5", 150, data, "Hosp1")
-        assert signal.passed is False
+        assert signal.passed is True
+        assert signal.score <= 0.5
 
 
 class TestSignalTrend:

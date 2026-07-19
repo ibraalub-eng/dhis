@@ -1,5 +1,6 @@
 import json
 import numpy as np
+from scipy import stats as scipy_stats
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Set
 from app.engine.quality import RuleResult, RuleStatus
@@ -202,19 +203,17 @@ def _signal_historical(
             hist_values.append(v)
     if len(hist_values) < 2:
         return ConfidenceSignal("historical", True, 0.7, "Insufficient history (<2 months), neutral confidence")
+    all_vals = hist_values + [value]
+    if len(set(all_vals)) == 1:
+        return ConfidenceSignal("historical", True, 1.0, "No variation — all values identical")
+    z_scores = scipy_stats.zscore(all_vals, ddof=1)
+    z = abs(float(z_scores[-1]))
     mean_h = float(np.mean(hist_values))
-    std_h = float(np.std(hist_values))
-    if std_h == 0:
-        diff_pct = abs((value - mean_h) / mean_h * 100) if mean_h != 0 else 0
-        score = 1.0 if diff_pct < 5 else 0.5
-        return ConfidenceSignal("historical", score >= 0.8, score,
-                                f"Value={value}, mean={mean_h:.1f}, no variation (diff {diff_pct:.1f}%)")
-    z = abs((value - mean_h) / std_h)
     score = max(0.0, 1.0 - z / 3.0)
     pct_dev = ((value - mean_h) / mean_h * 100) if mean_h != 0 else 0
     return ConfidenceSignal(
         "historical", z < z_thresh, score,
-        f"z={z:.2f}, {pct_dev:+.1f}% vs historical mean={mean_h:.1f} (std={std_h:.1f})",
+        f"z={z:.2f}, {pct_dev:+.1f}% vs historical mean={mean_h:.1f}",
     )
 
 
@@ -242,14 +241,14 @@ def _signal_cross_hospital(
                 other_vals.append(v)
         if len(other_vals) < 2:
             return ConfidenceSignal("cross_hospital", True, 0.7, "Few hospitals for comparison, neutral")
-        mean_o = float(np.mean(other_vals))
-        std_o = float(np.std(other_vals))
-        if std_o == 0:
-            return ConfidenceSignal("cross_hospital", True, 0.8, "No variation across hospitals")
-        z = abs((value - mean_o) / std_o)
+        all_vals = other_vals + [value]
+        if len(set(all_vals)) == 1:
+            return ConfidenceSignal("cross_hospital", True, 1.0, "No variation across hospitals")
+        z_scores = scipy_stats.zscore(all_vals, ddof=1)
+        z = abs(float(z_scores[-1]))
         score = max(0.0, 1.0 - z / 3.0)
         return ConfidenceSignal("cross_hospital", z < z_thresh, score,
-                                f"z={z:.2f} vs peer mean={mean_o:.1f} (std={std_o:.1f})")
+                                f"z={z:.2f} vs peer mean={np.mean(other_vals):.1f}")
     rate_name, num_code, den_code = rate_info
     rates: Dict[str, float] = {}
     for h_name, h_vals in all_hospital_data.items():
@@ -264,15 +263,15 @@ def _signal_cross_hospital(
     if current_rate is None:
         return ConfidenceSignal("cross_hospital", False, 0.0, "Cannot compute rate for comparison")
     rate_vals = list(rates.values())
-    mean_r = float(np.mean(rate_vals))
-    std_r = float(np.std(rate_vals))
-    if std_r == 0:
+    all_rates_list = rate_vals + [current_rate]
+    if len(set(all_rates_list)) == 1:
         return ConfidenceSignal("cross_hospital", True, 0.9, f"Rate={current_rate:.1f}, no variation across hospitals")
-    z = abs((current_rate - mean_r) / std_r)
+    z_scores = scipy_stats.zscore(all_rates_list, ddof=1)
+    z = abs(float(z_scores[-1]))
     score = max(0.0, 1.0 - z / 3.0)
     return ConfidenceSignal(
         "cross_hospital", z < z_thresh, score,
-        f"Rate={current_rate:.1f}, peer mean={mean_r:.1f} (std={std_r:.1f}), z={z:.2f}",
+        f"Rate={current_rate:.1f}, peer mean={np.mean(rate_vals):.1f}, z={z:.2f}",
     )
 
 
@@ -292,17 +291,8 @@ def _signal_trend(
     if len(hist_vals) < 3:
         return ConfidenceSignal("trend", True, 0.7, "Insufficient history for trend (<3 months)")
     x = list(range(len(hist_vals)))
-    x_arr = np.array(x, dtype=float)
-    y_arr = np.array(hist_vals, dtype=float)
-    x_mean = np.mean(x_arr)
-    y_mean = np.mean(y_arr)
-    ss_xy = np.sum((x_arr - x_mean) * (y_arr - y_mean))
-    ss_xx = np.sum((x_arr - x_mean) ** 2)
-    if ss_xx == 0:
-        return ConfidenceSignal("trend", True, 0.7, "Cannot compute trend (no x variation)")
-    slope = ss_xy / ss_xx
-    intercept = y_mean - slope * x_mean
-    projected = slope * len(hist_vals) + intercept
+    result = scipy_stats.linregress(x, hist_vals)
+    projected = result.slope * len(hist_vals) + result.intercept
     std_h = float(np.std(hist_vals))
     if std_h == 0:
         diff_pct = abs((value - projected) / projected * 100) if projected != 0 else 0
