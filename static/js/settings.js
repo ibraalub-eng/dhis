@@ -79,18 +79,22 @@
                 }
             });
             if (name === 'ai') loadAiSettings();
-            if (name === 'control') { loadControlSettings(); loadHospitalToggles(); loadMonthToggles(); }
+            if (name === 'control') { loadControlSettings(); loadMonthToggles(); }
             if (name === 'hospitals') loadHospitalsSettings();
         }
 
         function loadHospitalsSettings() {
             const container = document.getElementById('settingsHospitalsContent');
             if (!container) return;
-            if (container.dataset.loaded === 'true') return;
+            if (container.dataset.loaded === 'true') {
+                if (typeof loadHospitalToggles === 'function') loadHospitalToggles();
+                return;
+            }
             container.dataset.loaded = 'true';
             fetch('/static/tabs/hospitals.html').then(r => r.text()).then(html => {
                 container.innerHTML = html;
                 if (typeof loadHospitalsTab === 'function') loadHospitalsTab();
+                if (typeof loadHospitalToggles === 'function') loadHospitalToggles();
             }).catch(() => {
                 container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">Failed to load hospitals management.</div>';
             });
