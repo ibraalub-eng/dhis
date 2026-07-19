@@ -20,6 +20,9 @@ class PaginatedParams(BaseModel):
 class HospitalBase(BaseModel):
     name: str
     region: Optional[str] = None
+    governorate_id: Optional[int] = None
+    hospital_type_id: Optional[int] = None
+    address: Optional[str] = None
 
 
 class HospitalCreate(HospitalBase):
@@ -29,6 +32,40 @@ class HospitalCreate(HospitalBase):
 class HospitalOut(HospitalBase):
     id: int
     is_active: bool = True
+    created_at: Optional[datetime] = None
+    governorate_name: Optional[str] = None
+    hospital_type_name: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class GovernorateBase(BaseModel):
+    name: str
+
+
+class GovernorateCreate(GovernorateBase):
+    pass
+
+
+class GovernorateOut(GovernorateBase):
+    id: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class HospitalTypeBase(BaseModel):
+    name: str
+
+
+class HospitalTypeCreate(HospitalTypeBase):
+    pass
+
+
+class HospitalTypeOut(HospitalTypeBase):
+    id: int
     created_at: Optional[datetime] = None
 
     class Config:
@@ -343,6 +380,7 @@ class ClinicalRecommendationOut(BaseModel):
     indicators_monitored: List[str] = []
     triggered_by_rules: List[str] = []
     data_reliable: bool = True
+    source: str = "rulebase"
 
 
 class ClinicalSummaryOut(BaseModel):
