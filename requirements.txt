@@ -13,3 +13,5 @@ prometheus-client
 alembic
 pytest-cov
 ruff
+scipy>=1.14.0
+scikit-learn>=1.6.0
