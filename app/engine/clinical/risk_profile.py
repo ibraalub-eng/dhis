@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 
+from scipy import stats as scipy_stats
+
 
 @dataclass
 class RiskMetric:
@@ -256,14 +258,20 @@ def correlate_risk_outcomes(values: Dict[str, float], all_hospital_data: Dict[st
                 pt = v.get("6.f", 0) or 0
                 preterm_rates.append((pt / lb * 100) if lb > 0 else 0)
 
-        if risk_rates and preterm_rates:
-            avg_risk = sum(risk_rates) / len(risk_rates)
-            _avg_preterm = sum(preterm_rates) / len(preterm_rates)
-            if high_risk_rate > avg_risk * 1.2:
+        if risk_rates and preterm_rates and len(risk_rates) >= 3:
+            try:
+                if len(risk_rates) >= 30:
+                    r_val, p_val = scipy_stats.pearsonr(risk_rates, preterm_rates)
+                    method = "pearson"
+                else:
+                    r_val, p_val = scipy_stats.spearmanr(risk_rates, preterm_rates)
+                    method = "spearman"
                 findings.append({
-                    "finding": "High-risk proportion significantly above peer average",
-                    "detail": f"{high_risk_rate:.1f}% vs peer avg {avg_risk:.1f}%",
-                    "severity": "high" if high_risk_rate > avg_risk * 1.5 else "moderate",
+                    "finding": f"Risk-outcome correlation ({method}): r={r_val:.3f}, p={p_val:.4f}",
+                    "detail": f"Based on {len(risk_rates)} hospitals",
+                    "severity": "moderate" if p_val < 0.05 else "low",
                 })
+            except Exception:
+                pass
 
     return findings
