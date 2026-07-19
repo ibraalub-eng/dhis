@@ -11,6 +11,7 @@
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('rates')" id="stbtn-rates">Rate Benchmarks</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ai')" id="stbtn-ai" style="color:#d32f2f;border-color:#d32f2f;">AI Provider</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('control')" id="stbtn-control">Control</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('hospitals')" id="stbtn-hospitals" style="color:#1a237e;border-color:#1a237e;">Hospitals</button>
                     </div>
 
                     <!-- Quality Score Settings -->
@@ -28,7 +29,11 @@
                                     <input type="range" id="cfg_quality_rule_compliance" min="0" max="1" step="0.05" style="flex:1;" oninput="updateCfgDisplay('quality')">
                                     <span id="cfgval_quality_rule_compliance" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.35</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">How many of the 60 validation rules passed? Higher weight = rules dominate the score.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> passed_rules / total_rules. 60 rules checked, 58 passed to 96.7%.<br>
+                                    <strong>Purpose:</strong> Controls how much the rule compliance rate influences the final quality score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:51-56</code> &rarr; <code>_calc_rule_compliance()</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -36,7 +41,11 @@
                                     <input type="range" id="cfg_quality_completeness" min="0" max="1" step="0.05" style="flex:1;" oninput="updateCfgDisplay('quality')">
                                     <span id="cfgval_quality_completeness" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.25</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">What % of expected indicators have values? More missing data = lower score.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> filled_indicators / active_indicators. 45 of 50 filled = 90%.<br>
+                                    <strong>Purpose:</strong> Controls how much data completeness influences the final quality score. Missing values = lower score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:59-63</code> &rarr; <code>_calc_completeness()</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -44,7 +53,11 @@
                                     <input type="range" id="cfg_quality_consistency" min="0" max="1" step="0.05" style="flex:1;" oninput="updateCfgDisplay('quality')">
                                     <span id="cfgval_quality_consistency" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.25</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Weighted rule failures: HIGH severity rules hurt more than LOW. Uses severity weights below.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> 1 - (weighted_failures / weighted_total). HIGH failures weighted by severity_high (3), LOW by severity_low (1).<br>
+                                    <strong>Purpose:</strong> Controls how much rule failure severity (weighted by severity) influences the quality score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:66-84</code> &rarr; <code>_calc_consistency()</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -52,7 +65,11 @@
                                     <input type="range" id="cfg_quality_outlier_penalty" min="0" max="1" step="0.05" style="flex:1;" oninput="updateCfgDisplay('quality')">
                                     <span id="cfgval_quality_outlier_penalty" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.15</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Penalty for statistical outliers detected by anomaly detection. Higher = outliers hurt more.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> (1 - outlier_penalty) x W4. Penalty = min(1.0, outlier_ratio x outlier_multiplier).<br>
+                                    <strong>Purpose:</strong> Controls how much statistical outliers (anomalies) reduce the final quality score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:24-29</code> &rarr; formula <code>raw_score = ... + (1.0 - outlier_penalty) x w_op</code></span>
+                                </div>
                             </div>
                             <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem;padding-top:0.5rem;border-top:1px solid #ddd;">
                                 <label style="width:180px;font-size:0.82rem;font-weight:700;">Total:</label>
@@ -62,8 +79,10 @@
                         </div>
                         <h3 style="font-size:0.95rem;color:#333;margin:1.2rem 0 0.5rem;">Outlier & Severity Settings</h3>
                         <div style="background:#f0f4ff;padding:0.6rem;border-radius:6px;margin-bottom:0.8rem;font-size:0.78rem;color:#555;">
-                            <strong>Outlier Multiplier:</strong> <code>quality_score.py:95</code> &rarr; <code>min(1.0, ratio * multiplier)</code>. At 2.0, 50% outliers = max penalty.<br>
-                            <strong>Severity Weights:</strong> <code>quality_score.py:74</code> &rarr; used in consistency calculation. HIGH=3 means one HIGH failure = three LOW failures.
+                            <strong>Outlier Multiplier:</strong> Multiplies the outlier ratio before capping at 1.0. At multiplier 2.0, 50% outliers = max penalty.<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:91-97</code> &rarr; <code>min(1.0, ratio * multiplier)</code></span><br>
+                            <strong>Severity Weights:</strong> Used in consistency calculation. HIGH=3 means one HIGH failure = three LOW failures.<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:70-84</code> &rarr; <code>_calc_consistency()</code></span>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
@@ -72,7 +91,11 @@
                                     <input type="range" id="cfg_outlier_multiplier" min="0.5" max="5" step="0.5" style="flex:1;" oninput="updateCfgVal('outlier_multiplier')">
                                     <span id="cfgval_outlier_multiplier" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Multiplies outlier ratio before capping at 1.0. Value 2 = max penalty at 50% outliers.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> min(1.0, (outlier_count / total_anomalies) x multiplier). At 2.0, 50% outliers = 100% penalty.<br>
+                                    <strong>Purpose:</strong> Amplifies or dampens the outlier penalty. Higher values = fewer outliers needed to max the penalty.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:87-97</code> &rarr; <code>_calc_outlier_penalty()</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -80,7 +103,11 @@
                                     <input type="range" id="cfg_severity_high" min="1" max="10" step="1" style="flex:1;" oninput="updateCfgVal('severity_high')">
                                     <span id="cfgval_severity_high" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">3</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">One failed HIGH rule impacts consistency this many times more than one LOW rule.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> In consistency formula: 1 - ( sum fail_weight x severity_importance / sum total_weight ). HIGH=3 means x3 impact.<br>
+                                    <strong>Purpose:</strong> Sets relative importance of HIGH severity rule failures vs MEDIUM and LOW.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:70-74</code> &rarr; <code>severity_weights</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -88,7 +115,11 @@
                                     <input type="range" id="cfg_severity_medium" min="1" max="10" step="1" style="flex:1;" oninput="updateCfgVal('severity_medium')">
                                     <span id="cfgval_severity_medium" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Impact multiplier for MEDIUM severity rule failures in consistency score.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> Same as HIGH above, but with MEDIUM weight. Default 2 = twice the impact of LOW.<br>
+                                    <strong>Purpose:</strong> Sets relative importance of MEDIUM severity rule failures in consistency score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:70-74</code> &rarr; <code>severity_weights</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -96,7 +127,11 @@
                                     <input type="range" id="cfg_severity_low" min="1" max="10" step="1" style="flex:1;" oninput="updateCfgVal('severity_low')">
                                     <span id="cfgval_severity_low" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">1</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Baseline impact for LOW severity rule failures. Set HIGH higher to make critical rules matter more.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> Baseline weight = 1. All severities are relative to LOW.<br>
+                                    <strong>Purpose:</strong> Baseline severity weight. Set HIGH higher to make critical rules dominate the consistency score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:70-74</code> &rarr; <code>severity_weights</code></span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -106,8 +141,8 @@
                         <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Confidence Signal Weights</h3>
                         <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
                             <strong>Formula:</strong> confidence = sum(signal_score x signal_weight) x 100<br>
-                            <strong>Used in:</strong> <code>confidence.py:468</code> &rarr; called from <code>pipeline.py:145</code> and <code>confidence API</code><br>
                             <strong>Appears in:</strong> Detail Modal (Priority Verification table, by_level badges)<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py:468</code> &rarr; called from <code>app/engine/pipeline.py:145</code></span><br>
                             <strong>Must sum to 1.0</strong> &mdash; enforced on save.
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.8rem;max-width:700px;">
@@ -117,7 +152,11 @@
                                     <input type="range" id="weight_rule_compliance" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
                                     <span id="val_rule_compliance" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.55</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Only rules referencing THIS indicator. Pass/total of relevant rules only (e.g. R003 for Age 25-29).</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> Rules referencing this specific indicator only. Pass/total of relevant rules (e.g. R003 for Age 25-29).<br>
+                                    <strong>Purpose:</strong> How much indicator-specific rule compliance contributes to overall confidence score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py</code> &rarr; signal computation</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -125,7 +164,11 @@
                                     <input type="range" id="weight_historical" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
                                     <span id="val_historical" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.10</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Z-score vs this hospital's own history. Is the value normal compared to past months?</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> Z-score of current value vs this hospital's own historical values for the same indicator.<br>
+                                    <strong>Purpose:</strong> Flags values that deviate from the hospital's normal historical pattern.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py</code> &rarr; historical signal</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -133,7 +176,11 @@
                                     <input type="range" id="weight_cross_hospital" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
                                     <span id="val_cross_hospital" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.10</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Z-score vs all other hospitals. Is this value normal compared to peers?</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> Z-score of this hospital's value vs all other hospitals' values for the same indicator.<br>
+                                    <strong>Purpose:</strong> Flags values that are outliers compared to peer hospitals.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py</code> &rarr; cross-hospital signal</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -141,7 +188,11 @@
                                     <input type="range" id="weight_trend" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
                                     <span id="val_trend" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.10</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Linear regression projection. Does the value follow the expected trend line?</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> Linear regression projection error. How far actual values deviate from the expected trend line.<br>
+                                    <strong>Purpose:</strong> Detects values that break an established upward/downward trend.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py</code> &rarr; trend signal</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -149,7 +200,11 @@
                                     <input type="range" id="weight_completeness" min="0" max="1" step="0.05" style="flex:1;" oninput="updateWeightDisplay()">
                                     <span id="val_completeness" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.15</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Are child indicators present? e.g. for "Total Deliveries" checks sub-codes 2.a, 2.b, etc.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> Are all child/sub-indicators present? For "Total Deliveries", checks sub-codes 2.a, 2.b, etc.<br>
+                                    <strong>Purpose:</strong> Flags missing sub-components that could make the indicator unreliable.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py</code> &rarr; completeness signal</span>
+                                </div>
                             </div>
                             <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem;padding-top:0.5rem;border-top:1px solid #ddd;">
                                 <label style="width:180px;font-size:0.82rem;font-weight:700;">Total:</label>
@@ -163,8 +218,8 @@
                     <div id="settings-thresholds" class="settings-section" style="display:none;">
                         <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Confidence Level Cutoffs</h3>
                         <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
-                            <strong>Used in:</strong> <code>confidence.py:349-355</code> &rarr; <code>_compute_level()</code><br>
-                            <strong>Appears in:</strong> Detail Modal (badge colors, by_level counts, Priority Verification table)
+                            <strong>Appears in:</strong> Detail Modal (badge colors, by_level counts, Priority Verification table)<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py:349-355</code> &rarr; <code>_compute_level()</code></span>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
@@ -173,7 +228,11 @@
                                     <input type="range" id="cfg_confidence_high" min="50" max="100" step="5" style="flex:1;" oninput="updateCfgVal('confidence_high')">
                                     <span id="cfgval_confidence_high" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">80</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Indicators at or above this score show green badge. Currently 80%+ = HIGH.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> score >= this value to HIGH level. Default 80 = green badge.<br>
+                                    <strong>Purpose:</strong> Cutoff for HIGH confidence level. Indicators at or above this score are considered reliable.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py:349-355</code> &rarr; <code>_compute_level()</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -181,7 +240,11 @@
                                     <input type="range" id="cfg_confidence_medium" min="20" max="80" step="5" style="flex:1;" oninput="updateCfgVal('confidence_medium')">
                                     <span id="cfgval_confidence_medium" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">50</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Orange badge. Between MEDIUM and HIGH cutoffs = MEDIUM level.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> MEDIUM <= score < HIGH cutoff to MEDIUM level. Orange badge.<br>
+                                    <strong>Purpose:</strong> Cutoff for MEDIUM confidence level. Indicators between MEDIUM and HIGH need attention.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py:349-355</code> &rarr; <code>_compute_level()</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -189,14 +252,18 @@
                                     <input type="range" id="cfg_confidence_low" min="5" max="50" step="5" style="flex:1;" oninput="updateCfgVal('confidence_low')">
                                     <span id="cfgval_confidence_low" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">25</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Light red badge. Between LOW and MEDIUM cutoffs = LOW level.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> LOW <= score < MEDIUM cutoff to LOW level. Light red badge.<br>
+                                    <strong>Purpose:</strong> Cutoff for LOW confidence level. Below this to CRITICAL (dark red).<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py:349-355</code> &rarr; <code>_compute_level()</code></span>
+                                </div>
                             </div>
                             <div style="font-size:0.78rem;color:#c62828;padding-left:185px;">Below LOW = CRITICAL (dark red). Needs immediate verification.</div>
                         </div>
                         <h3 style="font-size:0.95rem;color:#333;margin:1.2rem 0 0.5rem;">Global Z-Score Threshold</h3>
                         <div style="background:#f0f4ff;padding:0.6rem;border-radius:6px;margin-bottom:0.8rem;font-size:0.78rem;color:#555;">
-                            <strong>Used in:</strong> <code>config.py:10</code> &rarr; referenced by <code>anomaly.py:61,102</code>, <code>trends.py:295,301</code>, <code>confidence.py:216,250,273</code><br>
-                            <strong>Controls:</strong> Outlier detection sensitivity. Lower = more values flagged as outliers.
+                            <strong>Controls:</strong> Outlier detection sensitivity. Lower = more values flagged as outliers.<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/config_utils.py:10</code> &rarr; referenced by <code>app/engine/anomaly/zscore.py:62,105</code>, <code>app/engine/anomaly/trends.py:241</code>, <code>app/engine/confidence/confidence.py</code></span>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
@@ -205,7 +272,11 @@
                                     <input type="range" id="cfg_zscore_threshold" min="1" max="4" step="0.5" style="flex:1;" oninput="updateCfgVal('zscore_threshold')">
                                     <span id="cfgval_zscore_threshold" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2.5</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">Values beyond this many standard deviations from mean are flagged as outliers or anomalous.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> |z-score| > threshold to flagged as outlier. z = (value - mean) / std_dev.<br>
+                                    <strong>Purpose:</strong> Controls how many standard deviations from the mean a value must be to be flagged anomalous.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py:62,105</code> &rarr; <code>is_outlier = abs(z) > z_thresh</code></span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -224,7 +295,11 @@
                                     <input type="range" id="cfg_eq_tolerance" min="0.001" max="0.1" step="0.005" style="flex:1;" oninput="updateCfgVal('eq_tolerance')">
                                     <span id="cfgval_eq_tolerance" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.01</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:92 &rarr; _eq(). Max allowed difference for "equal" check. 187 vs 186.99 passes at 0.01.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> |a - b| <= tolerance to PASS. 187 vs 186.99 passes at tolerance 0.01.<br>
+                                    <strong>Purpose:</strong> Controls floating-point precision for equality checks between reported and derived values.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/rules.py:92</code> &rarr; <code>_eq()</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -232,7 +307,11 @@
                                     <input type="range" id="cfg_cs_rate_threshold" min="30" max="100" step="5" style="flex:1;" oninput="updateCfgVal('cs_rate_threshold')">
                                     <span id="cfgval_cs_rate_threshold" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">80</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:273 &rarr; R041. FAIL if (C-Sections / Total Deliveries) x 100 exceeds this.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> (C-Sections / Total Deliveries) x 100 > threshold to FAIL.<br>
+                                    <strong>Purpose:</strong> Rule R041. Flags implausibly high C-section rates that may indicate data error.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/rules.py:273</code> &rarr; <code>R041</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -240,7 +319,11 @@
                                     <input type="range" id="cfg_nvd_rate_threshold" min="1" max="30" step="1" style="flex:1;" oninput="updateCfgVal('nvd_rate_threshold')">
                                     <span id="cfgval_nvd_rate_threshold" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">10</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:274 &rarr; R042. FAIL if NVD rate falls below this (too few normal deliveries).</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> NVD / Total Deliveries x 100 < threshold to FAIL.<br>
+                                    <strong>Purpose:</strong> Rule R042. Flags implausibly low normal vaginal delivery rates.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/rules.py:274</code> &rarr; <code>R042</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -248,7 +331,11 @@
                                     <input type="range" id="cfg_month_over_factor" min="1.5" max="5" step="0.5" style="flex:1;" oninput="updateCfgVal('month_over_factor')">
                                     <span id="cfgval_month_over_factor" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:288 &rarr; R051,R053. FAIL if current month > factor x previous month (sudden spike).</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> current_month > previous_month x factor to FAIL. 200 > 100 x 1.5 = FAIL at 1.5.<br>
+                                    <strong>Purpose:</strong> Rules R051,R053. Flags sudden spikes (> factor x) in any indicator vs previous month.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/rules.py:288</code> &rarr; <code>R051,R053</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -256,7 +343,11 @@
                                     <input type="range" id="cfg_month_under_factor" min="0.1" max="0.8" step="0.05" style="flex:1;" oninput="updateCfgVal('month_under_factor')">
                                     <span id="cfgval_month_under_factor" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.5</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:289 &rarr; R052. FAIL if current month < factor x previous month (sudden drop).</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> current_month < previous_month x factor to FAIL. 30 < 100 x 0.5 = FAIL at 0.5.<br>
+                                    <strong>Purpose:</strong> Rule R052. Flags sudden drops (< factor x) in any indicator vs previous month.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/rules.py:289</code> &rarr; <code>R052</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -264,7 +355,11 @@
                                     <input type="range" id="cfg_maternal_over_factor" min="2" max="10" step="1" style="flex:1;" oninput="updateCfgVal('maternal_over_factor')">
                                     <span id="cfgval_maternal_over_factor" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">4.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:291 &rarr; R054. FAIL with CRITICAL if maternal deaths > factor x previous month.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> maternal_deaths_current > maternal_deaths_previous x factor to FAIL(CRITICAL).<br>
+                                    <strong>Purpose:</strong> Rule R054. Flags critical spikes in maternal mortality month-over-month.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/rules.py:291</code> &rarr; <code>R054</code></span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -272,7 +367,11 @@
                                     <input type="range" id="cfg_neonatal_over_factor" min="2" max="10" step="1" style="flex:1;" oninput="updateCfgVal('neonatal_over_factor')">
                                     <span id="cfgval_neonatal_over_factor" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">4.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">rules.py:292 &rarr; R055. FAIL with CRITICAL if neonatal deaths > factor x previous month.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> neonatal_deaths_current > neonatal_deaths_previous x factor to FAIL(CRITICAL).<br>
+                                    <strong>Purpose:</strong> Rule R055. Flags critical spikes in neonatal mortality month-over-month.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/rules.py:292</code> &rarr; <code>R055</code></span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -281,8 +380,8 @@
                     <div id="settings-clinical" class="settings-section" style="display:none;">
                         <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Clinical Indicator Thresholds</h3>
                         <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
-                            <strong>Used in:</strong> <code>clinical_thresholds.py</code> &rarr; rate classification (Elevated / High / Critical)<br>
-                            <strong>Appears in:</strong> Clinical Assessment section of Detail Modal
+                            <strong>Appears in:</strong> Clinical Assessment section of Detail Modal (Elevated / High / Critical labels)<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/clinical/clinical_thresholds.py</code> &rarr; <code>classify_rate()</code></span>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:900px;">
                             <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
@@ -370,7 +469,11 @@
                                     </tr>
                                 </tbody>
                             </table>
-                            <div style="font-size:0.75rem;color:#666;padding:0.4rem;">Higher values in the "Elevated/High/Critical" columns mean thresholds are less strict (i.e. require more extreme rates to flag).</div>
+                            <div style="font-size:0.75rem;color:#666;padding:0.4rem;">
+                                <strong>Calculation:</strong> If rate >= critical threshold -> CRITICAL; elif >= high -> HIGH; elif >= elevated -> ELEVATED; else NORMAL.<br>
+                                <strong>Purpose:</strong> Classifies clinical indicator rates into severity levels. Higher thresholds = less sensitive (requires more extreme rates to flag).<br>
+                                <span class="dev-hint"><strong>Source:</strong> <code>app/engine/clinical/clinical_thresholds.py</code> &rarr; <code>classify_rate()</code></span>
+                            </div>
                         </div>
                     </div>
 
@@ -378,8 +481,9 @@
                     <div id="settings-risk" class="settings-section" style="display:none;">
                         <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Risk Profile Thresholds</h3>
                         <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
-                            <strong>Used in:</strong> <code>clinical_risk.py</code> &rarr; risk classification (Moderate / High / Critical)<br>
-                            <strong>Appears in:</strong> Risk Profile section of Detail Modal
+                            <strong>Calculation:</strong> Each risk dimension (High-Risk Delivery, Adolescent Pregnancy, etc.) scored against thresholds. Peer multipliers compare hospital rate vs peer average.<br>
+                            <strong>Appears in:</strong> Risk Profile section of Detail Modal<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/clinical/clinical_risk.py</code> &rarr; risk classification</span>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
@@ -388,7 +492,11 @@
                                     <input type="range" id="cfg_risk_peer_multiplier_high" min="1.0" max="2.0" step="0.1" style="flex:1;" oninput="updateCfgVal('risk_peer_multiplier_high')">
                                     <span id="cfgval_risk_peer_multiplier_high" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">1.2</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">Compare vs peers; values > this multiplier flag HIGH risk.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> hospital_rate / peer_average > multiplier to flag HIGH risk. 1.2 = 20% above peer average.<br>
+                                    <strong>Purpose:</strong> Flags indicators significantly above peer benchmarks as HIGH risk.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/clinical/clinical_risk.py</code> &rarr; peer comparison</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -396,7 +504,11 @@
                                     <input type="range" id="cfg_risk_peer_multiplier_critical" min="1.1" max="3.0" step="0.1" style="flex:1;" oninput="updateCfgVal('risk_peer_multiplier_critical')">
                                     <span id="cfgval_risk_peer_multiplier_critical" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">1.5</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">Values > this multiplier flag CRITICAL risk.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> hospital_rate / peer_average > multiplier to flag CRITICAL risk. 1.5 = 50% above peer average.<br>
+                                    <strong>Purpose:</strong> Flags indicators far above peer benchmarks as CRITICAL risk.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/clinical/clinical_risk.py</code> &rarr; peer comparison</span>
+                                </div>
                             </div>
                             <hr style="border:none;border-top:1px solid #ddd;margin:0.3rem 0;">
                             <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.4rem;font-size:0.78rem;">
@@ -428,8 +540,8 @@
                     <div id="settings-trends" class="settings-section" style="display:none;">
                         <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Trend Analysis Thresholds</h3>
                         <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
-                            <strong>Used in:</strong> <code>trends.py</code> &rarr; slope classification, severity, finding generation<br>
-                            <strong>Appears in:</strong> Trend Chart, flags, recommendations
+                            <strong>Appears in:</strong> Trend Chart, flags, recommendations<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; slope classification, severity, finding generation</span>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
@@ -438,7 +550,11 @@
                                     <input type="range" id="cfg_trend_slope_stable" min="0.5" max="10" step="0.5" style="flex:1;" oninput="updateCfgVal('trend_slope_stable')">
                                     <span id="cfgval_trend_slope_stable" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">2.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Slope below this = STABLE. e.g. 1.5% means "no significant change".</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> |slope%| < threshold = STABLE. Slope is the annualized percentage change from linear regression.<br>
+                                    <strong>Purpose:</strong> Defines the range where change is considered noise, not a real trend.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; slope classification</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -446,7 +562,11 @@
                                     <input type="range" id="cfg_trend_slope_low" min="2" max="15" step="1" style="flex:1;" oninput="updateCfgVal('trend_slope_low')">
                                     <span id="cfgval_trend_slope_low" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">5.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py:severity. Slope above this = LOW severity.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Stable threshold < |slope%| < Low threshold = LOW severity trend.<br>
+                                    <strong>Purpose:</strong> Sets the lower bound for flagging mild trends.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; severity classification</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -454,7 +574,11 @@
                                     <input type="range" id="cfg_trend_slope_moderate" min="5" max="30" step="1" style="flex:1;" oninput="updateCfgVal('trend_slope_moderate')">
                                     <span id="cfgval_trend_slope_moderate" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">15.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py:severity. Slope above this = MODERATE severity.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Low < |slope%| < Moderate threshold = MODERATE severity trend.<br>
+                                    <strong>Purpose:</strong> Sets the threshold for moderate trends that need attention.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; severity classification</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -462,7 +586,11 @@
                                     <input type="range" id="cfg_trend_slope_high" min="15" max="60" step="5" style="flex:1;" oninput="updateCfgVal('trend_slope_high')">
                                     <span id="cfgval_trend_slope_high" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">30.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py:severity. Slope above this = HIGH severity.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> |slope%| >= High threshold = HIGH severity trend.<br>
+                                    <strong>Purpose:</strong> Sets the threshold for critical trends that require immediate investigation.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; severity classification</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -470,7 +598,11 @@
                                     <input type="range" id="cfg_trend_r_squared" min="0.1" max="0.9" step="0.05" style="flex:1;" oninput="updateCfgVal('trend_r_squared')">
                                     <span id="cfgval_trend_r_squared" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">0.50</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Min R-squared to consider a trend meaningful.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> R-squared >= threshold required for trend to be meaningful. 0.50 = 50% of variance explained by time.<br>
+                                    <strong>Purpose:</strong> Ensures only statistically sound trends are reported (not random noise).<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; linear regression quality check</span>
+                                </div>
                             </div>
                             <hr style="border:none;border-top:1px solid #ddd;margin:0.3rem 0;">
                             <div style="font-size:0.82rem;font-weight:600;padding:0.2rem 0;">Finding Generation</div>
@@ -480,7 +612,11 @@
                                     <input type="range" id="cfg_trend_finding_slope" min="2" max="30" step="1" style="flex:1;" oninput="updateCfgVal('trend_finding_slope')">
                                     <span id="cfgval_trend_finding_slope" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">10.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Slope above this triggers a finding.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> |slope%| > slope threshold AND R-squared >= Finding R-Squared to generate a finding.<br>
+                                    <strong>Purpose:</strong> Controls sensitivity of trend finding generation. Higher = fewer but more significant findings.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; finding generation</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -488,7 +624,11 @@
                                     <input type="range" id="cfg_trend_finding_consecutive" min="1" max="6" step="1" style="flex:1;" oninput="updateCfgVal('trend_finding_consecutive')">
                                     <span id="cfgval_trend_finding_consecutive" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">3</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. N consecutive months going up triggers finding.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Consecutive months with same direction (up/down) >= threshold triggers finding.<br>
+                                    <strong>Purpose:</strong> Detects persistent patterns (e.g. 3 months of increase) even if individual steps are small.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; finding generation</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -496,7 +636,11 @@
                                     <input type="range" id="cfg_trend_finding_deviation" min="5" max="50" step="5" style="flex:1;" oninput="updateCfgVal('trend_finding_deviation')">
                                     <span id="cfgval_trend_finding_deviation" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">20.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Deviation from expected triggers finding.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> |actual - predicted| / predicted x 100 > threshold triggers finding.<br>
+                                    <strong>Purpose:</strong> Flags values that deviate significantly from the regression-predicted value.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; finding generation</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -504,7 +648,11 @@
                                     <input type="range" id="cfg_trend_finding_cv" min="10" max="60" step="5" style="flex:1;" oninput="updateCfgVal('trend_finding_cv')">
                                     <span id="cfgval_trend_finding_cv" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">30.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Coefficient of variation above this triggers finding.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> CV = (std_dev / mean) x 100. CV > threshold triggers finding.<br>
+                                    <strong>Purpose:</strong> Flags high-variability indicators where values fluctuate excessively.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; finding generation</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -512,7 +660,11 @@
                                     <input type="range" id="cfg_trend_finding_r_squared" min="0.2" max="0.95" step="0.05" style="flex:1;" oninput="updateCfgVal('trend_finding_r_squared')">
                                     <span id="cfgval_trend_finding_r_squared" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">0.70</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">trends.py. Min R-squared to generate a trend finding.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> R-squared from linear regression >= threshold to generate finding.<br>
+                                    <strong>Purpose:</strong> Ensures only trends with a good linear fit are reported as findings.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; finding generation</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -521,8 +673,9 @@
                     <div id="settings-rates" class="settings-section" style="display:none;">
                         <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">Rate Benchmarks (Anomaly Detection)</h3>
                         <div style="background:#f0f4ff;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
-                            <strong>Used in:</strong> <code>anomaly.py</code> &rarr; z-score calculation (expected rates per indicator)<br>
-                            <strong>Appears in:</strong> Anomaly Detection section of Detail Modal, outlier flagging
+                            <strong>Calculation:</strong> Expected rate used as the mean in z-score: z = (actual - benchmark) / std_dev.<br>
+                            <strong>Appears in:</strong> Anomaly Detection section of Detail Modal, outlier flagging<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py</code> &rarr; expected rates per indicator</span>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
@@ -531,7 +684,11 @@
                                     <input type="range" id="cfg_rate_cs_benchmark" min="10" max="80" step="5" style="flex:1;" oninput="updateCfgVal('rate_cs_benchmark')">
                                     <span id="cfgval_rate_cs_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">50.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected proportion of C-sections among all deliveries.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Expected C-section rate used as mean in z-score. Values far above/below = anomalous.<br>
+                                    <strong>Purpose:</strong> Baseline for detecting abnormally high or low C-section rates via z-score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py</code> &rarr; rate benchmark as mean</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -539,7 +696,11 @@
                                     <input type="range" id="cfg_rate_mmr_benchmark" min="0.1" max="10" step="0.1" style="flex:1;" oninput="updateCfgVal('rate_mmr_benchmark')">
                                     <span id="cfgval_rate_mmr_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">1.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected maternal deaths per 100,000 live births.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Expected MMR per 100,000 live births used as z-score mean.<br>
+                                    <strong>Purpose:</strong> Baseline for detecting maternal mortality anomalies.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py</code> &rarr; rate benchmark as mean</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -547,7 +708,11 @@
                                     <input type="range" id="cfg_rate_nmr_benchmark" min="5" max="60" step="1" style="flex:1;" oninput="updateCfgVal('rate_nmr_benchmark')">
                                     <span id="cfgval_rate_nmr_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">30.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected neonatal deaths per 1,000 live births.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Expected NMR per 1,000 live births used as z-score mean.<br>
+                                    <strong>Purpose:</strong> Baseline for detecting neonatal mortality anomalies.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py</code> &rarr; rate benchmark as mean</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -555,7 +720,11 @@
                                     <input type="range" id="cfg_rate_preterm_benchmark" min="5" max="30" step="1" style="flex:1;" oninput="updateCfgVal('rate_preterm_benchmark')">
                                     <span id="cfgval_rate_preterm_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">15.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected proportion of preterm births among all deliveries.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Expected preterm birth % used as z-score mean.<br>
+                                    <strong>Purpose:</strong> Baseline for detecting preterm birth rate anomalies.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py</code> &rarr; rate benchmark as mean</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -563,7 +732,11 @@
                                     <input type="range" id="cfg_rate_smm_benchmark" min="1" max="25" step="1" style="flex:1;" oninput="updateCfgVal('rate_smm_benchmark')">
                                     <span id="cfgval_rate_smm_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">10.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected severe maternal morbidity rate.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Expected SMM rate % used as z-score mean.<br>
+                                    <strong>Purpose:</strong> Baseline for detecting severe maternal morbidity anomalies.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py</code> &rarr; rate benchmark as mean</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -571,7 +744,11 @@
                                     <input type="range" id="cfg_rate_stillbirth_benchmark" min="1" max="20" step="1" style="flex:1;" oninput="updateCfgVal('rate_stillbirth_benchmark')">
                                     <span id="cfgval_rate_stillbirth_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">5.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected stillbirths per 1,000 births.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Expected stillbirths per 1,000 births used as z-score mean.<br>
+                                    <strong>Purpose:</strong> Baseline for detecting stillbirth rate anomalies.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py</code> &rarr; rate benchmark as mean</span>
+                                </div>
                             </div>
                             <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
@@ -579,7 +756,11 @@
                                     <input type="range" id="cfg_rate_nicu_benchmark" min="5" max="40" step="1" style="flex:1;" oninput="updateCfgVal('rate_nicu_benchmark')">
                                     <span id="cfgval_rate_nicu_benchmark" style="width:40px;text-align:right;font-weight:700;font-size:0.85rem;">20.0</span>
                                 </div>
-                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">anomaly.py. Expected proportion of NICU admissions among all deliveries.</div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    <strong>Calculation:</strong> Expected NICU admission rate % used as z-score mean.<br>
+                                    <strong>Purpose:</strong> Baseline for detecting NICU admission rate anomalies.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/zscore.py</code> &rarr; rate benchmark as mean</span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -695,6 +876,15 @@
                             </div>
                         </div>
                         <div style="background:#fafafa;padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                                <input type="checkbox" id="cfg_dev_hints" onchange="toggleDevHints(this.checked)" style="margin-top:0.2rem;width:18px;height:18px;">
+                                <div>
+                                    <strong>Show Developer Hints</strong><br>
+                                    <span style="font-size:0.8rem;color:#666;">When enabled, displays source code file references and function names below each setting control. Disable before production deployment to hide internal implementation details.</span>
+                                </div>
+                            </label>
+                        </div>
+                        <div style="background:#fafafa;padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.5rem;">
                                 <div>
                                     <strong>Analysis Months</strong>
@@ -720,6 +910,10 @@
                             <span style="font-size:0.8rem;color:#666;display:block;margin-bottom:0.5rem;">Toggle hospitals on/off. Disabled hospitals are excluded from all analysis and reports.</span>
                             <div id="hospitalToggleList" style="max-height:300px;overflow-y:auto;"></div>
                         </div>
+                    </div>
+                    <!-- Hospitals Management -->
+                    <div id="settings-hospitals" class="settings-section" style="display:none;">
+                        <div id="settingsHospitalsContent"></div>
                     </div>
                 </div>
             </div>

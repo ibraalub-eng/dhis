@@ -63,14 +63,14 @@
         }
 
         export function showSettingsTab(name) {
-            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'control'].forEach(s => {
+            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'control', 'hospitals'].forEach(s => {
                 const section = document.getElementById('settings-' + s);
                 if (section) section.style.display = s === name ? '' : 'none';
                 const btn = document.getElementById('stbtn-' + s);
                 if (!btn) return;
                 if (s === name) {
                     btn.className = 'btn btn-sm';
-                    btn.style.background = s === 'ai' ? '#d32f2f' : '#1a237e';
+                    btn.style.background = s === 'ai' ? '#d32f2f' : s === 'hospitals' ? '#1a237e' : '#1a237e';
                     btn.style.color = 'white';
                 } else {
                     btn.className = 'btn btn-sm btn-outline';
@@ -80,6 +80,20 @@
             });
             if (name === 'ai') loadAiSettings();
             if (name === 'control') { loadControlSettings(); loadHospitalToggles(); loadMonthToggles(); }
+            if (name === 'hospitals') loadHospitalsSettings();
+        }
+
+        function loadHospitalsSettings() {
+            const container = document.getElementById('settingsHospitalsContent');
+            if (!container) return;
+            if (container.dataset.loaded === 'true') return;
+            container.dataset.loaded = 'true';
+            fetch('/static/tabs/hospitals.html').then(r => r.text()).then(html => {
+                container.innerHTML = html;
+                if (typeof loadHospitalsTab === 'function') loadHospitalsTab();
+            }).catch(() => {
+                container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">Failed to load hospitals management.</div>';
+            });
         }
 
         function loadWeights() {
@@ -163,7 +177,7 @@
                         const card = document.createElement('div');
                         card.style.cssText = 'padding:0.5rem 0.6rem;border-radius:4px;margin-bottom:0.4rem;border-left:3px solid ' + pCol + ';font-size:0.8rem;';
                         card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.3rem;">' +
-                            '<span style="font-weight:600;color:#333;">' + esc(r.title) + '</span>' +
+                            '<div style="display:flex;align-items:center;gap:0.3rem;"><span class="rec-source rec-source-ai" title="AI-generated">&#9889;</span><span style="font-weight:600;color:#333;">' + esc(r.title) + '</span></div>' +
                             '<span style="font-size:0.6rem;background:' + pCol + ';color:#fff;padding:0 6px;border-radius:8px;white-space:nowrap;">' + r.priority + '</span></div>' +
                             (r.description ? '<div style="font-size:0.75rem;color:#555;margin-top:0.2rem;">' + esc(r.description) + '</div>' : '') +
                             (r.rationale ? '<div style="font-size:0.7rem;color:#888;font-style:italic;margin-top:0.15rem;">' + esc(r.rationale) + '</div>' : '') +
@@ -295,22 +309,20 @@
             apiGet(url).then(data => {
                 const container = document.getElementById('dashKpiCards');
                 container.innerHTML = (data.kpis || []).map(k => {
-                    const pct = k.target ? Math.min(k.value / k.target, 1) : 1;
-                    const bg = k.higher_is_better
-                        ? (pct >= 1 ? '#e8f5e9' : pct >= 0.75 ? '#fff8e1' : '#ffebee')
-                        : (pct <= 1 ? '#e8f5e9' : '#ffebee');
-                    const valColor = k.higher_is_better
-                        ? (pct >= 1 ? '#2e7d32' : pct >= 0.75 ? '#e65100' : '#c62828')
-                        : (pct <= 1 ? '#2e7d32' : '#c62828');
+                    const hasTarget = k.target != null;
+                    const pct = hasTarget ? Math.min(k.value / k.target, 1) : 0.5;
+                    const bg = hasTarget
+                        ? (k.higher_is_better ? (pct >= 1 ? '#e8f5e9' : pct >= 0.75 ? '#fff8e1' : '#ffebee') : (pct <= 1 ? '#e8f5e9' : '#ffebee'))
+                        : '#f5f5f5';
+                    const valColor = hasTarget
+                        ? (k.higher_is_better ? (pct >= 1 ? '#2e7d32' : pct >= 0.75 ? '#e65100' : '#c62828') : (pct <= 1 ? '#2e7d32' : '#c62828'))
+                        : '#555';
                     const barPct = Math.min(pct * 100, 100);
-                    const barColor = k.higher_is_better
-                        ? (pct >= 1 ? '#4caf50' : pct >= 0.75 ? '#ff9800' : '#f44336')
-                        : (pct <= 1 ? '#4caf50' : '#f44336');
                     return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';">' +
                         '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
                         '<span style="font-size:0.75rem;color:#555;font-weight:500;">' + k.label + '</span>' +
-                        '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? '<span style="font-size:0.7rem;margin-left:2px;">' + k.unit + '</span>' : '') + '</span></div>' +
-                        (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:#ddd;border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + barColor + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:#888;">target ' + k.target + '</span></div>' : '') +
+                        '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? ' <span style="font-size:0.7rem;">' + k.unit + '</span>' : '') + '</span></div>' +
+                        (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:#ddd;border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + (pct >= 1 ? '#4caf50' : pct >= 0.75 ? '#ff9800' : '#f44336') + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:#888;">target ' + k.target + '</span></div>' : '') +
                         '</div>';
                 }).join('');
             }).catch(() => {});
@@ -477,7 +489,7 @@
                             }]
                         },
                         options: {
-                            responsive: true, maintainAspectRatio: false,
+                            responsive: true, resizeDelay: 200,
                             plugins: { legend: { display: false } },
                             scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
                         }
@@ -497,7 +509,7 @@
                             ]
                         },
                         options: {
-                            responsive: true, maintainAspectRatio: false,
+                            responsive: true, resizeDelay: 200,
                             plugins: { legend: { position: 'top', labels: { font: { size: 9 } } } },
                             scales: { y: { beginAtZero: true } }
                         }
@@ -539,6 +551,7 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        resizeDelay: 200,
                         plugins: { legend: { position: 'top', labels: { font: { size: 10 } } } },
                         scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
                     }
@@ -585,6 +598,7 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        resizeDelay: 200,
                         plugins: { legend: { display: false } },
                         scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
                     }
@@ -610,6 +624,7 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        resizeDelay: 200,
                         plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } }
                     }
                 });
@@ -634,6 +649,7 @@
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
+                        resizeDelay: 200,
                         scales: { r: { min: 0, max: 100, ticks: { stepSize: 20, font: { size: 9 } } } },
                         plugins: { legend: { display: false } }
                     }
@@ -730,6 +746,7 @@
             ]).then(() => {
                 document.getElementById('settingsLoading').classList.add('hidden');
             });
+            initDevHints();
         }
 
         export function saveAllSettings() {
@@ -1235,6 +1252,7 @@
                 const logCb = document.getElementById('cfg_structured_logging');
                 if (logCb) logCb.checked = data.structured_logging_enabled !== false;
             }).catch(() => {});
+            initDevHints();
         }
 
         export function saveControlSettings() {
@@ -1251,6 +1269,26 @@
                 if (status) { status.textContent = '\u2713 Saved'; status.style.color = '#2e7d32'; }
             }).catch(e => {
                 if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }
+            });
+        }
+
+        export function initDevHints() {
+            const enabled = localStorage.getItem('dev_hints_enabled') !== 'false';
+            window._showDevHints = enabled;
+            const cb = document.getElementById('cfg_dev_hints');
+            if (cb) cb.checked = enabled;
+            applyDevHintsVisibility();
+        }
+
+        export function toggleDevHints(show) {
+            window._showDevHints = show;
+            localStorage.setItem('dev_hints_enabled', show ? 'true' : 'false');
+            applyDevHintsVisibility();
+        }
+
+        function applyDevHintsVisibility() {
+            document.querySelectorAll('.dev-hint').forEach(function(el) {
+                el.style.display = window._showDevHints ? '' : 'none';
             });
         }
 
