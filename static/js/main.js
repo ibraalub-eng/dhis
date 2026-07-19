@@ -96,6 +96,7 @@
             if (name === 'indicator-tree') window.initIndicatorTree();
             if (name === 'rules-manager') window.loadRulesManager();
             if (name === 'audit') window.initAudit();
+            if (name === 'hospitals') window.loadHospitalsTab();
         }
 
         document.querySelectorAll('.tab').forEach(tab => {

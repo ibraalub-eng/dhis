@@ -7,10 +7,11 @@ import { loadAlerts, updateAlertBadge, renderAlertTable } from './alerts.js';
 import { refreshSavedFiles, toggleAllSaved, analyzeSelectedSaved, analyzeSingleSaved, deleteSelectedSaved } from './saved_files.js';
 import { loadAllSettings, saveAllSettings, reanalyzeAll, showSettingsTab, saveAiSettings, loadAiSettings, onAiProviderChange, loadRulesManager, initRootCause, initDashboard, loadRootCause, populateMonthSelect, loadDashboard, saveControlSettings, updateWeightDisplay, updateCfgDisplay, updateCfgVal, loadRankingTable, showHospitalScorecard, closeScorecard } from './settings.js';
 import { initTrends, initCompare, filterComparison, loadClinical, initClinical, renderClinical, loadTrends, loadComparison } from './validation.js';
-import { populateReportMonthSelect, generateReport, restoreReportData, applyReportFilter, showReportDetail, showRuleFailureDetail, showModal, closeModal } from './clinical.js';
+import { populateReportMonthSelect, generateReport, restoreReportData, applyReportFilter, showReportDetail, showRuleFailureDetail, showModal, closeModal, onReportHospitalChange } from './clinical.js';
 import { expandAllTree, collapseAllTree, initIndicatorTree, loadIndicatorTree, reanalyzeHospital, saveTreeConfig, setStatus, esc } from './tree.js';
 import { loadIndicators, _vbDragStart, _vbDragOver, _vbDragEnter, _vbDragLeave, _vbDrop, _vbRemoveFromZone, _vbOnPaletteSearch, _vbOnThresholdChange, _vbOnZThresholdChange, _vbOnFactorChange, ruleExprTemplate, toggleExprHelp, openRuleModal, closeRuleModal, saveRule, deleteRule } from './rules.js';
 import { initAudit, loadAudit, downloadAuditJSON, downloadAuditCSV } from './audit.js';
+import { loadHospitalsTab } from './hospitals.js';
 
 // Attach to window for onclick backward compatibility
 window.API = API;
@@ -71,6 +72,7 @@ window.loadClinical = loadClinical;
 window.initClinical = initClinical;
 window.loadTrends = loadTrends;
 window.loadComparison = loadComparison;
+window.onReportHospitalChange = onReportHospitalChange;
 window.generateReport = generateReport;
 window.applyReportFilter = applyReportFilter;
 window.populateReportMonthSelect = populateReportMonthSelect;
@@ -104,6 +106,7 @@ window.initAudit = initAudit;
 window.loadAudit = loadAudit;
 window.downloadAuditJSON = downloadAuditJSON;
 window.downloadAuditCSV = downloadAuditCSV;
+window.loadHospitalsTab = loadHospitalsTab;
 
 // Bootstrap
 document.addEventListener('DOMContentLoaded', () => {
