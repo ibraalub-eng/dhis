@@ -1,6 +1,7 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 from dataclasses import dataclass
 import numpy as np
+from scipy import stats as scipy_stats
 
 from .zscore import compute_rate, RATE_DEFINITIONS
 
@@ -15,6 +16,7 @@ class HospitalComparison:
     deviation_pct: float
     percentile_rank: float
     comparison_label: str
+    comparison_p_value: Optional[float] = None
 
 
 def compare_hospitals(
@@ -45,6 +47,16 @@ def compare_hospitals(
             percentile = (rank_idx / (n - 1) * 100) if n > 1 else 50.0
             deviation = ((rate - benchmark) / benchmark * 100) if benchmark != 0 else 0.0
 
+            if len(rate_vals) >= 3:
+                other_rates = [v for h, v in rates.items() if h != hosp_name]
+                if len(other_rates) >= 2 and len(set(other_rates)) > 1:
+                    _, p_val = scipy_stats.ttest_ind([rate], other_rates, alternative='two-sided')
+                    _p_value = round(float(p_val), 4)
+                else:
+                    _p_value = None
+            else:
+                _p_value = None
+
             if abs(deviation) < 10:
                 label = "normal"
             elif deviation > 0:
@@ -66,6 +78,7 @@ def compare_hospitals(
                 deviation_pct=round(deviation, 2),
                 percentile_rank=round(percentile, 1),
                 comparison_label=label,
+                comparison_p_value=_p_value,
             ))
 
     return results

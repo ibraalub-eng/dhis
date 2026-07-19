@@ -1,6 +1,7 @@
 from typing import List, Dict, Tuple
 from dataclasses import dataclass
 import numpy as np
+from scipy import stats as scipy_stats
 
 from .zscore import compute_rate, RATE_DEFINITIONS, AnomalyResultData
 from .comparison import HospitalComparison
@@ -56,21 +57,9 @@ def _linear_regression(x: List[float], y: List[float]) -> Tuple[float, float, fl
     n = len(x)
     if n < 2:
         return 0.0, 0.0, 0.0
-    x_arr = np.array(x, dtype=float)
-    y_arr = np.array(y, dtype=float)
-    x_mean = np.mean(x_arr)
-    y_mean = np.mean(y_arr)
-    ss_xy = np.sum((x_arr - x_mean) * (y_arr - y_mean))
-    ss_xx = np.sum((x_arr - x_mean) ** 2)
-    if ss_xx == 0:
-        return 0.0, 0.0, 0.0
-    slope = ss_xy / ss_xx
-    intercept = y_mean - slope * x_mean
-    y_pred = slope * x_arr + intercept
-    ss_res = np.sum((y_arr - y_pred) ** 2)
-    ss_tot = np.sum((y_arr - y_mean) ** 2)
-    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
-    return slope, intercept, r_squared
+    result = scipy_stats.linregress(x, y)
+    r_squared = result.rvalue ** 2
+    return result.slope, result.intercept, r_squared
 
 
 def _compute_trend_direction(slope: float, mean: float, r_squared: float, slope_pct: float) -> Tuple[str, str]:

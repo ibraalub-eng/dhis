@@ -1,4 +1,5 @@
 import numpy as np
+from scipy import stats as scipy_stats
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 
@@ -59,6 +60,7 @@ def detect_anomalies(
             z_score = 0.0
         else:
             z_score = (current_rate - mean_rate) / std_rate
+        _p_value = float(scipy_stats.norm.sf(abs(z_score)) * 2)
         is_outlier = abs(z_score) > z_thresh
         results.append(
             AnomalyResultData(
@@ -102,6 +104,7 @@ def detect_monthly_trend(
             z = 0.0
         else:
             z = (current_rate - mean_h) / std_h
+        _p_value = float(scipy_stats.norm.sf(abs(z)) * 2)
         is_outlier = abs(z) > z_thresh
         results.append(
             AnomalyResultData(
