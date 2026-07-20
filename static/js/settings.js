@@ -55,15 +55,17 @@
 
         function fmtCfgVal(key, value) {
             const v = parseFloat(value);
-            const intKeys = ['trend_finding_consecutive'];
+            const intKeys = ['trend_finding_consecutive', 'ml_clustering_min_k', 'ml_clustering_max_k', 'ml_enabled', 'ml_clustering_enabled', 'ml_anomaly_enabled', 'ml_pca_enabled'];
+            const doubleKeys = ['ml_anomaly_contamination', 'ml_pca_variance_threshold'];
             const tripleKeys = ['eq_tolerance'];
             if (intKeys.includes(key)) return Math.round(v).toString();
+            if (doubleKeys.includes(key)) return v.toFixed(2);
             if (tripleKeys.includes(key)) return v.toFixed(3);
             return v.toFixed(1);
         }
 
         export function showSettingsTab(name) {
-            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'control', 'hospitals'].forEach(s => {
+            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'control', 'hospitals', 'ml'].forEach(s => {
                 const section = document.getElementById('settings-' + s);
                 if (section) section.style.display = s === name ? '' : 'none';
                 const btn = document.getElementById('stbtn-' + s);
@@ -789,6 +791,11 @@
             ]).concat([
              'rate_cs_benchmark','rate_mmr_benchmark','rate_nmr_benchmark',
              'rate_preterm_benchmark','rate_smm_benchmark','rate_stillbirth_benchmark','rate_nicu_benchmark'
+             // ml
+            ]).concat([
+             'ml_enabled', 'ml_clustering_enabled', 'ml_clustering_min_k', 'ml_clustering_max_k',
+             'ml_anomaly_enabled', 'ml_anomaly_contamination',
+             'ml_pca_enabled', 'ml_pca_variance_threshold'
             ]).forEach(key => {
                 const el = document.getElementById('cfg_' + key);
                 if (el) updates[key] = parseFloat(el.value);

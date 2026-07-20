@@ -12,6 +12,7 @@
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ai')" id="stbtn-ai" style="color:#d32f2f;border-color:#d32f2f;">AI Provider</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('control')" id="stbtn-control">Control</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('hospitals')" id="stbtn-hospitals" style="color:#1a237e;border-color:#1a237e;">Hospitals</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ml')" id="stbtn-ml">ML Analysis</button>
                     </div>
 
                     <!-- Quality Score Settings -->
@@ -908,6 +909,106 @@
                     <!-- Hospitals Management -->
                     <div id="settings-hospitals" class="settings-section" style="display:none;">
                         <div id="settingsHospitalsContent"></div>
+                    </div>
+                    <!-- ML Analysis Settings -->
+                    <div id="settings-ml" class="settings-section" style="display:none;">
+                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.8rem;">
+                            <button class="btn" onclick="saveAllSettings()" style="background:#1a237e;color:white;">Save All Settings</button>
+                            <button class="btn btn-outline" onclick="loadAllSettings()">Reload</button>
+                            <span id="settingsStatus" style="font-size:0.8rem;"></span>
+                        </div>
+                        <h3 style="font-size:0.95rem;color:#333;margin-bottom:0.5rem;">ML Analysis Settings</h3>
+                        <div style="background:#fef3e2;padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:#333;line-height:1.6;">
+                            <strong>ML Engine:</strong> scikit-learn (IsolationForest, KMeans, PCA).<br>
+                            <strong>Used in:</strong> Compare tab (clustering), Outliers tab (ML anomalies), Root Cause tab (PCA).<br>
+                            <strong>Requires:</strong> At least 2 hospitals with data for the selected month.
+                        </div>
+                        <div style="display:flex;flex-direction:column;gap:0.8rem;max-width:700px;">
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Enable ML Analysis:</label>
+                                    <input type="range" id="cfg_ml_enabled" min="0" max="1" step="1" style="flex:1;" oninput="updateCfgVal('ml_enabled')">
+                                    <span id="cfgval_ml_enabled" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    Master toggle. When disabled, no ML analysis runs and no ML results appear in tabs.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/pipeline.py</code> &rarr; <code>_build_ml_config()</code></span>
+                                </div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Clustering Enabled:</label>
+                                    <input type="range" id="cfg_ml_clustering_enabled" min="0" max="1" step="1" style="flex:1;" oninput="updateCfgVal('ml_clustering_enabled')">
+                                    <span id="cfgval_ml_clustering_enabled" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">1</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    Group similar hospitals by performance indicators using KMeans. Results shown in Compare tab.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/ml/clustering.py</code></span>
+                                </div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Min Clusters (k):</label>
+                                    <input type="range" id="cfg_ml_clustering_min_k" min="2" max="10" step="1" style="flex:1;" oninput="updateCfgVal('ml_clustering_min_k')">
+                                    <span id="cfgval_ml_clustering_min_k" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    Minimum number of hospital groups. Lower = broader groups. Higher = finer distinctions.
+                                </div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Max Clusters (k):</label>
+                                    <input type="range" id="cfg_ml_clustering_max_k" min="2" max="15" step="1" style="flex:1;" oninput="updateCfgVal('ml_clustering_max_k')">
+                                    <span id="cfgval_ml_clustering_max_k" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">6</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    Maximum number of hospital groups. The optimal k is auto-selected via silhouette score within this range.
+                                </div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Anomaly Detection Enabled:</label>
+                                    <input type="range" id="cfg_ml_anomaly_enabled" min="0" max="1" step="1" style="flex:1;" oninput="updateCfgVal('ml_anomaly_enabled')">
+                                    <span id="cfgval_ml_anomaly_enabled" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">1</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    Detect multivariate outliers using IsolationForest. Results shown in Outliers tab.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/ml/anomaly.py</code></span>
+                                </div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">Contamination:</label>
+                                    <input type="range" id="cfg_ml_anomaly_contamination" min="0.01" max="0.50" step="0.01" style="flex:1;" oninput="updateCfgVal('ml_anomaly_contamination')">
+                                    <span id="cfgval_ml_anomaly_contamination" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.10</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    Expected proportion of outliers in the data. 0.10 = expect 10% of hospitals to be anomalous.
+                                </div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">PCA Enabled:</label>
+                                    <input type="range" id="cfg_ml_pca_enabled" min="0" max="1" step="1" style="flex:1;" oninput="updateCfgVal('ml_pca_enabled')">
+                                    <span id="cfgval_ml_pca_enabled" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">1</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    Identify which indicators drive the most variance across hospitals. Results shown in Root Cause tab.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/ml/decomposition.py</code></span>
+                                </div>
+                            </div>
+                            <div style="background:#fafafa;padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:200px;font-size:0.82rem;font-weight:600;">PCA Variance Threshold:</label>
+                                    <input type="range" id="cfg_ml_pca_variance_threshold" min="0.50" max="1.00" step="0.01" style="flex:1;" oninput="updateCfgVal('ml_pca_variance_threshold')">
+                                    <span id="cfgval_ml_pca_variance_threshold" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.95</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;padding-left:205px;">
+                                    Cumulative variance threshold for selecting PCA components. 0.95 = keep enough components to explain 95% of variance.
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
