@@ -31,11 +31,16 @@ def list_hospitals(
                     "region": item.region,
                     "governorate_id": item.governorate_id,
                     "hospital_type_id": item.hospital_type_id,
+                    "organisation_unit_id": item.organisation_unit_id,
+                    "facility_ownership_id": item.facility_ownership_id,
+                    "facility_type_id": item.facility_type_id,
                     "address": item.address,
                     "is_active": item.is_active,
                     "created_at": item.created_at,
                     "governorate_name": item.governorate.name if item.governorate else None,
                     "hospital_type_name": item.hospital_type.name if item.hospital_type else None,
+                    "facility_ownership_name": item.facility_ownership.name if item.facility_ownership else None,
+                    "facility_type_name": item.facility_type.name if item.facility_type else None,
                 }
                 result.append(d)
         return result
@@ -51,11 +56,16 @@ def list_hospitals(
             "region": h.region,
             "governorate_id": h.governorate_id,
             "hospital_type_id": h.hospital_type_id,
+            "organisation_unit_id": h.organisation_unit_id,
+            "facility_ownership_id": h.facility_ownership_id,
+            "facility_type_id": h.facility_type_id,
             "address": h.address,
             "is_active": h.is_active,
             "created_at": h.created_at,
             "governorate_name": h.governorate.name if h.governorate else None,
             "hospital_type_name": h.hospital_type.name if h.hospital_type else None,
+            "facility_ownership_name": h.facility_ownership.name if h.facility_ownership else None,
+            "facility_type_name": h.facility_type.name if h.facility_type else None,
         })
     cache.set(cache_key, result)
     return result
@@ -71,6 +81,9 @@ def create_hospital(data: HospitalCreate, db: Session = Depends(get_db)):
         region=data.region,
         governorate_id=data.governorate_id,
         hospital_type_id=data.hospital_type_id,
+        organisation_unit_id=data.organisation_unit_id,
+        facility_ownership_id=data.facility_ownership_id,
+        facility_type_id=data.facility_type_id,
         address=data.address,
     )
     db.add(hosp)
@@ -114,11 +127,16 @@ def get_hospital(hospital_id: int, db: Session = Depends(get_db)):
         "region": h.region,
         "governorate_id": h.governorate_id,
         "hospital_type_id": h.hospital_type_id,
+        "organisation_unit_id": h.organisation_unit_id,
+        "facility_ownership_id": h.facility_ownership_id,
+        "facility_type_id": h.facility_type_id,
         "address": h.address,
         "is_active": h.is_active,
         "created_at": h.created_at,
         "governorate_name": h.governorate.name if h.governorate else None,
         "hospital_type_name": h.hospital_type.name if h.hospital_type else None,
+        "facility_ownership_name": h.facility_ownership.name if h.facility_ownership else None,
+        "facility_type_name": h.facility_type.name if h.facility_type else None,
     }
 
 
@@ -134,6 +152,9 @@ def update_hospital(hospital_id: int, data: HospitalCreate, db: Session = Depend
     hosp.region = data.region
     hosp.governorate_id = data.governorate_id
     hosp.hospital_type_id = data.hospital_type_id
+    hosp.organisation_unit_id = data.organisation_unit_id
+    hosp.facility_ownership_id = data.facility_ownership_id
+    hosp.facility_type_id = data.facility_type_id
     hosp.address = data.address
     db.commit()
     db.refresh(hosp)
