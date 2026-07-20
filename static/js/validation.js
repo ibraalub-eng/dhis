@@ -1,6 +1,7 @@
         import { apiGet } from './api.js';
         import { __ } from './i18n.js';
         import { _restoreUIState, _saveUIState } from './main.js';
+        import { esc } from './tree.js';
 
         // ── Quality Trend ──────────────────────────────────────────
         // Combined Trend Analysis
@@ -255,6 +256,40 @@
                 document.getElementById('compareLoading').classList.add('hidden');
                 document.getElementById('compareEmpty').innerHTML = '<p style="color:#c62828;font-size:0.85rem;">Error: ' + e.message + '</p>';
             }
+        }
+
+        export function loadMLClusters() {
+            const month = document.getElementById('compareMonthSelect').value;
+            const container = document.getElementById('mlClusters');
+            if (!month) { container.style.display = 'none'; return; }
+            apiGet('/analysis/ml?month=' + month).then(data => {
+                if (!data || !data.ml_clustering || !data.ml_clustering.clusters) {
+                    container.style.display = 'none';
+                    return;
+                }
+                const c = data.ml_clustering;
+                const colors = ['#2e7d32','#f57f17','#c62828','#1565c0','#6a1b9a','#00838f','#4e342e','#37474f','#558b2f','#e65100'];
+                let html = '<div class="card" style="padding:0.8rem;"><h3 style="font-size:0.9rem;margin:0 0 0.4rem;">Performance Clusters <span style="font-size:0.75rem;color:#888;font-weight:400;">(silhouette: ' + (c.silhouette_score ?? 0).toFixed(2) + ', k=' + c.k + ')</span></h3>';
+                const groups = {};
+                c.clusters.forEach(cl => {
+                    if (!groups[cl.cluster_id]) groups[cl.cluster_id] = [];
+                    groups[cl.cluster_id].push(cl);
+                });
+                Object.keys(groups).sort().forEach(cid => {
+                    const members = groups[cid];
+                    const color = colors[parseInt(cid) % colors.length];
+                    html += '<div style="display:inline-block;margin:0.3rem;padding:0.4rem 0.6rem;border-radius:4px;border-left:4px solid ' + color + ';background:#fafafa;vertical-align:top;min-width:160px;">';
+                    html += '<div style="font-size:0.78rem;font-weight:600;color:' + color + ';">Cluster ' + cid + ' (' + members.length + ')</div>';
+                    members.forEach(m => {
+                        html += '<div style="font-size:0.72rem;color:#555;margin:0.1rem 0;">' + esc(m.hospital_name) + ' <span style="color:#999;">(' + (m.distance_to_centroid ?? 0).toFixed(2) + ')</span></div>';
+                    });
+                    html += '</div>';
+                });
+                html += '<div style="font-size:0.7rem;color:#999;margin-top:0.3rem;">Features: ' + (c.features_used || []).join(', ') + '</div>';
+                html += '</div>';
+                container.innerHTML = html;
+                container.style.display = '';
+            }).catch(() => { container.style.display = 'none'; });
         }
 
         export function filterComparison() {
