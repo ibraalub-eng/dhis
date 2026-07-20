@@ -263,6 +263,34 @@
                     }).join('');
                 } else { ap.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#888;font-size:0.78rem;">No anomaly patterns found.</div>'; }
 
+                // Fetch ML data for PCA
+                const mlUrl = '/analysis/ml?month=' + mth;
+                apiGet(mlUrl).then(mlData => {
+                    if (mlData && mlData.ml_pca) {
+                        const pca = mlData.ml_pca;
+                        const features = pca.top_features || {};
+                        const entries = Object.entries(features).sort((a, b) => b[1] - a[1]);
+                        let html = '<div style="margin-top:0.3rem;">';
+                        const cumVar = pca.cumulative_variance ?? 0;
+                        html += '<div style="font-size:0.72rem;color:#666;margin-bottom:0.3rem;">Cumulative variance explained: ' + (cumVar * 100).toFixed(0) + '%</div>';
+                        if (!entries.length) {
+                            html += '<div style="font-size:0.72rem;color:#999;">No PCA data available.</div>';
+                        } else {
+                            const maxVal = Math.max(...entries.map(e => e[1]), 0.01);
+                            entries.forEach(([name, variance]) => {
+                                const pct = (variance / maxVal * 100).toFixed(0);
+                                html += '<div style="display:flex;align-items:center;gap:0.3rem;margin:0.15rem 0;">';
+                                html += '<span style="width:120px;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(name) + '">' + esc(name) + '</span>';
+                                html += '<div style="flex:1;height:14px;background:#eee;border-radius:3px;"><div style="height:100%;width:' + pct + '%;background:#1a237e;border-radius:3px;"></div></div>';
+                                html += '<span style="width:40px;text-align:right;font-size:0.7rem;color:#555;">' + (variance * 100).toFixed(0) + '%</span>';
+                                html += '</div>';
+                            });
+                        }
+                        html += '</div>';
+                        document.getElementById('pcaFeatures').innerHTML = html;
+                    }
+                }).catch(() => {});
+
             }).catch(e => {
                 document.getElementById('rcLoading').style.display = 'none';
                 document.getElementById('rcContent').style.display = 'block';
