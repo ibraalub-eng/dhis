@@ -4,10 +4,46 @@
 
         // ── Outliers Tab ──────────────────────────────────────────
         export function loadOutliers() {
+            const mode = document.getElementById('outlierMode').value;
+            const month = document.getElementById('outlierMonthFilter').value;
+            document.getElementById('outlierLoading').classList.remove('hidden');
+            if (mode === 'ml') {
+                if (!month) {
+                    document.getElementById('outlierLoading').classList.add('hidden');
+                    document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:#888;">Select a month.</td></tr>';
+                    document.getElementById('outlierCount').textContent = '';
+                    return;
+                }
+                apiGet('/analysis/ml?month=' + month).then(data => {
+                    document.getElementById('outlierLoading').classList.add('hidden');
+                    const anomalies = (data && data.ml_anomalies) || [];
+                    document.getElementById('outlierCount').textContent = anomalies.length + ' hospital(s) analyzed';
+                    const tbody = document.getElementById('outlierTbody');
+                    if (!anomalies.length) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;">No ML anomaly data.</td></tr>';
+                        return;
+                    }
+                    tbody.innerHTML = anomalies.map(a => {
+                        const rowClass = a.is_outlier ? 'style="background:#fff3e0;"' : '';
+                        return '<tr ' + rowClass + '>' +
+                            '<td>' + esc(a.hospital_name) + '</td>' +
+                            '<td>' + month + '</td>' +
+                            '<td>Multi-variate</td>' +
+                            '<td>' + (a.anomaly_score ? a.anomaly_score.toFixed(3) : '--') + '</td>' +
+                            '<td>' + (a.is_outlier ? '<span class="badge badge-critical">Outlier</span>' : '<span class="badge badge-pass">Normal</span>') + '</td>' +
+                            '<td style="font-size:0.7rem;color:#888;">' + esc(Object.keys(a.contributing_features || {}).join(', ')) + '</td>' +
+                            '</tr>';
+                    }).join('');
+                }).catch(err => {
+                    document.getElementById('outlierLoading').classList.add('hidden');
+                    document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="color:red;">Error: ' + err.message + '</td></tr>';
+                });
+                return;
+            }
+            // statistical mode — existing code
             const hosp = document.getElementById('outlierHospitalFilter').value;
             const mon = document.getElementById('outlierMonthFilter').value;
             const rate = document.getElementById('outlierRateFilter').value;
-            document.getElementById('outlierLoading').classList.remove('hidden');
             document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:#888;">Loading outliers...</td></tr>';
             let url = API() + '/analysis/outliers?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
@@ -42,7 +78,16 @@
             const hospSel = document.getElementById('outlierHospitalFilter');
             const monSel = document.getElementById('outlierMonthFilter');
             const rateSel = document.getElementById('outlierRateFilter');
-            populateSelectOptions(hospSel, [...new Set(data.map(d => d.hospital))], currentHosp);
+            const prevHosp = hospSel.value;
+            const hospMap = {};
+            data.forEach(d => { if (d.hospital_id && d.hospital) hospMap[d.hospital_id] = d.hospital; });
+            hospSel.innerHTML = '<option value="">All</option>';
+            Object.entries(hospMap).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
+                const opt = document.createElement('option');
+                opt.value = id; opt.textContent = name;
+                hospSel.appendChild(opt);
+            });
+            hospSel.value = currentHosp && hospMap[currentHosp] ? currentHosp : (prevHosp && hospMap[prevHosp] ? prevHosp : '');
             populateSelectOptions(monSel, [...new Set(data.map(d => d.month))], currentMon);
             populateSelectOptions(rateSel, [...new Set(data.map(d => d.rate_name))], currentRate);
             // Render table

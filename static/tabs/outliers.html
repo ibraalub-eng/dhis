@@ -12,6 +12,11 @@
                                 <select id="outlierHospitalFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
                                 <label style="font-size:0.75rem;color:#666;">Month:</label>
                                 <select id="outlierMonthFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                                <label style="font-size:0.75rem;color:#666;">Mode:</label>
+                                <select id="outlierMode" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+                                    <option value="statistical">Statistical (Z-Score)</option>
+                                    <option value="ml">ML (IsolationForest)</option>
+                                </select>
                                 <label style="font-size:0.75rem;color:#666;">Rate:</label>
                                 <select id="outlierRateFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
                             </div>
@@ -26,9 +31,9 @@
                                     <th class="sortable" data-col="hospital">Hospital</th>
                                     <th class="sortable" data-col="month">Month</th>
                                     <th class="sortable" data-col="rate_name">Indicator</th>
-                                    <th class="sortable" data-col="value">Value</th>
-                                    <th class="sortable" data-col="benchmark">Benchmark</th>
-                                    <th class="sortable" data-col="z_score">Z-Score</th>
+                                    <th class="sortable" data-col="value">Value / Score</th>
+                                    <th class="sortable" data-col="benchmark">Status</th>
+                                    <th class="sortable" data-col="z_score">Z-Score / ML Score</th>
                                 </tr></thead>
                                 <tbody id="outlierTbody"></tbody>
                             </table>
