@@ -24,6 +24,24 @@ class HospitalType(Base):
     hospitals = relationship("Hospital", back_populates="hospital_type")
 
 
+class FacilityOwnership(Base):
+    __tablename__ = "facility_ownerships"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    hospitals = relationship("Hospital", back_populates="facility_ownership")
+
+
+class FacilityType(Base):
+    __tablename__ = "facility_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    hospitals = relationship("Hospital", back_populates="facility_type")
+
+
 class Hospital(Base):
     __tablename__ = "hospitals"
 
@@ -33,6 +51,9 @@ class Hospital(Base):
     governorate_id = Column(Integer, ForeignKey("governorates.id"), nullable=True)
     hospital_type_id = Column(Integer, ForeignKey("hospital_types.id"), nullable=True)
     address = Column(Text, nullable=True)
+    organisation_unit_id = Column(String(100), nullable=True)
+    facility_ownership_id = Column(Integer, ForeignKey("facility_ownerships.id", ondelete="SET NULL"), nullable=True)
+    facility_type_id = Column(Integer, ForeignKey("facility_types.id", ondelete="SET NULL"), nullable=True)
     is_active = Column(Boolean, default=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -44,6 +65,8 @@ class Hospital(Base):
     indicator_configs = relationship("HospitalIndicatorConfig", back_populates="hospital", cascade="all, delete-orphan")
     governorate = relationship("Governorate", back_populates="hospitals")
     hospital_type = relationship("HospitalType", back_populates="hospitals")
+    facility_ownership = relationship("FacilityOwnership", back_populates="hospitals")
+    facility_type = relationship("FacilityType", back_populates="hospitals")
 
 
 class Indicator(Base):

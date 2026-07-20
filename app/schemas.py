@@ -22,6 +22,9 @@ class HospitalBase(BaseModel):
     region: Optional[str] = None
     governorate_id: Optional[int] = None
     hospital_type_id: Optional[int] = None
+    organisation_unit_id: Optional[str] = None
+    facility_ownership_id: Optional[int] = None
+    facility_type_id: Optional[int] = None
     address: Optional[str] = None
 
 
@@ -35,6 +38,8 @@ class HospitalOut(HospitalBase):
     created_at: Optional[datetime] = None
     governorate_name: Optional[str] = None
     hospital_type_name: Optional[str] = None
+    facility_ownership_name: Optional[str] = None
+    facility_type_name: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -65,6 +70,33 @@ class HospitalTypeCreate(HospitalTypeBase):
 
 
 class HospitalTypeOut(HospitalTypeBase):
+    id: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class FacilityOwnershipBase(BaseModel):
+    name: str
+
+class FacilityOwnershipCreate(FacilityOwnershipBase):
+    pass
+
+class FacilityOwnershipOut(FacilityOwnershipBase):
+    id: int
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+class FacilityTypeBase(BaseModel):
+    name: str
+
+class FacilityTypeCreate(FacilityTypeBase):
+    pass
+
+class FacilityTypeOut(FacilityTypeBase):
     id: int
     created_at: Optional[datetime] = None
 
