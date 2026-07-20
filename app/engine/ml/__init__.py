@@ -70,9 +70,15 @@ def _anomaly_to_dict(ma: MLAnomalyResult) -> dict:
 
 
 def _pca_to_dict(pr: PCAResult) -> dict:
+    # aggregate absolute loadings across components -> {feature_name: importance}
+    agg: dict[str, float] = {}
+    for comp_loadings in pr.loadings.values():
+        for feat_name, loading in comp_loadings.items():
+            agg[feat_name] = agg.get(feat_name, 0) + abs(loading)
+    sorted_feats = dict(sorted(agg.items(), key=lambda x: x[1], reverse=True))
     return {
         "n_components": pr.n_components,
         "explained_variance": pr.explained_variance,
-        "cumulative_variance": pr.cumulative_variance,
-        "top_features": {str(k): v for k, v in pr.top_features.items()},
+        "cumulative_variance": pr.cumulative_variance[-1] if pr.cumulative_variance else 0.0,
+        "top_features": sorted_feats,
     }

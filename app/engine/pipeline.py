@@ -30,7 +30,7 @@ def _build_ml_config(flat: dict) -> dict:
         },
         "anomaly": {
             "enabled": bool(flat.get("ml_anomaly_enabled", 1)),
-            "contamination": flat.get("ml_anomaly_contamination", 0.1),
+            "contamination": float(flat.get("ml_anomaly_contamination", 0.05)),
         },
         "pca": {
             "enabled": bool(flat.get("ml_pca_enabled", 1)),

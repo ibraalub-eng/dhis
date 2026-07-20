@@ -370,6 +370,8 @@ def get_ml_analysis(
     for dr in disabled_rows:
         disabled_ids.add((dr.hospital_id, dr.indicator_id))
 
+    hosp_map = {h.id: h for h in hospitals}
+
     value_rows = (
         db.query(IndicatorValue, Indicator)
         .join(Indicator, IndicatorValue.indicator_id == Indicator.id)
@@ -380,7 +382,7 @@ def get_ml_analysis(
     for val, ind in value_rows:
         if (val.hospital_id, ind.id) in disabled_ids or val.value is None:
             continue
-        h = next((h for h in hospitals if h.id == val.hospital_id), None)
+        h = hosp_map.get(val.hospital_id)
         if not h:
             continue
         all_hospital_data.setdefault(h.name, {})[ind.code] = val.value
