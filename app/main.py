@@ -10,7 +10,7 @@ from alembic.config import Config  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.script import ScriptDirectory  # noqa: E402
 from app.database import init_db, SessionLocal, engine  # noqa: E402
-from app.models import AppConfig  # noqa: E402
+from app.models import AppConfig, FacilityOwnership, FacilityType  # noqa: E402
 from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
 from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api  # noqa: E402
 from app.tasks import get_task  # noqa: E402
@@ -161,6 +161,16 @@ async def lifespan(app: FastAPI):
         seed_app_config(session)
         seed_indicators(session)
         seed_rules(session)
+
+        # Seed facility ownerships
+        if not session.query(FacilityOwnership).first():
+            for name in ["\u062d\u0643\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
+                session.add(FacilityOwnership(name=name))
+
+        # Seed facility types
+        if not session.query(FacilityType).first():
+            session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
+
         # Load logging setting
         from app.models import SystemSetting
         from app.monitoring import set_logging_enabled
