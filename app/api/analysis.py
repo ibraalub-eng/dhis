@@ -340,6 +340,58 @@ def list_outliers(
     return result
 
 
+@router.get("/ml")
+def get_ml_analysis(
+    month: str = Query(..., description="Month YYYY-MM"),
+    db: Session = Depends(get_db),
+):
+    """Run ML analysis (clustering, anomaly detection, PCA) for a given month."""
+    from app.engine.pipeline import _build_ml_config
+    from app.engine.ml import run_ml_analysis
+    from app.config_utils import get_config_dict
+
+    ml_config_flat = get_config_dict(db, "ml")
+    ml_config = _build_ml_config(ml_config_flat)
+    if not ml_config.get("enabled", False):
+        return {}
+
+    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
+    if not hospitals:
+        return {}
+
+    enabled_months = get_enabled_months(db)
+    if month not in enabled_months:
+        return {}
+
+    disabled_ids = set()
+    disabled_rows = db.query(HospitalIndicatorConfig).filter(
+        HospitalIndicatorConfig.is_enabled.is_(False),
+    ).all()
+    for dr in disabled_rows:
+        disabled_ids.add((dr.hospital_id, dr.indicator_id))
+
+    value_rows = (
+        db.query(IndicatorValue, Indicator)
+        .join(Indicator, IndicatorValue.indicator_id == Indicator.id)
+        .filter(IndicatorValue.month == month)
+        .all()
+    )
+    all_hospital_data: dict[str, dict[str, float]] = {}
+    for val, ind in value_rows:
+        if (val.hospital_id, ind.id) in disabled_ids or val.value is None:
+            continue
+        h = next((h for h in hospitals if h.id == val.hospital_id), None)
+        if not h:
+            continue
+        all_hospital_data.setdefault(h.name, {})[ind.code] = val.value
+
+    if len(all_hospital_data) < 2:
+        return {}
+
+    result = run_ml_analysis(all_hospital_data, ml_config)
+    return result
+
+
 @router.get("/rule-failures")
 def list_rule_failures(
     month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),

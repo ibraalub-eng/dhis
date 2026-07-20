@@ -20,6 +20,25 @@ USE_DB_RULES = True
 KEY_INDICATOR_CODES = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "16", "17", "18", "26"]
 
 
+def _build_ml_config(flat: dict) -> dict:
+    return {
+        "enabled": bool(flat.get("ml_enabled", 0)),
+        "clustering": {
+            "enabled": bool(flat.get("ml_clustering_enabled", 1)),
+            "min_k": int(flat.get("ml_clustering_min_k", 2)),
+            "max_k": int(flat.get("ml_clustering_max_k", 6)),
+        },
+        "anomaly": {
+            "enabled": bool(flat.get("ml_anomaly_enabled", 1)),
+            "contamination": flat.get("ml_anomaly_contamination", 0.1),
+        },
+        "pca": {
+            "enabled": bool(flat.get("ml_pca_enabled", 1)),
+            "variance_threshold": flat.get("ml_pca_variance_threshold", 0.95),
+        },
+    }
+
+
 def get_values_for_hospital_month(session: Session, hospital_id: int, month: str) -> Dict[str, float]:
     rows = (
         session.query(IndicatorValue, Indicator)
@@ -201,7 +220,8 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
     anomaly_config = {"zscore_threshold": trends_config["zscore_threshold"]}
 
     ml_config = get_config_dict(session, "ml")
-    ml_results = run_ml_analysis(all_hospital_data, ml_config) if ml_config.get("enabled", False) else {}
+    ml_config_nested = _build_ml_config(ml_config)
+    ml_results = run_ml_analysis(all_hospital_data, ml_config_nested) if ml_config_nested.get("enabled", False) else {}
 
     if USE_DB_RULES:
         rule_results = run_rules_from_db(session, ctx)
