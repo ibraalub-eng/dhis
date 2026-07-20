@@ -4,6 +4,7 @@ from app.engine.quality import ValidationContext, run_all_rules, run_rules_from_
 from app.engine.anomaly import detect_anomalies, detect_monthly_trend, set_trends_config
 
 from app.engine.confidence import calculate_confidence, build_indicator_rule_map
+from app.engine.ml import run_ml_analysis
 
 from app.models import (
     Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig,
@@ -199,6 +200,9 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
 
     anomaly_config = {"zscore_threshold": trends_config["zscore_threshold"]}
 
+    ml_config = get_config_dict(session, "ml")
+    ml_results = run_ml_analysis(all_hospital_data, ml_config) if ml_config.get("enabled", False) else {}
+
     if USE_DB_RULES:
         rule_results = run_rules_from_db(session, ctx)
         if not rule_results:
@@ -304,6 +308,7 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
             ],
             "summary": confidence_data["summary"],
         },
+        **ml_results,
     }
 
 
