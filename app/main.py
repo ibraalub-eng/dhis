@@ -119,6 +119,19 @@ APP_CONFIG_DEFAULTS = [
     ("rate_smm_benchmark", 10.0, "rates", "SMM Rate Benchmark (%)"),
     ("rate_stillbirth_benchmark", 5.0, "rates", "Stillbirth Rate Benchmark (%)"),
     ("rate_nicu_benchmark", 20.0, "rates", "NICU Admission Rate Benchmark (%)"),
+    # Smart Analytics config
+    ("smart_enabled", 1.0, "smart_analytics", "Smart Enabled"),
+    ("smart_contamination", 0.05, "smart_analytics", "Smart Contamination"),
+    ("smart_lof_neighbors", 5.0, "smart_analytics", "Smart LOF Neighbors"),
+    ("smart_dbscan_eps", 1.5, "smart_analytics", "Smart DBSCAN EPS"),
+    ("smart_dbscan_min_samples", 3.0, "smart_analytics", "Smart DBSCAN Min Samples"),
+    ("smart_threshold_green", 0.3, "smart_analytics", "Smart Threshold Green"),
+    ("smart_threshold_yellow", 0.6, "smart_analytics", "Smart Threshold Yellow"),
+    ("smart_shap_enabled", 1.0, "smart_analytics", "Smart SHAP Enabled"),
+    ("smart_ensemble_if_weight", 0.35, "smart_analytics", "Smart Ensemble IF Weight"),
+    ("smart_ensemble_lof_weight", 0.3, "smart_analytics", "Smart Ensemble LOF Weight"),
+    ("smart_ensemble_mahal_weight", 0.2, "smart_analytics", "Smart Ensemble Mahal Weight"),
+    ("smart_ensemble_residual_weight", 0.15, "smart_analytics", "Smart Ensemble Residual Weight"),
 ]
 
 
