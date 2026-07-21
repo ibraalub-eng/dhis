@@ -171,6 +171,8 @@ async def lifespan(app: FastAPI):
         if not session.query(FacilityType).first():
             session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
 
+        session.commit()
+
         # Load logging setting
         from app.models import SystemSetting
         from app.monitoring import set_logging_enabled
