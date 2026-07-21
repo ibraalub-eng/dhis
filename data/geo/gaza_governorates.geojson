@@ -1,0 +1,45 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "شمال غزة", "name_en": "North Gaza"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[34.45, 31.55], [34.55, 31.55], [34.55, 31.45], [34.45, 31.45], [34.45, 31.55]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "غزة", "name_en": "Gaza"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[34.40, 31.50], [34.50, 31.50], [34.50, 31.40], [34.40, 31.40], [34.40, 31.50]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "دير البلح", "name_en": "Deir al-Balah"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[34.35, 31.45], [34.45, 31.45], [34.45, 31.35], [34.35, 31.35], [34.35, 31.45]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "خانيونس", "name_en": "Khan Younis"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[34.30, 31.38], [34.40, 31.38], [34.40, 31.28], [34.30, 31.28], [34.30, 31.38]]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "رفح", "name_en": "Rafah"},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[[34.25, 31.30], [34.35, 31.30], [34.35, 31.20], [34.25, 31.20], [34.25, 31.30]]]
+      }
+    }
+  ]
+}
