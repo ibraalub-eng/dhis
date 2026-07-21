@@ -1,108 +1,102 @@
-### Task 1: Backend — Add `/dashboard/ranking` endpoint
+### Task 1: Backend Models + Schemas
 
 **Files:**
-- Modify: `app/api/dashboard.py`
+- Modify: `app/models.py`
+- Modify: `app/schemas.py`
+- Test: `tests/test_api_ownership_types.py`
 
 **Interfaces:**
-- Consumes: `Hospital`, `QualityScore`, `ValidationResult`, `ConfidenceScore`, `ClinicalInsight` tables
-- Produces: `GET /dashboard/ranking` → JSON array of `{id, name, avg_score, trend_direction, avg_clinical_rate, confidence, completeness, consistency, reports, alerts, rank}`
+- Produces: `FacilityOwnership`, `FacilityType` SQLAlchemy models; `FacilityOwnershipBase`, `FacilityOwnershipCreate`, `FacilityOwnershipOut`, `FacilityTypeBase`, `FacilityTypeCreate`, `FacilityTypeOut` Pydantic schemas; extended `Hospital`, `HospitalBase`, `HospitalOut` with new fields
 
-- [ ] Step 1: Update imports in `app/api/dashboard.py`
+- [ ] **Step 1: Add FacilityOwnership and FacilityType models**
 
-Add `ClinicalInsight` to the model import. Change line 5 from:
-```python
-from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult
-```
-to:
-```python
-from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult, ClinicalInsight
-```
-
-Add `import json` at the top (line 1 is `import re`, add `import json` before it).
-
-- [ ] Step 2: Add the ranking endpoint function after the last existing endpoint (after line 241)
+Add to `app/models.py` after the `HospitalType` class:
 
 ```python
-@router.get("/ranking")
-def dashboard_ranking(hospital_id: int | None = None, db: Session = Depends(get_db)):
-    from app.api.analysis import get_enabled_months
-    enabled_months = get_enabled_months(db)
+class FacilityOwnership(Base):
+    __tablename__ = "facility_ownerships"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    hospitals = relationship("Hospital", back_populates="facility_ownership")
 
-    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
 
-    rows = []
-    for h in hospitals:
-        q = db.query(QualityScore).filter(QualityScore.hospital_id == h.id)
-        if enabled_months:
-            q = q.filter(QualityScore.month.in_(enabled_months))
-        scores = q.order_by(QualityScore.month.asc()).all()
-
-        if not scores:
-            continue
-
-        avg_score = round(sum(s.score for s in scores) / len(scores), 1)
-        avg_compliance = round(sum(s.rule_compliance or 0 for s in scores) / len(scores), 1)
-        avg_completeness = round(sum(s.completeness or 0 for s in scores) / len(scores), 1)
-        avg_consistency = round(sum(s.consistency or 0 for s in scores) / len(scores), 1)
-
-        recent_3 = [s.score for s in scores[-3:]]
-        if len(recent_3) >= 2:
-            direction = "up" if recent_3[-1] > recent_3[0] else "down" if recent_3[-1] < recent_3[0] else "stable"
-        else:
-            direction = "stable"
-
-        conf = db.query(ConfidenceScore).filter(
-            ConfidenceScore.hospital_id == h.id
-        ).order_by(ConfidenceScore.month.desc()).first()
-        conf_score = round(conf.overall_confidence, 1) if conf else 0
-
-        alerts_count = db.query(ValidationResult).filter(
-            ValidationResult.hospital_id == h.id,
-            ValidationResult.status == "FAIL"
-        ).count()
-
-        insights = db.query(ClinicalInsight).filter(
-            ClinicalInsight.hospital_id == h.id
-        ).all()
-        rate_values = {}
-        for ins in insights:
-            try:
-                data = json.loads(ins.analysis_data)
-            except (json.JSONDecodeError, TypeError):
-                continue
-            for c in data.get("classifications", []):
-                rn = c.get("rate_name", "")
-                val = c.get("value")
-                if val is not None:
-                    rate_values.setdefault(rn, []).append(val)
-        clinical_rates = {}
-        for rn, vals in rate_values.items():
-            if vals:
-                clinical_rates[rn] = round(sum(vals) / len(vals), 1)
-
-        rows.append({
-            "id": h.id,
-            "name": h.name,
-            "avg_score": avg_score,
-            "trend_direction": direction,
-            "avg_clinical_rate": round(sum(clinical_rates.values()) / len(clinical_rates), 1) if clinical_rates else 0,
-            "confidence": conf_score,
-            "completeness": avg_completeness,
-            "consistency": avg_consistency,
-            "reports": len(scores),
-            "alerts": alerts_count,
-        })
-
-    rows.sort(key=lambda r: r["avg_score"], reverse=True)
-    for i, r in enumerate(rows):
-        r["rank"] = i + 1
-
-    return rows
+class FacilityType(Base):
+    __tablename__ = "facility_types"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    hospitals = relationship("Hospital", back_populates="facility_type")
 ```
 
-- [ ] Step 3: Verify the endpoint loads
+- [ ] **Step 2: Extend Hospital model**
+
+Add these columns to the `Hospital` class:
+
+```python
+    organisation_unit_id = Column(String(100), nullable=True)
+    facility_ownership_id = Column(Integer, ForeignKey("facility_ownerships.id", ondelete="SET NULL"), nullable=True)
+    facility_type_id = Column(Integer, ForeignKey("facility_types.id", ondelete="SET NULL"), nullable=True)
+
+    facility_ownership = relationship("FacilityOwnership", back_populates="hospitals")
+    facility_type = relationship("FacilityType", back_populates="hospitals")
+```
+
+- [ ] **Step 3: Add Pydantic schemas**
+
+Add to `app/schemas.py` after `HospitalTypeOut`:
+
+```python
+class FacilityOwnershipBase(BaseModel):
+    name: str
+
+class FacilityOwnershipCreate(FacilityOwnershipBase):
+    pass
+
+class FacilityOwnershipOut(FacilityOwnershipBase):
+    id: int
+    created_at: Optional[datetime] = None
+    class Config:
+        from_attributes = True
+
+class FacilityTypeBase(BaseModel):
+    name: str
+
+class FacilityTypeCreate(FacilityTypeBase):
+    pass
+
+class FacilityTypeOut(FacilityTypeBase):
+    id: int
+    created_at: Optional[datetime] = None
+    class Config:
+        from_attributes = True
+```
+
+- [ ] **Step 4: Extend HospitalBase and HospitalOut**
+
+Add to `HospitalBase`:
+```python
+    organisation_unit_id: Optional[str] = None
+    facility_ownership_id: Optional[int] = None
+    facility_type_id: Optional[int] = None
+```
+
+Add to `HospitalOut`:
+```python
+    facility_ownership_name: Optional[str] = None
+    facility_type_name: Optional[str] = None
+```
+
+- [ ] **Step 5: Run tests to verify imports work**
+
+Run: `python -c "from app.models import FacilityOwnership, FacilityType; from app.schemas import FacilityOwnershipOut, FacilityTypeOut; print('OK')"`
+Expected: `OK`
+
+- [ ] **Step 6: Commit**
 
 ```bash
-cd C:\ibra\HEALTH-ai; python -c "from app.api.dashboard import router; print('dashboard router OK')"
+git add app/models.py app/schemas.py
+git commit -m "feat: add FacilityOwnership, FacilityType models and schemas"
 ```
-Expected: `dashboard router OK`
+
+---

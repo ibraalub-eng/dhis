@@ -1,125 +1,279 @@
-### Task 2: Backend — Add `/dashboard/hospital-performance/{id}` endpoint
+### Task 2: Backend API Endpoints
 
 **Files:**
-- Modify: `app/api/dashboard.py` (add after `/ranking` endpoint)
+- Create: `app/api/facility_ownerships.py`
+- Create: `app/api/facility_types.py`
+- Modify: `app/api/hospitals.py`
+- Modify: `app/main.py`
+- Test: `tests/test_api_ownership_types.py`
 
 **Interfaces:**
-- Consumes: Hospital ID, `QualityScore`, `ValidationResult`, `ClinicalInsight`, and `run_clinical_analysis()` from engine
-- Produces: `GET /dashboard/hospital-performance/{id}` → `{id, name, grade, avg_score, avg_compliance, avg_completeness, avg_consistency, quality_trend, clinical_rates[], total_alerts, last_alerts[]}`
+- Produces: `GET/POST/PUT/DELETE /api/facility-ownerships/`, `GET/POST/PUT/DELETE /api/facility-types/`, extended `GET/POST/PUT /api/hospitals/` with new fields
+- Consumes: `FacilityOwnership`, `FacilityType` models and schemas from Task 1
 
-- [ ] Step 1: Add missing imports at top of file
+- [ ] **Step 1: Write failing tests**
 
-Add `HTTPException` to the FastAPI import (line 3). Change:
-```python
-from fastapi import APIRouter, Depends
-```
-to:
-```python
-from fastapi import APIRouter, Depends, HTTPException
-```
-
-Add import for `get_enabled_values_for_hospital_month` after existing imports:
-```python
-from app.engine.pipeline import get_enabled_values_for_hospital_month
-```
-
-- [ ] Step 2: Add the hospital performance endpoint
+Add to `tests/test_api_ownership_types.py`:
 
 ```python
-@router.get("/hospital-performance/{hospital_id}")
-def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
-    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hospital or not hospital.is_active:
-        raise HTTPException(status_code=404, detail="Hospital not found")
+"""Tests for facility-ownerships and facility-types API endpoints."""
+import pytest
+from fastapi.testclient import TestClient
+from app.main import app
+from app.database import get_db
+from app.models import Hospital
 
-    scores = db.query(QualityScore).filter(
-        QualityScore.hospital_id == hospital_id
-    ).order_by(QualityScore.month.asc()).all()
 
-    quality_trend = [{"month": s.month, "score": round(s.score, 1)} for s in scores]
-    avg_score = round(sum(s.score for s in scores) / len(scores), 1) if scores else 0
-    avg_compliance = round(sum(s.rule_compliance or 0 for s in scores) / len(scores), 1) if scores else 0
-    avg_completeness = round(sum(s.completeness or 0 for s in scores) / len(scores), 1) if scores else 0
-    avg_consistency = round(sum(s.consistency or 0 for s in scores) / len(scores), 1) if scores else 0
-
-    # Grade
-    if avg_score >= 90: grade = "A"
-    elif avg_score >= 75: grade = "B"
-    elif avg_score >= 60: grade = "C"
-    else: grade = "D"
-
-    # Clinical rates — latest month
-    latest_month = scores[-1].month if scores else None
-    clinical_rates = []
-    if latest_month:
+@pytest.fixture
+def client(db_session):
+    def override_get_db():
         try:
-            values = get_enabled_values_for_hospital_month(db, hospital_id, latest_month)
-            if values:
-                from app.engine.clinical import run_clinical_analysis
-                result = run_clinical_analysis(hospital=hospital.name, month=latest_month, values=values)
-                MAIN_RATES = {"C-Section Rate", "Maternal Mortality Ratio", "Neonatal Mortality Rate",
-                              "Preterm Birth Rate", "Severe Maternal Morbidity Rate", "Stillbirth Rate",
-                              "NICU Admission Rate"}
-                for c in result.classifications:
-                    if c.rate_name in MAIN_RATES:
-                        clinical_rates.append({
-                            "rate_name": c.rate_name,
-                            "value": round(c.value, 1) if c.value else 0,
-                            "unit": c.unit,
-                            "classification": c.classification,
-                        })
-        except Exception:
+            yield db_session
+        finally:
             pass
+    app.dependency_overrides[get_db] = override_get_db
+    yield TestClient(app)
+    app.dependency_overrides.clear()
 
-    # Peer averages for clinical rates
-    if latest_month and clinical_rates:
-        try:
-            peers = db.query(Hospital).filter(Hospital.is_active.is_(True), Hospital.id != hospital_id).all()
-            peer_rate_vals = {r["rate_name"]: [] for r in clinical_rates}
-            for ph in peers:
-                pv = get_enabled_values_for_hospital_month(db, ph.id, latest_month)
-                if not pv:
-                    continue
-                from app.engine.clinical import run_clinical_analysis as rca_peer
-                try:
-                    pr = rca_peer(hospital=ph.name, month=latest_month, values=pv)
-                except Exception:
-                    continue
-                for c in pr.classifications:
-                    if c.rate_name in peer_rate_vals and c.value is not None:
-                        peer_rate_vals[c.rate_name].append(c.value)
-            for r in clinical_rates:
-                vals = peer_rate_vals.get(r["rate_name"], [])
-                r["peer_avg"] = round(sum(vals) / len(vals), 1) if vals else None
-        except Exception:
-            pass
 
-    # Alerts
-    total_alerts = db.query(ValidationResult).filter(
-        ValidationResult.hospital_id == hospital_id,
-        ValidationResult.status == "FAIL"
-    ).count()
-    recent_alerts = db.query(ValidationResult).filter(
-        ValidationResult.hospital_id == hospital_id,
-        ValidationResult.status == "FAIL"
-    ).order_by(ValidationResult.month.desc()).limit(5).all()
-    last_alerts = [
-        {"month": a.month, "rule_code": a.rule_code, "severity": a.severity, "details": (a.details or "")[:80]}
-        for a in recent_alerts
-    ]
+class TestFacilityOwnerships:
+    def test_list_empty(self, client):
+        resp = client.get("/facility-ownerships/")
+        assert resp.status_code == 200
+        assert resp.json() == []
 
-    return {
-        "id": hospital.id, "name": hospital.name, "grade": grade,
-        "avg_score": avg_score, "avg_compliance": avg_compliance,
-        "avg_completeness": avg_completeness, "avg_consistency": avg_consistency,
-        "quality_trend": quality_trend, "clinical_rates": clinical_rates,
-        "total_alerts": total_alerts, "last_alerts": last_alerts,
-    }
+    def test_create(self, client):
+        resp = client.post("/facility-ownerships/", json={"name": "\u062d\u0643\u0648\u0645\u064a"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "\u062d\u0643\u0648\u0645\u064a"
+        assert "id" in data
+
+    def test_create_duplicate(self, client):
+        client.post("/facility-ownerships/", json={"name": "NGOs"})
+        resp = client.post("/facility-ownerships/", json={"name": "NGOs"})
+        assert resp.status_code == 400
+
+    def test_update(self, client):
+        client.post("/facility-ownerships/", json={"name": "OLD"})
+        resp = client.put("/facility-ownerships/1", json={"name": "NEW"})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "NEW"
+
+    def test_delete(self, client):
+        client.post("/facility-ownerships/", json={"name": "DELETE_ME"})
+        resp = client.delete("/facility-ownerships/1")
+        assert resp.status_code == 200
+
+    def test_delete_linked_hospital_fails(self, client, db_session):
+        client.post("/facility-ownerships/", json={"name": "GOV"})
+        h = db_session.query(Hospital).first()
+        h.facility_ownership_id = 1
+        db_session.commit()
+        resp = client.delete("/facility-ownerships/1")
+        assert resp.status_code == 400
+
+    def test_get_nonexistent(self, client):
+        resp = client.get("/facility-ownerships/999")
+        assert resp.status_code == 404
+
+
+class TestFacilityTypes:
+    def test_list_empty(self, client):
+        resp = client.get("/facility-types/")
+        assert resp.status_code == 200
+
+    def test_create(self, client):
+        resp = client.post("/facility-types/", json={"name": "\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"})
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"
+
+    def test_create_duplicate(self, client):
+        client.post("/facility-types/", json={"name": "X"})
+        resp = client.post("/facility-types/", json={"name": "X"})
+        assert resp.status_code == 400
+
+    def test_update(self, client):
+        client.post("/facility-types/", json={"name": "A"})
+        resp = client.put("/facility-types/1", json={"name": "B"})
+        assert resp.status_code == 200
+
+    def test_delete(self, client):
+        client.post("/facility-types/", json={"name": "DEL"})
+        resp = client.delete("/facility-types/1")
+        assert resp.status_code == 200
+
+    def test_delete_linked_hospital_fails(self, client, db_session):
+        client.post("/facility-types/", json={"name": "FT"})
+        h = db_session.query(Hospital).first()
+        h.facility_type_id = 1
+        db_session.commit()
+        resp = client.delete("/facility-types/1")
+        assert resp.status_code == 400
+
+
+class TestHospitalExtended:
+    def test_hospital_has_new_fields(self, client):
+        resp = client.get("/hospitals/")
+        assert resp.status_code == 200
+        data = resp.json()
+        if data:
+            h = data[0]
+            assert "organisation_unit_id" in h
+            assert "facility_ownership_id" in h
+            assert "facility_type_id" in h
+            assert "facility_ownership_name" in h
+            assert "facility_type_name" in h
 ```
 
-- [ ] Step 3: Verify endpoint loads
+- [ ] **Step 2: Run tests — expect failures**
+
+Run: `python -m pytest tests/test_api_ownership_types.py -v`
+Expected: ImportError or 404 — endpoints don't exist yet
+
+- [ ] **Step 3: Create `app/api/facility_ownerships.py`**
+
+Copy the exact pattern from `app/api/governorates.py`, replacing:
+- `Governorate` → `FacilityOwnership`
+- `governorate` → `facility-ownership`
+- `GovernorateOut` → `FacilityOwnershipOut`
+- `GovernorateCreate` → `FacilityOwnershipCreate`
+- error messages: "Governorate" → "Facility ownership"
+- linked query: `Hospital.facility_ownership_id`
+
+```python
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+from typing import List
+from app.database import get_db
+from app.cache import cache
+from app.models import FacilityOwnership, Hospital
+from app.schemas import FacilityOwnershipOut, FacilityOwnershipCreate
+
+router = APIRouter(prefix="/facility-ownerships", tags=["facility_ownerships"])
+
+
+@router.get("/", response_model=List[FacilityOwnershipOut])
+def list_facility_ownerships(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    db: Session = Depends(get_db),
+):
+    q = db.query(FacilityOwnership).order_by(FacilityOwnership.name)
+    return q.offset(skip).limit(limit).all()
+
+
+@router.get("/{ownership_id}", response_model=FacilityOwnershipOut)
+def get_facility_ownership(ownership_id: int, db: Session = Depends(get_db)):
+    ow = db.query(FacilityOwnership).filter(FacilityOwnership.id == ownership_id).first()
+    if not ow:
+        raise HTTPException(status_code=404, detail="Facility ownership not found")
+    return ow
+
+
+@router.post("/", response_model=FacilityOwnershipOut)
+def create_facility_ownership(data: FacilityOwnershipCreate, db: Session = Depends(get_db)):
+    existing = db.query(FacilityOwnership).filter(FacilityOwnership.name == data.name).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Facility ownership already exists")
+    ow = FacilityOwnership(name=data.name)
+    db.add(ow)
+    db.commit()
+    db.refresh(ow)
+    cache.invalidate()
+    return ow
+
+
+@router.put("/{ownership_id}", response_model=FacilityOwnershipOut)
+def update_facility_ownership(ownership_id: int, data: FacilityOwnershipCreate, db: Session = Depends(get_db)):
+    ow = db.query(FacilityOwnership).filter(FacilityOwnership.id == ownership_id).first()
+    if not ow:
+        raise HTTPException(status_code=404, detail="Facility ownership not found")
+    dup = db.query(FacilityOwnership).filter(FacilityOwnership.name == data.name, FacilityOwnership.id != ownership_id).first()
+    if dup:
+        raise HTTPException(status_code=400, detail="Facility ownership name already taken")
+    ow.name = data.name
+    db.commit()
+    db.refresh(ow)
+    cache.invalidate()
+    return ow
+
+
+@router.delete("/{ownership_id}")
+def delete_facility_ownership(ownership_id: int, db: Session = Depends(get_db)):
+    ow = db.query(FacilityOwnership).filter(FacilityOwnership.id == ownership_id).first()
+    if not ow:
+        raise HTTPException(status_code=404, detail="Facility ownership not found")
+    linked = db.query(Hospital).filter(Hospital.facility_ownership_id == ownership_id).first()
+    if linked:
+        raise HTTPException(status_code=400, detail="Cannot delete facility ownership with linked hospitals")
+    db.delete(ow)
+    db.commit()
+    cache.invalidate()
+    return {"ok": True}
+```
+
+- [ ] **Step 4: Create `app/api/facility_types.py`**
+
+Same pattern as `app/api/hospital_types.py`, replacing:
+- `HospitalType` → `FacilityType`
+- `hospital-types` → `facility-types`
+- `HospitalTypeOut` → `FacilityTypeOut`
+- `HospitalTypeCreate` → `FacilityTypeCreate`
+- linked query: `Hospital.facility_type_id`
+
+- [ ] **Step 5: Register routers in `app/main.py`**
+
+Add import:
+```python
+from app.api import facility_ownerships as facility_ownerships_api, facility_types as facility_types_api
+```
+
+Add after `app.include_router(hospital_types_api.router)`:
+```python
+app.include_router(facility_ownerships_api.router)
+app.include_router(facility_types_api.router)
+```
+
+- [ ] **Step 6: Extend hospitals.py list/get/create/update**
+
+In `app/api/hospitals.py`:
+
+**list_hospitals** — add to each result dict:
+```python
+    "organisation_unit_id": h.organisation_unit_id,
+    "facility_ownership_id": h.facility_ownership_id,
+    "facility_type_id": h.facility_type_id,
+    "facility_ownership_name": h.facility_ownership.name if h.facility_ownership else None,
+    "facility_type_name": h.facility_type.name if h.facility_type else None,
+```
+
+**get_hospital** — same additions.
+
+**create_hospital** — add new fields to `Hospital(...)` constructor:
+```python
+    organisation_unit_id=data.organisation_unit_id,
+    facility_ownership_id=data.facility_ownership_id,
+    facility_type_id=data.facility_type_id,
+```
+
+**update_hospital** — add new fields to assignment:
+```python
+    hosp.organisation_unit_id = data.organisation_unit_id
+    hosp.facility_ownership_id = data.facility_ownership_id
+    hosp.facility_type_id = data.facility_type_id
+```
+
+- [ ] **Step 7: Run tests — expect pass**
+
+Run: `python -m pytest tests/test_api_ownership_types.py -v`
+Expected: all tests pass
+
+- [ ] **Step 8: Commit**
 
 ```bash
-cd C:\ibra\HEALTH-ai; python -c "from app.api.dashboard import router; print('dashboard router OK')"
+git add app/api/facility_ownerships.py app/api/facility_types.py app/api/hospitals.py app/main.py tests/test_api_ownership_types.py
+git commit -m "feat: add facility-ownerships and facility-types API endpoints"
 ```
-Expected: `dashboard router OK`
+
+---

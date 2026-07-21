@@ -1,93 +1,79 @@
-### Task 3: Frontend — Rewrite `dashboard.html`
+### Task 3: Database Schema + Seed Data
 
 **Files:**
-- Modify: `static/tabs/dashboard.html` (replace entire content)
+- Modify: `app/main.py` (seed section)
 
 **Interfaces:**
-- Consumes: JS functions `loadDashboard()`, `loadRankingTable()`, `showHospitalScorecard()`, `closeScorecard()` defined in `settings.js`
-- Produces: 3-section layout with filter bar, executive summary cards with sparklines, KPI cards, 4 charts (trend, YoY, confidence donut, radar), heatmap, ranking table, and scorecard panel
+- Consumes: models from Task 1, API from Task 2
+- Produces: facility_ownerships and facility_types tables with seed rows
 
-- [ ] Step 1: Replace the entire `static/tabs/dashboard.html` content with:
+- [ ] **Step 1: Create DB tables via SQL**
 
-```html
-<div class="filter-bar">
-    <label>Hospital:</label>
-    <select id="dashHospital" onchange="loadDashboard()"><option value="">All Hospitals</option></select>
-    <label>Year:</label>
-    <select id="dashYear" onchange="loadDashboard()">
-        <option value="">All Years</option>
-    </select>
-    <span id="dashLoading" class="status-loading hidden" style="padding:0.2rem 0.5rem;font-size:0.8rem;"><span class="spinner"></span> Loading...</span>
-</div>
+Run:
+```python
+cd C:\ibra\HEALTH-ai
+python -c "
+from app.database import engine
+from app.models import FacilityOwnership, FacilityType
+from sqlalchemy import create_engine, text
 
-<!-- Section 1: Executive Summary -->
-<div id="dashSummarySection">
-    <div class="dashboard-grid" id="dashSummaryCards">
-        <div class="card summary-card">
-            <div class="value" id="dashHospitals">-</div>
-            <div class="label">Hospitals</div>
-            <canvas class="sparkline" id="sparkHospitals" height="24"></canvas>
-        </div>
-        <div class="card summary-card">
-            <div class="value" id="dashReports">-</div>
-            <div class="label">Reports</div>
-            <canvas class="sparkline" id="sparkReports" height="24"></canvas>
-        </div>
-        <div class="card summary-card">
-            <div class="value" id="dashAvgScore">-</div>
-            <div class="label">Avg Quality Score</div>
-            <canvas class="sparkline" id="sparkAvgScore" height="24"></canvas>
-        </div>
-        <div class="card summary-card">
-            <div class="value" id="dashAlerts" style="color:#c62828;">-</div>
-            <div class="label">Active Alerts</div>
-            <canvas class="sparkline" id="sparkAlerts" height="24"></canvas>
-        </div>
-    </div>
-    <div class="dashboard-grid" id="dashKpiCards"></div>
-    <div class="charts-row" style="margin-top:1rem;">
-        <div class="card chart-full"><h2>Quality Score Trend</h2><canvas id="trendChart"></canvas></div>
-        <div class="card chart-full"><h2>Year-over-Year Comparison</h2><canvas id="yoyChart"></canvas></div>
-        <div class="card"><h2>Confidence Distribution</h2><canvas id="confidenceChart"></canvas></div>
-        <div class="card"><h2>Quality Components</h2><canvas id="radarChart"></canvas></div>
-    </div>
-    <div class="card" style="margin-top:1.5rem;"><h2>Quality Score Heatmap <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:0.5rem;">Hospital × Month</span></h2>
-        <div style="overflow-x:auto;" id="heatmapContainer"></div>
-    </div>
-</div>
+# Create new tables
+Base.metadata.create_all(bind=engine, tables=[FacilityOwnership.__table__, FacilityType.__table__])
 
-<!-- Section 2: Hospital Ranking -->
-<div class="card" style="margin-top:1.5rem;">
-    <h2>Hospital Performance Ranking <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:0.5rem;">Click a row for details</span></h2>
-    <div style="overflow-x:auto;">
-        <table id="rankingTable" class="ranking-table">
-            <thead>
-                <tr>
-                    <th data-col="rank">#</th>
-                    <th data-col="name" class="sortable">Hospital</th>
-                    <th data-col="avg_score" class="sortable sort-desc">Quality Score</th>
-                    <th data-col="trend_direction" class="sortable">Trend</th>
-                    <th data-col="avg_clinical_rate" class="sortable">Avg Clinical Rate</th>
-                    <th data-col="confidence" class="sortable">Confidence</th>
-                    <th data-col="completeness" class="sortable">Completeness</th>
-                    <th data-col="consistency" class="sortable">Consistency</th>
-                    <th data-col="reports" class="sortable">Reports</th>
-                    <th data-col="alerts" class="sortable">Alerts</th>
-                </tr>
-            </thead>
-            <tbody id="rankingBody"></tbody>
-        </table>
-    </div>
-</div>
-
-<!-- Section 3: Hospital Scorecard (hidden until row click) -->
-<div id="scorecardPanel" class="card" style="margin-top:1.5rem;display:none;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h2 id="scorecardTitle">Hospital Scorecard</h2>
-        <button class="btn btn-sm" onclick="closeScorecard()" style="background:#e0e0e0;border:none;cursor:pointer;padding:0.3rem 0.8rem;border-radius:4px;">Close</button>
-    </div>
-    <div id="scorecardContent">
-        <p style="color:#888;text-align:center;padding:2rem;">Select a hospital from the ranking table above.</p>
-    </div>
-</div>
+# ALTER TABLE for new columns on hospitals
+with engine.connect() as conn:
+    for col, typ in [('organisation_unit_id', 'VARCHAR(100)'), ('facility_ownership_id', 'INTEGER'), ('facility_type_id', 'INTEGER')]:
+        try:
+            conn.execute(text(f'ALTER TABLE hospitals ADD COLUMN {col} {typ}'))
+            conn.commit()
+        except Exception as e:
+            print(f'Column {col} may already exist: {e}')
+"
 ```
+Expected: Tables created, columns added (or already exist)
+
+- [ ] **Step 2: Seed default data**
+
+Add seed rows to the seed section in `app/main.py` (around line 120, after hospital types seed):
+
+```python
+    # Seed facility ownerships
+    if not db.query(FacilityOwnership).first():
+        for name in ["\u062d\u0643\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
+            db.add(FacilityOwnership(name=name))
+
+    # Seed facility types
+    if not db.query(FacilityType).first():
+        db.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
+```
+
+Also add the imports:
+```python
+from app.models import FacilityOwnership, FacilityType
+```
+
+- [ ] **Step 3: Run seed + verify**
+
+Run: `python -c "
+from app.database import SessionLocal
+from app.models import FacilityOwnership, FacilityType
+db = SessionLocal()
+print('Ownerships:', [(o.id, o.name) for o in db.query(FacilityOwnership).all()])
+print('Types:', [(t.id, t.name) for t in db.query(FacilityType).all()])
+db.close()
+"`
+Expected: 4 ownership rows, 1 type row
+
+- [ ] **Step 4: Run full test suite to check no regressions**
+
+Run: `python -m pytest --tb=short -q`
+Expected: same count as before (should be 339+11=350 with the new test module)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add app/main.py
+git commit -m "feat: create facility_ownerships/facility_types tables and seed data"
+```
+
+---
