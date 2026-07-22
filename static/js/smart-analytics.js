@@ -299,15 +299,15 @@ function renderAnomalyTable(anomalies, explanations) {
     const sevBg = a.severity === 'critical' ? '#fef2f2' : a.severity === 'warning' ? '#fffbeb' : '#f0fdf4';
     const sevText = a.severity === 'critical' ? 'حرج' : a.severity === 'warning' ? 'تنبيه' : 'طبيعي';
     const topFactor = expMap[a.hospital_name]?.top_factors?.[0]?.arabic_label || '-';
-    const shortName = a.hospital_name.length > 30 ? a.hospital_name.substring(0, 27) + '...' : a.hospital_name;
+    const hid = parseInt(a.hospital_id, 10);
     html += `<tr style="border-bottom:1px solid #e5e7eb;background:${idx % 2 === 0 ? '#fff' : '#f9fafb'};">
       <td style="padding:0.5rem;text-align:center;color:#999;">${idx + 1}</td>
-      <td style="padding:0.5rem;text-align:right;font-weight:600;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${a.hospital_name}">${shortName}</td>
-      <td style="padding:0.5rem;text-align:center;font-size:0.75rem;">${a.governorate || '-'}</td>
-      <td style="padding:0.5rem;text-align:center;font-size:0.75rem;">${a.hospital_type || '-'}</td>
+      <td style="padding:0.5rem;text-align:right;font-weight:600;white-space:nowrap;">${a.hospital_name}</td>
+      <td style="padding:0.5rem;text-align:center;font-size:0.75rem;white-space:nowrap;">${a.governorate || '-'}</td>
+      <td style="padding:0.5rem;text-align:center;font-size:0.75rem;white-space:nowrap;">${a.hospital_type || '-'}</td>
       <td style="padding:0.5rem;text-align:center;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.15rem 0.5rem;border-radius:12px;font-weight:700;font-size:0.8rem;">${a.anomaly_score.toFixed(2)}</span></td>
       <td style="padding:0.5rem;text-align:center;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.15rem 0.5rem;border-radius:12px;font-weight:600;font-size:0.75rem;">${sevText}</span></td>
-      <td style="padding:0.5rem;text-align:center;"><button class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="window.smartDrilldown(${a.hospital_id})">تفاصيل</button></td>
+      <td style="padding:0.5rem;text-align:center;"><button class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="window.smartDrilldown(${hid})">تفاصيل</button></td>
     </tr>`;
   });
   html += '</tbody></table>';
@@ -354,28 +354,36 @@ function renderStratifiedComparison(stratified, indicator) {
 }
 
 window.smartDrilldown = async function(hospitalId) {
-  if (!smartCurrentMonth) return;
+  if (!smartCurrentData || !smartCurrentData.data) return;
+  const d = smartCurrentData.data;
+  const anomaly = d.anomalies?.find(a => parseInt(a.hospital_id, 10) === hospitalId);
+  const explanation = d.explanations?.find(e => parseInt(e.hospital_id, 10) === hospitalId);
+
+  if (!anomaly) return;
+
+  document.getElementById('smart-drilldown-name').textContent = anomaly.hospital_name || '';
+  document.getElementById('smart-drilldown-panel').style.display = 'block';
+  document.getElementById('smart-drilldown-panel').scrollIntoView({behavior: 'smooth'});
+
+  if (explanation?.top_factors && explanation.top_factors.length > 0) {
+    const factors = explanation.top_factors;
+    const wfData = [{
+      type: 'waterfall', orientation: 'v',
+      x: factors.map(f => smartTranslateFeature(f.arabic_label)),
+      y: factors.map(f => f.shap_value),
+      connector: {line: {color: '#ccc'}},
+      decreasing: {marker: {color: SMART_COLORS.shap_negative}},
+      increasing: {marker: {color: SMART_COLORS.shap_positive}},
+      text: factors.map(f => f.shap_value > 0 ? '+' + f.shap_value.toFixed(3) : f.shap_value.toFixed(3)),
+      textposition: 'outside',
+    }];
+    Plotly.newPlot('smart-shap-waterfall', wfData, { margin: {t: 20, b: 80, l: 60, r: 20}, yaxis: {title: 'قيمة SHAP'} });
+  } else {
+    Plotly.purge('smart-shap-waterfall');
+  }
+  document.getElementById('smart-drilldown-text').textContent = explanation?.text_explanation || 'لا توجد تفسيرات متاحة.';
+
   try {
-    const data = await apiSmartGet(`/smart/drilldown/${hospitalId}/${smartCurrentMonth}`);
-    document.getElementById('smart-drilldown-name').textContent = data.hospital_name || '';
-    document.getElementById('smart-drilldown-panel').style.display = 'block';
-    if (data.explanation?.top_factors && data.explanation.top_factors.length > 0) {
-      const factors = data.explanation.top_factors;
-      const wfData = [{
-        type: 'waterfall', orientation: 'v',
-        x: factors.map(f => smartTranslateFeature(f.arabic_label)),
-        y: factors.map(f => f.shap_value),
-        connector: {line: {color: '#ccc'}},
-        decreasing: {marker: {color: SMART_COLORS.shap_negative}},
-        increasing: {marker: {color: SMART_COLORS.shap_positive}},
-        text: factors.map(f => f.shap_value > 0 ? '+' + f.shap_value.toFixed(3) : f.shap_value.toFixed(3)),
-        textposition: 'outside',
-      }];
-      Plotly.newPlot('smart-shap-waterfall', wfData, { margin: {t: 20, b: 80, l: 60, r: 20}, yaxis: {title: 'قيمة SHAP'} });
-    } else {
-      Plotly.purge('smart-shap-waterfall');
-    }
-    document.getElementById('smart-drilldown-text').textContent = data.explanation?.text_explanation || 'لا توجد تفسيرات متاحة.';
     const trendRes = await apiSmartGet(`/smart/trend/${hospitalId}`);
     if (trendRes?.trend?.length > 0) {
       const trend = trendRes.trend;
@@ -389,7 +397,7 @@ window.smartDrilldown = async function(hospitalId) {
       Plotly.purge('smart-trend-line');
     }
   } catch (e) {
-    console.error('Drilldown error:', e);
+    Plotly.purge('smart-trend-line');
   }
 };
 
