@@ -139,24 +139,39 @@ async function loadSmartData(month) {
 function renderKPIs(kpi, hospitalsCount) {
   const c = document.getElementById('smart-kpi-container');
   const statusColor = kpi.month_status === 'critical' ? SMART_COLORS.critical : kpi.month_status === 'attention_needed' ? SMART_COLORS.warning : SMART_COLORS.normal;
-  const statusText = kpi.month_status === 'critical' ? 'حرج' : kpi.month_status === 'attention_needed' ? 'يحتاج مراقبة' : 'طبيعي';
+  const statusText = kpi.month_status === 'critical' ? 'يحتاج تدخل عاجل' : kpi.month_status === 'attention_needed' ? 'يحتاج مراقبة مستمرة' : 'ضمن النطاق الطبيعي';
   const statusIcon = kpi.month_status === 'critical' ? '\u274C' : kpi.month_status === 'attention_needed' ? '\u26A0\uFE0F' : '\u2705';
+  const criticalPct = hospitalsCount > 0 ? Math.round(kpi.critical_count / hospitalsCount * 100) : 0;
+  const warningPct = hospitalsCount > 0 ? Math.round(kpi.warning_count / hospitalsCount * 100) : 0;
+  const normalCount = hospitalsCount - kpi.critical_count - kpi.warning_count;
+
   c.innerHTML = `
-    <div class="card" style="text-align:center;padding:1rem;border-radius:8px;">
-      <div style="font-size:2rem;font-weight:700;color:${kpi.total_anomalies > 0 ? SMART_COLORS.critical : SMART_COLORS.normal};">${kpi.total_anomalies}</div>
-      <div style="font-size:0.85rem;color:#666;">حالات شاذة</div>
+    <div class="card" style="text-align:center;padding:1rem;border-radius:8px;border-top:3px solid ${kpi.total_anomalies > 0 ? SMART_COLORS.critical : SMART_COLORS.normal};">
+      <div style="font-size:2.2rem;font-weight:700;color:${kpi.total_anomalies > 0 ? SMART_COLORS.critical : SMART_COLORS.normal};">${kpi.total_anomalies}<span style="font-size:0.9rem;font-weight:400;color:#999;">/${hospitalsCount}</span></div>
+      <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">مستشفى بنتائج شاذة</div>
+      <div style="font-size:0.7rem;color:#888;line-height:1.4;">${kpi.critical_count} حرج (${criticalPct}%) + ${kpi.warning_count} تنبيه (${warningPct}%)</div>
+      <div style="font-size:0.68rem;color:#aaa;margin-top:0.3rem;">يتجاوز المعدل المتوقع بناءً على 10 مؤشرات سريرية</div>
     </div>
-    <div class="card" style="text-align:center;padding:1rem;border-radius:8px;">
-      <div style="font-size:2rem;font-weight:700;">${kpi.affected_governorates}</div>
-      <div style="font-size:0.85rem;color:#666;">محافظات متأثرة</div>
+
+    <div class="card" style="text-align:center;padding:1rem;border-radius:8px;border-top:3px solid #3b82f6;">
+      <div style="font-size:2.2rem;font-weight:700;color:#3b82f6;">${kpi.affected_governorates}<span style="font-size:0.9rem;font-weight:400;color:#999;">/${hospitalsCount > 0 ? Math.min(hospitalsCount, 5) : 5}</span></div>
+      <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">محافظات بها انحرافات</div>
+      <div style="font-size:0.7rem;color:#888;line-height:1.4;">تحتوي على مستشفيات تنبيه أو حرج</div>
+      <div style="font-size:0.68rem;color:#aaa;margin-top:0.3rem;">المحافظات: غزة، خان يونس، الشمال، الوسطى، رفح</div>
     </div>
-    <div class="card" style="text-align:center;padding:1rem;border-radius:8px;">
-      <div style="font-size:1.1rem;font-weight:600;word-break:break-word;">${smartTranslateFeature(kpi.top_contributing_factor) || '-'}</div>
-      <div style="font-size:0.85rem;color:#666;">العامل الأبرز</div>
+
+    <div class="card" style="text-align:center;padding:1rem;border-radius:8px;border-top:3px solid #8b5cf6;">
+      <div style="font-size:1rem;font-weight:700;color:#8b5cf6;word-break:break-word;line-height:1.4;">${smartTranslateFeature(kpi.top_contributing_factor) || 'غير محدد'}</div>
+      <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">العامل الأكثر تأثيراً</div>
+      <div style="font-size:0.7rem;color:#888;line-height:1.4;">أبرز العوامل المسببة للشذوذ</div>
+      <div style="font-size:0.68rem;color:#aaa;margin-top:0.3rem;">يُحدَّد من تحليل SHAP للعوامل المؤثرة</div>
     </div>
+
     <div class="card" style="text-align:center;padding:1rem;border-radius:8px;border-left:4px solid ${statusColor};">
-      <div style="font-size:1.3rem;font-weight:700;">${statusIcon} ${statusText}</div>
-      <div style="font-size:0.85rem;color:#666;">حالة الشهر (${hospitalsCount} مستشفى)</div>
+      <div style="font-size:1.4rem;font-weight:700;">${statusIcon} ${statusText}</div>
+      <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">حالة الشهر</div>
+      <div style="font-size:0.7rem;color:#888;line-height:1.4;">${hospitalsCount} مستشفى مُحلَّل — ${normalCount} طبيعي، ${kpi.warning_count} تنبيه، ${kpi.critical_count} حرج</div>
+      <div style="font-size:0.68rem;color:#aaa;margin-top:0.3rem;">يتم تجميع النتائج من 7 محركات تحليل ذكي</div>
     </div>
   `;
 }
