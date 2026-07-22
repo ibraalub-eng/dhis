@@ -165,17 +165,51 @@ function renderGeoMap(geo) {
     document.getElementById('smart-geo-text').textContent = 'لا توجد بيانات جغرافية متاحة.';
     return;
   }
+  const GOV_COORDS = {
+    'شمال غزة': {lat: 31.55, lon: 34.45},
+    'غزة': {lat: 31.50, lon: 34.47},
+    'محافظة غزة': {lat: 31.50, lon: 34.47},
+    'دير البلح': {lat: 31.42, lon: 34.35},
+    'الوسطى': {lat: 31.42, lon: 34.35},
+    'محافظة الوسطى': {lat: 31.42, lon: 34.35},
+    'خانيونس': {lat: 31.34, lon: 34.30},
+    'خان يونس': {lat: 31.34, lon: 34.30},
+    'محافظة خان يونس': {lat: 31.34, lon: 34.30},
+    'رفح': {lat: 31.28, lon: 34.24},
+  };
+  const govs = geo.governorates;
+  const lats = govs.map(g => (GOV_COORDS[g.governorate] || {lat: 31.4}).lat);
+  const lons = govs.map(g => (GOV_COORDS[g.governorate] || {lon: 34.4}).lon);
+  const sizes = govs.map(g => 20 + g.hospital_count * 5 + g.avg_anomaly_score * 30);
+  const colors = govs.map(g => g.avg_anomaly_score > 0.6 ? SMART_COLORS.critical : g.avg_anomaly_score > 0.3 ? SMART_COLORS.warning : SMART_COLORS.normal);
   const data = [{
-    type: 'choropleth',
-    locations: geo.governorates.map(g => g.governorate),
-    z: geo.governorates.map(g => g.avg_anomaly_score),
-    text: geo.governorates.map(g => `<b>${g.governorate}</b><br>المستشفيات: ${g.hospital_count}<br>متوسط الشذوذ: ${g.avg_anomaly_score.toFixed(2)}<br>حالات شاذة: ${g.outlier_count}`),
-    colorscale: [[0, SMART_COLORS.normal], [0.3, SMART_COLORS.warning], [0.6, SMART_COLORS.critical], [1, SMART_COLORS.critical]],
-    showscale: true, colorbar: {title: {text: 'درجة الشذوذ', font: {size: 12}}},
+    type: 'scattergeo',
+    lat: lats,
+    lon: lons,
+    mode: 'markers+text',
+    marker: { size: sizes, color: colors, opacity: 0.8, line: { width: 2, color: '#fff' } },
+    text: govs.map(g => g.governorate),
+    textposition: 'top center',
+    textfont: { size: 11, color: '#333', family: 'Arial' },
+    hovertext: govs.map(g => `<b>${g.governorate}</b><br>المستشفيات: ${g.hospital_count}<br>متوسط الشذوذ: ${g.avg_anomaly_score.toFixed(2)}<br>حالات شاذة: ${g.outlier_count}`),
+    hoverinfo: 'text',
   }];
-  Plotly.newPlot('smart-geo-map', data, {geo: {scope: 'asia', center: {lat: 31.4, lon: 34.4}, projection: {scale: 8000}}, margin: {t: 0, b: 0, l: 0, r: 0}});
-  const affected = geo.governorates.filter(g => g.avg_anomaly_score > 0.3).length;
-  document.getElementById('smart-geo-text').textContent = `${affected} من ${geo.governorates.length} محافظات تظهر انحرافات عن المعدل المتوقع.`;
+  Plotly.newPlot('smart-geo-map', data, {
+    geo: {
+      scope: 'asia',
+      center: {lat: 31.4, lon: 34.35},
+      projection: {scale: 5000},
+      showland: true, landcolor: '#f0f0f0',
+      showocean: true, oceancolor: '#dbeafe',
+      showcountries: true, countrycolor: '#ccc',
+      showcoastlines: true, coastlinecolor: '#999',
+      subunitcolor: '#aaa',
+    },
+    margin: {t: 10, b: 10, l: 10, r: 10},
+    showlegend: false,
+  });
+  const affected = govs.filter(g => g.avg_anomaly_score > 0.3).length;
+  document.getElementById('smart-geo-text').textContent = `${affected} من ${govs.length} محافظات تظهر انحرافات.`;
 }
 
 function renderClusterScatter(clustering, anomalies) {
