@@ -2,7 +2,6 @@ from typing import List, Dict, Any
 from collections import defaultdict
 
 from app.engine.smart.schemas import GeoAggregationResult, GovernorateAgg, SmartAnomalyResult
-from app.engine.smart.anomaly import FEATURE_KEYS
 
 
 GOVERNORATE_MAP = {

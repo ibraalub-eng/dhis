@@ -1,4 +1,3 @@
-from datetime import datetime
 from typing import Dict, Any
 from sqlalchemy.orm import Session
 
@@ -15,7 +14,7 @@ from app.engine.smart.geo import aggregate_by_governorate
 def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
     from app.models import Hospital, IndicatorValue, Indicator
 
-    hospitals = session.query(Hospital).filter(Hospital.is_active == True).all()
+    hospitals = session.query(Hospital).filter(Hospital.is_active).all()
     indicators = session.query(Indicator).all()
     indicator_map = {ind.id: ind.code for ind in indicators}
 

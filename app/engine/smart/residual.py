@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
 from statsmodels.formula.api import ols
