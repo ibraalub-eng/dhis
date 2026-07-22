@@ -163,7 +163,18 @@
 
   <!-- Limitations disclaimer -->
   <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:1rem;margin-top:1rem;">
-    <strong style="color:#856404;">ملاحظة:</strong>
-    <span id="smart-disclaimer" style="color:#856404;font-size:0.85rem;">النتائج مبنية على بيانات المستشفيات المسجلة فقط. يجب تفسيرها كمؤشرات أولية وليست قرارات نهائية. لا تتوفر تنبؤات زمنية في هذه المرحلة.</span>
+    <strong style="color:#856404;">\u0645\u0644\u0627\u062D\u0638\u0629:</strong>
+    <span id="smart-disclaimer" style="color:#856404;font-size:0.85rem;">\u0627\u0644\u0646\u062A\u0627\u0626\u062C \u0645\u0628\u0646\u064A\u0629 \u0639\u0644\u0649 \u0628\u064A\u0627\u0646\u0627\u062A \u0627\u0644\u0645\u0633\u062A\u0634\u0641\u064A\u0627\u062A \u0627\u0644\u0645\u0633\u062C\u0644\u0629 \u0641\u0642\u0637. \u064A\u062C\u0628 \u062A\u0641\u0633\u064A\u0631\u0647\u0627 \u0643\u0645\u0639\u0644\u0648\u0645\u0627\u062A \u0623\u0648\u0644\u064A\u0629 \u0648\u0644\u064A\u0633\u062A \u0642\u0631\u0627\u0631\u0627\u062A \u0646\u0647\u0627\u0626\u064A\u0629. \u0644\u0627 \u062A\u062A\u0648\u0641\u0631 \u062A\u0646\u0628\u0624\u0627\u062A \u0632\u0645\u0646\u064A\u0629 \u0641\u064A \u0647\u0630\u0647 \u0627\u0644\u0645\u0631\u062D\u0644\u0629.</span>
+  </div>
+
+  <!-- KPI Detail Modal -->
+  <div id="smart-kpi-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center;">
+    <div style="background:white;border-radius:12px;max-width:700px;width:90%;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);position:relative;">
+      <div id="smart-kpi-modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid #e5e7eb;background:#f8fafc;border-radius:12px 12px 0 0;position:sticky;top:0;z-index:1;">
+        <h3 id="smart-kpi-modal-title" style="margin:0;color:#1a237e;font-size:1.1rem;"></h3>
+        <button onclick="document.getElementById('smart-kpi-modal').style.display='none'" style="background:none;border:none;font-size:1.5rem;cursor:pointer;color:#666;padding:0 0.5rem;">\u2716</button>
+      </div>
+      <div id="smart-kpi-modal-body" style="padding:1.5rem;"></div>
+    </div>
   </div>
 </div>
