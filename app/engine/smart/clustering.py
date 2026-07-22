@@ -49,8 +49,8 @@ def run_clustering(
     combined, hospital_names = _prepare_features(all_hospital_data)
     n = len(hospital_names)
 
-    eps = config.get("dbscan_eps", 1.5)
-    min_samples = min(config.get("dbscan_min_samples", 3), n - 1)
+    eps = float(config.get("dbscan_eps", 1.5))
+    min_samples = int(min(config.get("dbscan_min_samples", 3), n - 1))
 
     dbscan = DBSCAN(eps=eps, min_samples=min_samples)
     labels = dbscan.fit_predict(combined)

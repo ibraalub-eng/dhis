@@ -61,10 +61,10 @@ def detect_smart_anomalies(
     combined, hospital_names = _prepare_features(all_hospital_data)
     n = len(hospital_names)
 
-    contamination = config.get("contamination", 0.05)
-    lof_neighbors = min(config.get("lof_neighbors", 5), n - 1)
-    threshold_green = config.get("threshold_green", 0.3)
-    threshold_yellow = config.get("threshold_yellow", 0.6)
+    contamination = float(config.get("contamination", 0.05))
+    lof_neighbors = int(min(config.get("lof_neighbors", 5), n - 1))
+    threshold_green = float(config.get("threshold_green", 0.3))
+    threshold_yellow = float(config.get("threshold_yellow", 0.6))
 
     # Isolation Forest
     iforest = IsolationForest(contamination=contamination, random_state=42)

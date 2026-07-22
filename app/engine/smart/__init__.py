@@ -31,6 +31,24 @@ def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
             if code and iv.value is not None:
                 indicator_values[code] = float(iv.value)
 
+        total_deliveries = indicator_values.get("2", 0)
+        cs_count = indicator_values.get("5", 0)
+        live_births = indicator_values.get("6", 0)
+
+        derived = {
+            "cs_rate": (cs_count / total_deliveries * 100) if total_deliveries > 0 else 0,
+            "smm_total": indicator_values.get("10", 0),
+            "mat_deaths": indicator_values.get("11", 0),
+            "nd": indicator_values.get("17", 0),
+            "sb": indicator_values.get("7", 0),
+            "preterm": indicator_values.get("6.f", 0),
+            "lbw": indicator_values.get("6.g", 0),
+            "total_births": live_births,
+            "high_risk": indicator_values.get("2.n", 0),
+            "adolescent": indicator_values.get("2.c", 0) + indicator_values.get("2.d", 0),
+        }
+        indicator_values.update(derived)
+
         all_data[hosp.name] = {
             "hospital_id": hosp.id,
             "governorate": hosp.governorate.name if hosp.governorate else "unknown",

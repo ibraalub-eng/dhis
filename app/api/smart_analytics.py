@@ -1,3 +1,4 @@
+import math
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -9,8 +10,18 @@ from app.engine.smart.schemas import SmartAnalyticsResult
 router = APIRouter(prefix="/smart", tags=["Smart Analytics"])
 
 
+def _sanitize(obj):
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return 0.0
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
+
+
 def _envelope(result: SmartAnalyticsResult) -> dict:
-    return {
+    return _sanitize({
         "month": result.month,
         "generated_at": datetime.now().isoformat(),
         "hospitals_count": result.hospitals_count,
@@ -27,7 +38,7 @@ def _envelope(result: SmartAnalyticsResult) -> dict:
             ],
             "geo": result.geo.__dict__ if result.geo else None,
         },
-    }
+    })
 
 
 @router.get("/overview/{month}")

@@ -50,9 +50,13 @@ def analyze_correlations(
                 continue
             a_vals = np.asarray(valid[ind_a], dtype=float).ravel()
             b_vals = np.asarray(valid[ind_b], dtype=float).ravel()
-            r_val, p_val = pearsonr(a_vals, b_vals)
-            r = float(r_val)
-            p = float(p_val)
+            if np.std(a_vals) < 1e-10 or np.std(b_vals) < 1e-10:
+                r = 0.0
+                p = 1.0
+            else:
+                r_val, p_val = pearsonr(a_vals, b_vals)
+                r = float(r_val)
+                p = float(p_val)
             matrix[ind_a][ind_b] = r
 
             if j > i and abs(r) > 0.7 and p < 0.05:
