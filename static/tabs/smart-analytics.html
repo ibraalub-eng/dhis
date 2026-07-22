@@ -35,6 +35,42 @@
     </div>
   </div>
 
+  <!-- How anomaly score works -->
+  <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:1rem;margin-bottom:1.5rem;">
+    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
+      <span style="font-size:1.2rem;">\u2139\uFE0F</span>
+      <strong style="color:#1e1b4b;">كيف تُحسب درجة الشذوذ؟</strong>
+    </div>
+    <p style="font-size:0.82rem;color:#374151;line-height:1.7;margin:0 0 0.5rem 0;">
+      تجمع كل مستشفى <strong>10 مؤشرات سريرية</strong> (معدل القيصارية، المضاعفات الخطيرة، الوفيات الأمومية،...)
+      مع <strong>بيانات تصنيفية</strong> (المحافظة، نوع المستشفى) في متجه واحد.
+    </p>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0.5rem;margin:0.5rem 0;">
+      <div style="background:white;padding:0.5rem;border-radius:6px;border:1px solid #e0e7ff;">
+        <div style="font-weight:700;color:#4338ca;font-size:0.78rem;">Isolation Forest <span style="color:#999;font-weight:400;">(35%)</span></div>
+        <div style="font-size:0.72rem;color:#666;">يُ孤立 النقاط الشاذة ب划分 عشوائي للميزات</div>
+      </div>
+      <div style="background:white;padding:0.5rem;border-radius:6px;border:1px solid #e0e7ff;">
+        <div style="font-weight:700;color:#4338ca;font-size:0.78rem;">LOF <span style="color:#999;font-weight:400;">(30%)</span></div>
+        <div style="font-size:0.72rem;color:#666;">يقارن كثافة كل نقطة بجيرانها المباشرين</div>
+      </div>
+      <div style="background:white;padding:0.5rem;border-radius:6px;border:1px solid #e0e7ff;">
+        <div style="font-weight:700;color:#4338ca;font-size:0.78rem;">Mahalanobis <span style="color:#999;font-weight:400;">(20%)</span></div>
+        <div style="font-size:0.72rem;color:#666;">يقيس المسافة من المركز في فضاء الميزات</div>
+      </div>
+      <div style="background:white;padding:0.5rem;border-radius:6px;border:1px solid #e0e7ff;">
+        <div style="font-weight:700;color:#4338ca;font-size:0.78rem;">البواقي <span style="color:#999;font-weight:400;">(15%)</span></div>
+        <div style="font-size:0.72rem;color:#666;">الانحراف عن النموذج الانحداري المتوقع</div>
+      </div>
+    </div>
+    <p style="font-size:0.78rem;color:#6b7280;margin:0.5rem 0 0 0;">
+      النتيجة النهائية مُوحَّدة بين <strong>0 و 1</strong>:
+      <span style="color:#22c55e;font-weight:700;">أقل من 0.3 = طبيعي</span> |
+      <span style="color:#f59e0b;font-weight:700;">0.3 - 0.6 = تنبيه</span> |
+      <span style="color:#ef4444;font-weight:700;">أكثر من 0.6 = حرج</span>
+    </p>
+  </div>
+
   <!-- Row 1: KPI Cards -->
   <div id="smart-kpi-container" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem;"></div>
 
@@ -105,20 +141,24 @@
   <!-- Row 6: Drill-down (hidden) -->
   <div id="smart-drilldown-panel" class="card" style="padding:1rem;display:none;margin-bottom:1.5rem;">
     <div style="display:flex;justify-content:space-between;align-items:center;">
-      <h3 style="color:#1a237e;">تفاصيل المستشفى: <span id="smart-drilldown-name"></span></h3>
-      <button id="smart-close-drilldown" class="btn btn-sm btn-outline">إغلاق</button>
+      <h3 style="color:#1a237e;">\u{1F50D} تفاصيل المستشفى: <span id="smart-drilldown-name"></span></h3>
+      <button id="smart-close-drilldown" class="btn btn-sm btn-outline">\u2716 \u0625\u063A\u0644\u0627\u0642</button>
+    </div>
+    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:6px;padding:0.7rem;margin:0.8rem 0;font-size:0.78rem;color:#0c4a6e;line-height:1.6;">
+      <strong>\u0643\u064A\u0641 \u062A\u062D\u0633\u0628 \u0647\u0630\u0647 \u0627\u0644\u062F\u0631\u062C\u0629؟</strong>
+      تُحسب الدرجة بناءً على مقارنة بيانات المستشفى مع <strong>جيرانه الأقرب</strong> في فضاء الميزات السريرية. كلما اختلف المستشفى عن مجموعته النظيرة (نفس المحافظة أو النوع)، ارتفعت الدرجة. الرسم المائي SHAP يوضح أي ميزات ساهمت في الزيادة أو النقصان.
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;">
       <div>
-        <h4 style="color:#333;">عوامل SHAP</h4>
+        <h4 style="color:#333;">\u0639\u0648\u0627\u0645\u0644 SHAP \u0627\u0644\u0645\u0633\u0624\u0648\u0644\u0629</h4>
         <div id="smart-shap-waterfall" style="height:250px;"></div>
       </div>
       <div>
-        <h4 style="color:#333;">الاتجاه الزمني</h4>
+        <h4 style="color:#333;">\u0627\u0644\u0627\u062A\u062C\u0627\u0647 \u0627\u0644\u0632\u0645\u0646\u064A</h4>
         <div id="smart-trend-line" style="height:250px;"></div>
       </div>
     </div>
-    <p id="smart-drilldown-text" style="font-size:0.85rem;color:#444;margin-top:0.5rem;"></p>
+    <p id="smart-drilldown-text" style="font-size:0.85rem;color:#444;margin-top:0.5rem;background:#f9fafb;padding:0.6rem;border-radius:6px;border:1px solid #e5e7eb;"></p>
   </div>
 
   <!-- Limitations disclaimer -->

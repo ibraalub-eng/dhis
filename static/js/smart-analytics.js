@@ -23,8 +23,14 @@ const SMART_ARABIC = {
 function smartTranslateFeature(name) {
   if (!name) return '-';
   if (SMART_ARABIC[name]) return SMART_ARABIC[name];
-  if (name.startsWith('governorate_')) return 'محافظة ' + name.replace('governorate_', '');
-  if (name.startsWith('hospital_type_')) return 'نوع: ' + name.replace('hospital_type_', '');
+  if (name.startsWith('governorate_')) {
+    const val = name.substring('governorate_'.length);
+    return val.startsWith('محافظة') ? val : 'محافظة ' + val;
+  }
+  if (name.startsWith('hospital_type_')) {
+    const val = name.substring('hospital_type_'.length);
+    return val.startsWith('نوع') ? val : 'نوع: ' + val;
+  }
   return name;
 }
 
@@ -429,25 +435,36 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
     const explanation = drilldown.explanation;
 
     const kpiHtml = `
-      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:1.5rem;font-weight:700;color:${anomaly ? (anomaly.severity === 'critical' ? SMART_COLORS.critical : anomaly.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal) : '#666'};">${anomaly ? anomaly.anomaly_score.toFixed(2) : '-'}</div>
-        <div style="font-size:0.75rem;color:#666;">درجة الشذوذ</div>
+      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;border-top:3px solid ${anomaly ? (anomaly.severity === 'critical' ? SMART_COLORS.critical : anomaly.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal) : '#ccc'};">
+        <div style="font-size:1.8rem;font-weight:700;color:${anomaly ? (anomaly.severity === 'critical' ? SMART_COLORS.critical : anomaly.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal) : '#666'};">${anomaly ? anomaly.anomaly_score.toFixed(2) : '-'}</div>
+        <div style="font-size:0.75rem;color:#444;font-weight:600;">درجة الشذوذ</div>
+        <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${anomaly ? (anomaly.severity === 'critical' ? 'تتجاوز 0.6 - يحتاج تدخل' : anomaly.severity === 'warning' ? 'بين 0.3 و 0.6 - يحتاج مراقبة' : 'أقل من 0.3 - ضمن الطبيعي') : ''}</div>
       </div>
       <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:1rem;font-weight:600;">${anomaly ? (anomaly.severity === 'critical' ? 'حرج' : anomaly.severity === 'warning' ? 'تنبيه' : 'طبيعي') : '-'}</div>
+        <div style="font-size:1rem;font-weight:600;">${anomaly ? (anomaly.severity === 'critical' ? '\u274C حرج' : anomaly.severity === 'warning' ? '\u26A0\uFE0F تنبيه' : '\u2705 طبيعي') : '-'}</div>
         <div style="font-size:0.75rem;color:#666;">الحالة</div>
       </div>
       <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:0.85rem;font-weight:600;word-break:break-word;">${anomaly ? anomaly.governorate : '-'}</div>
+        <div style="font-size:0.85rem;font-weight:600;word-break:break-word;">${anomaly ? smartTranslateFeature('governorate_' + anomaly.governorate) : '-'}</div>
         <div style="font-size:0.75rem;color:#666;">المحافظة</div>
       </div>
       <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:0.85rem;font-weight:600;">${explanation?.top_factors?.[0]?.arabic_label || '-'}</div>
-        <div style="font-size:0.75rem;color:#666;">العامل الأساسي</div>
+        <div style="font-size:0.85rem;font-weight:600;color:#8b5cf6;">${explanation?.top_factors?.[0] ? smartTranslateFeature(explanation.top_factors[0].arabic_label) : '-'}</div>
+        <div style="font-size:0.75rem;color:#666;">العامل الأساسي للشذوذ</div>
+        <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${explanation?.top_factors?.[0] ? (explanation.top_factors[0].shap_value > 0 ? 'يُزيّد من الدرجة' : 'يُقلّص من الدرجة') : ''}</div>
       </div>
       <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:0.85rem;color:#444;line-height:1.4;">${explanation?.text_explanation || 'لا توجد تفسيرات'}</div>
-        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">التفسير</div>
+        <div style="font-size:0.8rem;color:#444;line-height:1.5;">${explanation?.text_explanation || 'لا توجد تفسيرات'}</div>
+        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">\u062A\u0641\u0633\u064A\u0631 SHAP</div>
+      </div>
+      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+        <div style="font-size:0.75rem;color:#666;line-height:1.5;">
+          ${anomaly ? Object.entries(anomaly.method_scores || {}).map(([k, v]) => {
+            const labels = {isolation_forest: 'IF', lof: 'LOF', mahalanobis: 'Mahal', residual: 'Resid'};
+            return `<span style="display:inline-block;margin:0.1rem;padding:0.1rem 0.3rem;background:#f3f4f6;border-radius:3px;font-size:0.65rem;">${labels[k] || k}: ${v.toFixed(2)}</span>`;
+          }).join(' ') : ''}
+        </div>
+        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">\u062F\u0631\u0648\u0633 \u0627\u0644\u062E\u0635\u0627\u0626\u0635</div>
       </div>
     `;
     document.getElementById('smart-hospital-kpis').innerHTML = kpiHtml;
