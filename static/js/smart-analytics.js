@@ -40,17 +40,36 @@ async function apiSmartGet(path) {
 window.initSmartAnalytics = async function() {
   const monthsRes = await apiSmartGet('/analysis/months');
   const months = monthsRes?.months || monthsRes || [];
-  const select = document.getElementById('smart-month-select');
-  select.innerHTML = '';
+  const monthSelect = document.getElementById('smart-month-select');
+  monthSelect.innerHTML = '';
   months.forEach(m => {
     const opt = document.createElement('option');
     opt.value = m.month || m; opt.textContent = m.month || m;
-    select.appendChild(opt);
+    monthSelect.appendChild(opt);
   });
-  select.addEventListener('change', () => loadSmartData(select.value));
-  document.getElementById('smart-refresh').addEventListener('click', () => loadSmartData(select.value));
+  monthSelect.addEventListener('change', () => {
+    loadSmartData(monthSelect.value);
+    updateHospitalList();
+  });
+
+  document.getElementById('smart-refresh').addEventListener('click', () => {
+    loadSmartData(monthSelect.value);
+    updateHospitalList();
+  });
   document.getElementById('smart-close-drilldown').addEventListener('click', () => {
     document.getElementById('smart-drilldown-panel').style.display = 'none';
+  });
+  document.getElementById('smart-close-hospital').addEventListener('click', () => {
+    document.getElementById('smart-hospital-panel').style.display = 'none';
+    document.getElementById('smart-hospital-select').value = '';
+  });
+  document.getElementById('smart-hospital-select').addEventListener('change', (e) => {
+    const hospitalId = e.target.value;
+    if (hospitalId) {
+      loadHospitalAnalysis(parseInt(hospitalId), monthSelect.value);
+    } else {
+      document.getElementById('smart-hospital-panel').style.display = 'none';
+    }
   });
   document.getElementById('smart-residual-indicator').addEventListener('change', () => {
     if (smartCurrentData) renderResidualPlot(smartCurrentData.data.residuals, document.getElementById('smart-residual-indicator').value);
@@ -63,10 +82,37 @@ window.initSmartAnalytics = async function() {
   });
   if (months.length > 0) {
     const lastMonth = months[months.length - 1];
-    select.value = lastMonth.month || lastMonth;
-    loadSmartData(select.value);
+    monthSelect.value = lastMonth.month || lastMonth;
+    loadSmartData(monthSelect.value);
+    updateHospitalList();
   }
 };
+
+async function updateHospitalList() {
+  const month = document.getElementById('smart-month-select').value;
+  if (!month) return;
+  try {
+    const data = await apiSmartGet(`/smart/overview/${month}`);
+    const select = document.getElementById('smart-hospital-select');
+    const current = select.value;
+    select.innerHTML = '<option value="">-- جميع المستشفيات --</option>';
+    const anomalies = data.data?.anomalies || [];
+    const sorted = [...anomalies].sort((a, b) => {
+      const order = {critical: 0, warning: 1, normal: 2};
+      return (order[a.severity] || 2) - (order[b.severity] || 2);
+    });
+    sorted.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.hospital_id;
+      const icon = a.severity === 'critical' ? '🔴' : a.severity === 'warning' ? '🟡' : '🟢';
+      opt.textContent = `${icon} ${a.hospital_name} (${a.anomaly_score.toFixed(2)})`;
+      select.appendChild(opt);
+    });
+    if (current) select.value = current;
+  } catch (e) {
+    console.error('Failed to load hospital list:', e);
+  }
+}
 
 async function loadSmartData(month) {
   smartCurrentMonth = month;
@@ -311,3 +357,86 @@ window.smartDrilldown = async function(hospitalId) {
     console.error('Drilldown error:', e);
   }
 };
+
+async function loadHospitalAnalysis(hospitalId, currentMonth) {
+  const panel = document.getElementById('smart-hospital-panel');
+  panel.style.display = 'block';
+  document.getElementById('smart-hospital-name').textContent = 'جاري التحميل...';
+
+  try {
+    const drilldown = await apiSmartGet(`/smart/drilldown/${hospitalId}/${currentMonth}`);
+    document.getElementById('smart-hospital-name').textContent = drilldown.hospital_name || '';
+
+    const anomaly = drilldown.anomaly;
+    const explanation = drilldown.explanation;
+
+    const kpiHtml = `
+      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+        <div style="font-size:1.5rem;font-weight:700;color:${anomaly ? (anomaly.severity === 'critical' ? SMART_COLORS.critical : anomaly.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal) : '#666'};">${anomaly ? anomaly.anomaly_score.toFixed(2) : '-'}</div>
+        <div style="font-size:0.75rem;color:#666;">درجة الشذوذ</div>
+      </div>
+      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+        <div style="font-size:1rem;font-weight:600;">${anomaly ? (anomaly.severity === 'critical' ? 'حرج' : anomaly.severity === 'warning' ? 'تنبيه' : 'طبيعي') : '-'}</div>
+        <div style="font-size:0.75rem;color:#666;">الحالة</div>
+      </div>
+      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+        <div style="font-size:0.85rem;font-weight:600;word-break:break-word;">${anomaly ? anomaly.governorate : '-'}</div>
+        <div style="font-size:0.75rem;color:#666;">المحافظة</div>
+      </div>
+      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+        <div style="font-size:0.85rem;font-weight:600;">${explanation?.top_factors?.[0]?.arabic_label || '-'}</div>
+        <div style="font-size:0.75rem;color:#666;">العامل الأساسي</div>
+      </div>
+      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+        <div style="font-size:0.85rem;color:#444;line-height:1.4;">${explanation?.text_explanation || 'لا توجد تفسيرات'}</div>
+        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">التفسير</div>
+      </div>
+    `;
+    document.getElementById('smart-hospital-kpis').innerHTML = kpiHtml;
+
+    const trendRes = await apiSmartGet(`/smart/trend/${hospitalId}`);
+    if (trendRes?.trend?.length > 0) {
+      const trend = trendRes.trend;
+      const tColors = trend.map(t => t.severity === 'critical' ? SMART_COLORS.critical : t.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal);
+
+      const traces = [
+        {
+          type: 'scatter', mode: 'lines+markers',
+          x: trend.map(t => t.month),
+          y: trend.map(t => t.anomaly_score),
+          marker: { size: 12, color: tColors, line: { width: 2, color: '#fff' } },
+          line: { color: '#1a237e', width: 2 },
+          text: trend.map(t => `${t.month}<br>الدرجة: ${t.anomaly_score.toFixed(2)}<br>الحالة: ${t.severity === 'critical' ? 'حرج' : t.severity === 'warning' ? 'تنبيه' : 'طبيعي'}`),
+          hoverinfo: 'text',
+          name: 'درجة الشذوذ',
+        }
+      ];
+      const shapes = [
+        { type: 'rect', x0: 0, x1: 1, y0: 0, y1: 0.3, xref: 'paper', fillcolor: SMART_COLORS.normal, opacity: 0.08 },
+        { type: 'rect', x0: 0, x1: 1, y0: 0.3, y1: 0.6, xref: 'paper', fillcolor: SMART_COLORS.warning, opacity: 0.08 },
+        { type: 'rect', x0: 0, x1: 1, y0: 0.6, y1: 1, xref: 'paper', fillcolor: SMART_COLORS.critical, opacity: 0.08 },
+        { type: 'line', x0: 0, x1: 1, y0: 0.3, y1: 0.3, xref: 'paper', line: { color: SMART_COLORS.warning, width: 1, dash: 'dash' } },
+        { type: 'line', x0: 0, x1: 1, y0: 0.6, y1: 0.6, xref: 'paper', line: { color: SMART_COLORS.critical, width: 1, dash: 'dash' } },
+      ];
+      Plotly.newPlot('smart-hospital-trend', traces, {
+        shapes,
+        xaxis: {title: 'الشهر', tickangle: -45},
+        yaxis: {title: 'درجة الشذوذ', range: [0, 1]},
+        margin: {t: 20, b: 60, l: 50, r: 20},
+        legend: {orientation: 'h', y: 1.1},
+      });
+
+      const critMonths = trend.filter(t => t.severity === 'critical').length;
+      const warnMonths = trend.filter(t => t.severity === 'warning').length;
+      const normalMonths = trend.filter(t => t.severity === 'normal').length;
+      document.getElementById('smart-hospital-trend-text').textContent =
+        `ملخص ${trend.length} شهر: ${critMonths} حرج، ${warnMonths} تنبيه، ${normalMonths} طبيعي.`;
+    } else {
+      Plotly.purge('smart-hospital-trend');
+      document.getElementById('smart-hospital-trend-text').textContent = 'لا توجد بيانات اتجاه متاحة.';
+    }
+  } catch (e) {
+    document.getElementById('smart-hospital-name').textContent = 'خطأ في التحميل';
+    console.error('Hospital analysis error:', e);
+  }
+}

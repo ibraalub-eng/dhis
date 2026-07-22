@@ -1,10 +1,38 @@
 <div class="smart-analytics-tab" dir="rtl" style="padding:1rem;">
-  <!-- Month selector -->
-  <div style="display:flex;gap:1rem;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;">
-    <label style="font-weight:600;">الشهر:</label>
-    <select id="smart-month-select" style="padding:0.4rem;border-radius:6px;border:1px solid #ccc;"></select>
-    <button id="smart-refresh" class="btn btn-sm" style="background:#1a237e;color:white;">تحديث</button>
-    <span id="smart-status" style="font-size:0.8rem;color:#666;"></span>
+  <!-- Controls bar -->
+  <div style="display:flex;gap:1rem;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;background:#f8fafc;padding:1rem;border-radius:8px;border:1px solid #e2e8f0;">
+    <div>
+      <label style="font-weight:600;font-size:0.85rem;display:block;margin-bottom:0.2rem;">الشهر:</label>
+      <select id="smart-month-select" style="padding:0.4rem;border-radius:6px;border:1px solid #ccc;min-width:130px;"></select>
+    </div>
+    <div>
+      <label style="font-weight:600;font-size:0.85rem;display:block;margin-bottom:0.2rem;">المستشفى:</label>
+      <select id="smart-hospital-select" style="padding:0.4rem;border-radius:6px;border:1px solid #ccc;min-width:200px;">
+        <option value="">-- جميع المستشفيات --</option>
+      </select>
+    </div>
+    <div style="align-self:flex-end;">
+      <button id="smart-refresh" class="btn btn-sm" style="background:#1a237e;color:white;padding:0.45rem 1rem;">تحديث</button>
+    </div>
+    <div style="align-self:flex-end;">
+      <span id="smart-status" style="font-size:0.8rem;color:#666;"></span>
+    </div>
+  </div>
+
+  <!-- Hospital-specific analysis (shown when hospital selected) -->
+  <div id="smart-hospital-panel" style="display:none;margin-bottom:1.5rem;">
+    <div class="card" style="padding:1rem;border:2px solid #1a237e;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+        <h3 style="color:#1a237e;margin:0;">تحليل المستشفى: <span id="smart-hospital-name" style="font-weight:700;"></span></h3>
+        <button id="smart-close-hospital" class="btn btn-sm btn-outline" style="font-size:0.8rem;">إغلاق</button>
+      </div>
+      <!-- Hospital KPIs -->
+      <div id="smart-hospital-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.8rem;margin-bottom:1rem;"></div>
+      <!-- Hospital trend chart -->
+      <h4 style="color:#333;margin-bottom:0.5rem;">الأداء عبر الأشهر</h4>
+      <div id="smart-hospital-trend" style="height:300px;"></div>
+      <p id="smart-hospital-trend-text" style="font-size:0.8rem;color:#666;margin-top:0.5rem;"></p>
+    </div>
   </div>
 
   <!-- Row 1: KPI Cards -->
