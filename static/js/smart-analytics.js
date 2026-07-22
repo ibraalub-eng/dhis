@@ -541,12 +541,13 @@ function renderAnomalyTable(anomalies, explanations) {
     <thead>
       <tr style="background:#1a237e;color:white;">
         <th style="padding:0.6rem;text-align:right;border-radius:0 0 8px 0;">#</th>
-        <th style="padding:0.6rem;text-align:right;">المستشفى</th>
-        <th style="padding:0.6rem;text-align:center;">المحافظة</th>
-        <th style="padding:0.6rem;text-align:center;">النوع</th>
-        <th style="padding:0.6rem;text-align:center;">الدرجة</th>
-        <th style="padding:0.6rem;text-align:center;">الحالة</th>
-        <th style="padding:0.6rem;text-align:center;border-radius:0 0 0 8px;">إجراء</th>
+        <th style="padding:0.6rem;text-align:right;">\u0627\u0644\u0645\u0633\u062A\u0634\u0641\u0649</th>
+        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u0645\u062D\u0627\u0641\u0638\u0629</th>
+        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u0646\u0648\u0639</th>
+        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u062F\u0631\u062C\u0629</th>
+        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u062D\u0627\u0644\u0629</th>
+        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u0639\u0627\u0645\u0644 \u0627\u0644\u0623\u0628\u0631\u0632</th>
+        <th style="padding:0.6rem;text-align:center;border-radius:0 0 0 8px;">\u0625\u062C\u0631\u0627\u0621</th>
       </tr>
     </thead>
     <tbody>`;
@@ -554,24 +555,32 @@ function renderAnomalyTable(anomalies, explanations) {
   sorted.forEach((a, idx) => {
     const sevColor = a.severity === 'critical' ? SMART_COLORS.critical : a.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal;
     const sevBg = a.severity === 'critical' ? '#fef2f2' : a.severity === 'warning' ? '#fffbeb' : '#f0fdf4';
-    const sevText = a.severity === 'critical' ? 'حرج' : a.severity === 'warning' ? 'تنبيه' : 'طبيعي';
-    const topFactor = expMap[a.hospital_name]?.top_factors?.[0]?.arabic_label || '-';
+    const sevText = a.severity === 'critical' ? '\u062D\u0631\u062C' : a.severity === 'warning' ? '\u062A\u0646\u0628\u064A\u0647' : '\u0637\u0628\u064A\u0639\u064A';
+    const shortName = a.hospital_name.includes('/') ? a.hospital_name.split('/').pop().trim() : a.hospital_name;
+    const topFactors = expMap[a.hospital_name]?.top_factors || [];
+    const factorBadges = topFactors.slice(0, 3).map(f => {
+      const fColor = f.shap_value > 0 ? SMART_COLORS.shap_positive : SMART_COLORS.shap_negative;
+      const fBg = f.shap_value > 0 ? '#fef2f2' : '#eff6ff';
+      const arrow = f.shap_value > 0 ? '\u2191' : '\u2193';
+      return `<span style="display:inline-block;background:${fBg};color:${fColor};padding:0.1rem 0.35rem;border-radius:6px;font-size:0.65rem;font-weight:600;margin:0.1rem;white-space:nowrap;" title="${smartTranslateFeature(f.arabic_label)}: ${f.shap_value > 0 ? '+' : ''}${f.shap_value.toFixed(4)}">${arrow} ${smartTranslateFeature(f.arabic_label)}</span>`;
+    }).join(' ');
     const hid = parseInt(a.hospital_id, 10);
     html += `<tr style="border-bottom:1px solid #e5e7eb;background:${idx % 2 === 0 ? '#fff' : '#f9fafb'};">
       <td style="padding:0.5rem;text-align:center;color:#999;">${idx + 1}</td>
-      <td style="padding:0.5rem;text-align:right;font-weight:600;white-space:nowrap;">${a.hospital_name}</td>
+      <td style="padding:0.5rem;text-align:right;font-weight:600;white-space:nowrap;" title="${a.hospital_name}">${shortName}</td>
       <td style="padding:0.5rem;text-align:center;font-size:0.75rem;white-space:nowrap;">${a.governorate || '-'}</td>
       <td style="padding:0.5rem;text-align:center;font-size:0.75rem;white-space:nowrap;">${a.hospital_type || '-'}</td>
       <td style="padding:0.5rem;text-align:center;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.15rem 0.5rem;border-radius:12px;font-weight:700;font-size:0.8rem;">${a.anomaly_score.toFixed(2)}</span></td>
       <td style="padding:0.5rem;text-align:center;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.15rem 0.5rem;border-radius:12px;font-weight:600;font-size:0.75rem;">${sevText}</span></td>
-      <td style="padding:0.5rem;text-align:center;"><button class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="window.smartDrilldown(${hid})">تفاصيل</button></td>
+      <td style="padding:0.5rem;text-align:center;max-width:200px;">${factorBadges || '<span style="color:#ccc;">-</span>'}</td>
+      <td style="padding:0.5rem;text-align:center;"><button class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="window.smartDrilldown(${hid})">\u062A\u0641\u0627\u0635\u064A\u0644</button></td>
     </tr>`;
   });
   html += '</tbody></table>';
   document.getElementById('smart-anomaly-table').innerHTML = html;
   const critical = anomalies.filter(a => a.severity === 'critical').length;
   const warnings = anomalies.filter(a => a.severity === 'warning').length;
-  document.getElementById('smart-table-text').textContent = `إجمالي: ${anomalies.length} مستشفى — ${critical} حرج، ${warnings} تنبيه، ${anomalies.length - critical - warnings} طبيعي.`;
+  document.getElementById('smart-table-text').textContent = `\u0625\u062C\u0645\u0627\u0644\u064A: ${anomalies.length} \u0645\u0633\u062A\u0634\u0641\u0649 \u2014 ${critical} \u062D\u0631\u062C\u060C ${warnings} \u062A\u0646\u0628\u064A\u0647\u060C ${anomalies.length - critical - warnings} \u0637\u0628\u064A\u0639\u064A.`;
 }
 
 function renderFeatureImportance(correlations, targetIndicator) {
