@@ -96,6 +96,7 @@
             if (name === 'indicator-tree') window.initIndicatorTree();
             if (name === 'rules-manager') window.loadRulesManager();
             if (name === 'audit') window.initAudit();
+            if (name === 'smart-analytics') window.initSmartAnalytics();
         }
 
         document.querySelectorAll('.tab').forEach(tab => {

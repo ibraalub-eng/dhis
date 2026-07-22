@@ -1,0 +1,101 @@
+<div class="smart-analytics-tab" dir="rtl" style="padding:1rem;">
+  <!-- Month selector -->
+  <div style="display:flex;gap:1rem;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;">
+    <label style="font-weight:600;">الشهر:</label>
+    <select id="smart-month-select" style="padding:0.4rem;border-radius:6px;border:1px solid #ccc;"></select>
+    <button id="smart-refresh" class="btn btn-sm" style="background:#1a237e;color:white;">تحديث</button>
+    <span id="smart-status" style="font-size:0.8rem;color:#666;"></span>
+  </div>
+
+  <!-- Row 1: KPI Cards -->
+  <div id="smart-kpi-container" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem;"></div>
+
+  <!-- Row 2: Map + Cluster -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem;">
+    <div class="card" style="padding:1rem;">
+      <h3 style="color:#1a237e;margin-bottom:0.5rem;">خريطة المحافظات</h3>
+      <div id="smart-geo-map" style="height:350px;"></div>
+      <p id="smart-geo-text" style="font-size:0.8rem;color:#666;margin-top:0.5rem;"></p>
+    </div>
+    <div class="card" style="padding:1rem;">
+      <h3 style="color:#1a237e;margin-bottom:0.5rem;">تجميع المستشفيات</h3>
+      <div id="smart-cluster-scatter" style="height:350px;"></div>
+      <p id="smart-cluster-text" style="font-size:0.8rem;color:#666;margin-top:0.5rem;"></p>
+    </div>
+  </div>
+
+  <!-- Row 3: Correlation + Residuals -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem;">
+    <div class="card" style="padding:1rem;">
+      <h3 style="color:#1a237e;margin-bottom:0.5rem;">مصفوفة الارتباط</h3>
+      <div id="smart-correlation-heatmap" style="height:350px;"></div>
+      <p id="smart-corr-text" style="font-size:0.8rem;color:#666;margin-top:0.5rem;"></p>
+    </div>
+    <div class="card" style="padding:1rem;">
+      <h3 style="color:#1a237e;margin-bottom:0.5rem;">رسم البواقي</h3>
+      <select id="smart-residual-indicator" style="margin-bottom:0.5rem;padding:0.3rem;border-radius:4px;border:1px solid #ccc;">
+        <option value="cs_rate">معدل العمليات القيصارية</option>
+        <option value="smm_total">المضاعفات الخطيرة</option>
+        <option value="mat_deaths">الوفيات الأمومية</option>
+      </select>
+      <div id="smart-residual-plot" style="height:300px;"></div>
+      <p id="smart-residual-text" style="font-size:0.8rem;color:#666;margin-top:0.5rem;"></p>
+    </div>
+  </div>
+
+  <!-- Row 4: Anomaly Table + Feature Importance -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem;">
+    <div class="card" style="padding:1rem;">
+      <h3 style="color:#1a237e;margin-bottom:0.5rem;">جدول الشذوذ</h3>
+      <div id="smart-anomaly-table" style="overflow-x:auto;"></div>
+      <p id="smart-table-text" style="font-size:0.8rem;color:#666;margin-top:0.5rem;"></p>
+    </div>
+    <div class="card" style="padding:1rem;">
+      <h3 style="color:#1a237e;margin-bottom:0.5rem;">أهمية العوامل</h3>
+      <select id="smart-fi-indicator" style="margin-bottom:0.5rem;padding:0.3rem;border-radius:4px;border:1px solid #ccc;">
+        <option value="cs_rate">معدل العمليات القيصارية</option>
+        <option value="smm_total">المضاعفات الخطيرة</option>
+        <option value="mat_deaths">الوفيات الأمومية</option>
+      </select>
+      <div id="smart-feature-importance" style="height:300px;"></div>
+      <p id="smart-fi-text" style="font-size:0.8rem;color:#666;margin-top:0.5rem;"></p>
+    </div>
+  </div>
+
+  <!-- Row 5: Stratified Comparison -->
+  <div class="card" style="padding:1rem;margin-bottom:1.5rem;">
+    <h3 style="color:#1a237e;margin-bottom:0.5rem;">مقارنة طبقية</h3>
+    <select id="smart-strat-indicator" style="margin-bottom:0.5rem;padding:0.3rem;border-radius:4px;border:1px solid #ccc;">
+      <option value="cs_rate">معدل العمليات القيصارية</option>
+      <option value="smm_total">المضاعفات الخطيرة</option>
+      <option value="mat_deaths">الوفيات الأمومية</option>
+    </select>
+    <div id="smart-stratified-chart" style="height:350px;"></div>
+    <p id="smart-strat-text" style="font-size:0.8rem;color:#666;margin-top:0.5rem;"></p>
+  </div>
+
+  <!-- Row 6: Drill-down (hidden) -->
+  <div id="smart-drilldown-panel" class="card" style="padding:1rem;display:none;margin-bottom:1.5rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h3 style="color:#1a237e;">تفاصيل المستشفى: <span id="smart-drilldown-name"></span></h3>
+      <button id="smart-close-drilldown" class="btn btn-sm btn-outline">إغلاق</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;">
+      <div>
+        <h4 style="color:#333;">عوامل SHAP</h4>
+        <div id="smart-shap-waterfall" style="height:250px;"></div>
+      </div>
+      <div>
+        <h4 style="color:#333;">الاتجاه الزمني</h4>
+        <div id="smart-trend-line" style="height:250px;"></div>
+      </div>
+    </div>
+    <p id="smart-drilldown-text" style="font-size:0.85rem;color:#444;margin-top:0.5rem;"></p>
+  </div>
+
+  <!-- Limitations disclaimer -->
+  <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:1rem;margin-top:1rem;">
+    <strong style="color:#856404;">ملاحظة:</strong>
+    <span style="color:#856404;font-size:0.85rem;">النتائج مبنية على بيانات {{ hospitals_count }} مستشفى فقط. يجب تفسيرها كمؤشرات أولية وليست قرارات نهائية. لا تتوفر تنبؤات زمنية في هذه المرحلة.</span>
+  </div>
+</div>
