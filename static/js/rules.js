@@ -1,6 +1,8 @@
         import { API } from './api.js';
         import { __ } from './i18n.js';
 
+        let ruleEditId = null;
+
         // ── Indicator loading ──────────────────────────────────────
         export async function loadIndicators() {
             if (_indicatorsCache.length > 0) return _indicatorsCache;
