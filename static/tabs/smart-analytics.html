@@ -1,4 +1,12 @@
-<div class="smart-analytics-tab" dir="rtl" style="padding:1rem;max-width:1400px;margin:0 auto;">
+<div class="smart-analytics-tab" dir="rtl" style="padding:1rem;max-width:1400px;margin:0 auto;position:relative;">
+
+  <!-- Loading overlay -->
+  <div id="smart-loading-overlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.85);z-index:500;border-radius:12px;backdrop-filter:blur(3px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:1rem;">
+    <div style="width:48px;height:48px;border:4px solid #c7d2fe;border-top-color:#1a237e;border-radius:50%;animation:smartSpin 0.8s linear infinite;"></div>
+    <span style="font-size:0.95rem;font-weight:600;color:#1a237e;">جاري تحليل البيانات…</span>
+    <span style="font-size:0.75rem;color:#6b7280;">قد يستغرق هذا بضع ثوانٍ</span>
+  </div>
+  <style>@keyframes smartSpin{to{transform:rotate(360deg)}}</style>
 
   <!-- Controls bar -->
   <div style="display:flex;gap:1rem;align-items:center;margin-bottom:1.5rem;flex-wrap:wrap;background:linear-gradient(135deg,#f8fafc,#eef2ff);padding:1rem 1.2rem;border-radius:10px;border:1px solid #c7d2fe;box-shadow:0 2px 8px rgba(0,0,0,0.04);">

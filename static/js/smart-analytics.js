@@ -120,9 +120,19 @@ async function updateHospitalList() {
   }
 }
 
+function smartShowLoading() {
+  const el = document.getElementById('smart-loading-overlay');
+  if (el) { el.style.display = 'flex'; }
+}
+function smartHideLoading() {
+  const el = document.getElementById('smart-loading-overlay');
+  if (el) { el.style.display = 'none'; }
+}
+
 async function loadSmartData(month) {
   smartCurrentMonth = month;
   document.getElementById('smart-status').textContent = 'جاري التحميل...';
+  smartShowLoading();
   try {
     smartCurrentData = await apiSmartGet(`/smart/overview/${month}`);
     const d = smartCurrentData.data;
@@ -140,6 +150,8 @@ async function loadSmartData(month) {
     document.getElementById('smart-disclaimer').textContent = `النتائج مبنية على بيانات ${total} مستشفى فقط. يجب تفسيرها كمؤشرات أولية وليست قرارات نهائية. لا تتوفر تنبؤات زمنية في هذه المرحلة.`;
   } catch (e) {
     document.getElementById('smart-status').textContent = 'خطأ في التحميل: ' + e.message;
+  } finally {
+    smartHideLoading();
   }
 }
 
