@@ -589,18 +589,31 @@ function renderFeatureImportance(correlations, targetIndicator) {
   const fi = correlations.feature_importance.find(f => f.target_indicator === targetIndicator);
   if (!fi || fi.features.length === 0) { Plotly.purge('smart-feature-importance'); document.getElementById('smart-fi-text').textContent = 'لا توجد أهمية عوامل متاحة لهذا المؤشر.'; return; }
   const features = fi.features.slice(0, 8);
+  const maxImp = Math.max(...features.map(f => f.importance), 0.001);
+  const barColors = features.map((f, i) => {
+    const ratio = f.importance / maxImp;
+    if (ratio > 0.7) return '#1a237e';
+    if (ratio > 0.4) return '#3949ab';
+    if (ratio > 0.2) return '#5c6bc0';
+    return '#9fa8da';
+  });
   const data = [{
     type: 'bar', orientation: 'h',
     y: features.map(f => smartTranslateFeature(f.feature_name)),
     x: features.map(f => f.importance),
-    marker: { color: features.map((f, i) => `rgba(26,35,126,${1 - i * 0.1})`) },
+    marker: { color: barColors, line: { width: 0 } },
     text: features.map(f => f.importance.toFixed(3)),
     textposition: 'outside',
+    textfont: { size: 11, color: '#1a237e' },
+    hovertemplate: '%{y}: %{x:.4f}<extra></extra>',
   }];
   Plotly.newPlot('smart-feature-importance', data, {
-    xaxis: {title: 'الأهمية النسبية'},
-    yaxis: {autorange: 'reversed', automargin: true},
-    margin: {t: 10, b: 40, l: 140, r: 40}
+    xaxis: {title: 'الأهمية النسبية', gridcolor: '#f0f0f0', zeroline: false},
+    yaxis: {autorange: 'reversed', automargin: true, tickfont: {size: 11}},
+    margin: {t: 15, b: 50, l: 160, r: 50},
+    plot_bgcolor: 'white',
+    paper_bgcolor: 'white',
+    height: 280,
   });
   document.getElementById('smart-fi-text').textContent = `أهم عامل يؤثر على ${smartTranslateFeature(targetIndicator)}: ${smartTranslateFeature(features[0]?.feature_name)}`;
 }
