@@ -9,7 +9,7 @@ const SMART_ARABIC = {
   cs_rate: 'معدل القيصارية',
   smm_total: 'المضاعفات الخطيرة',
   mat_deaths: 'الوفيات الأمومية',
-  nd: 'الوفيات新生儿',
+  nd: 'وفيات المولودين',
   sb: 'الولادات الميتة',
   preterm: 'الولادات السابقة لأوانها',
   lbw: 'نقص وزن الولادة',
@@ -155,7 +155,7 @@ function renderKPIs(kpi, hospitalsCount) {
   const c = document.getElementById('smart-kpi-container');
   const statusColor = kpi.month_status === 'critical' ? SMART_COLORS.critical : kpi.month_status === 'attention_needed' ? SMART_COLORS.warning : SMART_COLORS.normal;
   const statusText = kpi.month_status === 'critical' ? 'يحتاج تدخل عاجل' : kpi.month_status === 'attention_needed' ? 'يحتاج مراقبة مستمرة' : 'ضمن النطاق الطبيعي';
-  const statusIcon = kpi.month_status === 'critical' ? '\u274C' : kpi.month_status === 'attention_needed' ? '\u26A0\uFE0F' : '\u2705';
+  const statusIcon = kpi.month_status === 'critical' ? '❌' : kpi.month_status === 'attention_needed' ? '⚠️' : '✅';
   const criticalPct = hospitalsCount > 0 ? Math.round(kpi.critical_count / hospitalsCount * 100) : 0;
   const warningPct = hospitalsCount > 0 ? Math.round(kpi.warning_count / hospitalsCount * 100) : 0;
   const normalCount = hospitalsCount - kpi.critical_count - kpi.warning_count;
@@ -169,7 +169,7 @@ function renderKPIs(kpi, hospitalsCount) {
       <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">مستشفى بنتائج شاذة</div>
       <div style="font-size:0.7rem;color:#888;line-height:1.4;">${kpi.critical_count} حرج (${criticalPct}%) + ${kpi.warning_count} تنبيه (${warningPct}%)</div>
       <div style="font-size:0.68rem;color:#aaa;margin-top:0.3rem;">يتجاوز المعدل المتوقع بناءً على 10 مؤشرات سريرية</div>
-      <div style="font-size:0.65rem;color:#3b82f6;margin-top:0.4rem;">\u2139\uFE0F اضغط للتفاصيل</div>
+      <div style="font-size:0.65rem;color:#3b82f6;margin-top:0.4rem;">ℹ️ اضغط للتفاصيل</div>
     </div>
 
     <div class="card" style="${cardStyle}border-top:3px solid #3b82f6;" ${hoverJs} onclick="window._smartKPIGovernorates()">
@@ -177,7 +177,7 @@ function renderKPIs(kpi, hospitalsCount) {
       <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">محافظات بها انحرافات</div>
       <div style="font-size:0.7rem;color:#888;line-height:1.4;">تحتوي على مستشفيات تنبيه أو حرج</div>
       <div style="font-size:0.68rem;color:#aaa;margin-top:0.3rem;">المحافظات: غزة، خان يونس، الشمال، الوسطى، رفح</div>
-      <div style="font-size:0.65rem;color:#3b82f6;margin-top:0.4rem;">\u2139\uFE0F اضغط للتفاصيل</div>
+      <div style="font-size:0.65rem;color:#3b82f6;margin-top:0.4rem;">ℹ️ اضغط للتفاصيل</div>
     </div>
 
     <div class="card" style="${cardStyle}border-top:3px solid #8b5cf6;" ${hoverJs} onclick="window._smartKPIFactors()">
@@ -185,7 +185,7 @@ function renderKPIs(kpi, hospitalsCount) {
       <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">العامل الأكثر تأثيراً</div>
       <div style="font-size:0.7rem;color:#888;line-height:1.4;">أبرز العوامل المسببة للشذوذ</div>
       <div style="font-size:0.68rem;color:#aaa;margin-top:0.3rem;">يُحدَّد من تحليل SHAP للعوامل المؤثرة</div>
-      <div style="font-size:0.65rem;color:#3b82f6;margin-top:0.4rem;">\u2139\uFE0F اضغط للتفاصيل</div>
+      <div style="font-size:0.65rem;color:#3b82f6;margin-top:0.4rem;">ℹ️ اضغط للتفاصيل</div>
     </div>
 
     <div class="card" style="${cardStyle}border-left:4px solid ${statusColor};" ${hoverJs} onclick="window._smartKPIStatus()">
@@ -193,7 +193,7 @@ function renderKPIs(kpi, hospitalsCount) {
       <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">حالة الشهر</div>
       <div style="font-size:0.7rem;color:#888;line-height:1.4;">${hospitalsCount} مستشفى مُحلَّل — ${normalCount} طبيعي، ${kpi.warning_count} تنبيه، ${kpi.critical_count} حرج</div>
       <div style="font-size:0.68rem;color:#aaa;margin-top:0.3rem;">يتم تجميع النتائج من 7 محركات تحليل ذكي</div>
-      <div style="font-size:0.65rem;color:#3b82f6;margin-top:0.4rem;">\u2139\uFE0F اضغط للتفاصيل</div>
+      <div style="font-size:0.65rem;color:#3b82f6;margin-top:0.4rem;">ℹ️ اضغط للتفاصيل</div>
     </div>
   `;
 }
@@ -220,31 +220,31 @@ window._smartKPIAnomalies = function() {
   const body = `
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;margin-bottom:1rem;">
       <div style="font-size:0.82rem;color:#374151;line-height:1.7;">
-        <strong>\u0643\u064A\u0641 \u062A\u0645 \u062A\u062D\u062F\u064A\u062F \u0647\u0630\u0647 \u0627\u0644\u0642\u0627\u0626\u0645\u0629؟</strong><br>
+        <strong>كيف تم تحديد هذه القائمة؟</strong><br>
         كُل مستشفى يمر بـ <strong>4 محركات</strong>: Isolation Forest (35%)، LOF (30%)، Mahalanobis (20%)، والبواقي (15%).<br>
-        النتيجة المُوحَّدة (0\u20131) تُقارن مع <strong>العتبات</strong>: أقل من 0.3 طبيعي، 0.3\u20130.6 تنبيه، أعلى 0.6 حرج.<br>
+        النتيجة المُوحَّدة (0–1) تُقارن مع <strong>العتبات</strong>: أقل من 0.3 طبيعي، 0.3–0.6 تنبيه، أعلى 0.6 حرج.<br>
         <strong>الإدخالات:</strong> 10 مؤشرات سريرية + نوع المستشفى + المحافظة.<br>
         <strong>الإخراج:</strong> الدرجة النهائية + تصنيف الحالة + تفصيل دروس كل محرك.
       </div>
     </div>
-    <h4 style="color:#1a237e;margin-bottom:0.5rem;">\u0642\u0627\u0626\u0645\u0629 \u0627\u0644\u0645\u0633\u062A\u0634\u0641\u064A\u0627\u062A (${sorted.length}/${total})</h4>
+    <h4 style="color:#1a237e;margin-bottom:0.5rem;">قائمة المستشفيات (${sorted.length}/${total})</h4>
     <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
       <thead><tr style="background:#f1f5f9;border-bottom:2px solid #e2e8f0;">
         <th style="padding:0.4rem 0.6rem;text-align:center;width:30px;">#</th>
-        <th style="padding:0.4rem 0.6rem;text-align:right;">\u0627\u0644\u0645\u0633\u062A\u0634\u0641\u0649</th>
-        <th style="padding:0.4rem 0.6rem;text-align:center;">\u0627\u0644\u0645\u062D\u0627\u0641\u0638\u0629</th>
-        <th style="padding:0.4rem 0.6rem;text-align:center;">\u0627\u0644\u062F\u0631\u062C\u0629</th>
-        <th style="padding:0.4rem 0.6rem;text-align:center;">\u0627\u0644\u062D\u0627\u0644\u0629</th>
+        <th style="padding:0.4rem 0.6rem;text-align:right;">المستشفى</th>
+        <th style="padding:0.4rem 0.6rem;text-align:center;">المحافظة</th>
+        <th style="padding:0.4rem 0.6rem;text-align:center;">الدرجة</th>
+        <th style="padding:0.4rem 0.6rem;text-align:center;">الحالة</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div style="margin-top:1rem;display:flex;gap:1rem;font-size:0.75rem;color:#666;">
       <span><span style="display:inline-block;width:10px;height:10px;background:${SMART_COLORS.normal};border-radius:50%;vertical-align:middle;"></span> طبيعي (&lt;0.3)</span>
-      <span><span style="display:inline-block;width:10px;height:10px;background:${SMART_COLORS.warning};border-radius:50%;vertical-align:middle;"></span> تنبيه (0.3\u20130.6)</span>
+      <span><span style="display:inline-block;width:10px;height:10px;background:${SMART_COLORS.warning};border-radius:50%;vertical-align:middle;"></span> تنبيه (0.3–0.6)</span>
       <span><span style="display:inline-block;width:10px;height:10px;background:${SMART_COLORS.critical};border-radius:50%;vertical-align:middle;"></span> حرج (&gt;0.6)</span>
     </div>
   `;
-  openSmartModal('\u{1F50D} تفاصيل الحالات الشاذة', body);
+  openSmartModal('🔍 تفاصيل الحالات الشاذة', body);
 };
 
 window._smartKPIGovernorates = function() {
@@ -268,7 +268,7 @@ window._smartKPIGovernorates = function() {
     const barColor = data.critical > 0 ? SMART_COLORS.critical : data.warning > 0 ? SMART_COLORS.warning : SMART_COLORS.normal;
     const barPct = total > 0 ? Math.round(affected / total * 100) : 0;
     return `<tr style="border-bottom:1px solid #f0f0f0;">
-      <td style="padding:0.5rem 0.6rem;text-align:right;font-weight:600;">\u0645\u062D\u0627\u0641\u0638\u0629 ${name}</td>
+      <td style="padding:0.5rem 0.6rem;text-align:right;font-weight:600;">محافظة ${name}</td>
       <td style="padding:0.5rem 0.6rem;text-align:center;">${total}</td>
       <td style="padding:0.5rem 0.6rem;text-align:center;color:${SMART_COLORS.critical};font-weight:600;">${data.critical}</td>
       <td style="padding:0.5rem 0.6rem;text-align:center;color:${SMART_COLORS.warning};font-weight:600;">${data.warning}</td>
@@ -285,26 +285,26 @@ window._smartKPIGovernorates = function() {
   const body = `
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;margin-bottom:1rem;">
       <div style="font-size:0.82rem;color:#374151;line-height:1.7;">
-        <strong>\u0643\u064A\u0641 \u062A\u0645 \u062A\u062D\u062F\u064A\u062F \u0627\u0644\u0645\u062D\u0627\u0641\u0638\u0629؟</strong><br>
+        <strong>كيف تم تحديد المحافظة؟</strong><br>
         تُحسب المحافظة ك<strong>"متأثرة"</strong> إذا تحتوي على مستشفى واحد على الأقل بحالة تنبيه أو حرج.<br>
         <strong>الإدخالات:</strong> تصنيف كل مستشفى حسب المحافظة + درجة الشذوذ.<br>
         <strong>الإخراج:</strong> عدد المستشفيات في كل محافظة + عدد الحرج/تنبيه/طبيعي + شريط مقارن.
       </div>
     </div>
-    <h4 style="color:#1a237e;margin-bottom:0.5rem;">\u062A\u0641\u0635\u064A\u0644 \u0627\u0644\u0645\u062D\u0627\u0641\u0638\u0627\u062A</h4>
+    <h4 style="color:#1a237e;margin-bottom:0.5rem;">تفصيل المحافظات</h4>
     <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
       <thead><tr style="background:#f1f5f9;border-bottom:2px solid #e2e8f0;">
-        <th style="padding:0.5rem 0.6rem;text-align:right;">\u0627\u0644\u0645\u062D\u0627\u0641\u0638\u0629</th>
-        <th style="padding:0.5rem 0.6rem;text-align:center;">\u0627\u0644\u0645\u0633\u062A\u0634\u0641\u064A\u0627\u062A</th>
-        <th style="padding:0.5rem 0.6rem;text-align:center;">\u062D\u0631\u062C</th>
-        <th style="padding:0.5rem 0.6rem;text-align:center;">\u062A\u0646\u0628\u064A\u0647</th>
-        <th style="padding:0.5rem 0.6rem;text-align:center;">\u0637\u0628\u064A\u0639\u064A</th>
-        <th style="padding:0.5rem 0.6rem;text-align:center;">\u0627\u0644\u062A\u0623\u062B\u064A\u0631</th>
+        <th style="padding:0.5rem 0.6rem;text-align:right;">المحافظة</th>
+        <th style="padding:0.5rem 0.6rem;text-align:center;">المستشفيات</th>
+        <th style="padding:0.5rem 0.6rem;text-align:center;">حرج</th>
+        <th style="padding:0.5rem 0.6rem;text-align:center;">تنبيه</th>
+        <th style="padding:0.5rem 0.6rem;text-align:center;">طبيعي</th>
+        <th style="padding:0.5rem 0.6rem;text-align:center;">التأثير</th>
       </tr></thead>
       <tbody>${govRows}</tbody>
     </table>
   `;
-  openSmartModal('\u{1F4CD} تفاصيل المحافظات', body);
+  openSmartModal('📍 تفاصيل المحافظات', body);
 };
 
 window._smartKPIFactors = function() {
@@ -343,28 +343,28 @@ window._smartKPIFactors = function() {
   const body = `
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;margin-bottom:1rem;">
       <div style="font-size:0.82rem;color:#374151;line-height:1.7;">
-        <strong>\u0645\u0627 \u0647\u0648 SHAP؟</strong><br>
+        <strong>ما هو SHAP؟</strong><br>
         SHAP (SHapley Additive exPlanations) يحسب <strong>مساهمة كل ميزة</strong> في نتيجة المستشفى مقارنة بالمتوسط.<br>
         <strong>القيمة الموجبة (+):</strong> تُزيّد من درجة الشذوذ (تساهم في ارتفاعها).<br>
-        <strong>القيمة السالبة (\u2013):</strong> تُقلّص من درجة الشذوذ (تساعد في خفضها).<br>
+        <strong>القيمة السالبة (–):</strong> تُقلّص من درجة الشذوذ (تساعد في خفضها).<br>
         <strong>الإدخالات:</strong> قيم الميزات الـ 10 + التصنيف + النموذج المُدرَّب.<br>
         <strong>الإخراج:</strong> مساهمة كل ميزة + تفسير نصي عربي.
       </div>
     </div>
-    <h4 style="color:#1a237e;margin-bottom:0.5rem;">\u0627\u0644\u0639\u0648\u0627\u0645\u0644 \u0627\u0644\u0645\u0633\u0624\u0648\u0644\u0629 \u0644\u0644\u0634\u0630\u0648\u0630</h4>
+    <h4 style="color:#1a237e;margin-bottom:0.5rem;">العوامل المسؤولة للشذوذ</h4>
     <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
       <thead><tr style="background:#f1f5f9;border-bottom:2px solid #e2e8f0;">
         <th style="padding:0.4rem 0.6rem;text-align:center;width:30px;">#</th>
-        <th style="padding:0.4rem 0.6rem;text-align:right;">\u0627\u0644\u0639\u0627\u0645\u0644</th>
-        <th style="padding:0.4rem 0.6rem;text-align:center;">\u0645\u062A\u0648\u0633\u0637 SHAP</th>
-        <th style="padding:0.4rem 0.6rem;text-align:center;">\u0627\u0644\u0627\u062A\u062C\u0627\u0647</th>
-        <th style="padding:0.4rem 0.6rem;text-align:center;">\u0627\u0644\u062A\u0631\u062F\u062F</th>
-        <th style="padding:0.4rem 0.6rem;text-align:right;">\u0627\u0644\u0645\u0633\u062A\u0634\u0641\u064A\u0627\u062A \u0627\u0644\u0645\u062A\u0623\u0636\u0639\u0629</th>
+        <th style="padding:0.4rem 0.6rem;text-align:right;">العامل</th>
+        <th style="padding:0.4rem 0.6rem;text-align:center;">متوسط SHAP</th>
+        <th style="padding:0.4rem 0.6rem;text-align:center;">الاتجاه</th>
+        <th style="padding:0.4rem 0.6rem;text-align:center;">التردد</th>
+        <th style="padding:0.4rem 0.6rem;text-align:right;">المستشفيات المتأضعة</th>
       </tr></thead>
       <tbody>${factorRows}</tbody>
     </table>
   `;
-  openSmartModal('\u{1F50D} تفاصيل العوامل المؤثرة', body);
+  openSmartModal('🔍 تفاصيل العوامل المؤثرة', body);
 };
 
 window._smartKPIStatus = function() {
@@ -376,47 +376,47 @@ window._smartKPIStatus = function() {
   const body = `
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;margin-bottom:1rem;">
       <div style="font-size:0.82rem;color:#374151;line-height:1.7;">
-        <strong>\u0643\u064A\u0641 \u062A\u0645 \u062A\u062D\u062F\u064A\u062F \u062D\u0627\u0644\u0629 \u0627\u0644\u0634\u0647\u0631؟</strong><br>
+        <strong>كيف تم تحديد حالة الشهر؟</strong><br>
         تُجمَّع نتائج <strong>7 محركات تحليل ذكي</strong>: كشف الشذوذ، التجميع، الارتباط، البواقي، المقارنة الطبقية، SHAP، والخريطة.<br>
         <strong>الحالة النهائية</strong> تعتمد على أسوأ حالة بين المستشفيات:<br>
-        \u2022 <strong>\u274C يحتاج تدخل عاجل:</strong> يوجد مستشفى واحد على الأقل بدرجة حرج (&gt;0.6)<br>
-        \u2022 <strong>\u26A0\uFE0F يحتاج مراقبة:</strong> أعلى حالة تنبيه (0.3\u20130.6) ولا حرج<br>
-        \u2022 <strong>\u2705 طبيعي:</strong> جميع المستشفيات ضمن الطبيعي (&lt;0.3)<br>
+        • <strong>❌ يحتاج تدخل عاجل:</strong> يوجد مستشفى واحد على الأقل بدرجة حرج (&gt;0.6)<br>
+        • <strong>⚠️ يحتاج مراقبة:</strong> أعلى حالة تنبيه (0.3–0.6) ولا حرج<br>
+        • <strong>✅ طبيعي:</strong> جميع المستشفيات ضمن الطبيعي (&lt;0.3)<br>
         <strong>الإدخالات:</strong> درجات الشذوذ لجميع المستشفيات.<br>
         <strong>الإخراج:</strong> تصنيف الحالة العامة + عدد المستشفيات في كل فئة.
       </div>
     </div>
-    <h4 style="color:#1a237e;margin-bottom:0.8rem;">\u062A\u0642\u0633\u064A\u0645 \u0627\u0644\u062D\u0627\u0644\u0629</h4>
+    <h4 style="color:#1a237e;margin-bottom:0.8rem;">تقسيم الحالة</h4>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1rem;">
       <div style="background:#f0fdf4;border:2px solid ${SMART_COLORS.normal};border-radius:8px;padding:1rem;text-align:center;">
         <div style="font-size:2rem;font-weight:700;color:${SMART_COLORS.normal};">${normalCount}</div>
-        <div style="font-size:0.85rem;color:#444;font-weight:600;">\u0637\u0628\u064A\u0639\u064A</div>
-        <div style="font-size:0.72rem;color:#888;">\u062F\u0631\u062C\u0629 &lt;0.3</div>
-        <div style="font-size:0.7rem;color:#aaa;margin-top:0.3rem;">${total > 0 ? Math.round(normalCount / total * 100) : 0}% \u0645\u0646 \u0627\u0644\u0645\u0633\u062A\u0634\u0641\u064A\u0627\u062A</div>
+        <div style="font-size:0.85rem;color:#444;font-weight:600;">طبيعي</div>
+        <div style="font-size:0.72rem;color:#888;">درجة &lt;0.3</div>
+        <div style="font-size:0.7rem;color:#aaa;margin-top:0.3rem;">${total > 0 ? Math.round(normalCount / total * 100) : 0}% من المستشفيات</div>
       </div>
       <div style="background:#fffbeb;border:2px solid ${SMART_COLORS.warning};border-radius:8px;padding:1rem;text-align:center;">
         <div style="font-size:2rem;font-weight:700;color:${SMART_COLORS.warning};">${kpi.warning_count || 0}</div>
-        <div style="font-size:0.85rem;color:#444;font-weight:600;">\u062A\u0646\u0628\u064A\u0647</div>
-        <div style="font-size:0.72rem;color:#888;">\u062F\u0631\u062C\u0629 0.3\u20130.6</div>
-        <div style="font-size:0.7rem;color:#aaa;margin-top:0.3rem;">${total > 0 ? Math.round((kpi.warning_count || 0) / total * 100) : 0}% \u0645\u0646 \u0627\u0644\u0645\u0633\u062A\u0634\u0641\u064A\u0627\u062A</div>
+        <div style="font-size:0.85rem;color:#444;font-weight:600;">تنبيه</div>
+        <div style="font-size:0.72rem;color:#888;">درجة 0.3–0.6</div>
+        <div style="font-size:0.7rem;color:#aaa;margin-top:0.3rem;">${total > 0 ? Math.round((kpi.warning_count || 0) / total * 100) : 0}% من المستشفيات</div>
       </div>
       <div style="background:#fef2f2;border:2px solid ${SMART_COLORS.critical};border-radius:8px;padding:1rem;text-align:center;">
         <div style="font-size:2rem;font-weight:700;color:${SMART_COLORS.critical};">${kpi.critical_count || 0}</div>
-        <div style="font-size:0.85rem;color:#444;font-weight:600;">\u062D\u0631\u062C</div>
-        <div style="font-size:0.72rem;color:#888;">\u062F\u0631\u062C\u0629 &gt;0.6</div>
-        <div style="font-size:0.7rem;color:#aaa;margin-top:0.3rem;">${total > 0 ? Math.round((kpi.critical_count || 0) / total * 100) : 0}% \u0645\u0646 \u0627\u0644\u0645\u0633\u062A\u0634\u0641\u064A\u0627\u062A</div>
+        <div style="font-size:0.85rem;color:#444;font-weight:600;">حرج</div>
+        <div style="font-size:0.72rem;color:#888;">درجة &gt;0.6</div>
+        <div style="font-size:0.7rem;color:#aaa;margin-top:0.3rem;">${total > 0 ? Math.round((kpi.critical_count || 0) / total * 100) : 0}% من المستشفيات</div>
       </div>
     </div>
     <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:1rem;margin-top:1rem;">
       <div style="font-size:0.82rem;color:#374151;line-height:1.7;">
-        <strong>\u0627\u0644\u0639\u062A\u0628\u0627\u062A:</strong><br>
-        \u2022 <span style="color:${SMART_COLORS.normal};font-weight:700;">\u0623\u0642\u0644 \u0645\u0646 0.3:</span> \u0627\u0644\u0628\u064A\u0627\u0646\u0627\u062A \u062A\u0643\u0648\u0646 \u0623\u0642\u0631\u0628 \u0645\u0646 \u0627\u0644\u0645\u062A\u0648\u0633\u0637\u0642\u0629 \u0641\u064A \u0641\u0636\u0627\u0621 \u0627\u0644\u0645\u0633\u062A\u0634\u0641\u064A\u0627\u062A \u0627\u0644\u0645\u062C\u0627\u0648\u064A\u0629<br>
-        \u2022 <span style="color:${SMART_COLORS.warning};font-weight:700;">0.3\u20130.6:</span> \u064A\u062C\u0628 \u0645\u0631\u0627\u0642\u0628\u0629 \u0623\u0642\u0631\u0628 \u0645\u0646 \u0627\u0644\u0645\u0633\u062A\u0634\u0641\u0649<br>
-        \u2022 <span style="color:${SMART_COLORS.critical};font-weight:700;">\u0623\u0643\u062B\u0631 \u0645\u0646 0.6:</span> \u064A\u062D\u062A\u0627\u062C \u062A\u062F\u062E\u0644 \u0639\u0627\u062C\u0644
+        <strong>العتبات:</strong><br>
+        • <span style="color:${SMART_COLORS.normal};font-weight:700;">أقل من 0.3:</span> البيانات تكون أقرب من المتوسطقة في فضاء المستشفيات المجاوية<br>
+        • <span style="color:${SMART_COLORS.warning};font-weight:700;">0.3–0.6:</span> يجب مراقبة أقرب من المستشفى<br>
+        • <span style="color:${SMART_COLORS.critical};font-weight:700;">أكثر من 0.6:</span> يحتاج تدخل عاجل
       </div>
     </div>
   `;
-  openSmartModal('\u{1F4CA} تفاصيل حالة الشهر', body);
+  openSmartModal('📊 تفاصيل حالة الشهر', body);
 };
 
 function renderGeoMap(geo) {
@@ -542,13 +542,13 @@ function renderAnomalyTable(anomalies, explanations) {
     <thead>
       <tr style="background:#1a237e;color:white;">
         <th style="padding:0.6rem;text-align:right;border-radius:0 0 8px 0;">#</th>
-        <th style="padding:0.6rem;text-align:right;">\u0627\u0644\u0645\u0633\u062A\u0634\u0641\u0649</th>
-        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u0645\u062D\u0627\u0641\u0638\u0629</th>
-        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u0646\u0648\u0639</th>
-        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u062F\u0631\u062C\u0629</th>
-        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u062D\u0627\u0644\u0629</th>
-        <th style="padding:0.6rem;text-align:center;">\u0627\u0644\u0639\u0627\u0645\u0644 \u0627\u0644\u0623\u0628\u0631\u0632</th>
-        <th style="padding:0.6rem;text-align:center;border-radius:0 0 0 8px;">\u0625\u062C\u0631\u0627\u0621</th>
+        <th style="padding:0.6rem;text-align:right;">المستشفى</th>
+        <th style="padding:0.6rem;text-align:center;">المحافظة</th>
+        <th style="padding:0.6rem;text-align:center;">النوع</th>
+        <th style="padding:0.6rem;text-align:center;">الدرجة</th>
+        <th style="padding:0.6rem;text-align:center;">الحالة</th>
+        <th style="padding:0.6rem;text-align:center;">العامل الأبرز</th>
+        <th style="padding:0.6rem;text-align:center;border-radius:0 0 0 8px;">إجراء</th>
       </tr>
     </thead>
     <tbody>`;
@@ -556,13 +556,13 @@ function renderAnomalyTable(anomalies, explanations) {
   sorted.forEach((a, idx) => {
     const sevColor = a.severity === 'critical' ? SMART_COLORS.critical : a.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal;
     const sevBg = a.severity === 'critical' ? '#fef2f2' : a.severity === 'warning' ? '#fffbeb' : '#f0fdf4';
-    const sevText = a.severity === 'critical' ? '\u062D\u0631\u062C' : a.severity === 'warning' ? '\u062A\u0646\u0628\u064A\u0647' : '\u0637\u0628\u064A\u0639\u064A';
+    const sevText = a.severity === 'critical' ? 'حرج' : a.severity === 'warning' ? 'تنبيه' : 'طبيعي';
     const shortName = a.hospital_name.includes('/') ? a.hospital_name.split('/').pop().trim() : a.hospital_name;
     const topFactors = expMap[a.hospital_name]?.top_factors || [];
     const factorBadges = topFactors.slice(0, 3).map(f => {
       const fColor = f.shap_value > 0 ? SMART_COLORS.shap_positive : SMART_COLORS.shap_negative;
       const fBg = f.shap_value > 0 ? '#fef2f2' : '#eff6ff';
-      const arrow = f.shap_value > 0 ? '\u2191' : '\u2193';
+      const arrow = f.shap_value > 0 ? '↑' : '↓';
       return `<span style="display:inline-block;background:${fBg};color:${fColor};padding:0.1rem 0.35rem;border-radius:6px;font-size:0.65rem;font-weight:600;margin:0.1rem;white-space:nowrap;" title="${smartTranslateFeature(f.arabic_label)}: ${f.shap_value > 0 ? '+' : ''}${f.shap_value.toFixed(4)}">${arrow} ${smartTranslateFeature(f.arabic_label)}</span>`;
     }).join(' ');
     const hid = parseInt(a.hospital_id, 10);
@@ -574,14 +574,14 @@ function renderAnomalyTable(anomalies, explanations) {
       <td style="padding:0.5rem;text-align:center;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.15rem 0.5rem;border-radius:12px;font-weight:700;font-size:0.8rem;">${a.anomaly_score.toFixed(2)}</span></td>
       <td style="padding:0.5rem;text-align:center;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.15rem 0.5rem;border-radius:12px;font-weight:600;font-size:0.75rem;">${sevText}</span></td>
       <td style="padding:0.5rem;text-align:center;max-width:200px;">${factorBadges || '<span style="color:#ccc;">-</span>'}</td>
-      <td style="padding:0.5rem;text-align:center;"><button class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="window.smartDrilldown(${hid})">\u062A\u0641\u0627\u0635\u064A\u0644</button></td>
+      <td style="padding:0.5rem;text-align:center;"><button class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="window.smartDrilldown(${hid})">تفاصيل</button></td>
     </tr>`;
   });
   html += '</tbody></table>';
   document.getElementById('smart-anomaly-table').innerHTML = html;
   const critical = anomalies.filter(a => a.severity === 'critical').length;
   const warnings = anomalies.filter(a => a.severity === 'warning').length;
-  document.getElementById('smart-table-text').textContent = `\u0625\u062C\u0645\u0627\u0644\u064A: ${anomalies.length} \u0645\u0633\u062A\u0634\u0641\u0649 \u2014 ${critical} \u062D\u0631\u062C\u060C ${warnings} \u062A\u0646\u0628\u064A\u0647\u060C ${anomalies.length - critical - warnings} \u0637\u0628\u064A\u0639\u064A.`;
+  document.getElementById('smart-table-text').textContent = `إجمالي: ${anomalies.length} مستشفى — ${critical} حرج، ${warnings} تنبيه، ${anomalies.length - critical - warnings} طبيعي.`;
 }
 
 function renderFeatureImportance(correlations, targetIndicator) {
@@ -628,7 +628,7 @@ function renderXGBoostPredictions(xgb) {
   }
   section.style.display = 'block';
 
-  document.getElementById('smart-xgb-model-badge').textContent = `R\u00b2=${xgb.model_r2.toFixed(3)} | MAE=${xgb.model_mae.toFixed(3)}`;
+  document.getElementById('smart-xgb-model-badge').textContent = `R²=${xgb.model_r2.toFixed(3)} | MAE=${xgb.model_mae.toFixed(3)}`;
   document.getElementById('smart-xgb-note').textContent = xgb.accuracy_note;
 
   if (xgb.global_feature_importance && xgb.global_feature_importance.length > 0) {
@@ -651,12 +651,12 @@ function renderXGBoostPredictions(xgb) {
   const preds = xgb.predictions;
   let rows = preds.map((p, i) => {
     const sevColor = p.predicted_severity === 'critical' ? SMART_COLORS.critical : p.predicted_severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal;
-    const changeIcon = p.risk_change === 'increasing' ? '\u2191' : p.risk_change === 'decreasing' ? '\u2193' : '\u2192';
+    const changeIcon = p.risk_change === 'increasing' ? '↑' : p.risk_change === 'decreasing' ? '↓' : '→';
     const changeColor = p.risk_change === 'increasing' ? SMART_COLORS.critical : p.risk_change === 'decreasing' ? SMART_COLORS.normal : '#999';
     const changeText = p.risk_change === 'increasing' ? 'يزداد' : p.risk_change === 'decreasing' ? 'يقل' : 'مستقر';
     const drivers = (p.top_drivers || []).slice(0, 2).map(d => {
       const dc = d.shap_value > 0 ? SMART_COLORS.shap_positive : SMART_COLORS.shap_negative;
-      const arrow = d.shap_value > 0 ? '\u2191' : '\u2193';
+      const arrow = d.shap_value > 0 ? '↑' : '↓';
       return `<span style="font-size:0.6rem;color:${dc};">${arrow}${smartTranslateFeature(d.feature)}</span>`;
     }).join(' ');
     return `<tr style="border-bottom:1px solid #f0f0f0;background:${i % 2 === 0 ? '#fff' : '#f9fafb'};">
@@ -674,13 +674,13 @@ function renderXGBoostPredictions(xgb) {
   const html = `<table style="width:100%;border-collapse:collapse;font-size:0.78rem;direction:rtl;">
     <thead><tr style="background:#1a237e;color:white;">
       <th style="padding:0.5rem;text-align:center;border-radius:0 0 6px 0;">#</th>
-      <th style="padding:0.5rem;text-align:right;">\u0627\u0644\u0645\u0633\u062A\u0634\u0641\u0649</th>
-      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629</th>
-      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u062A\u0646\u0628\u0624</th>
-      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u0627\u062A\u062C\u0627\u0647</th>
-      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u0645\u062D\u062A\u0645\u0644</th>
-      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u062B\u0642\u0629</th>
-      <th style="padding:0.5rem;text-align:center;border-radius:0 0 0 6px;">\u0627\u0644\u0645\u062D\u0627\u0641\u0638\u0627\u062A</th>
+      <th style="padding:0.5rem;text-align:right;">المستشفى</th>
+      <th style="padding:0.5rem;text-align:center;">الحالة الحالية</th>
+      <th style="padding:0.5rem;text-align:center;">التنبؤ</th>
+      <th style="padding:0.5rem;text-align:center;">الاتجاه</th>
+      <th style="padding:0.5rem;text-align:center;">المحتمل</th>
+      <th style="padding:0.5rem;text-align:center;">الثقة</th>
+      <th style="padding:0.5rem;text-align:center;border-radius:0 0 0 6px;">المحافظات</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
@@ -754,7 +754,7 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
         <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${anomaly ? (anomaly.severity === 'critical' ? 'تتجاوز 0.6 - يحتاج تدخل' : anomaly.severity === 'warning' ? 'بين 0.3 و 0.6 - يحتاج مراقبة' : 'أقل من 0.3 - ضمن الطبيعي') : ''}</div>
       </div>
       <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:1rem;font-weight:600;">${anomaly ? (anomaly.severity === 'critical' ? '\u274C حرج' : anomaly.severity === 'warning' ? '\u26A0\uFE0F تنبيه' : '\u2705 طبيعي') : '-'}</div>
+        <div style="font-size:1rem;font-weight:600;">${anomaly ? (anomaly.severity === 'critical' ? '❌ حرج' : anomaly.severity === 'warning' ? '⚠️ تنبيه' : '✅ طبيعي') : '-'}</div>
         <div style="font-size:0.75rem;color:#666;">الحالة</div>
       </div>
       <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
@@ -768,7 +768,7 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
       </div>
       <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
         <div style="font-size:0.8rem;color:#444;line-height:1.5;">${explanation?.text_explanation || 'لا توجد تفسيرات'}</div>
-        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">\u062A\u0641\u0633\u064A\u0631 SHAP</div>
+        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">تفسير SHAP</div>
       </div>
       <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
         <div style="font-size:0.75rem;color:#666;line-height:1.5;">
@@ -777,7 +777,7 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
             return `<span style="display:inline-block;margin:0.1rem;padding:0.1rem 0.3rem;background:#f3f4f6;border-radius:3px;font-size:0.65rem;">${labels[k] || k}: ${v.toFixed(2)}</span>`;
           }).join(' ') : ''}
         </div>
-        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">\u062F\u0631\u0648\u0633 \u0627\u0644\u062E\u0635\u0627\u0626\u0635</div>
+        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">دروس الخصائص</div>
       </div>
     `;
     document.getElementById('smart-hospital-kpis').innerHTML = kpiHtml;
