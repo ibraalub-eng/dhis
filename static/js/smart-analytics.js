@@ -538,17 +538,17 @@ function renderAnomalyTable(anomalies, explanations) {
   const expMap = {}; explanations?.forEach(e => { expMap[e.hospital_name] = e; });
   const sorted = [...anomalies].sort((a, b) => b.anomaly_score - a.anomaly_score);
 
-  let html = `<table style="width:100%;border-collapse:collapse;font-size:0.8rem;direction:rtl;">
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:0.78rem;direction:rtl;">
     <thead>
       <tr style="background:#1a237e;color:white;">
-        <th style="padding:0.6rem;text-align:right;border-radius:0 0 8px 0;">#</th>
-        <th style="padding:0.6rem;text-align:right;">المستشفى</th>
-        <th style="padding:0.6rem;text-align:center;">المحافظة</th>
-        <th style="padding:0.6rem;text-align:center;">النوع</th>
-        <th style="padding:0.6rem;text-align:center;">الدرجة</th>
-        <th style="padding:0.6rem;text-align:center;">الحالة</th>
-        <th style="padding:0.6rem;text-align:center;">العامل الأبرز</th>
-        <th style="padding:0.6rem;text-align:center;border-radius:0 0 0 8px;">إجراء</th>
+        <th style="padding:0.55rem;text-align:center;border-radius:0 0 8px 0;width:30px;">#</th>
+        <th style="padding:0.55rem 0.6rem;text-align:right;">المستشفى</th>
+        <th style="padding:0.55rem;text-align:center;">المحافظة</th>
+        <th style="padding:0.55rem;text-align:center;">النوع</th>
+        <th style="padding:0.55rem;text-align:center;width:55px;">الدرجة</th>
+        <th style="padding:0.55rem;text-align:center;width:60px;">الحالة</th>
+        <th style="padding:0.55rem;text-align:center;">العامل الأبرز</th>
+        <th style="padding:0.55rem;text-align:center;border-radius:0 0 0 8px;width:65px;">إجراء</th>
       </tr>
     </thead>
     <tbody>`;
@@ -557,24 +557,23 @@ function renderAnomalyTable(anomalies, explanations) {
     const sevColor = a.severity === 'critical' ? SMART_COLORS.critical : a.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal;
     const sevBg = a.severity === 'critical' ? '#fef2f2' : a.severity === 'warning' ? '#fffbeb' : '#f0fdf4';
     const sevText = a.severity === 'critical' ? 'حرج' : a.severity === 'warning' ? 'تنبيه' : 'طبيعي';
-    const shortName = a.hospital_name.includes('/') ? a.hospital_name.split('/').pop().trim() : a.hospital_name;
     const topFactors = expMap[a.hospital_name]?.top_factors || [];
     const factorBadges = topFactors.slice(0, 3).map(f => {
       const fColor = f.shap_value > 0 ? SMART_COLORS.shap_positive : SMART_COLORS.shap_negative;
       const fBg = f.shap_value > 0 ? '#fef2f2' : '#eff6ff';
       const arrow = f.shap_value > 0 ? '↑' : '↓';
-      return `<span style="display:inline-block;background:${fBg};color:${fColor};padding:0.1rem 0.35rem;border-radius:6px;font-size:0.65rem;font-weight:600;margin:0.1rem;white-space:nowrap;" title="${smartTranslateFeature(f.arabic_label)}: ${f.shap_value > 0 ? '+' : ''}${f.shap_value.toFixed(4)}">${arrow} ${smartTranslateFeature(f.arabic_label)}</span>`;
+      return `<span style="display:inline-block;background:${fBg};color:${fColor};padding:0.15rem 0.4rem;border-radius:6px;font-size:0.65rem;font-weight:600;margin:0.1rem 0;" title="${smartTranslateFeature(f.arabic_label)}: ${f.shap_value > 0 ? '+' : ''}${f.shap_value.toFixed(4)}">${arrow} ${smartTranslateFeature(f.arabic_label)}</span>`;
     }).join(' ');
     const hid = parseInt(a.hospital_id, 10);
     html += `<tr style="border-bottom:1px solid #e5e7eb;background:${idx % 2 === 0 ? '#fff' : '#f9fafb'};">
-      <td style="padding:0.5rem;text-align:center;color:#999;">${idx + 1}</td>
-      <td style="padding:0.5rem;text-align:right;font-weight:600;white-space:nowrap;" title="${a.hospital_name}">${shortName}</td>
-      <td style="padding:0.5rem;text-align:center;font-size:0.75rem;white-space:nowrap;">${a.governorate || '-'}</td>
-      <td style="padding:0.5rem;text-align:center;font-size:0.75rem;white-space:nowrap;">${a.hospital_type || '-'}</td>
-      <td style="padding:0.5rem;text-align:center;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.15rem 0.5rem;border-radius:12px;font-weight:700;font-size:0.8rem;">${a.anomaly_score.toFixed(2)}</span></td>
-      <td style="padding:0.5rem;text-align:center;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.15rem 0.5rem;border-radius:12px;font-weight:600;font-size:0.75rem;">${sevText}</span></td>
-      <td style="padding:0.5rem;text-align:center;max-width:200px;">${factorBadges || '<span style="color:#ccc;">-</span>'}</td>
-      <td style="padding:0.5rem;text-align:center;"><button class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="window.smartDrilldown(${hid})">تفاصيل</button></td>
+      <td style="padding:0.5rem;text-align:center;color:#999;width:30px;">${idx + 1}</td>
+      <td style="padding:0.5rem 0.6rem;text-align:right;font-weight:600;line-height:1.35;min-width:120px;max-width:180px;word-break:break-word;">${a.hospital_name}</td>
+      <td style="padding:0.5rem;text-align:center;font-size:0.72rem;white-space:nowrap;">${a.governorate || '-'}</td>
+      <td style="padding:0.5rem;text-align:center;font-size:0.72rem;white-space:nowrap;">${a.hospital_type || '-'}</td>
+      <td style="padding:0.5rem;text-align:center;width:55px;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.2rem 0.5rem;border-radius:12px;font-weight:700;font-size:0.82rem;">${a.anomaly_score.toFixed(2)}</span></td>
+      <td style="padding:0.5rem;text-align:center;width:60px;"><span style="display:inline-block;background:${sevBg};color:${sevColor};padding:0.2rem 0.5rem;border-radius:12px;font-weight:600;font-size:0.75rem;">${sevText}</span></td>
+      <td style="padding:0.5rem 0.4rem;text-align:center;max-width:220px;line-height:1.5;">${factorBadges || '<span style="color:#ccc;">-</span>'}</td>
+      <td style="padding:0.5rem;text-align:center;width:65px;"><button class="btn btn-sm btn-outline" style="font-size:0.75rem;padding:0.2rem 0.5rem;" onclick="window.smartDrilldown(${hid})">تفاصيل</button></td>
     </tr>`;
   });
   html += '</tbody></table>';
@@ -609,11 +608,11 @@ function renderFeatureImportance(correlations, targetIndicator) {
   }];
   Plotly.newPlot('smart-feature-importance', data, {
     xaxis: {title: 'الأهمية النسبية', gridcolor: '#f0f0f0', zeroline: false},
-    yaxis: {autorange: 'reversed', automargin: true, tickfont: {size: 11}},
-    margin: {t: 15, b: 50, l: 160, r: 50},
+    yaxis: {autorange: 'reversed', automargin: true, tickfont: {size: 10}},
+    margin: {t: 15, b: 50, l: 130, r: 45},
     plot_bgcolor: 'white',
     paper_bgcolor: 'white',
-    height: 280,
+    height: 300,
   });
   document.getElementById('smart-fi-text').textContent = `أهم عامل يؤثر على ${smartTranslateFeature(targetIndicator)}: ${smartTranslateFeature(features[0]?.feature_name)}`;
 }
@@ -655,9 +654,12 @@ function renderXGBoostPredictions(xgb) {
       textposition: 'outside',
     }];
     Plotly.newPlot('smart-xgb-global-fi', fiData, {
-      margin: {t: 10, b: 40, l: 150, r: 30},
+      margin: {t: 10, b: 40, l: 130, r: 30},
       xaxis: {title: 'متوسط |SHAP|'},
-      yaxis: {autorange: 'reversed'},
+      yaxis: {autorange: 'reversed', automargin: true, tickfont: {size: 10}},
+      plot_bgcolor: 'white',
+      paper_bgcolor: 'white',
+      height: 260,
     });
   }
 
@@ -673,14 +675,14 @@ function renderXGBoostPredictions(xgb) {
       return `<span style="font-size:0.6rem;color:${dc};">${arrow}${smartTranslateFeature(d.feature)}</span>`;
     }).join(' ');
     return `<tr style="border-bottom:1px solid #f0f0f0;background:${i % 2 === 0 ? '#fff' : '#f9fafb'};">
-      <td style="padding:0.4rem 0.5rem;text-align:center;color:#999;font-size:0.75rem;">${i + 1}</td>
-      <td style="padding:0.4rem 0.5rem;text-align:right;font-weight:600;font-size:0.78rem;white-space:nowrap;" title="${p.hospital_name}">${p.hospital_name.includes('/') ? p.hospital_name.split('/').pop().trim() : p.hospital_name}</td>
-      <td style="padding:0.4rem 0.5rem;text-align:center;font-size:0.75rem;">${p.current_score.toFixed(2)}</td>
-      <td style="padding:0.4rem 0.5rem;text-align:center;font-weight:700;color:${sevColor};font-size:0.8rem;">${p.predicted_next_score.toFixed(2)}</td>
-      <td style="padding:0.4rem 0.5rem;text-align:center;color:${changeColor};font-weight:700;font-size:0.85rem;">${changeIcon}</td>
-      <td style="padding:0.4rem 0.5rem;text-align:center;"><span style="display:inline-block;padding:0.1rem 0.4rem;border-radius:8px;font-size:0.65rem;font-weight:600;background:${sevColor}20;color:${sevColor};">${p.predicted_severity === 'critical' ? 'حرج' : p.predicted_severity === 'warning' ? 'تنبيه' : 'طبيعي'}</span></td>
-      <td style="padding:0.4rem 0.5rem;text-align:center;font-size:0.65rem;color:#888;">${Math.round(p.confidence * 100)}%</td>
-      <td style="padding:0.4rem 0.5rem;text-align:center;">${drivers || '-'}</td>
+      <td style="padding:0.45rem 0.5rem;text-align:center;color:#999;font-size:0.75rem;width:30px;">${i + 1}</td>
+      <td style="padding:0.45rem 0.5rem;text-align:right;font-weight:600;font-size:0.78rem;line-height:1.35;min-width:100px;max-width:160px;word-break:break-word;">${p.hospital_name}</td>
+      <td style="padding:0.45rem 0.5rem;text-align:center;font-size:0.75rem;">${p.current_score.toFixed(2)}</td>
+      <td style="padding:0.45rem 0.5rem;text-align:center;font-weight:700;color:${sevColor};font-size:0.8rem;">${p.predicted_next_score.toFixed(2)}</td>
+      <td style="padding:0.45rem 0.5rem;text-align:center;color:${changeColor};font-weight:700;font-size:0.85rem;width:35px;">${changeIcon}</td>
+      <td style="padding:0.45rem 0.5rem;text-align:center;"><span style="display:inline-block;padding:0.15rem 0.5rem;border-radius:8px;font-size:0.68rem;font-weight:600;background:${sevColor}20;color:${sevColor};">${p.predicted_severity === 'critical' ? 'حرج' : p.predicted_severity === 'warning' ? 'تنبيه' : 'طبيعي'}</span></td>
+      <td style="padding:0.45rem 0.5rem;text-align:center;font-size:0.68rem;color:#888;">${Math.round(p.confidence * 100)}%</td>
+      <td style="padding:0.45rem 0.5rem;text-align:center;font-size:0.65rem;line-height:1.5;">${drivers || '-'}</td>
     </tr>`;
   }).join('');
 
