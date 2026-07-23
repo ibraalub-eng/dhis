@@ -467,33 +467,32 @@ function renderGeoMap(geo) {
   const govs = geo.governorates;
   const lats = govs.map(g => (GOV_COORDS[g.governorate] || {lat: 31.4}).lat);
   const lons = govs.map(g => (GOV_COORDS[g.governorate] || {lon: 34.4}).lon);
-  const sizes = govs.map(g => 20 + g.hospital_count * 5 + g.avg_anomaly_score * 30);
+  const sizes = govs.map(g => 25 + g.hospital_count * 6 + g.avg_anomaly_score * 40);
   const colors = govs.map(g => g.avg_anomaly_score > 0.6 ? SMART_COLORS.critical : g.avg_anomaly_score > 0.3 ? SMART_COLORS.warning : SMART_COLORS.normal);
+  const texts = govs.map(g => `<b>${g.governorate}</b><br>المستشفيات: ${g.hospital_count}<br>متوسط الشذوذ: ${g.avg_anomaly_score.toFixed(2)}<br>حالات شاذة: ${g.outlier_count}`);
+  const labels = govs.map(g => `${g.governorate}<br>(${g.hospital_count})`);
   const data = [{
-    type: 'scattergeo',
-    lat: lats,
-    lon: lons,
-    mode: 'markers+text',
-    marker: { size: sizes, color: colors, opacity: 0.8, line: { width: 2, color: '#fff' } },
-    text: govs.map(g => g.governorate),
+    type: 'scatter', mode: 'markers+text',
+    x: lons, y: lats,
+    marker: { size: sizes, color: colors, opacity: 0.85, line: { width: 2, color: '#fff' } },
+    text: labels,
     textposition: 'top center',
-    textfont: { size: 11, color: '#333', family: 'Arial' },
-    hovertext: govs.map(g => `<b>${g.governorate}</b><br>المستشفيات: ${g.hospital_count}<br>متوسط الشذوذ: ${g.avg_anomaly_score.toFixed(2)}<br>حالات شاذة: ${g.outlier_count}`),
+    textfont: { size: 11, color: '#1a237e', family: 'Arial', weight: 700 },
+    hovertext: texts,
     hoverinfo: 'text',
   }];
   Plotly.newPlot('smart-geo-map', data, {
-    geo: {
-      scope: 'asia',
-      center: {lat: 31.4, lon: 34.35},
-      projection: {scale: 5000},
-      showland: true, landcolor: '#f0f0f0',
-      showocean: true, oceancolor: '#dbeafe',
-      showcountries: true, countrycolor: '#ccc',
-      showcoastlines: true, coastlinecolor: '#999',
-      subunitcolor: '#aaa',
-    },
-    margin: {t: 10, b: 10, l: 10, r: 10},
+    xaxis: {title: 'الطول', range: [34.18, 34.52], showgrid: false, zeroline: false, showticklabels: false},
+    yaxis: {title: 'العرض', range: [31.22, 31.62], showgrid: false, zeroline: false, showticklabels: false, scaleanchor: 'x', scaleratio: 1},
+    margin: {t: 20, b: 30, l: 20, r: 20},
     showlegend: false,
+    plot_bgcolor: '#dbeafe',
+    paper_bgcolor: 'white',
+    annotations: [{
+      text: 'خريطة قطاع غزة',
+      xref: 'paper', yref: 'paper', x: 0.5, y: 1.08,
+      showarrow: false, font: {size: 12, color: '#1a237e', family: 'Arial'},
+    }],
   });
   const affected = govs.filter(g => g.avg_anomaly_score > 0.3).length;
   document.getElementById('smart-geo-text').textContent = `${affected} من ${govs.length} محافظات تظهر انحرافات.`;
