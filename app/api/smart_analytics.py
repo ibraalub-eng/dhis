@@ -73,6 +73,19 @@ def get_overview(month: str, db: Session = Depends(get_db)):
     return _envelope(result)
 
 
+@router.get("/governorate-analysis/{month}")
+def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
+    from app.engine.smart.governorate_analysis import analyze_governorate_correlations
+    from app.engine.smart import _load_hospital_data
+
+    all_data = _load_hospital_data(db, month)
+    if not all_data:
+        return _sanitize({"governorate_profiles": [], "cross_governorate_correlations": [], "indicator_governorate_heatmap": {}, "xgboost_insights": {}})
+
+    result = analyze_governorate_correlations(all_data, {})
+    return _sanitize(result)
+
+
 @router.get("/anomalies/{month}")
 def get_anomalies(month: str, db: Session = Depends(get_db)):
     result = run_smart_analytics(db, month)

@@ -166,6 +166,7 @@ async function loadSmartData(month) {
     renderFeatureImportance(d.correlations, document.getElementById('smart-fi-indicator').value);
     renderStratifiedComparison(d.stratified, document.getElementById('smart-strat-indicator').value);
     renderXGBoostPredictions(d.xgboost);
+    loadGovernorateAnalysis(month);
     document.getElementById('smart-status').textContent = `تم التحديث — ${total} مستشفى`;
     document.getElementById('smart-disclaimer').textContent = `النتائج مبنية على بيانات ${total} مستشفى فقط. يجب تفسيرها كمؤشرات أولية وليست قرارات نهائية. لا تتوفر تنبؤات زمنية في هذه المرحلة.`;
   } catch (e) {
@@ -737,6 +738,126 @@ function renderXGBoostPredictions(xgb) {
     <tbody>${rows}</tbody>
   </table>`;
   document.getElementById('smart-xgb-predictions-table').innerHTML = html;
+}
+
+async function loadGovernorateAnalysis(month) {
+  const section = document.getElementById('smart-gov-section');
+  try {
+    const data = await apiSmartGet(`/smart/governorate-analysis/${month}`);
+    if (!data || !data.governorate_profiles || data.governorate_profiles.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = 'block';
+    renderGovernorateAnalysis(data);
+  } catch (e) {
+    section.style.display = 'none';
+  }
+}
+
+function renderGovernorateAnalysis(data) {
+  const profiles = data.governorate_profiles || [];
+  const crossCorrs = data.cross_governorate_correlations || [];
+  const xgbInsights = data.xgboost_insights || {};
+
+  const govCount = profiles.length;
+  const hospCount = profiles.reduce((s, p) => s + p.hospital_count, 0);
+  document.getElementById('smart-gov-badge').textContent = `${govCount} محافظة | ${hospCount} مستشفى`;
+  document.getElementById('smart-gov-note').textContent = `تحليل XGBoost يقيس تأثير كل محافظة على المؤشرات السريرية. كلما ارتفع التأثير، زادت الحاجة لتدخل في تلك المحافظة.`;
+
+  if (xgbInsights && Object.keys(xgbInsights).length > 0) {
+    const indicators = Object.keys(xgbInsights);
+    const traces = [];
+    const govNames = new Set();
+    indicators.forEach(ind => {
+      const impact = xgbInsights[ind]?.governorate_impact || [];
+      impact.forEach(g => govNames.add(g.governorate));
+    });
+    const allGovs = [...govNames];
+
+    indicators.forEach(ind => {
+      const impact = xgbInsights[ind]?.governorate_impact || [];
+      const impactMap = {};
+      impact.forEach(g => { impactMap[g.governorate] = g.impact; });
+      traces.push({
+        type: 'bar',
+        name: smartTranslateFeature(ind),
+        x: allGovs,
+        y: allGovs.map(g => impactMap[g] || 0),
+      });
+    });
+
+    Plotly.newPlot('smart-gov-impact-chart', traces, {
+      barmode: 'group',
+      xaxis: {tickangle: -45, tickfont: {size: 10}},
+      yaxis: {title: 'متوسط |SHAP| للتأثير', gridcolor: '#f0f0f0'},
+      margin: {t: 15, b: 90, l: 60, r: 20},
+      legend: {orientation: 'h', y: 1.15, font: {size: 9}},
+      plot_bgcolor: 'white', paper_bgcolor: 'white', height: 300,
+    });
+  }
+
+  const heatmapData = data.indicator_governorate_heatmap || {};
+  const indicators = Object.keys(heatmapData).filter(k => FEATURE_KEYS.includes(k));
+  const govNames = new Set();
+  indicators.forEach(ind => { Object.keys(heatmapData[ind] || {}).forEach(g => govNames.add(g)); });
+  const allGovs = [...govNames];
+
+  if (indicators.length > 0 && allGovs.length > 0) {
+    const zValues = indicators.map(ind => allGovs.map(g => heatmapData[ind]?.[g] || 0));
+    const trace = {
+      type: 'heatmap',
+      z: zValues,
+      x: allGovs,
+      y: indicators.map(i => smartTranslateFeature(i)),
+      colorscale: [
+        [0, '#eff6ff'],
+        [0.25, '#93c5fd'],
+        [0.5, '#fbbf24'],
+        [0.75, '#f97316'],
+        [1, '#ef4444'],
+      ],
+      text: zValues.map(row => row.map(v => v.toFixed(2))),
+      texttemplate: '%{text}',
+      textfont: {size: 9},
+      hovertemplate: '%{y} في %{x}<br>المتوسط: %{z:.3f}<extra></extra>',
+    };
+    Plotly.newPlot('smart-gov-heatmap', [trace], {
+      margin: {t: 10, b: 80, l: 120, r: 20},
+      xaxis: {tickangle: -45, tickfont: {size: 10}},
+      yaxis: {tickfont: {size: 9}, autorange: 'reversed'},
+      plot_bgcolor: 'white', paper_bgcolor: 'white', height: 300,
+    });
+  }
+
+  if (crossCorrs.length > 0) {
+    let html = `<table style="width:100%;border-collapse:collapse;font-size:0.78rem;direction:rtl;">
+      <thead><tr style="background:#7c3aed;color:white;">
+        <th style="padding:0.5rem;text-align:center;border-radius:0 0 6px 0;">المؤشر أ</th>
+        <th style="padding:0.5rem;text-align:center;">المؤشر ب</th>
+        <th style="padding:0.5rem;text-align:center;">الارتباط</th>
+        <th style="padding:0.5rem;text-align:center;">القوة</th>
+        <th style="padding:0.5rem;text-align:center;">الاتجاه</th>
+        <th style="padding:0.5rem;text-align:center;border-radius:0 0 0 6px;">المحصّلات</th>
+      </tr></thead><tbody>`;
+    crossCorrs.slice(0, 10).forEach((c, i) => {
+      const rColor = c.correlation > 0 ? '#ef4444' : '#3b82f6';
+      const strengthLabel = c.strength === 'strong' ? 'قوي' : 'متوسط';
+      const dirLabel = c.direction === 'positive' ? 'إيجابي' : 'سلبي';
+      html += `<tr style="border-bottom:1px solid #e5e7eb;background:${i % 2 === 0 ? '#fff' : '#faf5ff'};">
+        <td style="padding:0.5rem;text-align:center;font-weight:600;">${smartTranslateFeature(c.indicator_a)}</td>
+        <td style="padding:0.5rem;text-align:center;font-weight:600;">${smartTranslateFeature(c.indicator_b)}</td>
+        <td style="padding:0.5rem;text-align:center;font-weight:700;color:${rColor};">${c.correlation > 0 ? '+' : ''}${c.correlation.toFixed(3)}</td>
+        <td style="padding:0.5rem;text-align:center;"><span style="padding:0.15rem 0.5rem;border-radius:10px;font-size:0.7rem;font-weight:600;background:${c.strength === 'strong' ? '#fef2f2' : '#fffbeb'};color:${c.strength === 'strong' ? '#ef4444' : '#f59e0b'};">${strengthLabel}</span></td>
+        <td style="padding:0.5rem;text-align:center;color:${rColor};font-weight:600;">${dirLabel} ${c.correlation > 0 ? '↑' : '↓'}</td>
+        <td style="padding:0.5rem;text-align:center;font-size:0.7rem;color:#888;">${c.governorate_count} محافظة</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('smart-gov-cross-table').innerHTML = html;
+  } else {
+    document.getElementById('smart-gov-cross-table').innerHTML = '<p style="color:#999;font-size:0.82rem;">لا توجد ارتباطات قوية بين المحافظات.</p>';
+  }
 }
 
 window.smartDrilldown = async function(hospitalId) {

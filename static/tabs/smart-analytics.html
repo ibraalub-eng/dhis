@@ -175,6 +175,31 @@
     </div>
   </div>
 
+  <!-- Governorate Analysis -->
+  <div id="smart-gov-section" style="display:none;margin-bottom:1.2rem;">
+    <div class="card" style="padding:1.2rem;border-top:3px solid #8b5cf6;border-radius:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+        <h3 style="color:#1a237e;margin:0;font-size:1rem;">&#127981; تحليل المحافظات بـ XGBoost</h3>
+        <span id="smart-gov-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#f5f3ff;color:#7c3aed;font-weight:600;"></span>
+      </div>
+      <p id="smart-gov-note" style="font-size:0.78rem;color:#6b7280;margin-bottom:1rem;background:#f5f3ff;padding:0.6rem;border-radius:6px;border:1px solid #ddd6fe;line-height:1.5;"></p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+        <div>
+          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128293; تأثير المحافظة على كل مؤشر</h4>
+          <div id="smart-gov-impact-chart" style="height:300px;"></div>
+        </div>
+        <div>
+          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128202; متوسط المؤشرات حسب المحافظة</h4>
+          <div id="smart-gov-heatmap" style="height:300px;"></div>
+        </div>
+      </div>
+      <div style="margin-top:1rem;">
+        <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128293; ارتباطات المحافظات عبر المؤشرات</h4>
+        <div id="smart-gov-cross-table" style="overflow-x:auto;"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Drill-down (hidden) -->
   <div id="smart-drilldown-panel" class="card" style="padding:1.2rem;display:none;margin-bottom:1.2rem;border-radius:10px;">
     <div style="display:flex;justify-content:space-between;align-items:center;">
