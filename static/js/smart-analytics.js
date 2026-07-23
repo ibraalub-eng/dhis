@@ -69,6 +69,10 @@ window.initSmartAnalytics = async function() {
     document.getElementById('smart-hospital-panel').style.display = 'none';
     document.getElementById('smart-hospital-select').value = '';
   });
+  document.getElementById('smart-hospital-all-months').addEventListener('click', () => {
+    const hospitalId = document.getElementById('smart-hospital-select').value;
+    if (hospitalId) loadHospitalAnalysis(parseInt(hospitalId), 'all');
+  });
   document.getElementById('smart-hospital-select').addEventListener('change', (e) => {
     const hospitalId = e.target.value;
     if (hospitalId) {
@@ -779,58 +783,59 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
     const anomaly = drilldown.anomaly;
     const explanation = drilldown.explanation;
 
-    const kpiHtml = `
-      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;border-top:3px solid ${anomaly ? (anomaly.severity === 'critical' ? SMART_COLORS.critical : anomaly.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal) : '#ccc'};">
-        <div style="font-size:1.8rem;font-weight:700;color:${anomaly ? (anomaly.severity === 'critical' ? SMART_COLORS.critical : anomaly.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal) : '#666'};">${anomaly ? anomaly.anomaly_score.toFixed(2) : '-'}</div>
-        <div style="font-size:0.75rem;color:#444;font-weight:600;">درجة الشذوذ</div>
-        <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${anomaly ? (anomaly.severity === 'critical' ? 'تتجاوز 0.6 - يحتاج تدخل' : anomaly.severity === 'warning' ? 'بين 0.3 و 0.6 - يحتاج مراقبة' : 'أقل من 0.3 - ضمن الطبيعي') : ''}</div>
-      </div>
-      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:1rem;font-weight:600;">${anomaly ? (anomaly.severity === 'critical' ? '❌ حرج' : anomaly.severity === 'warning' ? '⚠️ تنبيه' : '✅ طبيعي') : '-'}</div>
-        <div style="font-size:0.75rem;color:#666;">الحالة</div>
-      </div>
-      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:0.85rem;font-weight:600;word-break:break-word;">${anomaly ? smartTranslateFeature('governorate_' + anomaly.governorate) : '-'}</div>
-        <div style="font-size:0.75rem;color:#666;">المحافظة</div>
-      </div>
-      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:0.85rem;font-weight:600;color:#8b5cf6;">${explanation?.top_factors?.[0] ? smartTranslateFeature(explanation.top_factors[0].arabic_label) : '-'}</div>
-        <div style="font-size:0.75rem;color:#666;">العامل الأساسي للشذوذ</div>
-        <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${explanation?.top_factors?.[0] ? (explanation.top_factors[0].shap_value > 0 ? 'يُزيّد من الدرجة' : 'يُقلّص من الدرجة') : ''}</div>
-      </div>
-      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:0.8rem;color:#444;line-height:1.5;">${explanation?.text_explanation || 'لا توجد تفسيرات'}</div>
-        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">تفسير SHAP</div>
-      </div>
-      <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
-        <div style="font-size:0.75rem;color:#666;line-height:1.5;">
-          ${anomaly ? Object.entries(anomaly.method_scores || {}).map(([k, v]) => {
-            const labels = {isolation_forest: 'IF', lof: 'LOF', mahalanobis: 'Mahal', residual: 'Resid'};
-            return `<span style="display:inline-block;margin:0.1rem;padding:0.1rem 0.3rem;background:#f3f4f6;border-radius:3px;font-size:0.65rem;">${labels[k] || k}: ${v.toFixed(2)}</span>`;
-          }).join(' ') : ''}
+    if (drilldown.all_months && drilldown.anomalies && drilldown.anomalies.length > 0) {
+      const allAnomalies = drilldown.anomalies;
+      const allExplanations = drilldown.explanations || [];
+
+      const avgScore = allAnomalies.reduce((s, a) => s + a.anomaly_score, 0) / allAnomalies.length;
+      const critCount = allAnomalies.filter(a => a.severity === 'critical').length;
+      const warnCount = allAnomalies.filter(a => a.severity === 'warning').length;
+      const normCount = allAnomalies.filter(a => a.severity === 'normal').length;
+
+      const latestAnomaly = allAnomalies[allAnomalies.length - 1];
+      const latestExplanation = allExplanations[allExplanations.length - 1];
+
+      const kpiHtml = `
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;border-top:3px solid ${SMART_COLORS.warning};">
+          <div style="font-size:1.8rem;font-weight:700;color:#1a237e;">${avgScore.toFixed(2)}</div>
+          <div style="font-size:0.75rem;color:#444;font-weight:600;">متوسط الدرجات</div>
+          <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${allAnomalies.length} شهر مسجل</div>
         </div>
-        <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">دروس الخصائص</div>
-      </div>
-    `;
-    document.getElementById('smart-hospital-kpis').innerHTML = kpiHtml;
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;border-top:3px solid ${critCount > 0 ? SMART_COLORS.critical : SMART_COLORS.normal};">
+          <div style="font-size:1.3rem;font-weight:700;color:${SMART_COLORS.critical};">${critCount}</div>
+          <div style="font-size:0.75rem;color:#444;font-weight:600;">أشهر حرجة</div>
+          <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${warnCount} تنبيه | ${normCount} طبيعي</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:0.85rem;font-weight:600;">${latestAnomaly.severity === 'critical' ? '❌ حرج' : latestAnomaly.severity === 'warning' ? '⚠️ تنبيه' : '✅ طبيعي'}</div>
+          <div style="font-size:0.75rem;color:#666;">آخر شهر (${latestAnomaly.month})</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:0.85rem;font-weight:600;color:#8b5cf6;">${latestExplanation?.top_factors?.[0] ? smartTranslateFeature(latestExplanation.top_factors[0].arabic_label) : '-'}</div>
+          <div style="font-size:0.75rem;color:#666;">آخر عامل أساسي</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:0.85rem;font-weight:600;color:#333;">${smartTranslateFeature('governorate_' + latestAnomaly.governorate)}</div>
+          <div style="font-size:0.75rem;color:#666;">المحافظة</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:0.78rem;color:#444;line-height:1.5;">${latestExplanation?.text_explanation || 'لا توجد تفسيرات'}</div>
+          <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">آخر تفسير SHAP</div>
+        </div>
+      `;
+      document.getElementById('smart-hospital-kpis').innerHTML = kpiHtml;
 
-    const trendRes = await apiSmartGet(`/smart/trend/${hospitalId}`);
-    if (trendRes?.trend?.length > 0) {
-      const trend = trendRes.trend;
-      const tColors = trend.map(t => t.severity === 'critical' ? SMART_COLORS.critical : t.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal);
-
-      const traces = [
-        {
-          type: 'scatter', mode: 'lines+markers',
-          x: trend.map(t => t.month),
-          y: trend.map(t => t.anomaly_score),
-          marker: { size: 12, color: tColors, line: { width: 2, color: '#fff' } },
-          line: { color: '#1a237e', width: 2 },
-          text: trend.map(t => `${t.month}<br>الدرجة: ${t.anomaly_score.toFixed(2)}<br>الحالة: ${t.severity === 'critical' ? 'حرج' : t.severity === 'warning' ? 'تنبيه' : 'طبيعي'}`),
-          hoverinfo: 'text',
-          name: 'درجة الشذوذ',
-        }
-      ];
+      const tColors = allAnomalies.map(a => a.severity === 'critical' ? SMART_COLORS.critical : a.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal);
+      const traces = [{
+        type: 'scatter', mode: 'lines+markers',
+        x: allAnomalies.map(a => a.month),
+        y: allAnomalies.map(a => a.anomaly_score),
+        marker: { size: 10, color: tColors, line: { width: 2, color: '#fff' } },
+        line: { color: '#1a237e', width: 2 },
+        text: allAnomalies.map(a => `${a.month}<br>الدرجة: ${a.anomaly_score.toFixed(2)}<br>الحالة: ${a.severity === 'critical' ? 'حرج' : a.severity === 'warning' ? 'تنبيه' : 'طبيعي'}`),
+        hoverinfo: 'text',
+        name: 'درجة الشذوذ',
+      }];
       const shapes = [
         { type: 'rect', x0: 0, x1: 1, y0: 0, y1: 0.3, xref: 'paper', fillcolor: SMART_COLORS.normal, opacity: 0.08 },
         { type: 'rect', x0: 0, x1: 1, y0: 0.3, y1: 0.6, xref: 'paper', fillcolor: SMART_COLORS.warning, opacity: 0.08 },
@@ -844,16 +849,87 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
         yaxis: {title: 'درجة الشذوذ', range: [0, 1]},
         margin: {t: 20, b: 60, l: 50, r: 20},
         legend: {orientation: 'h', y: 1.1},
+        plot_bgcolor: 'white', paper_bgcolor: 'white',
       });
-
-      const critMonths = trend.filter(t => t.severity === 'critical').length;
-      const warnMonths = trend.filter(t => t.severity === 'warning').length;
-      const normalMonths = trend.filter(t => t.severity === 'normal').length;
       document.getElementById('smart-hospital-trend-text').textContent =
-        `ملخص ${trend.length} شهر: ${critMonths} حرج، ${warnMonths} تنبيه، ${normalMonths} طبيعي.`;
+        `ملخص ${allAnomalies.length} شهر: ${critCount} حرج، ${warnCount} تنبيه، ${normCount} طبيعي. المتوسط: ${avgScore.toFixed(2)}`;
     } else {
-      Plotly.purge('smart-hospital-trend');
-      document.getElementById('smart-hospital-trend-text').textContent = 'لا توجد بيانات اتجاه متاحة.';
+      const kpiHtml = `
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;border-top:3px solid ${anomaly ? (anomaly.severity === 'critical' ? SMART_COLORS.critical : anomaly.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal) : '#ccc'};">
+          <div style="font-size:1.8rem;font-weight:700;color:${anomaly ? (anomaly.severity === 'critical' ? SMART_COLORS.critical : anomaly.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal) : '#666'};">${anomaly ? anomaly.anomaly_score.toFixed(2) : '-'}</div>
+          <div style="font-size:0.75rem;color:#444;font-weight:600;">درجة الشذوذ</div>
+          <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${anomaly ? (anomaly.severity === 'critical' ? 'تتجاوز 0.6 - يحتاج تدخل' : anomaly.severity === 'warning' ? 'بين 0.3 و 0.6 - يحتاج مراقبة' : 'أقل من 0.3 - ضمن الطبيعي') : ''}</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:1rem;font-weight:600;">${anomaly ? (anomaly.severity === 'critical' ? '❌ حرج' : anomaly.severity === 'warning' ? '⚠️ تنبيه' : '✅ طبيعي') : '-'}</div>
+          <div style="font-size:0.75rem;color:#666;">الحالة</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:0.85rem;font-weight:600;word-break:break-word;">${anomaly ? smartTranslateFeature('governorate_' + anomaly.governorate) : '-'}</div>
+          <div style="font-size:0.75rem;color:#666;">المحافظة</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:0.85rem;font-weight:600;color:#8b5cf6;">${explanation?.top_factors?.[0] ? smartTranslateFeature(explanation.top_factors[0].arabic_label) : '-'}</div>
+          <div style="font-size:0.75rem;color:#666;">العامل الأساسي للشذوذ</div>
+          <div style="font-size:0.65rem;color:#888;margin-top:0.2rem;">${explanation?.top_factors?.[0] ? (explanation.top_factors[0].shap_value > 0 ? 'يُزيّد من الدرجة' : 'يُقلّص من الدرجة') : ''}</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:0.8rem;color:#444;line-height:1.5;">${explanation?.text_explanation || 'لا توجد تفسيرات'}</div>
+          <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">تفسير SHAP</div>
+        </div>
+        <div class="card" style="text-align:center;padding:0.8rem;border-radius:8px;">
+          <div style="font-size:0.75rem;color:#666;line-height:1.5;">
+            ${anomaly ? Object.entries(anomaly.method_scores || {}).map(([k, v]) => {
+              const labels = {isolation_forest: 'IF', lof: 'LOF', mahalanobis: 'Mahal', residual: 'Resid'};
+              return `<span style="display:inline-block;margin:0.1rem;padding:0.1rem 0.3rem;background:#f3f4f6;border-radius:3px;font-size:0.65rem;">${labels[k] || k}: ${v.toFixed(2)}</span>`;
+            }).join(' ') : ''}
+          </div>
+          <div style="font-size:0.75rem;color:#666;margin-top:0.3rem;">دروس الخصائص</div>
+        </div>
+      `;
+      document.getElementById('smart-hospital-kpis').innerHTML = kpiHtml;
+
+      const trendRes = await apiSmartGet(`/smart/trend/${hospitalId}`);
+      if (trendRes?.trend?.length > 0) {
+        const trend = trendRes.trend;
+        const tColors = trend.map(t => t.severity === 'critical' ? SMART_COLORS.critical : t.severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal);
+
+        const traces = [
+          {
+            type: 'scatter', mode: 'lines+markers',
+            x: trend.map(t => t.month),
+            y: trend.map(t => t.anomaly_score),
+            marker: { size: 12, color: tColors, line: { width: 2, color: '#fff' } },
+            line: { color: '#1a237e', width: 2 },
+            text: trend.map(t => `${t.month}<br>الدرجة: ${t.anomaly_score.toFixed(2)}<br>الحالة: ${t.severity === 'critical' ? 'حرج' : t.severity === 'warning' ? 'تنبيه' : 'طبيعي'}`),
+            hoverinfo: 'text',
+            name: 'درجة الشذوذ',
+          }
+        ];
+        const shapes = [
+          { type: 'rect', x0: 0, x1: 1, y0: 0, y1: 0.3, xref: 'paper', fillcolor: SMART_COLORS.normal, opacity: 0.08 },
+          { type: 'rect', x0: 0, x1: 1, y0: 0.3, y1: 0.6, xref: 'paper', fillcolor: SMART_COLORS.warning, opacity: 0.08 },
+          { type: 'rect', x0: 0, x1: 1, y0: 0.6, y1: 1, xref: 'paper', fillcolor: SMART_COLORS.critical, opacity: 0.08 },
+          { type: 'line', x0: 0, x1: 1, y0: 0.3, y1: 0.3, xref: 'paper', line: { color: SMART_COLORS.warning, width: 1, dash: 'dash' } },
+          { type: 'line', x0: 0, x1: 1, y0: 0.6, y1: 0.6, xref: 'paper', line: { color: SMART_COLORS.critical, width: 1, dash: 'dash' } },
+        ];
+        Plotly.newPlot('smart-hospital-trend', traces, {
+          shapes,
+          xaxis: {title: 'الشهر', tickangle: -45},
+          yaxis: {title: 'درجة الشذوذ', range: [0, 1]},
+          margin: {t: 20, b: 60, l: 50, r: 20},
+          legend: {orientation: 'h', y: 1.1},
+        });
+
+        const critMonths = trend.filter(t => t.severity === 'critical').length;
+        const warnMonths = trend.filter(t => t.severity === 'warning').length;
+        const normalMonths = trend.filter(t => t.severity === 'normal').length;
+        document.getElementById('smart-hospital-trend-text').textContent =
+          `ملخص ${trend.length} شهر: ${critMonths} حرج، ${warnMonths} تنبيه، ${normalMonths} طبيعي.`;
+      } else {
+        Plotly.purge('smart-hospital-trend');
+        document.getElementById('smart-hospital-trend-text').textContent = 'لا توجد بيانات اتجاه متاحة.';
+      }
     }
   } catch (e) {
     document.getElementById('smart-hospital-name').textContent = 'خطأ في التحميل';

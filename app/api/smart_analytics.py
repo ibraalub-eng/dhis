@@ -151,6 +151,9 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital not found")
 
+    if month == "all":
+        return _get_drilldown_all_months(db, hospital_id, hospital)
+
     result = run_smart_analytics(db, month)
     anomaly = next((a for a in result.anomalies if a.hospital_id == hospital_id), None)
     explanation = next((e for e in result.explanations if e.hospital_id == hospital_id), None)
@@ -168,6 +171,35 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
         } if explanation else None,
         "residuals": [r.__dict__ for r in residuals],
         "stratified": [s.__dict__ for s in stratified],
+    }
+
+
+def _get_drilldown_all_months(db, hospital_id, hospital):
+    from app.models import QualityScore
+    months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
+
+    all_anomalies = []
+    all_explanations = []
+    for m in months:
+        result = run_smart_analytics(db, m)
+        anomaly = next((a for a in result.anomalies if a.hospital_id == hospital_id), None)
+        explanation = next((e for e in result.explanations if e.hospital_id == hospital_id), None)
+        if anomaly:
+            all_anomalies.append({"month": m, **anomaly.__dict__})
+        if explanation:
+            all_explanations.append({"month": m, **explanation.__dict__, "top_factors": [f.__dict__ for f in explanation.top_factors]})
+
+    return {
+        "hospital_id": hospital_id,
+        "hospital_name": hospital.name,
+        "month": "all",
+        "all_months": True,
+        "anomalies": all_anomalies,
+        "explanations": all_explanations,
+        "anomaly": all_anomalies[-1] if all_anomalies else None,
+        "explanation": all_explanations[-1] if all_explanations else None,
+        "residuals": [],
+        "stratified": [],
     }
 
 
