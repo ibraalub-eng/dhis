@@ -32,7 +32,9 @@ def _envelope(result: SmartAnalyticsResult) -> dict:
             {**e.__dict__, "top_factors": [f.__dict__ for f in e.top_factors]}
             for e in result.explanations
         ],
-        "geo": result.geo.__dict__ if result.geo else None,
+        "geo": {
+            "governorates": [g.__dict__ for g in result.geo.governorates],
+        } if result.geo else None,
     }
 
     if result.xgboost_predictions:

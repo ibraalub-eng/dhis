@@ -78,9 +78,6 @@ window.initSmartAnalytics = async function() {
     loadSmartData(monthSelect.value);
     updateHospitalList();
   });
-  document.getElementById('smart-close-drilldown').addEventListener('click', () => {
-    document.getElementById('smart-drilldown-panel').style.display = 'none';
-  });
   document.getElementById('smart-close-hospital').addEventListener('click', () => {
     document.getElementById('smart-hospital-panel').style.display = 'none';
     document.getElementById('smart-hospital-select').value = '';
@@ -105,6 +102,9 @@ window.initSmartAnalytics = async function() {
   });
   document.getElementById('smart-strat-indicator').addEventListener('change', () => {
     if (smartCurrentData) renderStratifiedComparison(smartCurrentData.data.stratified, document.getElementById('smart-strat-indicator').value);
+  });
+  document.getElementById('smart-drilldown-modal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) e.target.style.display = 'none';
   });
   if (months.length > 0) {
     const lastMonth = months[months.length - 1];
@@ -869,8 +869,8 @@ window.smartDrilldown = async function(hospitalId) {
   if (!anomaly) return;
 
   document.getElementById('smart-drilldown-name').textContent = anomaly.hospital_name || '';
-  document.getElementById('smart-drilldown-panel').style.display = 'block';
-  document.getElementById('smart-drilldown-panel').scrollIntoView({behavior: 'smooth'});
+  document.getElementById('smart-drilldown-modal').style.display = 'flex';
+  document.getElementById('smart-drilldown-modal').scrollIntoView({behavior: 'smooth'});
 
   if (explanation?.top_factors && explanation.top_factors.length > 0) {
     const factors = explanation.top_factors;
