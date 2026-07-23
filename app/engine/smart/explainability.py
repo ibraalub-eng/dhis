@@ -80,9 +80,13 @@ def explain_anomalies(
         sv = shap_values[idx]
         feature_shap = dict(zip(feature_names, sv.tolist()))
 
-        sorted_features = sorted(feature_shap.items(), key=lambda x: abs(x[1]), reverse=True)[:3]
+        sorted_features = sorted(feature_shap.items(), key=lambda x: abs(x[1]), reverse=True)
+
+        numeric_factors = [(f, v) for f, v in sorted_features if not f.startswith("governorate_") and not f.startswith("hospital_type_")]
+        context_factors = [(f, v) for f, v in sorted_features if f.startswith("governorate_") or f.startswith("hospital_type_")]
+
         top_factors = []
-        for feat, val in sorted_features:
+        for feat, val in numeric_factors[:3]:
             direction = "increases_anomaly" if val > 0 else "decreases_anomaly"
             magnitude = "high" if abs(val) > 0.5 else "medium" if abs(val) > 0.2 else "low"
             arabic = ARABIC_NAMES.get(feat, feat)
