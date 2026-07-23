@@ -148,3 +148,44 @@ class SmartAnalyticsResult:
     explanations: List[AnomalyExplanation]
     geo: GeoAggregationResult
     kpi: KPISummary
+    xgboost_predictions: "XGBoostPredictionResult" = None
+
+
+@dataclass
+class XGBoostPrediction:
+    hospital_name: str
+    hospital_id: int
+    current_score: float
+    predicted_next_score: float
+    predicted_severity: str
+    risk_change: str
+    confidence: float
+    top_drivers: List["XGBoostDriver"]
+
+
+@dataclass
+class XGBoostDriver:
+    feature: str
+    arabic_label: str
+    shap_value: float
+    direction: str
+    magnitude: str
+
+
+@dataclass
+class XGBoostGlobalExplanation:
+    feature: str
+    arabic_label: str
+    mean_abs_shap: float
+    rank: int
+
+
+@dataclass
+class XGBoostPredictionResult:
+    model_r2: float
+    model_mae: float
+    training_months: int
+    hospitals_trained: int
+    predictions: List[XGBoostPrediction]
+    global_feature_importance: List[XGBoostGlobalExplanation]
+    accuracy_note: str

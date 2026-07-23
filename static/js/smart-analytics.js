@@ -135,6 +135,7 @@ async function loadSmartData(month) {
     renderAnomalyTable(d.anomalies, d.explanations);
     renderFeatureImportance(d.correlations, document.getElementById('smart-fi-indicator').value);
     renderStratifiedComparison(d.stratified, document.getElementById('smart-strat-indicator').value);
+    renderXGBoostPredictions(d.xgboost);
     document.getElementById('smart-status').textContent = `تم التحديث — ${total} مستشفى`;
     document.getElementById('smart-disclaimer').textContent = `النتائج مبنية على بيانات ${total} مستشفى فقط. يجب تفسيرها كمؤشرات أولية وليست قرارات نهائية. لا تتوفر تنبؤات زمنية في هذه المرحلة.`;
   } catch (e) {
@@ -617,6 +618,73 @@ function renderStratifiedComparison(stratified, indicator) {
   Plotly.newPlot('smart-stratified-chart', data, { barmode: 'group', xaxis: {tickangle: -45}, yaxis: {title: 'القيمة'}, margin: {t: 20, b: 100, l: 60, r: 20} });
   const significant = filtered.filter(s => s.deviation_pct > 15 || s.deviation_pct < -15).length;
   document.getElementById('smart-strat-text').textContent = `${significant} من ${filtered.length} مستشفى يختلف بشكل ملحوظ عن مجموعته النظيرة.`;
+}
+
+function renderXGBoostPredictions(xgb) {
+  const section = document.getElementById('smart-xgboost-section');
+  if (!xgb || !xgb.predictions || xgb.predictions.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+
+  document.getElementById('smart-xgb-model-badge').textContent = `R\u00b2=${xgb.model_r2.toFixed(3)} | MAE=${xgb.model_mae.toFixed(3)}`;
+  document.getElementById('smart-xgb-note').textContent = xgb.accuracy_note;
+
+  if (xgb.global_feature_importance && xgb.global_feature_importance.length > 0) {
+    const fi = xgb.global_feature_importance.slice(0, 8);
+    const fiData = [{
+      type: 'bar', orientation: 'h',
+      y: fi.map(f => smartTranslateFeature(f.feature)),
+      x: fi.map(f => f.mean_abs_shap),
+      marker: { color: fi.map((_, i) => i < 3 ? '#f97316' : '#fb923c') },
+      text: fi.map(f => f.mean_abs_shap.toFixed(4)),
+      textposition: 'outside',
+    }];
+    Plotly.newPlot('smart-xgb-global-fi', fiData, {
+      margin: {t: 10, b: 40, l: 150, r: 30},
+      xaxis: {title: 'متوسط |SHAP|'},
+      yaxis: {autorange: 'reversed'},
+    });
+  }
+
+  const preds = xgb.predictions;
+  let rows = preds.map((p, i) => {
+    const sevColor = p.predicted_severity === 'critical' ? SMART_COLORS.critical : p.predicted_severity === 'warning' ? SMART_COLORS.warning : SMART_COLORS.normal;
+    const changeIcon = p.risk_change === 'increasing' ? '\u2191' : p.risk_change === 'decreasing' ? '\u2193' : '\u2192';
+    const changeColor = p.risk_change === 'increasing' ? SMART_COLORS.critical : p.risk_change === 'decreasing' ? SMART_COLORS.normal : '#999';
+    const changeText = p.risk_change === 'increasing' ? 'يزداد' : p.risk_change === 'decreasing' ? 'يقل' : 'مستقر';
+    const drivers = (p.top_drivers || []).slice(0, 2).map(d => {
+      const dc = d.shap_value > 0 ? SMART_COLORS.shap_positive : SMART_COLORS.shap_negative;
+      const arrow = d.shap_value > 0 ? '\u2191' : '\u2193';
+      return `<span style="font-size:0.6rem;color:${dc};">${arrow}${smartTranslateFeature(d.feature)}</span>`;
+    }).join(' ');
+    return `<tr style="border-bottom:1px solid #f0f0f0;background:${i % 2 === 0 ? '#fff' : '#f9fafb'};">
+      <td style="padding:0.4rem 0.5rem;text-align:center;color:#999;font-size:0.75rem;">${i + 1}</td>
+      <td style="padding:0.4rem 0.5rem;text-align:right;font-weight:600;font-size:0.78rem;white-space:nowrap;" title="${p.hospital_name}">${p.hospital_name.includes('/') ? p.hospital_name.split('/').pop().trim() : p.hospital_name}</td>
+      <td style="padding:0.4rem 0.5rem;text-align:center;font-size:0.75rem;">${p.current_score.toFixed(2)}</td>
+      <td style="padding:0.4rem 0.5rem;text-align:center;font-weight:700;color:${sevColor};font-size:0.8rem;">${p.predicted_next_score.toFixed(2)}</td>
+      <td style="padding:0.4rem 0.5rem;text-align:center;color:${changeColor};font-weight:700;font-size:0.85rem;">${changeIcon}</td>
+      <td style="padding:0.4rem 0.5rem;text-align:center;"><span style="display:inline-block;padding:0.1rem 0.4rem;border-radius:8px;font-size:0.65rem;font-weight:600;background:${sevColor}20;color:${sevColor};">${p.predicted_severity === 'critical' ? 'حرج' : p.predicted_severity === 'warning' ? 'تنبيه' : 'طبيعي'}</span></td>
+      <td style="padding:0.4rem 0.5rem;text-align:center;font-size:0.65rem;color:#888;">${Math.round(p.confidence * 100)}%</td>
+      <td style="padding:0.4rem 0.5rem;text-align:center;">${drivers || '-'}</td>
+    </tr>`;
+  }).join('');
+
+  const html = `<table style="width:100%;border-collapse:collapse;font-size:0.78rem;direction:rtl;">
+    <thead><tr style="background:#1a237e;color:white;">
+      <th style="padding:0.5rem;text-align:center;border-radius:0 0 6px 0;">#</th>
+      <th style="padding:0.5rem;text-align:right;">\u0627\u0644\u0645\u0633\u062A\u0634\u0641\u0649</th>
+      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u062D\u0627\u0644\u0629 \u0627\u0644\u062D\u0627\u0644\u064A\u0629</th>
+      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u062A\u0646\u0628\u0624</th>
+      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u0627\u062A\u062C\u0627\u0647</th>
+      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u0645\u062D\u062A\u0645\u0644</th>
+      <th style="padding:0.5rem;text-align:center;">\u0627\u0644\u062B\u0642\u0629</th>
+      <th style="padding:0.5rem;text-align:center;border-radius:0 0 0 6px;">\u0627\u0644\u0645\u062D\u0627\u0641\u0638\u0627\u062A</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  document.getElementById('smart-xgb-predictions-table').innerHTML = html;
 }
 
 window.smartDrilldown = async function(hospitalId) {

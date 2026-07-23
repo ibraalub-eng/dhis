@@ -21,23 +21,49 @@ def _sanitize(obj):
 
 
 def _envelope(result: SmartAnalyticsResult) -> dict:
+    data = {
+        "kpi": result.kpi.__dict__,
+        "anomalies": [a.__dict__ for a in result.anomalies],
+        "clustering": result.clustering.__dict__ if result.clustering else None,
+        "correlations": result.correlations.__dict__ if result.correlations else None,
+        "residuals": [r.__dict__ for r in result.residuals],
+        "stratified": [s.__dict__ for s in result.stratified],
+        "explanations": [
+            {**e.__dict__, "top_factors": [f.__dict__ for f in e.top_factors]}
+            for e in result.explanations
+        ],
+        "geo": result.geo.__dict__ if result.geo else None,
+    }
+
+    if result.xgboost_predictions:
+        xgb = result.xgboost_predictions
+        data["xgboost"] = {
+            "model_r2": xgb.model_r2,
+            "model_mae": xgb.model_mae,
+            "training_months": xgb.training_months,
+            "hospitals_trained": xgb.hospitals_trained,
+            "accuracy_note": xgb.accuracy_note,
+            "predictions": [
+                {
+                    "hospital_name": p.hospital_name,
+                    "hospital_id": p.hospital_id,
+                    "current_score": p.current_score,
+                    "predicted_next_score": p.predicted_next_score,
+                    "predicted_severity": p.predicted_severity,
+                    "risk_change": p.risk_change,
+                    "confidence": p.confidence,
+                    "top_drivers": [d.__dict__ for d in p.top_drivers],
+                }
+                for p in xgb.predictions
+            ],
+            "global_feature_importance": [fi.__dict__ for fi in xgb.global_feature_importance],
+        }
+
     return _sanitize({
         "month": result.month,
         "generated_at": datetime.now().isoformat(),
         "hospitals_count": result.hospitals_count,
-        "data": {
-            "kpi": result.kpi.__dict__,
-            "anomalies": [a.__dict__ for a in result.anomalies],
-            "clustering": result.clustering.__dict__ if result.clustering else None,
-            "correlations": result.correlations.__dict__ if result.correlations else None,
-            "residuals": [r.__dict__ for r in result.residuals],
-            "stratified": [s.__dict__ for s in result.stratified],
-            "explanations": [
-                {**e.__dict__, "top_factors": [f.__dict__ for f in e.top_factors]}
-                for e in result.explanations
-            ],
-            "geo": result.geo.__dict__ if result.geo else None,
-        },
+        "data": data,
     })
 
 

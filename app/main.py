@@ -132,6 +132,9 @@ APP_CONFIG_DEFAULTS = [
     ("smart_ensemble_lof_weight", 0.3, "smart_analytics", "Smart Ensemble LOF Weight"),
     ("smart_ensemble_mahal_weight", 0.2, "smart_analytics", "Smart Ensemble Mahal Weight"),
     ("smart_ensemble_residual_weight", 0.15, "smart_analytics", "Smart Ensemble Residual Weight"),
+    ("smart_xgboost_enabled", 1.0, "smart_analytics", "Smart XGBoost Enabled"),
+    ("smart_xgb_n_estimators", 100.0, "smart_analytics", "Smart XGBoost N Estimators"),
+    ("smart_xgb_max_depth", 4.0, "smart_analytics", "Smart XGBoost Max Depth"),
 ]
 
 

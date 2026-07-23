@@ -16,5 +16,6 @@ ruff
 scipy>=1.14.0
 scikit-learn>=1.6.0
 shap>=0.42.0
+xgboost>=2.0.0
 plotly>=5.18.0
 statsmodels>=0.14.0

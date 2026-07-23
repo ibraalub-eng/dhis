@@ -9,6 +9,7 @@ from app.engine.smart.residual import analyze_residuals
 from app.engine.smart.stratified import run_stratified_analysis
 from app.engine.smart.explainability import explain_anomalies
 from app.engine.smart.geo import aggregate_by_governorate
+from app.engine.smart.xgboost_predictor import run_xgboost_predictions
 
 
 def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
@@ -125,6 +126,13 @@ def run_smart_analytics(session: Session, month: str) -> SmartAnalyticsResult:
         month_status=month_status,
     )
 
+    xgb_predictions = None
+    if config.get("xgboost_enabled", True):
+        try:
+            xgb_predictions = run_xgboost_predictions(session, month, config)
+        except Exception:
+            xgb_predictions = None
+
     return SmartAnalyticsResult(
         month=month,
         hospitals_count=len(all_data),
@@ -136,4 +144,5 @@ def run_smart_analytics(session: Session, month: str) -> SmartAnalyticsResult:
         explanations=explanations,
         geo=geo,
         kpi=kpi,
+        xgboost_predictions=xgb_predictions,
     )
