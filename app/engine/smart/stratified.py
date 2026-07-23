@@ -91,6 +91,8 @@ def run_stratified_analysis(
                 rank_in_peer_group=rank,
                 peer_group_size=len(peer_values),
                 label=label,
+                governorate=df.loc[idx, "governorate"],
+                hospital_type=df.loc[idx, "hospital_type"],
             ))
 
     return results

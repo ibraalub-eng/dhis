@@ -623,13 +623,18 @@ function renderStratifiedComparison(stratified, indicator) {
   if (filtered.length === 0) { Plotly.purge('smart-stratified-chart'); document.getElementById('smart-strat-text').textContent = 'لا توجد بيانات طبقية لهذا المؤشر.'; return; }
   const sorted = [...filtered].sort((a, b) => Math.abs(b.deviation_pct) - Math.abs(a.deviation_pct)).slice(0, 15);
   const barColors = sorted.map(s => Math.abs(s.deviation_pct) > 30 ? SMART_COLORS.critical : Math.abs(s.deviation_pct) > 15 ? SMART_COLORS.warning : SMART_COLORS.normal);
+  const xLabels = sorted.map(s => s.hospital_name.length > 22 ? s.hospital_name.substring(0, 20) + '…' : s.hospital_name);
+  const tooltips = sorted.map(s => `${s.hospital_name}<br>المحافظة: ${s.governorate || '-'}<br>النوع: ${s.hospital_type || '-'}<br>القيمة: ${s.hospital_value.toFixed(2)}<br>متوسط النظير: ${s.peer_group_mean.toFixed(2)}<br>الانحراف: ${s.deviation_pct.toFixed(1)}%`);
   const data = [
-    { type: 'bar', name: 'القيمة الفعلية', x: sorted.map(s => s.hospital_name), y: sorted.map(s => s.hospital_value), marker: { color: barColors } },
-    { type: 'bar', name: 'متوسط النظير', x: sorted.map(s => s.hospital_name), y: sorted.map(s => s.peer_group_mean), marker: { color: '#d1d5db' } },
+    { type: 'bar', name: 'القيمة الفعلية', x: xLabels, y: sorted.map(s => s.hospital_value), marker: { color: barColors }, text: tooltips, hovertemplate: '%{text}<extra></extra>' },
+    { type: 'bar', name: 'متوسط النظير', x: xLabels, y: sorted.map(s => s.peer_group_mean), marker: { color: '#d1d5db' }, text: tooltips, hovertemplate: '%{text}<extra></extra>' },
   ];
-  Plotly.newPlot('smart-stratified-chart', data, { barmode: 'group', xaxis: {tickangle: -45}, yaxis: {title: 'القيمة'}, margin: {t: 20, b: 100, l: 60, r: 20} });
+  Plotly.newPlot('smart-stratified-chart', data, { barmode: 'group', xaxis: {tickangle: -45, tickfont: {size: 10}}, yaxis: {title: 'القيمة'}, margin: {t: 20, b: 110, l: 60, r: 20}, legend: {orientation: 'h', y: 1.12}, plot_bgcolor: 'white', paper_bgcolor: 'white' });
   const significant = filtered.filter(s => s.deviation_pct > 15 || s.deviation_pct < -15).length;
-  document.getElementById('smart-strat-text').textContent = `${significant} من ${filtered.length} مستشفى يختلف بشكل ملحوظ عن مجموعته النظيرة.`;
+  const govCounts = {};
+  filtered.forEach(s => { const g = s.governorate || '-'; govCounts[g] = (govCounts[g] || 0) + 1; });
+  const govSummary = Object.entries(govCounts).map(([g, c]) => `${g}: ${c}`).join(' | ');
+  document.getElementById('smart-strat-text').textContent = `${significant} من ${filtered.length} مستشفى يختلف بشكل ملحوظ — ${govSummary}`;
 }
 
 function renderXGBoostPredictions(xgb) {

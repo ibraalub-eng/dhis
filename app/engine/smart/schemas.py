@@ -89,6 +89,8 @@ class StratifiedComparison:
     rank_in_peer_group: int
     peer_group_size: int
     label: str
+    governorate: str = ""
+    hospital_type: str = ""
 
 
 @dataclass

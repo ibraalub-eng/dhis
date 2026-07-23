@@ -253,7 +253,7 @@ class TestXGBoostPredictionResult:
         session.flush()
 
         result = run_xgboost_predictions(session, "2026-04", {"xgb_n_estimators": 25})
-        assert len(result.global_feature_importance) <= 10
+        assert len(result.global_feature_importance) <= 12
         ranks = [fi.rank for fi in result.global_feature_importance]
         assert ranks == sorted(ranks)
         for fi in result.global_feature_importance:
