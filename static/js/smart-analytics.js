@@ -18,6 +18,22 @@ const SMART_ARABIC = {
   adolescent: 'الحالات المراهقة',
   governorate: 'المحافظة',
   hospital_type: 'نوع المستشفى',
+  cs_per_birth: 'نسبة القيصارية لكل ولادة',
+  smm_per_1000: 'المضاعفات لكل 1000 ولادة',
+  mat_mortality_rate: 'معدل الوفيات الأمومية',
+  stillbirth_rate: 'معدل الولادات الميتة',
+  preterm_rate: 'معدل الولادات المبكرة',
+  lbw_rate: 'معدل نقص الوزن',
+  high_risk_rate: 'نسبة الخطر العالي',
+  adolescent_rate: 'نسبة الحالات المراهقة',
+  cs_x_highrisk: 'قيصارية × خطر عالي',
+  preterm_x_lbw: 'ولادة مبكرة × نقص وزن',
+  smm_x_matdeaths: 'مضاعفات × وفيات أمومية',
+  nd_x_sb: 'وفيات جديدة × ولادات ميتة',
+  cs_rate_delta: 'تغير معدل القيصارية',
+  smm_delta: 'تغير المضاعفات',
+  mat_deaths_delta: 'تغير الوفيات الأمومية',
+  total_births_delta: 'تغير المواليد',
 };
 
 function smartTranslateFeature(name) {
@@ -716,7 +732,7 @@ function renderXGBoostPredictions(xgb) {
       <th style="padding:0.5rem;text-align:center;">الاتجاه</th>
       <th style="padding:0.5rem;text-align:center;">المحتمل</th>
       <th style="padding:0.5rem;text-align:center;">الثقة</th>
-      <th style="padding:0.5rem;text-align:center;border-radius:0 0 0 6px;">المحافظات</th>
+      <th style="padding:0.5rem;text-align:center;border-radius:0 0 0 6px;">العوامل</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
