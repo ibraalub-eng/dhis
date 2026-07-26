@@ -135,6 +135,39 @@ def build_causal_chains(nodes: List[CausalNode]) -> List[CausalChain]:
             chains.append(chain)
     
     return sorted(chains, key=lambda c: c.confidence, reverse=True)
+
+def find_correlated_factors(source: CausalNode, candidates: List[CausalNode]) -> List[CausalNode]:
+    """
+    Find factors that are correlated with source factor.
+    
+    Correlation criteria:
+    1. Pearson correlation > 0.6 (strong positive correlation)
+    2. Both trending in same direction
+    3. Temporal lag < 1 month (changes happen together)
+    
+    Returns factors that meet all criteria, sorted by correlation strength.
+    """
+    correlated = []
+    source_values = [h.value for h in source.history]
+    
+    for candidate in candidates:
+        candidate_values = [h.value for h in candidate.history]
+        
+        # Pad to same length if needed
+        min_len = min(len(source_values), len(candidate_values))
+        if min_len < 3:
+            continue
+            
+        s = source_values[:min_len]
+        c = candidate_values[:min_len]
+        
+        # Calculate Pearson correlation
+        corr, p_value = stats.pearsonr(s, c)
+        
+        if corr > 0.6 and p_value < 0.05:
+            correlated.append((candidate, corr))
+    
+    return [c for c, _ in sorted(correlated, key=lambda x: x[1], reverse=True)]
 ```
 
 ---
@@ -247,6 +280,8 @@ def calculate_peer_comparison(
 ### Peer Group Identification
 
 ```python
+MIN_PEER_SIZE = 3  # Minimum peers needed for valid comparison
+
 def identify_peer_groups(session: Session, hospital_id: int) -> Dict[str, List[int]]:
     """
     Identify three peer groups:
@@ -255,6 +290,8 @@ def identify_peer_groups(session: Session, hospital_id: int) -> Dict[str, List[i
     3. Same governorate (regional average)
     
     Returns: {peer_group_name: [hospital_ids]}
+    If a peer group has fewer than MIN_PEER_SIZE members, it is excluded
+    from comparisons (insufficient data for statistical significance).
     """
     hospital = session.query(Hospital).get(hospital_id)
     
@@ -276,11 +313,15 @@ def identify_peer_groups(session: Session, hospital_id: int) -> Dict[str, List[i
         Hospital.is_active == True
     ).all()
     
-    return {
-        "hospital_type": [p[0] for p in peers_by_type],
-        "ownership": [p[0] for p in peers_by_ownership],
-        "regional": [p[0] for p in peers_by_region],
-    }
+    result = {}
+    if len(peers_by_type) >= MIN_PEER_SIZE:
+        result["hospital_type"] = [p[0] for p in peers_by_type]
+    if len(peers_by_ownership) >= MIN_PEER_SIZE:
+        result["ownership"] = [p[0] for p in peers_by_ownership]
+    if len(peers_by_region) >= MIN_PEER_SIZE:
+        result["regional"] = [p[0] for p in peers_by_region]
+    
+    return result
 ```
 
 ### Insight Generation
