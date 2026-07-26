@@ -389,3 +389,65 @@ class TestGenerateRootCauseAnalysis:
         actions = report.priority_actions
         assert len(actions) >= 1
         assert any("CRITICAL" in a or "Quality" in a for a in actions)
+
+
+def test_month_data_point_creation():
+    from app.engine.root_cause import MonthDataPoint
+    point = MonthDataPoint(
+        month="2026-01",
+        value=75.0,
+        quality_score=80.0,
+        confidence=70.0,
+        rule_failure_rate=15.0
+    )
+    assert point.month == "2026-01"
+    assert point.value == 75.0
+
+
+def test_peer_comparison_creation():
+    from app.engine.root_cause import PeerComparison
+    comp = PeerComparison(
+        peer_group="hospital_type",
+        peer_count=7,
+        mean_value=65.0,
+        std_value=10.0,
+        hospital_percentile=75.0,
+        hospital_z_score=1.0,
+        benchmark_hospital="Al-Shifa",
+        benchmark_value=85.0,
+        gap_to_benchmark=10.0
+    )
+    assert comp.peer_group == "hospital_type"
+    assert comp.hospital_percentile == 75.0
+
+
+def test_causal_node_creation():
+    from app.engine.root_cause import CausalNode
+    node = CausalNode(
+        factor="R001",
+        factor_type="rule",
+        current_value=70.0,
+        trend="declining",
+        trend_slope=-2.5,
+        peer_comparison=None,
+        history=[],
+        severity="critical"
+    )
+    assert node.factor == "R001"
+    assert node.trend == "declining"
+
+
+def test_causal_chain_creation():
+    from app.engine.root_cause import CausalChain
+    chain = CausalChain(
+        root_cause="R001 sum mismatch failing at 70%",
+        root_cause_arabic="فشل التحقق من مطابقة المجموع في R001 بنسبة 70%",
+        confidence=0.85,
+        evidence=["R001 failure rate: 70%"],
+        affected_factors=["R001", "Rule Compliance"],
+        recommended_action="Train data entry staff",
+        impact_if_fixed=16.5,
+        implementation_priority="critical"
+    )
+    assert chain.confidence == 0.85
+    assert len(chain.evidence) == 1

@@ -78,6 +78,65 @@ class RootCauseReport:
     ai_recommendations: List[Dict] = field(default_factory=list)
 
 
+@dataclass
+class MonthDataPoint:
+    month: str
+    value: float
+    quality_score: float
+    confidence: float
+    rule_failure_rate: float
+
+
+@dataclass
+class PeerComparison:
+    peer_group: str
+    peer_count: int
+    mean_value: float
+    std_value: float
+    hospital_percentile: float
+    hospital_z_score: float
+    benchmark_hospital: str
+    benchmark_value: float
+    gap_to_benchmark: float
+
+
+@dataclass
+class CausalNode:
+    factor: str
+    factor_type: str
+    current_value: float
+    trend: str
+    trend_slope: float
+    peer_comparison: Optional[PeerComparison]
+    history: List[MonthDataPoint]
+    severity: str
+
+
+@dataclass
+class CausalChain:
+    root_cause: str
+    root_cause_arabic: str
+    confidence: float
+    evidence: List[str]
+    affected_factors: List[str]
+    recommended_action: str
+    impact_if_fixed: float
+    implementation_priority: str
+
+
+@dataclass
+class HistoricalComparativeReport:
+    hospital_id: int
+    hospital_name: str
+    current_month: str
+    causal_tree: List[CausalNode]
+    causal_chains: List[CausalChain]
+    historical_trends: Dict[str, Dict]
+    peer_comparisons: Dict[str, PeerComparison]
+    summary_arabic: str
+    priority_actions: List[str]
+
+
 def analyze_rule_failures(
     session: Session,
     hospital_id: int,
