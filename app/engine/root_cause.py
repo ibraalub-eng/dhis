@@ -1,3 +1,4 @@
+from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
