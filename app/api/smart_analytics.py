@@ -72,15 +72,19 @@ def _envelope(result: SmartAnalyticsResult) -> dict:
 
 @router.get("/overview/{month}")
 def get_overview(month: str, db: Session = Depends(get_db)):
-    cache_key = f"smart_overview_{month}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
+    try:
+        cache_key = f"smart_overview_{month}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
-    result = run_smart_analytics(db, month)
-    response = _envelope(result)
-    cache.set(cache_key, response, ttl=300)
-    return response
+        result = run_smart_analytics(db, month)
+        response = _envelope(result)
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except Exception as e:
+        cache.invalidate(f"smart_overview_{month}")
+        raise HTTPException(status_code=500, detail=f"خطأ في التحليل: {str(e)}")
 
 
 @router.get("/governorate-analysis/{month}")
@@ -98,86 +102,110 @@ def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
 
 @router.get("/anomalies/{month}")
 def get_anomalies(month: str, db: Session = Depends(get_db)):
-    cache_key = f"smart_anomalies_{month}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
+    try:
+        cache_key = f"smart_anomalies_{month}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
-    result = run_smart_analytics(db, month)
-    data = _envelope(result)["data"]
-    response = {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
-    cache.set(cache_key, response, ttl=300)
-    return response
+        result = run_smart_analytics(db, month)
+        data = _envelope(result)["data"]
+        response = {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except Exception as e:
+        cache.invalidate(f"smart_anomalies_{month}")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الشذوذ: {str(e)}")
 
 
 @router.get("/clusters/{month}")
 def get_clusters(month: str, db: Session = Depends(get_db)):
-    cache_key = f"smart_clusters_{month}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
+    try:
+        cache_key = f"smart_clusters_{month}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
-    result = run_smart_analytics(db, month)
-    data = _envelope(result)["data"]
-    response = {"month": month, "clustering": data["clustering"]}
-    cache.set(cache_key, response, ttl=300)
-    return response
+        result = run_smart_analytics(db, month)
+        data = _envelope(result)["data"]
+        response = {"month": month, "clustering": data["clustering"]}
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except Exception as e:
+        cache.invalidate(f"smart_clusters_{month}")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل التجمعات: {str(e)}")
 
 
 @router.get("/correlations/{month}")
 def get_correlations(month: str, db: Session = Depends(get_db)):
-    cache_key = f"smart_correlations_{month}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
+    try:
+        cache_key = f"smart_correlations_{month}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
-    result = run_smart_analytics(db, month)
-    data = _envelope(result)["data"]
-    response = {"month": month, "correlations": data["correlations"]}
-    cache.set(cache_key, response, ttl=300)
-    return response
+        result = run_smart_analytics(db, month)
+        data = _envelope(result)["data"]
+        response = {"month": month, "correlations": data["correlations"]}
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except Exception as e:
+        cache.invalidate(f"smart_correlations_{month}")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الارتباطات: {str(e)}")
 
 
 @router.get("/residuals/{month}")
 def get_residuals(month: str, db: Session = Depends(get_db)):
-    cache_key = f"smart_residuals_{month}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
+    try:
+        cache_key = f"smart_residuals_{month}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
-    result = run_smart_analytics(db, month)
-    data = _envelope(result)["data"]
-    response = {"month": month, "residuals": data["residuals"]}
-    cache.set(cache_key, response, ttl=300)
-    return response
+        result = run_smart_analytics(db, month)
+        data = _envelope(result)["data"]
+        response = {"month": month, "residuals": data["residuals"]}
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except Exception as e:
+        cache.invalidate(f"smart_residuals_{month}")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل البواقي: {str(e)}")
 
 
 @router.get("/stratified/{month}")
 def get_stratified(month: str, db: Session = Depends(get_db)):
-    cache_key = f"smart_stratified_{month}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
+    try:
+        cache_key = f"smart_stratified_{month}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
-    result = run_smart_analytics(db, month)
-    data = _envelope(result)["data"]
-    response = {"month": month, "stratified": data["stratified"]}
-    cache.set(cache_key, response, ttl=300)
-    return response
+        result = run_smart_analytics(db, month)
+        data = _envelope(result)["data"]
+        response = {"month": month, "stratified": data["stratified"]}
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except Exception as e:
+        cache.invalidate(f"smart_stratified_{month}")
+        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الطبقى: {str(e)}")
 
 
 @router.get("/geo/{month}")
 def get_geo(month: str, db: Session = Depends(get_db)):
-    cache_key = f"smart_geo_{month}"
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
+    try:
+        cache_key = f"smart_geo_{month}"
+        cached = cache.get(cache_key)
+        if cached:
+            return cached
 
-    result = run_smart_analytics(db, month)
-    data = _envelope(result)["data"]
-    response = {"month": month, "geo": data["geo"]}
-    cache.set(cache_key, response, ttl=300)
-    return response
+        result = run_smart_analytics(db, month)
+        data = _envelope(result)["data"]
+        response = {"month": month, "geo": data["geo"]}
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except Exception as e:
+        cache.invalidate(f"smart_geo_{month}")
+        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الجغرافي: {str(e)}")
 
 
 @router.get("/trend/{hospital_id}")
