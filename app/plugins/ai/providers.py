@@ -463,3 +463,95 @@ def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
         ))
 
     return recs
+
+
+def _local_root_cause_fallback_enhanced(report_data: dict) -> List[AIRuleDef]:
+    recs = []
+
+    trends = report_data.get("historical_trends", {})
+    for factor, trend_data in trends.items():
+        if trend_data.get("direction") == "declining":
+            slope = trend_data.get("slope", 0)
+            if slope < -2:
+                recs.append(AIRuleDef(
+                    category="Historical Decline",
+                    priority="critical",
+                    title=f"{factor} declining rapidly (slope={slope:.1f})",
+                    description=f"{factor} has been declining at {abs(slope):.1f} points/month over the last 6 months.",
+                    rationale="Rapid decline indicates systemic issue that will worsen without intervention.",
+                    action_items=[
+                        f"Investigate root cause of {factor} decline in the last 3 months",
+                        "Compare with peer hospitals to identify unique factors",
+                        "Implement corrective action within 2 weeks",
+                        "Monitor weekly until trend reverses",
+                    ],
+                    indicators_monitored=[factor],
+                ))
+            elif slope < -1:
+                recs.append(AIRuleDef(
+                    category="Historical Decline",
+                    priority="high",
+                    title=f"{factor} showing gradual decline",
+                    description=f"{factor} is declining at {abs(slope):.1f} points/month.",
+                    rationale="Gradual decline may indicate process drift or training gaps.",
+                    action_items=[
+                        f"Review {factor} data entry procedures",
+                        "Schedule refresher training for data entry staff",
+                        "Set up monthly monitoring alerts",
+                    ],
+                    indicators_monitored=[factor],
+                ))
+
+    comparisons = report_data.get("peer_comparisons", {})
+    for group, comp_data in comparisons.items():
+        percentile = comp_data.get("hospital_percentile", 100)
+        z_score = comp_data.get("hospital_z_score", 0)
+
+        if percentile < 25:
+            recs.append(AIRuleDef(
+                category="Peer Comparison",
+                priority="high",
+                title=f"Bottom {100-percentile:.0f}% compared to {group} peers",
+                description=f"Hospital ranks in bottom {100-percentile:.0f}% compared to {group} peers (percentile={percentile:.0f}).",
+                rationale="Consistently underperforming peers indicates structural issues that need addressing.",
+                action_items=[
+                    "Study best practices from benchmark hospitals",
+                    "Identify process differences with top performers",
+                    "Set improvement targets based on peer benchmarks",
+                    "Schedule site visit to high-performing peer hospital",
+                ],
+                indicators_monitored=[],
+            ))
+
+        if abs(z_score) > 2:
+            direction = "above" if z_score > 0 else "below"
+            recs.append(AIRuleDef(
+                category="Peer Comparison",
+                priority="medium",
+                title=f"Significant deviation from {group} mean",
+                description=f"Hospital is {abs(z_score):.1f} standard deviations {direction} the {group} mean.",
+                rationale="Large deviation from peers suggests unique factors affecting this hospital.",
+                action_items=[
+                    "Investigate what makes this hospital different from peers",
+                    "Determine if deviation is positive (best practice) or negative (needs improvement)",
+                    "Document and share any unique practices",
+                ],
+                indicators_monitored=[],
+            ))
+
+    if not recs:
+        recs.append(AIRuleDef(
+            category="Continuous Improvement",
+            priority="low",
+            title="Maintain Data Quality Standards",
+            description="No critical historical or comparative issues detected. Continue regular monitoring.",
+            rationale="Sustained data quality requires ongoing attention even when no immediate issues are present.",
+            action_items=[
+                "Continue monthly quality reviews",
+                "Document best practices for data entry",
+                "Schedule quarterly training refreshers",
+            ],
+            indicators_monitored=[],
+        ))
+
+    return recs
