@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.cache import cache
 from app.database import get_db
 from app.engine.smart import run_smart_analytics
 from app.engine.smart.schemas import SmartAnalyticsResult
@@ -71,8 +72,15 @@ def _envelope(result: SmartAnalyticsResult) -> dict:
 
 @router.get("/overview/{month}")
 def get_overview(month: str, db: Session = Depends(get_db)):
+    cache_key = f"smart_overview_{month}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     result = run_smart_analytics(db, month)
-    return _envelope(result)
+    response = _envelope(result)
+    cache.set(cache_key, response, ttl=300)
+    return response
 
 
 @router.get("/governorate-analysis/{month}")
@@ -90,44 +98,86 @@ def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
 
 @router.get("/anomalies/{month}")
 def get_anomalies(month: str, db: Session = Depends(get_db)):
+    cache_key = f"smart_anomalies_{month}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     result = run_smart_analytics(db, month)
     data = _envelope(result)["data"]
-    return {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
+    response = {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
+    cache.set(cache_key, response, ttl=300)
+    return response
 
 
 @router.get("/clusters/{month}")
 def get_clusters(month: str, db: Session = Depends(get_db)):
+    cache_key = f"smart_clusters_{month}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     result = run_smart_analytics(db, month)
     data = _envelope(result)["data"]
-    return {"month": month, "clustering": data["clustering"]}
+    response = {"month": month, "clustering": data["clustering"]}
+    cache.set(cache_key, response, ttl=300)
+    return response
 
 
 @router.get("/correlations/{month}")
 def get_correlations(month: str, db: Session = Depends(get_db)):
+    cache_key = f"smart_correlations_{month}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     result = run_smart_analytics(db, month)
     data = _envelope(result)["data"]
-    return {"month": month, "correlations": data["correlations"]}
+    response = {"month": month, "correlations": data["correlations"]}
+    cache.set(cache_key, response, ttl=300)
+    return response
 
 
 @router.get("/residuals/{month}")
 def get_residuals(month: str, db: Session = Depends(get_db)):
+    cache_key = f"smart_residuals_{month}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     result = run_smart_analytics(db, month)
     data = _envelope(result)["data"]
-    return {"month": month, "residuals": data["residuals"]}
+    response = {"month": month, "residuals": data["residuals"]}
+    cache.set(cache_key, response, ttl=300)
+    return response
 
 
 @router.get("/stratified/{month}")
 def get_stratified(month: str, db: Session = Depends(get_db)):
+    cache_key = f"smart_stratified_{month}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     result = run_smart_analytics(db, month)
     data = _envelope(result)["data"]
-    return {"month": month, "stratified": data["stratified"]}
+    response = {"month": month, "stratified": data["stratified"]}
+    cache.set(cache_key, response, ttl=300)
+    return response
 
 
 @router.get("/geo/{month}")
 def get_geo(month: str, db: Session = Depends(get_db)):
+    cache_key = f"smart_geo_{month}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
     result = run_smart_analytics(db, month)
     data = _envelope(result)["data"]
-    return {"month": month, "geo": data["geo"]}
+    response = {"month": month, "geo": data["geo"]}
+    cache.set(cache_key, response, ttl=300)
+    return response
 
 
 @router.get("/trend/{hospital_id}")
