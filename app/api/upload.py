@@ -11,6 +11,7 @@ from app.engine.pipeline import run_full_analysis
 from app.schemas import UploadResponse, AutoReportResponse
 from app.indicators import INDICATOR_FLAT_LIST
 from app.models import IndicatorValue, Indicator, Hospital
+from app.cache import cache
 from datetime import datetime
 import logging
 
@@ -126,6 +127,13 @@ def save_manual_entry(
             db.add(iv)
         saved += 1
     db.commit()
+    cache.invalidate("smart_overview_")
+    cache.invalidate("smart_anomalies_")
+    cache.invalidate("smart_clusters_")
+    cache.invalidate("smart_correlations_")
+    cache.invalidate("smart_residuals_")
+    cache.invalidate("smart_stratified_")
+    cache.invalidate("smart_geo_")
     return {"message": f"Saved {saved} values for {hospital.name} / {month}", "hospital": hospital.name, "month": month, "values_saved": saved}
 
 
@@ -161,6 +169,13 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
             os.remove(file_path)
         logger.error(f"Unexpected error processing {file.filename}: {e}", exc_info=True)
         raise HTTPException(status_code=422, detail=f"Error processing file: {str(e)}")
+    cache.invalidate("smart_overview_")
+    cache.invalidate("smart_anomalies_")
+    cache.invalidate("smart_clusters_")
+    cache.invalidate("smart_correlations_")
+    cache.invalidate("smart_residuals_")
+    cache.invalidate("smart_stratified_")
+    cache.invalidate("smart_geo_")
     return UploadResponse(**result)
 
 
@@ -196,6 +211,14 @@ async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends
             os.remove(file_path)
         logger.error(f"Unexpected error processing {file.filename}: {e}", exc_info=True)
         raise HTTPException(status_code=422, detail=f"Error processing file: {str(e)}")
+
+    cache.invalidate("smart_overview_")
+    cache.invalidate("smart_anomalies_")
+    cache.invalidate("smart_clusters_")
+    cache.invalidate("smart_correlations_")
+    cache.invalidate("smart_residuals_")
+    cache.invalidate("smart_stratified_")
+    cache.invalidate("smart_geo_")
 
     hospitals = result["hospitals"]
     months = result["months"]
