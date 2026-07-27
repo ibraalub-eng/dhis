@@ -9,11 +9,13 @@ from app.plugins.ai.providers import (
     _local_clinical_fallback,
     _local_executive_summary_fallback,
     _local_root_cause_fallback,
+    _local_root_cause_fallback_enhanced,
 )
 from app.plugins.ai.prompts import (
     _build_prompt,
     _build_executive_summary_prompt,
     _build_root_cause_prompt,
+    _build_root_cause_prompt_enhanced,
 )
 
 
@@ -111,13 +113,20 @@ def generate_executive_summary(
 
 
 def generate_root_cause_ai(report_data: dict, session=None) -> List[AIRuleDef]:
+    has_historical = bool(report_data.get("historical_trends") or report_data.get("peer_comparisons"))
+
     if not AI_ENABLED:
+        if has_historical:
+            return _local_root_cause_fallback_enhanced(report_data)
         return _local_root_cause_fallback(report_data)
     if not AI_API_KEY:
         import logging
         logging.getLogger(__name__).warning("AI_RECOMMENDATIONS_ENABLED=true but AI_API_KEY missing")
+        if has_historical:
+            return _local_root_cause_fallback_enhanced(report_data)
         return _local_root_cause_fallback(report_data)
-    prompt = _build_root_cause_prompt(report_data)
+
+    prompt = _build_root_cause_prompt_enhanced(report_data) if has_historical else _build_root_cause_prompt(report_data)
     if session is not None:
         try:
             cached = get_ai_cache(session, prompt)
@@ -130,6 +139,8 @@ def generate_root_cause_ai(report_data: dict, session=None) -> List[AIRuleDef]:
             pass
     response = _call_api(prompt)
     if not response:
+        if has_historical:
+            return _local_root_cause_fallback_enhanced(report_data)
         return _local_root_cause_fallback(report_data)
     if session is not None:
         try:
@@ -141,4 +152,6 @@ def generate_root_cause_ai(report_data: dict, session=None) -> List[AIRuleDef]:
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Failed to parse root cause AI response: {e}")
+        if has_historical:
+            return _local_root_cause_fallback_enhanced(report_data)
         return _local_root_cause_fallback(report_data)
