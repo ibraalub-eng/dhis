@@ -137,6 +137,87 @@ class HistoricalComparativeReport:
     priority_actions: List[str]
 
 
+def get_historical_data(
+    session: Session,
+    hospital_id: int,
+    indicator_code: str,
+    months_back: int = 6,
+) -> List[MonthDataPoint]:
+    """
+    Retrieve historical data for a specific indicator at a hospital.
+
+    Returns list of MonthDataPoint objects for the last N months.
+    """
+    result = session.execute(text("""
+        SELECT iv.month, iv.value,
+               COALESCE(qs.score, 0) as quality_score,
+               COALESCE(cs.overall_confidence, 0) as confidence,
+               COALESCE(
+                   (SELECT COUNT(*) FROM validation_results vr
+                    WHERE vr.hospital_id = iv.hospital_id
+                    AND vr.month = iv.month AND vr.status = 'FAIL') * 100.0 /
+                   NULLIF((SELECT COUNT(*) FROM validation_results vr2
+                           WHERE vr2.hospital_id = iv.hospital_id
+                           AND vr2.month = iv.month), 0),
+                   0) as rule_failure_rate
+        FROM indicator_values iv
+        JOIN indicators i ON iv.indicator_id = i.id
+        LEFT JOIN quality_scores qs ON iv.hospital_id = qs.hospital_id
+            AND iv.month = qs.month
+        LEFT JOIN confidence_scores cs ON iv.hospital_id = cs.hospital_id
+            AND iv.month = cs.month
+        WHERE iv.hospital_id = :hid
+        AND i.code = :code
+        AND iv.month >= strftime('%Y-%m', 'now', :offset)
+        ORDER BY iv.month ASC
+    """), {"hid": hospital_id, "code": indicator_code, "offset": f"-{months_back} months"})
+
+    history = []
+    for row in result:
+        history.append(MonthDataPoint(
+            month=row[0],
+            value=float(row[1] or 0),
+            quality_score=float(row[2] or 0),
+            confidence=float(row[3] or 0),
+            rule_failure_rate=float(row[4] or 0),
+        ))
+    return history
+
+
+def get_peer_historical_data(
+    session: Session,
+    hospital_id: int,
+    indicator_code: str,
+    months_back: int = 6,
+) -> Dict[str, List[MonthDataPoint]]:
+    """
+    Retrieve historical data for peer hospitals (same type).
+
+    Returns dict of {hospital_name: [MonthDataPoint, ...]}
+    """
+    hospital = session.execute(text("""
+        SELECT hospital_type_id FROM hospitals WHERE id = :hid
+    """), {"hid": hospital_id}).fetchone()
+
+    if not hospital or not hospital[0]:
+        return {}
+
+    peers = session.execute(text("""
+        SELECT id, name FROM hospitals
+        WHERE hospital_type_id = :htid
+        AND id != :hid
+        AND is_active = 1
+    """), {"htid": hospital[0], "hid": hospital_id})
+
+    peer_data = {}
+    for peer in peers:
+        history = get_historical_data(session, peer[0], indicator_code, months_back)
+        if history:
+            peer_data[peer[1]] = history
+
+    return peer_data
+
+
 def analyze_rule_failures(
     session: Session,
     hospital_id: int,

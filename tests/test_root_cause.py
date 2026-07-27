@@ -451,3 +451,67 @@ def test_causal_chain_creation():
     )
     assert chain.confidence == 0.85
     assert len(chain.evidence) == 1
+
+
+def test_get_historical_data(db_session):
+    from app.engine.root_cause import get_historical_data, MonthDataPoint
+    from app.models import Hospital, Indicator, IndicatorValue
+    from datetime import datetime
+
+    hospital = Hospital(name="Test Hospital", is_active=True)
+    db_session.add(hospital)
+    db_session.flush()
+
+    indicator = Indicator(code="CS_rate", name="C-Section Rate")
+    db_session.add(indicator)
+    db_session.flush()
+
+    for i, month in enumerate(["2026-05", "2026-06", "2026-07"]):
+        iv = IndicatorValue(
+            hospital_id=hospital.id,
+            indicator_id=indicator.id,
+            month=month,
+            value=20.0 + i * 2
+        )
+        db_session.add(iv)
+    db_session.commit()
+
+    result = get_historical_data(db_session, hospital.id, "CS_rate", months_back=3)
+
+    assert len(result) == 3
+    assert isinstance(result[0], MonthDataPoint)
+    assert result[0].month == "2026-05"
+    assert result[2].month == "2026-07"
+
+
+def test_get_peer_historical_data(db_session):
+    from app.engine.root_cause import get_peer_historical_data
+    from app.models import Hospital, HospitalType, Indicator, IndicatorValue
+
+    htype = HospitalType(name="Government")
+    db_session.add(htype)
+    db_session.flush()
+
+    indicator = Indicator(code="CS_rate", name="C-Section Rate")
+    db_session.add(indicator)
+    db_session.flush()
+
+    h1 = Hospital(name="Hospital A", hospital_type_id=htype.id, is_active=True)
+    h2 = Hospital(name="Hospital B", hospital_type_id=htype.id, is_active=True)
+    h3 = Hospital(name="Hospital C", hospital_type_id=htype.id, is_active=True)
+    db_session.add_all([h1, h2, h3])
+    db_session.flush()
+
+    for h in [h1, h2, h3]:
+        iv = IndicatorValue(
+            hospital_id=h.id,
+            indicator_id=indicator.id,
+            month="2026-07",
+            value=20.0
+        )
+        db_session.add(iv)
+    db_session.commit()
+
+    result = get_peer_historical_data(db_session, h1.id, "CS_rate", months_back=1)
+
+    assert len(result) == 2  # h2 and h3 (not h1 itself)
