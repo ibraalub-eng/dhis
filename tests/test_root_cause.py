@@ -613,3 +613,72 @@ def test_identify_peer_groups(db_session):
 
     assert "hospital_type" in result
     assert len(result["hospital_type"]) == 3
+
+
+def test_find_correlated_factors():
+    from app.engine.root_cause import find_correlated_factors, CausalNode, MonthDataPoint
+
+    source = CausalNode(
+        factor="R001", factor_type="rule", current_value=70,
+        trend="declining", trend_slope=-2.5, peer_comparison=None,
+        history=[
+            MonthDataPoint("2026-01", 65, 0, 0, 0),
+            MonthDataPoint("2026-02", 67, 0, 0, 0),
+            MonthDataPoint("2026-03", 68, 0, 0, 0),
+            MonthDataPoint("2026-04", 70, 0, 0, 0),
+        ],
+        severity="critical"
+    )
+
+    candidate = CausalNode(
+        factor="Rule Compliance", factor_type="quality_component",
+        current_value=55, trend="declining", trend_slope=-1.5,
+        peer_comparison=None,
+        history=[
+            MonthDataPoint("2026-01", 60, 0, 0, 0),
+            MonthDataPoint("2026-02", 58, 0, 0, 0),
+            MonthDataPoint("2026-03", 56, 0, 0, 0),
+            MonthDataPoint("2026-04", 55, 0, 0, 0),
+        ],
+        severity="high"
+    )
+
+    result = find_correlated_factors(source, [candidate])
+
+    assert len(result) == 1
+    assert result[0].factor == "Rule Compliance"
+
+
+def test_build_causal_chains():
+    from app.engine.root_cause import build_causal_chains, CausalNode, MonthDataPoint
+
+    nodes = [
+        CausalNode(
+            factor="R001", factor_type="rule", current_value=70,
+            trend="declining", trend_slope=-2.5, peer_comparison=None,
+            history=[
+                MonthDataPoint("2026-01", 65, 0, 0, 0),
+                MonthDataPoint("2026-02", 67, 0, 0, 0),
+                MonthDataPoint("2026-03", 68, 0, 0, 0),
+                MonthDataPoint("2026-04", 70, 0, 0, 0),
+            ],
+            severity="critical"
+        ),
+        CausalNode(
+            factor="Rule Compliance", factor_type="quality_component",
+            current_value=55, trend="declining", trend_slope=-1.5,
+            peer_comparison=None,
+            history=[
+                MonthDataPoint("2026-01", 60, 0, 0, 0),
+                MonthDataPoint("2026-02", 58, 0, 0, 0),
+                MonthDataPoint("2026-03", 56, 0, 0, 0),
+                MonthDataPoint("2026-04", 55, 0, 0, 0),
+            ],
+            severity="high"
+        ),
+    ]
+
+    result = build_causal_chains(nodes)
+
+    assert len(result) >= 1
+    assert result[0].confidence > 0

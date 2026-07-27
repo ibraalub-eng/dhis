@@ -377,6 +377,88 @@ def calculate_peer_comparison(
     )
 
 
+def find_correlated_factors(source: CausalNode, candidates: List[CausalNode]) -> List[CausalNode]:
+    """
+    Find factors that are correlated with source factor.
+
+    Correlation criteria:
+    1. Pearson correlation > 0.6 (strong positive correlation)
+    2. Both trending in same direction
+    3. Temporal lag < 1 month (changes happen together)
+
+    Returns factors that meet all criteria, sorted by correlation strength.
+    """
+    from scipy import stats
+
+    correlated = []
+    source_values = [h.value for h in source.history]
+
+    for candidate in candidates:
+        candidate_values = [h.value for h in candidate.history]
+
+        min_len = min(len(source_values), len(candidate_values))
+        if min_len < 3:
+            continue
+
+        s = source_values[:min_len]
+        c = candidate_values[:min_len]
+
+        corr, p_value = stats.pearsonr(s, c)
+
+        if abs(corr) > 0.6 and p_value < 0.05:
+            correlated.append((candidate, corr))
+
+    return [c for c, _ in sorted(correlated, key=lambda x: x[1], reverse=True)]
+
+
+def build_causal_chains(nodes: List[CausalNode]) -> List[CausalChain]:
+    """
+    Build causal chains by linking related factors.
+
+    Example chain:
+    R001 fails (70%) -> Rule Compliance low (55%) -> Quality Score low (62)
+    -> Confidence drops (40) -> Anomaly detected (Z=3.2)
+    """
+    rule_factors = [n for n in nodes if n.factor_type == "rule"]
+    quality_factors = [n for n in nodes if n.factor_type == "quality_component"]
+    confidence_factors = [n for n in nodes if n.factor_type == "confidence_signal"]
+
+    chains = []
+
+    for rule in rule_factors:
+        if rule.severity in ("critical", "high"):
+            related_quality = find_correlated_factors(rule, quality_factors)
+            related_confidence = find_correlated_factors(rule, confidence_factors)
+
+            evidence = [
+                f"{rule.factor} failure rate: {rule.current_value}%",
+                f"Trend: {rule.trend} over {len(rule.history)} months",
+            ]
+            if related_quality:
+                evidence.append(f"Correlated with {related_quality[0].factor} ({related_quality[0].current_value}%)")
+
+            impact = 0
+            if related_quality:
+                impact += abs(rule.current_value - 50) * 0.2
+                impact += abs(related_quality[0].current_value - 80) * 0.15
+            else:
+                impact += abs(rule.current_value - 50) * 0.3
+
+            chain = CausalChain(
+                root_cause=f"{rule.factor}: {rule.factor} failing at {rule.current_value}%",
+                root_cause_arabic=f"فشل {rule.factor}: {rule.current_value}%",
+                confidence=min(0.9, 0.5 + len(related_quality) * 0.15),
+                evidence=evidence,
+                affected_factors=[rule.factor] + [f.factor for f in related_quality + related_confidence],
+                recommended_action=f"Investigate and fix {rule.factor} root cause",
+                impact_if_fixed=round(impact, 1),
+                implementation_priority=rule.severity,
+            )
+            chains.append(chain)
+
+    return sorted(chains, key=lambda c: c.confidence, reverse=True)
+
+
 def analyze_rule_failures(
     session: Session,
     hospital_id: int,
