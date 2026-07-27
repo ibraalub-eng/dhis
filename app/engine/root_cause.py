@@ -76,6 +76,11 @@ class RootCauseReport:
     summary: str
     priority_actions: List[str]
     ai_recommendations: List[Dict] = field(default_factory=list)
+    causal_tree: List[CausalNode] = field(default_factory=list)
+    causal_chains: List[CausalChain] = field(default_factory=list)
+    historical_trends: Dict[str, Dict] = field(default_factory=dict)
+    peer_comparisons: Dict[str, PeerComparison] = field(default_factory=dict)
+    summary_arabic: str = ""
 
 
 @dataclass
@@ -710,6 +715,9 @@ def generate_root_cause_analysis(
     month: str,
     quality_data: Optional[Dict] = None,
     confidence_data: Optional[Dict] = None,
+    include_history: bool = False,
+    compare_peers: bool = False,
+    months_back: int = 6,
 ) -> RootCauseReport:
     hospital = session.execute(
         text("SELECT name FROM hospitals WHERE id = :hid"),
@@ -728,7 +736,68 @@ def generate_root_cause_analysis(
     critical_count = len([f for f in rule_failures if f.severity == "CRITICAL"])
     critical_count += len([g for g in confidence_gaps if g.level == "CRITICAL"])
 
+    causal_nodes = []
+    for rf in rule_failures:
+        history = []
+        if include_history:
+            history = get_historical_data(session, hospital_id, rf.rule_code, months_back)
+
+        causal_nodes.append(CausalNode(
+            factor=rf.rule_code,
+            factor_type="rule",
+            current_value=rf.failure_rate,
+            trend=calculate_trend(history)["direction"] if history else "stable",
+            trend_slope=calculate_trend(history)["slope"] if history else 0,
+            peer_comparison=None,
+            history=history,
+            severity=rf.severity,
+        ))
+
+    for qd in quality_drivers:
+        causal_nodes.append(CausalNode(
+            factor=qd.component,
+            factor_type="quality_component",
+            current_value=qd.value,
+            trend="stable",
+            trend_slope=0,
+            peer_comparison=None,
+            history=[],
+            severity="critical" if qd.status == "critical" else "high" if qd.status == "needs_improvement" else "low",
+        ))
+
+    causal_chains = build_causal_chains(causal_nodes)
+
+    peer_comparisons = {}
+    if compare_peers:
+        peer_groups = identify_peer_groups(session, hospital_id)
+        for group_name, peer_ids in peer_groups.items():
+            peer_values = []
+            for pid in peer_ids:
+                iv = session.execute(text("""
+                    SELECT value FROM indicator_values
+                    WHERE hospital_id = :pid AND month = :mth
+                    LIMIT 1
+                """), {"pid": pid, "mth": month}).fetchone()
+                if iv:
+                    peer_values.append(float(iv[0]))
+            if peer_values:
+                peer_comparisons[group_name] = calculate_peer_comparison(
+                    overall_quality, peer_values, hospital_name
+                )
+
+    historical_trends = {}
+    if include_history:
+        for node in causal_nodes:
+            if node.history:
+                historical_trends[node.factor] = calculate_trend(node.history)
+
     summary_parts = []
+    if causal_chains:
+        top_chain = causal_chains[0]
+        summary_parts.append(
+            f"Primary root cause: {top_chain.root_cause} "
+            f"(confidence: {top_chain.confidence:.0%})"
+        )
     if rule_failures:
         top_failure = rule_failures[0]
         summary_parts.append(
@@ -760,17 +829,27 @@ def generate_root_cause_analysis(
 
     summary = " | ".join(summary_parts)
 
+    summary_arabic = _generate_arabic_summary(
+        causal_chains, rule_failures, quality_drivers,
+        confidence_gaps, anomaly_patterns, peer_comparisons
+    )
+
     priority_actions = []
+    for chain in causal_chains[:3]:
+        priority_actions.append(
+            f"[{chain.implementation_priority.upper()}] "
+            f"{chain.root_cause}: {chain.recommended_action}"
+        )
     for f in rule_failures[:3]:
-        if f.severity in ("CRITICAL", "HIGH"):
+        if f.severity in ("CRITICAL", "HIGH") and len(priority_actions) < 8:
             priority_actions.append(f"[{f.severity}] {f.rule_code}: {f.recommendation[:100]}")
     for g in confidence_gaps[:3]:
-        if g.level in ("CRITICAL", "LOW"):
+        if g.level in ("CRITICAL", "LOW") and len(priority_actions) < 8:
             priority_actions.append(f"[{g.level} Confidence] {g.indicator_name}: {g.recommendation[:100]}")
     for a in anomaly_patterns[:2]:
-        if a.pattern_type == "severe":
+        if a.pattern_type == "severe" and len(priority_actions) < 8:
             priority_actions.append(f"[Anomaly] {a.description[:100]}")
-    if quality_drivers:
+    if quality_drivers and len(priority_actions) < 8:
         worst_q = quality_drivers[0]
         if worst_q.status != "good":
             priority_actions.append(f"[Quality] {worst_q.recommendation[:100]}")
@@ -831,4 +910,52 @@ def generate_root_cause_analysis(
         summary=summary[:300],
         priority_actions=priority_actions[:8],
         ai_recommendations=ai_recommendations,
+        causal_tree=causal_nodes,
+        causal_chains=causal_chains,
+        historical_trends=historical_trends,
+        peer_comparisons=peer_comparisons,
+        summary_arabic=summary_arabic,
     )
+
+
+def _generate_arabic_summary(
+    causal_chains, rule_failures, quality_drivers,
+    confidence_gaps, anomaly_patterns, peer_comparisons
+) -> str:
+    """Generate Arabic narrative summary of root cause analysis."""
+    parts = []
+
+    if causal_chains:
+        top = causal_chains[0]
+        parts.append(f"السبب الجذري الرئيسي: {top.root_cause_arabic}")
+
+    if peer_comparisons:
+        for group, comp in peer_comparisons.items():
+            if comp.hospital_percentile < 50:
+                parts.append(
+                    f"مقارنة ب {group}: المستشفى في المئوية {comp.hospital_percentile:.0f}"
+                )
+
+    if rule_failures:
+        critical = [r for r in rule_failures if r.severity == "CRITICAL"]
+        if critical:
+            parts.append(f"يوجد {len(critical)} مشاكل حرجة في قواعد التحقق")
+
+    if quality_drivers:
+        worst = quality_drivers[0]
+        if worst.status == "critical":
+            parts.append(f"العامل الحرج: {worst.component} بنسبة {worst.value:.1f}%")
+        elif worst.status == "needs_improvement":
+            parts.append(f"يحتاج تحسين: {worst.component} بنسبة {worst.value:.1f}%")
+
+    if confidence_gaps:
+        critical_gaps = [g for g in confidence_gaps if g.level in ("CRITICAL", "LOW")]
+        if critical_gaps:
+            parts.append(f" الثقة منخفضة لـ {len(critical_gaps)} مؤشرات")
+
+    if anomaly_patterns:
+        severe = [a for a in anomaly_patterns if a.pattern_type == "severe"]
+        if severe:
+            parts.append(f"تم اكتشاف {len(severe)} شذوذ حاد")
+
+    return ". ".join(parts) if parts else "لا توجد مشاكل حرجة"

@@ -682,3 +682,60 @@ def test_build_causal_chains():
 
     assert len(result) >= 1
     assert result[0].confidence > 0
+
+
+def test_generate_root_cause_with_historical(db_session):
+    """Test enhanced root cause analysis with historical data."""
+    from app.engine.root_cause import generate_root_cause_analysis
+    from app.models import Hospital, Indicator, IndicatorValue
+
+    hospital = Hospital(name="Test Hospital", is_active=True)
+    db_session.add(hospital)
+    db_session.flush()
+
+    indicator = Indicator(code="CS_rate", name="C-Section Rate")
+    db_session.add(indicator)
+    db_session.flush()
+
+    for i, month in enumerate(["2026-01", "2026-02", "2026-03"]):
+        iv = IndicatorValue(
+            hospital_id=hospital.id,
+            indicator_id=indicator.id,
+            month=month,
+            value=20.0 + i * 2
+        )
+        db_session.add(iv)
+    db_session.commit()
+
+    quality_data = {
+        "score": 65.0,
+        "rule_compliance": 55.0,
+        "completeness": 70.0,
+        "consistency": 60.0,
+        "outlier_penalty": 0.2,
+    }
+    confidence_data = {
+        "overall_confidence": 50.0,
+        "level": "MEDIUM",
+        "indicators_data": [],
+    }
+
+    report = generate_root_cause_analysis(
+        db_session, hospital.id, "2026-03",
+        quality_data=quality_data,
+        confidence_data=confidence_data,
+        include_history=True,
+        compare_peers=True,
+        months_back=3
+    )
+
+    assert hasattr(report, 'causal_tree')
+    assert hasattr(report, 'causal_chains')
+    assert hasattr(report, 'historical_trends')
+    assert hasattr(report, 'peer_comparisons')
+    assert hasattr(report, 'summary_arabic')
+    assert isinstance(report.causal_tree, list)
+    assert isinstance(report.causal_chains, list)
+    assert isinstance(report.historical_trends, dict)
+    assert isinstance(report.peer_comparisons, dict)
+    assert isinstance(report.summary_arabic, str)
