@@ -234,3 +234,91 @@ Give concrete, hospital-specific advice. Prioritize critical data quality issues
 
 Return between 1 and """ + str(AI_MAX_RECOMMENDATIONS) + """ recommendations in order of priority.""")
     return "\n".join(lines)
+
+
+def _build_root_cause_prompt_enhanced(report_data: dict) -> str:
+    """
+    Build enhanced root cause prompt with historical and comparative context.
+    """
+    lines = []
+    lines.append("You are a maternal health data quality expert analyzing ROOT CAUSES with HISTORICAL and COMPARATIVE context.")
+    lines.append("Focus on data quality improvements, confidence gaps, and operational fixes for the specific hospital.")
+    lines.append("")
+    lines.append(f"Hospital: {report_data.get('hospital', 'Unknown')}")
+    lines.append(f"Month: {report_data.get('month', 'Unknown')}")
+    lines.append(f"Overall Quality Score: {report_data.get('overall_quality_score', 'N/A')}")
+    lines.append(f"Overall Confidence: {report_data.get('overall_confidence', 'N/A')}")
+    lines.append(f"Critical Issues Count: {report_data.get('critical_issues_count', 0)}")
+    lines.append("")
+
+    if report_data.get("historical_trends"):
+        lines.append("## Historical Trends (Last 6 Months)")
+        for factor, trend in report_data["historical_trends"].items():
+            lines.append(f"  {factor}: {trend.get('direction', 'unknown')} "
+                         f"(slope={trend.get('slope', 0):.2f}, "
+                         f"significant={trend.get('significant_change', False)})")
+        lines.append("")
+
+    if report_data.get("peer_comparisons"):
+        lines.append("## Peer Comparisons")
+        for group, comp in report_data["peer_comparisons"].items():
+            lines.append(f"  {group}: percentile={comp.get('hospital_percentile', 0)}, "
+                         f"z-score={comp.get('hospital_z_score', 0)}, "
+                         f"gap_to_benchmark={comp.get('gap_to_benchmark', 0)}")
+        lines.append("")
+
+    if report_data.get("causal_chains"):
+        lines.append("## Causal Chains Detected")
+        for chain in report_data["causal_chains"]:
+            lines.append(f"  Root Cause: {chain.get('root_cause_arabic', '')}")
+            lines.append(f"  Confidence: {chain.get('confidence', 0)}")
+            lines.append(f"  Impact if fixed: {chain.get('impact_if_fixed', 0)} points")
+        lines.append("")
+
+    if report_data.get("top_rule_failures"):
+        lines.append("## Top Rule Failures")
+        for f in report_data["top_rule_failures"][:5]:
+            lines.append(f"  {f.get('rule_code','')} ({f.get('severity','')}): {f.get('description','')}")
+            lines.append(f"    Failure rate: {f.get('failure_rate','')}% | Cause: {f.get('primary_cause','')}")
+        lines.append("")
+
+    if report_data.get("quality_drivers"):
+        lines.append("## Quality Drivers")
+        for d in report_data["quality_drivers"]:
+            lines.append(f"  {d.get('component','')}: {d.get('value','')}% ({d.get('status','')})")
+        lines.append("")
+
+    if report_data.get("confidence_gaps"):
+        lines.append("## Confidence Gaps")
+        for g in report_data["confidence_gaps"][:5]:
+            lines.append(f"  {g.get('indicator_name','')} ({g.get('level','')}): confidence={g.get('confidence','')}")
+        lines.append("")
+
+    if report_data.get("anomaly_patterns"):
+        lines.append("## Anomaly Patterns")
+        for a in report_data["anomaly_patterns"][:5]:
+            lines.append(f"  {a.get('rate_name','')}: |z|={a.get('avg_z_score','')}, type={a.get('pattern_type','')}")
+        lines.append("")
+
+    lines.append("""Based on the historical trends and peer comparisons above, provide:
+1. Root cause analysis with historical context (why is this happening now?)
+2. Why this hospital differs from peers (what makes it unique?)
+3. Specific actionable recommendations with timelines
+4. Expected impact if recommendations are implemented
+
+Return a JSON array of recommendation objects only (no markdown, no explanation).
+Each object has these fields:
+- category: str (e.g. "Historical Decline", "Peer Comparison", "Data Entry Training")
+- priority: str (one of "critical", "high", "medium", "low")
+- title: str (short, max 80 chars)
+- description: str (1-2 sentences explaining the root cause issue)
+- rationale: str (why this matters, 1-2 sentences)
+- action_items: list[str] (3-5 specific actionable steps with timelines)
+- affected_indicators: list[str] (indicator codes or rule codes affected)
+- expected_impact: float (numeric improvement estimate in quality score points)
+- implementation_timeline: str (e.g., "1-2 weeks", "1 month")
+
+Give concrete, hospital-specific advice. Prioritize critical data quality issues first.
+
+Return between 1 and """ + str(AI_MAX_RECOMMENDATIONS) + """ recommendations in order of priority.""")
+    return "\n".join(lines)
