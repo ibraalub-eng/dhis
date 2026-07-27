@@ -558,3 +558,58 @@ def test_calculate_trend_insufficient_data():
     assert result["slope"] == 0
     assert result["direction"] == "stable"
     assert result["significant_change"] is False
+
+
+def test_calculate_peer_comparison():
+    from app.engine.root_cause import calculate_peer_comparison
+
+    peer_values = [60.0, 65.0, 70.0, 75.0, 80.0]
+
+    result = calculate_peer_comparison(72.0, peer_values, "Test Hospital")
+
+    assert result.peer_group == "hospital_type"
+    assert result.peer_count == 5
+    assert 60 <= result.hospital_percentile <= 80
+    assert isinstance(result.hospital_z_score, float)
+
+
+def test_calculate_peer_comparison_empty_peers():
+    from app.engine.root_cause import calculate_peer_comparison
+
+    result = calculate_peer_comparison(72.0, [], "Test Hospital")
+
+    assert result.peer_count == 0
+    assert result.hospital_percentile == 50.0
+    assert result.hospital_z_score == 0.0
+    assert result.gap_to_benchmark == 0.0
+
+
+def test_identify_peer_groups(db_session):
+    from app.engine.root_cause import identify_peer_groups
+    from app.models import Hospital, HospitalType, FacilityOwnership, Governorate
+
+    htype = HospitalType(name="Government")
+    ownership = FacilityOwnership(name="Ministry")
+    gov = Governorate(name="Gaza")
+    db_session.add_all([htype, ownership, gov])
+    db_session.flush()
+
+    h1 = Hospital(name="A", hospital_type_id=htype.id,
+                  facility_ownership_id=ownership.id,
+                  governorate_id=gov.id, is_active=True)
+    h2 = Hospital(name="B", hospital_type_id=htype.id,
+                  facility_ownership_id=ownership.id,
+                  governorate_id=gov.id, is_active=True)
+    h3 = Hospital(name="C", hospital_type_id=htype.id,
+                  facility_ownership_id=ownership.id,
+                  governorate_id=gov.id, is_active=True)
+    h4 = Hospital(name="D", hospital_type_id=htype.id,
+                  facility_ownership_id=ownership.id,
+                  governorate_id=gov.id, is_active=True)
+    db_session.add_all([h1, h2, h3, h4])
+    db_session.commit()
+
+    result = identify_peer_groups(db_session, h1.id)
+
+    assert "hospital_type" in result
+    assert len(result["hospital_type"]) == 3

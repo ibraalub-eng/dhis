@@ -265,6 +265,118 @@ def calculate_trend(history: List[MonthDataPoint]) -> Dict:
     }
 
 
+MIN_PEER_SIZE = 3
+
+
+def identify_peer_groups(session: Session, hospital_id: int) -> Dict[str, List[int]]:
+    """
+    Identify three peer groups:
+    1. Same hospital_type_id (e.g., government hospitals)
+    2. Same facility_ownership_id (e.g., Ministry of Health)
+    3. Same governorate (regional average)
+
+    Returns: {peer_group_name: [hospital_ids]}
+    If a peer group has fewer than MIN_PEER_SIZE members, it is excluded.
+    """
+    hospital = session.execute(text("""
+        SELECT hospital_type_id, facility_ownership_id, governorate_id
+        FROM hospitals WHERE id = :hid
+    """), {"hid": hospital_id}).fetchone()
+
+    if not hospital:
+        return {}
+
+    result = {}
+
+    # Peers by type
+    if hospital[0]:
+        peers = session.execute(text("""
+            SELECT id FROM hospitals
+            WHERE hospital_type_id = :htid
+            AND id != :hid
+            AND is_active = 1
+        """), {"htid": hospital[0], "hid": hospital_id})
+        peer_ids = [p[0] for p in peers]
+        if len(peer_ids) >= MIN_PEER_SIZE:
+            result["hospital_type"] = peer_ids
+
+    # Peers by ownership
+    if hospital[1]:
+        peers = session.execute(text("""
+            SELECT id FROM hospitals
+            WHERE facility_ownership_id = :foid
+            AND id != :hid
+            AND is_active = 1
+        """), {"foid": hospital[1], "hid": hospital_id})
+        peer_ids = [p[0] for p in peers]
+        if len(peer_ids) >= MIN_PEER_SIZE:
+            result["ownership"] = peer_ids
+
+    # Peers by region
+    if hospital[2]:
+        peers = session.execute(text("""
+            SELECT id FROM hospitals
+            WHERE governorate_id = :gid
+            AND id != :hid
+            AND is_active = 1
+        """), {"gid": hospital[2], "hid": hospital_id})
+        peer_ids = [p[0] for p in peers]
+        if len(peer_ids) >= MIN_PEER_SIZE:
+            result["regional"] = peer_ids
+
+    return result
+
+
+def calculate_peer_comparison(
+    hospital_value: float,
+    peer_values: List[float],
+    hospital_name: str = "Hospital",
+) -> PeerComparison:
+    """
+    Calculate how hospital compares to peers.
+
+    Metrics:
+    - Percentile: rank among peers (0-100)
+    - Z-score: standard deviations from mean
+    - Gap to benchmark: difference from best performer
+    """
+    import numpy as np
+    from scipy import stats as sp_stats
+
+    if not peer_values:
+        return PeerComparison(
+            peer_group="hospital_type",
+            peer_count=0,
+            mean_value=0,
+            std_value=0,
+            hospital_percentile=50.0,
+            hospital_z_score=0.0,
+            benchmark_hospital=hospital_name,
+            benchmark_value=hospital_value,
+            gap_to_benchmark=0.0,
+        )
+
+    mean_val = float(np.mean(peer_values))
+    std_val = float(np.std(peer_values)) if len(peer_values) > 1 else 0
+
+    percentile = float(sp_stats.percentileofscore(peer_values, hospital_value))
+    z_score = (hospital_value - mean_val) / std_val if std_val > 0 else 0
+
+    best_value = max(peer_values)
+
+    return PeerComparison(
+        peer_group="hospital_type",
+        peer_count=len(peer_values),
+        mean_value=round(mean_val, 2),
+        std_value=round(std_val, 2),
+        hospital_percentile=round(percentile, 1),
+        hospital_z_score=round(z_score, 2),
+        benchmark_hospital=hospital_name,
+        benchmark_value=round(best_value, 2),
+        gap_to_benchmark=round(best_value - hospital_value, 2),
+    )
+
+
 def analyze_rule_failures(
     session: Session,
     hospital_id: int,
