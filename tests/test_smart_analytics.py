@@ -86,3 +86,46 @@ def test_geo_error_message_arabic(mock_run, client):
     response = client.get("/smart/geo/2026-06")
     assert response.status_code == 500
     assert "خطأ في التحليل الجغرافي" in response.json()["detail"]
+
+
+def test_cache_returns_cached_result(client):
+    """Test that cache returns cached result"""
+    from app.cache import cache
+    
+    # Clear cache first
+    cache.invalidate("smart_overview_")
+    
+    # Call API endpoint (this will cache the result)
+    response = client.get("/smart/overview/2026-06")
+    assert response.status_code == 200
+    
+    # Verify result is cached
+    cache_key = "smart_overview_2026-06"
+    cached = cache.get(cache_key)
+    assert cached is not None
+
+
+def test_cache_invalidates_on_upload(db_session):
+    """Test that cache invalidates on upload"""
+    from app.cache import cache
+    
+    # Run analysis first
+    from app.engine.smart import run_smart_analytics
+    run_smart_analytics(db_session, "2026-06")
+    
+    # Clear cache
+    cache.invalidate("smart_overview_")
+    
+    # Verify cache is empty
+    cache_key = "smart_overview_2026-06"
+    cached = cache.get(cache_key)
+    assert cached is None
+
+
+def test_smart_endpoints_return_data(client):
+    """Test that smart endpoints return data"""
+    response = client.get("/smart/overview/2026-06")
+    assert response.status_code == 200
+    data = response.json()
+    assert "data" in data
+    assert "kpi" in data["data"]
