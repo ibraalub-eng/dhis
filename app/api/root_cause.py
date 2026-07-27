@@ -13,6 +13,9 @@ router = APIRouter(prefix="/root-cause", tags=["root-cause"])
 def get_root_cause_analysis(
     hospital_id: int,
     month: str = Query(..., description="Month YYYY-MM"),
+    include_history: bool = Query(False, description="Include historical trend analysis"),
+    compare_peers: bool = Query(False, description="Include peer comparison analysis"),
+    months_back: int = Query(6, description="Months of history to analyze"),
     db: Session = Depends(get_db),
 ):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
@@ -72,9 +75,12 @@ def get_root_cause_analysis(
         db, hospital_id, month,
         quality_data=quality_data,
         confidence_data=confidence_data,
+        include_history=include_history,
+        compare_peers=compare_peers,
+        months_back=months_back,
     )
 
-    return {
+    response = {
         "hospital": report.hospital,
         "hospital_id": report.hospital_id,
         "month": report.month,
@@ -128,3 +134,44 @@ def get_root_cause_analysis(
         ],
         "ai_recommendations": report.ai_recommendations,
     }
+
+    if include_history or compare_peers:
+        response["causal_tree"] = [
+            {
+                "factor": n.factor,
+                "factor_type": n.factor_type,
+                "current_value": n.current_value,
+                "trend": n.trend,
+                "trend_slope": n.trend_slope,
+                "severity": n.severity,
+            }
+            for n in report.causal_tree
+        ]
+        response["causal_chains"] = [
+            {
+                "root_cause": c.root_cause,
+                "root_cause_arabic": c.root_cause_arabic,
+                "confidence": c.confidence,
+                "evidence": c.evidence,
+                "affected_factors": c.affected_factors,
+                "recommended_action": c.recommended_action,
+                "impact_if_fixed": c.impact_if_fixed,
+                "implementation_priority": c.implementation_priority,
+            }
+            for c in report.causal_chains
+        ]
+        response["historical_trends"] = report.historical_trends
+        response["peer_comparisons"] = {
+            k: {
+                "peer_group": v.peer_group,
+                "peer_count": v.peer_count,
+                "mean_value": v.mean_value,
+                "hospital_percentile": v.hospital_percentile,
+                "hospital_z_score": v.hospital_z_score,
+                "gap_to_benchmark": v.gap_to_benchmark,
+            }
+            for k, v in report.peer_comparisons.items()
+        }
+        response["summary_arabic"] = report.summary_arabic
+
+    return response
