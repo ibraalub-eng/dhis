@@ -218,6 +218,53 @@ def get_peer_historical_data(
     return peer_data
 
 
+def calculate_trend(history: List[MonthDataPoint]) -> Dict:
+    """
+    Calculate trend metrics for a factor over time.
+
+    Returns:
+    - slope: linear regression slope (positive = improving)
+    - r_squared: how well the trend fits (0-1)
+    - volatility: standard deviation of changes
+    - direction: "improving" / "declining" / "stable"
+    - significant_change: bool (p-value < 0.05)
+    """
+    from scipy import stats
+    import numpy as np
+
+    if len(history) < 2:
+        return {
+            "slope": 0,
+            "r_squared": 0,
+            "volatility": 0,
+            "direction": "stable",
+            "significant_change": False,
+        }
+
+    values = [p.value for p in history]
+    months = list(range(len(values)))
+
+    slope, intercept, r_value, p_value, std_err = stats.linregress(months, values)
+
+    changes = np.diff(values)
+    volatility = float(np.std(changes)) if len(changes) > 0 else 0
+
+    if slope > 0.5:
+        direction = "improving"
+    elif slope < -0.5:
+        direction = "declining"
+    else:
+        direction = "stable"
+
+    return {
+        "slope": round(slope, 2),
+        "r_squared": round(r_value ** 2, 3),
+        "volatility": round(volatility, 2),
+        "direction": direction,
+        "significant_change": p_value < 0.05,
+    }
+
+
 def analyze_rule_failures(
     session: Session,
     hospital_id: int,

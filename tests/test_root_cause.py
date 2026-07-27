@@ -515,3 +515,46 @@ def test_get_peer_historical_data(db_session):
     result = get_peer_historical_data(db_session, h1.id, "CS_rate", months_back=1)
 
     assert len(result) == 2  # h2 and h3 (not h1 itself)
+
+
+def test_calculate_trend_declining():
+    from app.engine.root_cause import calculate_trend, MonthDataPoint
+
+    history = [
+        MonthDataPoint("2026-01", 80.0, 0, 0, 0),
+        MonthDataPoint("2026-02", 75.0, 0, 0, 0),
+        MonthDataPoint("2026-03", 70.0, 0, 0, 0),
+        MonthDataPoint("2026-04", 65.0, 0, 0, 0),
+    ]
+
+    result = calculate_trend(history)
+
+    assert result["direction"] == "declining"
+    assert result["slope"] < 0
+    assert result["r_squared"] > 0.9
+
+
+def test_calculate_trend_stable():
+    from app.engine.root_cause import calculate_trend, MonthDataPoint
+
+    history = [
+        MonthDataPoint("2026-01", 70.0, 0, 0, 0),
+        MonthDataPoint("2026-02", 71.0, 0, 0, 0),
+        MonthDataPoint("2026-03", 70.0, 0, 0, 0),
+        MonthDataPoint("2026-04", 70.5, 0, 0, 0),
+    ]
+
+    result = calculate_trend(history)
+
+    assert result["direction"] == "stable"
+    assert abs(result["slope"]) < 0.5
+
+
+def test_calculate_trend_insufficient_data():
+    from app.engine.root_cause import calculate_trend, MonthDataPoint
+
+    result = calculate_trend([])
+
+    assert result["slope"] == 0
+    assert result["direction"] == "stable"
+    assert result["significant_change"] is False
