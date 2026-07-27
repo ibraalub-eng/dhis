@@ -157,21 +157,29 @@ async function loadSmartData(month) {
     smartCurrentData = await apiSmartGet(`/smart/overview/${month}`);
     const d = smartCurrentData.data;
     const total = smartCurrentData.hospitals_count;
+
     renderKPIs(d.kpi, total);
-    renderGeoMap(d.geo);
-    renderClusterScatter(d.clustering, d.anomalies);
-    renderCorrelationHeatmap(d.correlations);
-    renderResidualPlot(d.residuals, document.getElementById('smart-residual-indicator').value);
-    renderAnomalyTable(d.anomalies, d.explanations);
-    renderFeatureImportance(d.correlations, document.getElementById('smart-fi-indicator').value);
-    renderStratifiedComparison(d.stratified, document.getElementById('smart-strat-indicator').value);
-    renderXGBoostPredictions(d.xgboost);
-    loadGovernorateAnalysis(month);
-    document.getElementById('smart-status').textContent = `تم التحديث — ${total} مستشفى`;
-    document.getElementById('smart-disclaimer').textContent = `النتائج مبنية على بيانات ${total} مستشفى فقط. يجب تفسيرها كمؤشرات أولية وليست قرارات نهائية. لا تتوفر تنبؤات زمنية في هذه المرحلة.`;
+
+    setTimeout(() => {
+      renderGeoMap(d.geo);
+      renderClusterScatter(d.clustering, d.anomalies);
+      renderCorrelationHeatmap(d.correlations);
+    }, 100);
+
+    setTimeout(() => {
+      renderResidualPlot(d.residuals, document.getElementById('smart-residual-indicator').value);
+      renderAnomalyTable(d.anomalies, d.explanations);
+      renderFeatureImportance(d.correlations, document.getElementById('smart-fi-indicator').value);
+      renderStratifiedComparison(d.stratified, document.getElementById('smart-strat-indicator').value);
+      renderXGBoostPredictions(d.xgboost);
+      loadGovernorateAnalysis(month);
+
+      document.getElementById('smart-status').textContent = `تم التحديث — ${total} مستشفى`;
+      document.getElementById('smart-disclaimer').textContent = `النتائج مبنية على بيانات ${total} مستشفى فقط. يجب تفسيرها كمؤشرات أولية وليست قرارات نهائية. لا تتوفر تنبؤات زمنية في هذه المرحلة.`;
+      smartHideLoading();
+    }, 300);
   } catch (e) {
     document.getElementById('smart-status').textContent = 'خطأ في التحميل: ' + e.message;
-  } finally {
     smartHideLoading();
   }
 }
