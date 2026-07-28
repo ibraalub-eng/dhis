@@ -14,6 +14,20 @@
       <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;">الشهر</label>
       <select id="comparative-month" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:130px;font-size:0.85rem;background:white;"></select>
     </div>
+    <div>
+      <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;">طريقة المقارنة</label>
+      <select id="comparison-type" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:130px;font-size:0.85rem;background:white;">
+        <option value="all">جميع المستشفيات</option>
+        <option value="governorate">نفس المحافظة</option>
+        <option value="type">نفس النوع</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;">المستشفى</label>
+      <select id="hospital-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:150px;font-size:0.85rem;background:white;">
+        <option value="">جميع المستشفيات</option>
+      </select>
+    </div>
     <div style="align-self:flex-end;">
       <button id="comparative-generate" class="btn btn-sm" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">توليد التقرير الذكي الشامل</button>
     </div>
@@ -38,6 +52,38 @@
   <div id="comparative-data-section" style="display:none;margin-bottom:1.5rem;">
     <h4 style="color:#1a237e;margin-bottom:0.8rem;font-size:0.95rem;">ملخص البيانات</h4>
     <div id="comparative-data-cards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"></div>
+  </div>
+
+  <!-- Comparison Chart -->
+  <div id="comparison-chart-container" class="card" style="display:none;margin-bottom:1.5rem;padding:1.2rem;border-radius:10px;border-top:3px solid #312e81;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+      <h4 style="color:#1a237e;margin:0;font-size:0.95rem;">مقارنة أداء المستشفيات عبر الأشهر</h4>
+      <span id="chart-filter-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#eef2ff;color:#4338ca;font-weight:600;"></span>
+    </div>
+    <div style="position:relative;height:350px;">
+      <canvas id="comparison-chart"></canvas>
+    </div>
+  </div>
+
+  <!-- Peer Comparison Table -->
+  <div id="peer-comparison-container" class="card" style="display:none;margin-bottom:1.5rem;padding:1.2rem;border-radius:10px;border-top:3px solid #4338ca;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+      <h4 style="color:#1a237e;margin:0;font-size:0.95rem;">مقارنة المستشفيات ببعضها</h4>
+      <span id="peer-filter-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#eef2ff;color:#4338ca;font-weight:600;"></span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table id="peer-comparison-table" style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+        <thead>
+          <tr style="background:#f8fafc;border-bottom:2px solid #c7d2fe;">
+            <th style="padding:0.6rem 0.8rem;text-align:right;color:#4338ca;font-weight:600;">الترتيب</th>
+            <th style="padding:0.6rem 0.8rem;text-align:right;color:#4338ca;font-weight:600;">المستشفى</th>
+            <th style="padding:0.6rem 0.8rem;text-align:right;color:#4338ca;font-weight:600;">النسبة المئوية</th>
+            <th style="padding:0.6rem 0.8rem;text-align:right;color:#4338ca;font-weight:600;">التقييم</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </div>
 
   <!-- Initial placeholder -->

@@ -1,5 +1,6 @@
 let comparativeCurrentMonth = null;
 let comparativeCurrentData = null;
+let comparisonChart = null;
 
 async function apiComparativeGet(path) {
   const base = document.getElementById('apiBase')?.value || '';
@@ -29,8 +30,28 @@ window.initComparative = async function() {
     monthSelect.appendChild(opt);
   });
 
+  // Load hospitals list
+  try {
+    const hospitalsRes = await apiComparativeGet('/hospitals');
+    const hospitals = hospitalsRes?.hospitals || hospitalsRes || [];
+    const hospitalSelect = document.getElementById('hospital-select');
+    hospitalSelect.innerHTML = '<option value="">جميع المستشفيات</option>';
+    hospitals.forEach(h => {
+      const opt = document.createElement('option');
+      opt.value = h.id;
+      opt.textContent = h.name;
+      hospitalSelect.appendChild(opt);
+    });
+  } catch (e) {
+    console.error('خطأ في تحميل المستشفيات:', e);
+  }
+
   document.getElementById('comparative-generate').addEventListener('click', () => {
-    generateComprehensiveReport(monthSelect.value);
+    const month = monthSelect.value;
+    const hospitalId = document.getElementById('hospital-select').value;
+    const comparisonType = document.getElementById('comparison-type').value;
+    generateComprehensiveReport(month);
+    generateAdvancedComparison(month, hospitalId, comparisonType);
   });
 
   if (months.length > 0) {
@@ -68,6 +89,105 @@ async function generateComprehensiveReport(month) {
   } finally {
     compHideLoading();
   }
+}
+
+async function generateAdvancedComparison(month, hospitalId, comparisonType) {
+  document.getElementById('comparison-chart-container').style.display = 'none';
+  document.getElementById('peer-comparison-container').style.display = 'none';
+
+  try {
+    let url = `/comparative/advanced-comparison/${month}`;
+    const params = new URLSearchParams();
+    if (hospitalId) params.append('hospital_id', hospitalId);
+    if (comparisonType) params.append('comparison_type', comparisonType);
+    if (params.toString()) url += '?' + params.toString();
+
+    const result = await apiComparativeGet(url);
+
+    // Render chart
+    if (result.chart_config && result.chart_config.data && result.chart_config.data.labels && result.chart_config.data.labels.length > 0) {
+      renderComparisonChart(result.chart_config);
+      document.getElementById('chart-filter-badge').textContent = comparisonType === 'all' ? 'جميع المستشفيات' : comparisonType === 'governorate' ? 'نفس المحافظة' : 'نفس النوع';
+      document.getElementById('comparison-chart-container').style.display = 'block';
+    }
+
+    // Render peer comparison table
+    if (result.comparison_data && result.comparison_data.peer_comparison && result.comparison_data.peer_comparison.length > 0) {
+      renderPeerComparisonTable(result.comparison_data.peer_comparison);
+      document.getElementById('peer-filter-badge').textContent = comparisonType === 'all' ? 'جميع المستشفيات' : comparisonType === 'governorate' ? 'نفس المحافظة' : 'نفس النوع';
+      document.getElementById('peer-comparison-container').style.display = 'block';
+    }
+  } catch (e) {
+    console.error('خطأ في المقارنة المتقدمة:', e);
+  }
+}
+
+function renderComparisonChart(chartConfig) {
+  const ctx = document.getElementById('comparison-chart').getContext('2d');
+
+  if (comparisonChart) {
+    comparisonChart.destroy();
+  }
+
+  comparisonChart = new Chart(ctx, {
+    type: chartConfig.type || 'line',
+    data: chartConfig.data,
+    options: chartConfig.options || {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        title: {
+          display: true,
+          text: 'مقارنة أداء المستشفيات عبر الأشهر'
+        },
+        legend: {
+          position: 'bottom'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          title: {
+            display: true,
+            text: 'إجمالي الحالات'
+          }
+        },
+        x: {
+          title: {
+            display: true,
+            text: 'الشهر'
+          }
+        }
+      }
+    }
+  });
+}
+
+function renderPeerComparisonTable(peerComparison) {
+  const tbody = document.querySelector('#peer-comparison-table tbody');
+  tbody.innerHTML = '';
+
+  const labelColors = {
+    'متفوق': { bg: '#dcfce7', color: '#166534' },
+    'متوسط': { bg: '#eef2ff', color: '#4338ca' },
+    'يحتاج تحسين': { bg: '#fef3c7', color: '#92400e' },
+    'حرج': { bg: '#fee2e2', color: '#991b1b' }
+  };
+
+  peerComparison.forEach(peer => {
+    const row = document.createElement('tr');
+    row.style.borderBottom = '1px solid #e5e7eb';
+    const lbl = labelColors[peer.comparison_label] || { bg: '#f3f4f6', color: '#374151' };
+    row.innerHTML = `
+      <td style="padding:0.55rem 0.8rem;font-weight:600;color:#1a237e;">${peer.rank}</td>
+      <td style="padding:0.55rem 0.8rem;font-weight:500;">${peer.hospital_name}</td>
+      <td style="padding:0.55rem 0.8rem;">${peer.percentile.toFixed(1)}%</td>
+      <td style="padding:0.55rem 0.8rem;">
+        <span style="display:inline-block;padding:0.15rem 0.6rem;border-radius:10px;font-size:0.78rem;font-weight:600;background:${lbl.bg};color:${lbl.color};">${peer.comparison_label}</span>
+      </td>
+    `;
+    tbody.appendChild(row);
+  });
 }
 
 function renderComparativeDataCards(data) {
