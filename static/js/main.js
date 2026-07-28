@@ -97,6 +97,7 @@
             if (name === 'rules-manager') window.loadRulesManager();
             if (name === 'audit') window.initAudit();
             if (name === 'smart-analytics') window.initSmartAnalytics();
+            if (name === 'comparative') window.initComparative();
         }
 
         document.querySelectorAll('.tab').forEach(tab => {
