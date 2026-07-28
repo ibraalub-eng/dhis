@@ -2,6 +2,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from app.engine.comparative import generate_comprehensive_report
+from app.engine.comparative.advanced_comparison import perform_advanced_comparison, AdvancedComparisonResult
 
 
 def test_build_comprehensive_prompt_returns_string(db_session):
@@ -279,3 +280,70 @@ def test_comprehensive_report_default_error_text(mock_gemini, db_session):
     mock_gemini.return_value = ""
     result = generate_comprehensive_report(db_session, "2026-06")
     assert result["report"] == "خطأ في توليد التقرير"
+
+
+# --- Advanced Comparison Tests ---
+
+
+def test_advanced_comparison_returns_data(db_session):
+    """اختبار أن المقارنة تُعيد بيانات"""
+    result = perform_advanced_comparison(db_session, "2026-06")
+    assert isinstance(result, AdvancedComparisonResult)
+    assert result.month == "2026-06"
+    assert isinstance(result.trends, list)
+    assert isinstance(result.peer_comparisons, list)
+    assert isinstance(result.predictions, dict)
+    assert isinstance(result.chart_config, dict)
+
+
+def test_advanced_comparison_endpoint_returns_data(client):
+    """اختبار endpoint المقارنة المتقدمة"""
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    assert response.status_code == 200
+    data = response.json()
+    assert "month" in data
+    assert "comparison_data" in data
+    assert "chart_config" in data
+
+
+def test_advanced_comparison_includes_trends(client):
+    """اختبار أن المقارنة تتضمن الاتجاهات"""
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    assert response.status_code == 200
+    data = response.json()
+    assert "trends" in data["comparison_data"]
+
+
+def test_advanced_comparison_includes_predictions(client):
+    """اختبار أن المقارنة تتضمن التنبؤات"""
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    assert response.status_code == 200
+    data = response.json()
+    assert "predictions" in data["comparison_data"]
+
+
+def test_advanced_comparison_chart_config(client):
+    """اختبار تكوين الرسم البياني"""
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    assert response.status_code == 200
+    data = response.json()
+    assert "chart_config" in data
+    assert "type" in data["chart_config"]
+    assert "data" in data["chart_config"]
+    assert "options" in data["chart_config"]
+
+
+def test_advanced_comparison_with_hospital_id(client):
+    """اختبار المقارنة مع معرف مستشفى محدد"""
+    response = client.get("/comparative/advanced-comparison/2026-06?hospital_id=1")
+    assert response.status_code == 200
+    data = response.json()
+    assert "month" in data
+
+
+def test_advanced_comparison_with_comparison_type(client):
+    """اختبار المقارنة مع نوع مقارنة محدد"""
+    response = client.get("/comparative/advanced-comparison/2026-06?comparison_type=governorate")
+    assert response.status_code == 200
+    data = response.json()
+    assert "month" in data
