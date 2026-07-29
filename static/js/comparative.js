@@ -1,6 +1,102 @@
 let comparativeCurrentMonth = null;
 let comparativeCurrentData = null;
 let comparisonChart = null;
+let reportLang = 'ar';
+
+const langMap = {
+    'ar': {
+        title: 'التحليل المقارن المتقدم',
+        labelMonth: 'الشهر:',
+        labelComparison: 'طريقة المقارنة:',
+        labelHospital: 'المستشفى:',
+        btnGenerate: 'توليد التقرير الذكي الشامل',
+        loadingText: 'جاري توليد التقرير الذكي الشامل...',
+        sectionExecutive: '📋 الملخص التنفيذي',
+        sectionIndicators: '📊 تحليل المؤشرات',
+        sectionAnomalies: '🔍 تحليل الشذوذ',
+        sectionClustering: '🔗 التجميع والارتباطات',
+        sectionStratified: '📈 المقارنة الطبقية',
+        sectionRecommendations: '💡 التوصيات الإجرائية',
+        chartTitle: 'مقارنة أداء المستشفيات عبر الأشهر',
+        peerTitle: 'مقارنة المستشفيات ببعضها',
+        peerRank: 'الترتيب',
+        peerHospital: 'المستشفى',
+        peerPercentile: 'النسبة المئوية',
+        peerAssessment: 'التقييم',
+        kpiTotal: 'إجمالي المستشفيات',
+        kpiAnomalies: 'مستشفيات شاذة',
+        kpiConfidence: 'نسبة الثقة',
+        kpiQuality: 'جودة البيانات',
+    },
+    'en': {
+        title: 'Advanced Comparative Analysis',
+        labelMonth: 'Month:',
+        labelComparison: 'Comparison Type:',
+        labelHospital: 'Hospital:',
+        btnGenerate: 'Generate Smart Report',
+        loadingText: 'Generating smart report...',
+        sectionExecutive: '📋 Executive Summary',
+        sectionIndicators: '📊 Indicator Analysis',
+        sectionAnomalies: '🔍 Anomaly Analysis',
+        sectionClustering: '🔗 Clustering & Correlations',
+        sectionStratified: '📈 Stratified Comparison',
+        sectionRecommendations: '💡 Recommendations',
+        chartTitle: 'Hospital Performance Comparison Over Time',
+        peerTitle: 'Hospital Peer Comparison',
+        peerRank: 'Rank',
+        peerHospital: 'Hospital',
+        peerPercentile: 'Percentile',
+        peerAssessment: 'Assessment',
+        kpiTotal: 'Total Hospitals',
+        kpiAnomalies: 'Anomalous Hospitals',
+        kpiConfidence: 'Confidence Score',
+        kpiQuality: 'Data Quality',
+    }
+};
+
+function toggleReportLang() {
+    reportLang = reportLang === 'ar' ? 'en' : 'ar';
+    document.getElementById('report-lang-toggle').textContent = reportLang === 'ar' ? '🇬🇧 English' : '🇸🇦 العربية';
+    applyReportLang(reportLang);
+    if (comparativeCurrentMonth) {
+        generateComprehensiveReport(comparativeCurrentMonth);
+    }
+}
+
+function applyReportLang(lang) {
+    const t = langMap[lang];
+    if (!t) return;
+
+    document.getElementById('comparative-title').textContent = t.title;
+    document.getElementById('label-month').textContent = t.labelMonth;
+    document.getElementById('label-comparison').textContent = t.labelComparison;
+    document.getElementById('label-hospital').textContent = t.labelHospital;
+    document.getElementById('btn-generate').textContent = t.btnGenerate;
+    document.getElementById('loading-text').textContent = t.loadingText;
+    document.getElementById('section-executive').textContent = t.sectionExecutive;
+    document.getElementById('section-indicators').textContent = t.sectionIndicators;
+    document.getElementById('section-anomalies').textContent = t.sectionAnomalies;
+    document.getElementById('section-clustering').textContent = t.sectionClustering;
+    document.getElementById('section-stratified').textContent = t.sectionStratified;
+    document.getElementById('section-recommendations').textContent = t.sectionRecommendations;
+    document.getElementById('chart-title').textContent = t.chartTitle;
+    document.getElementById('peer-title').textContent = t.peerTitle;
+    document.getElementById('peer-rank').textContent = t.peerRank;
+    document.getElementById('peer-hospital').textContent = t.peerHospital;
+    document.getElementById('peer-percentile').textContent = t.peerPercentile;
+    document.getElementById('peer-assessment').textContent = t.peerAssessment;
+    document.getElementById('kpi-label-total').textContent = t.kpiTotal;
+    document.getElementById('kpi-label-anomalies').textContent = t.kpiAnomalies;
+    document.getElementById('kpi-label-confidence').textContent = t.kpiConfidence;
+    document.getElementById('kpi-label-quality').textContent = t.kpiQuality;
+
+    // Set report text direction based on language
+    const reportDiv = document.getElementById('report-executive-summary');
+    if (reportDiv) {
+        reportDiv.style.direction = lang === 'ar' ? 'rtl' : 'ltr';
+        reportDiv.style.textAlign = lang === 'ar' ? 'right' : 'left';
+    }
+}
 
 async function apiComparativeGet(path) {
   const base = document.getElementById('apiBase')?.value || '';
@@ -46,7 +142,7 @@ window.initComparative = async function() {
     console.error('خطأ في تحميل المستشفيات:', e);
   }
 
-  document.getElementById('comparative-generate').addEventListener('click', () => {
+  document.getElementById('btn-generate').addEventListener('click', () => {
     const month = monthSelect.value;
     const hospitalId = document.getElementById('hospital-select').value;
     const comparisonType = document.getElementById('comparison-type').value;
@@ -105,10 +201,10 @@ function updateKPIDashboard(data) {
   dashboard.style.display = 'grid';
 
   if (data.anomaly_count > 0) {
-    showAlert(`يوجد ${data.anomaly_count} مستشفى بحاجة للانتباه`, 'warning');
+    showAlert(reportLang === 'ar' ? `يوجد ${data.anomaly_count} مستشفى بحاجة للانتباه` : `${data.anomaly_count} hospitals need attention`, 'warning');
   }
   if (data.critical_anomalies > 0) {
-    showAlert(`يوجد ${data.critical_anomalies} حالة حرجة!`, 'danger');
+    showAlert(reportLang === 'ar' ? `يوجد ${data.critical_anomalies} حالة حرجة!` : `${data.critical_anomalies} critical cases!`, 'danger');
   }
 }
 
@@ -161,12 +257,12 @@ function renderReportSections(reportText) {
 async function generateComprehensiveReport(month) {
   comparativeCurrentMonth = month;
   compShowLoading();
-  document.getElementById('comparative-status').textContent = 'جاري توليد التقرير...';
+  document.getElementById('comparative-status').textContent = reportLang === 'ar' ? 'جاري توليد التقرير...' : 'Generating report...';
   document.getElementById('comparative-placeholder').style.display = 'none';
   document.getElementById('comparative-report-output').style.display = 'none';
 
   try {
-    const result = await apiComparativeGet(`/comparative/comprehensive-report/${month}`);
+    const result = await apiComparativeGet(`/comparative/comprehensive-report/${month}?lang=${reportLang}`);
     comparativeCurrentData = result;
 
     renderReportSections(result.report);
@@ -175,12 +271,12 @@ async function generateComprehensiveReport(month) {
       updateKPIDashboard(result.data.kpi);
     }
 
-    showAlert('تم توليد التقرير بنجاح', 'success');
-    document.getElementById('comparative-status').textContent = 'تم التحديث بنجاح';
+    showAlert(reportLang === 'ar' ? 'تم توليد التقرير بنجاح' : 'Report generated successfully', 'success');
+    document.getElementById('comparative-status').textContent = reportLang === 'ar' ? 'تم التحديث بنجاح' : 'Updated successfully';
   } catch (e) {
     document.getElementById('comparative-report-output').style.display = 'block';
-    showAlert('خطأ في توليد التقرير: ' + e.message, 'danger');
-    document.getElementById('comparative-status').textContent = 'خطأ في التحميل: ' + e.message;
+    showAlert((reportLang === 'ar' ? 'خطأ في توليد التقرير: ' : 'Error generating report: ') + e.message, 'danger');
+    document.getElementById('comparative-status').textContent = (reportLang === 'ar' ? 'خطأ في التحميل: ' : 'Load error: ') + e.message;
   } finally {
     compHideLoading();
   }
