@@ -626,6 +626,37 @@ def test_advanced_comparison_chart_has_required_keys(client):
     assert isinstance(chart["data"]["datasets"], list)
 
 
+# --- English Report Tests ---
+
+
+def test_build_english_prompt_returns_string(db_session):
+    """اختبار أن prompt الإنجليزية تُعيد نص"""
+    from app.engine.comparative.report_generator import build_comprehensive_prompt
+    from app.engine.smart import run_smart_analytics
+
+    analytics = run_smart_analytics(db_session, "2026-06")
+    prompt = build_comprehensive_prompt(analytics, "en")
+    assert isinstance(prompt, str)
+    assert len(prompt) > 100
+    assert "Executive Summary" in prompt
+
+
+def test_generate_comprehensive_report_english(db_session):
+    """اختبار توليد تقرير بالإنجليزية"""
+    result = generate_comprehensive_report(db_session, "2026-06", lang="en")
+    assert "month" in result
+    assert "report" in result
+    assert "data" in result
+
+
+def test_comprehensive_report_endpoint_english(client):
+    """اختبار endpoint بالإنجليزية"""
+    response = client.get("/comparative/comprehensive-report/2026-06?lang=en")
+    assert response.status_code == 200
+    data = response.json()
+    assert "month" in data
+
+
 # --- Frontend Structure Tests (Task 3) ---
 
 

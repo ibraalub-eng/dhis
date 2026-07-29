@@ -8,13 +8,18 @@ router = APIRouter(prefix="/comparative", tags=["Comparative Analysis"])
 
 
 @router.get("/comprehensive-report/{month}")
-def get_comprehensive_report(month: str, db: Session = Depends(get_db)):
+def get_comprehensive_report(
+    month: str,
+    lang: str = Query("ar", description="لغة التقرير (ar/en)"),
+    db: Session = Depends(get_db)
+):
     """توليد تقرير ذكي شامل"""
     try:
-        result = generate_comprehensive_report(db, month)
+        result = generate_comprehensive_report(db, month, lang)
         return result
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطأ في توليد التقرير: {str(e)}")
+        error_msg = f"Error generating report: {str(e)}" if lang == "en" else f"خطأ في توليد التقرير: {str(e)}"
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 @router.get("/advanced-comparison/{month}")
