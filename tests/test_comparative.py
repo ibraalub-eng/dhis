@@ -1,6 +1,8 @@
 """Tests for the comprehensive smart report generator."""
+import os
 import pytest
 from unittest.mock import patch, MagicMock
+from bs4 import BeautifulSoup
 from app.engine.comparative import generate_comprehensive_report
 from app.engine.comparative.advanced_comparison import perform_advanced_comparison, AdvancedComparisonResult
 
@@ -347,3 +349,313 @@ def test_advanced_comparison_with_comparison_type(client):
     assert response.status_code == 200
     data = response.json()
     assert "month" in data
+
+
+# --- Comprehensive Unit Tests for Advanced Comparison ---
+
+from app.engine.comparative.advanced_comparison import (
+    TrendData, PeerComparison, AdvancedComparisonResult,
+    analyze_trends, generate_comparison_chart,
+)
+
+
+# --- Dataclass Tests ---
+
+def test_trend_data_defaults():
+    t = TrendData(hospital_id="h1", hospital_name="Hospital One")
+    assert t.months == []
+    assert t.values == {}
+
+
+def test_trend_data_with_values():
+    t = TrendData(
+        hospital_id="h1", hospital_name="H1",
+        months=["2026-01", "2026-02"],
+        values={"total_cases": [100, 200]},
+    )
+    assert len(t.months) == 2
+    assert t.values["total_cases"] == [100, 200]
+
+
+def test_peer_comparison_fields():
+    p = PeerComparison(
+        hospital_id="h1", hospital_name="H1",
+        percentile=25.0, rank=1, total_hospitals=4,
+        comparison_label="متفوق",
+    )
+    assert p.percentile == 25.0
+    assert p.comparison_label == "متفوق"
+
+
+def test_advanced_comparison_result_defaults():
+    r = AdvancedComparisonResult(month="2026-06")
+    assert r.trends == []
+    assert r.peer_comparisons == []
+    assert r.predictions == {}
+    assert r.chart_config == {}
+
+
+def test_advanced_comparison_result_with_data():
+    trends = [TrendData(hospital_id="h1", hospital_name="H1")]
+    peers = [PeerComparison("h1", "H1", 50.0, 1, 2, "متوسط")]
+    r = AdvancedComparisonResult(
+        month="2026-06", trends=trends, peer_comparisons=peers,
+        predictions={"next_month": 100}, chart_config={"type": "line"},
+    )
+    assert len(r.trends) == 1
+    assert len(r.peer_comparisons) == 1
+    assert r.predictions["next_month"] == 100
+
+
+# --- analyze_trends Unit Tests ---
+
+def test_analyze_trends_empty_data():
+    trends = analyze_trends({})
+    assert trends == []
+
+
+def test_analyze_trends_none_data():
+    trends = analyze_trends(None)
+    assert trends == []
+
+
+def test_analyze_trends_with_valid_data():
+    historical = {
+        "2026-01": {
+            "kpi": {"total_cases": 100},
+            "anomalies": [{"hospital_id": "h1"}],
+            "predictions": {},
+        },
+        "2026-02": {
+            "kpi": {"total_cases": 150},
+            "anomalies": [{"hospital_id": "h1"}],
+            "predictions": {},
+        },
+    }
+    trends = analyze_trends(historical)
+    assert len(trends) == 1
+    assert trends[0].hospital_id == "h1"
+    assert trends[0].months == ["2026-01", "2026-02"]
+    assert trends[0].values["total_cases"] == [100, 150]
+
+
+def test_analyze_trends_multiple_hospitals():
+    historical = {
+        "2026-01": {
+            "kpi": {"total_cases": 100},
+            "anomalies": [{"hospital_id": "h1"}, {"hospital_id": "h2"}],
+            "predictions": {},
+        },
+    }
+    trends = analyze_trends(historical)
+    ids = {t.hospital_id for t in trends}
+    assert "h1" in ids
+    assert "h2" in ids
+
+
+def test_analyze_trends_filter_by_hospital_id():
+    historical = {
+        "2026-01": {
+            "kpi": {"total_cases": 100},
+            "anomalies": [{"hospital_id": "h1"}, {"hospital_id": "h2"}],
+            "predictions": {},
+        },
+    }
+    trends = analyze_trends(historical, hospital_id="h1")
+    assert len(trends) == 1
+    assert trends[0].hospital_id == "h1"
+
+
+def test_analyze_trends_skips_none_months():
+    historical = {
+        "2026-01": None,
+        "2026-02": {"kpi": {"total_cases": 50}, "anomalies": [{"hospital_id": "h1"}], "predictions": {}},
+    }
+    trends = analyze_trends(historical)
+    assert len(trends) == 1
+    assert trends[0].months == ["2026-02"]
+    assert trends[0].values["total_cases"] == [50]
+
+
+def test_analyze_trends_skips_months_without_kpi():
+    historical = {
+        "2026-01": {"anomalies": [{"hospital_id": "h1"}], "predictions": {}},
+        "2026-02": {"kpi": {"total_cases": 50}, "anomalies": [{"hospital_id": "h1"}], "predictions": {}},
+    }
+    trends = analyze_trends(historical)
+    assert len(trends) == 1
+    assert trends[0].months == ["2026-02"]
+
+
+def test_analyze_trends_hospital_without_anomalies():
+    historical = {
+        "2026-01": {"kpi": {"total_cases": 100}, "anomalies": [], "predictions": {}},
+    }
+    trends = analyze_trends(historical)
+    assert len(trends) == 0
+
+
+def test_analyze_trends_default_total_cases_zero():
+    historical = {
+        "2026-01": {
+            "kpi": {},
+            "anomalies": [{"hospital_id": "h1"}],
+            "predictions": {},
+        },
+    }
+    trends = analyze_trends(historical)
+    assert len(trends) == 1
+    assert trends[0].values["total_cases"] == [0]
+
+
+# --- generate_comparison_chart Unit Tests ---
+
+def test_generate_comparison_chart_empty():
+    chart = generate_comparison_chart([], [])
+    assert chart["type"] == "line"
+    assert chart["data"]["labels"] == []
+    assert chart["data"]["datasets"] == []
+
+
+def test_generate_comparison_chart_with_trends():
+    trend = TrendData(
+        hospital_id="h1", hospital_name="Hospital",
+        months=["2026-01", "2026-02"],
+        values={"total_cases": [100, 200]},
+    )
+    chart = generate_comparison_chart([trend], [])
+    assert chart["data"]["labels"] == ["2026-01", "2026-02"]
+    assert len(chart["data"]["datasets"]) == 1
+    assert chart["data"]["datasets"][0]["label"] == "Hospital"
+    assert chart["data"]["datasets"][0]["data"] == [100, 200]
+
+
+def test_generate_comparison_chart_limits_to_five_trends():
+    trends = [
+        TrendData(hospital_id=f"h{i}", hospital_name=f"H{i}",
+                  months=["2026-01"], values={"total_cases": [i * 10]})
+        for i in range(8)
+    ]
+    chart = generate_comparison_chart(trends, [])
+    assert len(chart["data"]["datasets"]) == 5
+
+
+def test_generate_comparison_chart_has_options():
+    chart = generate_comparison_chart([], [])
+    assert "responsive" in chart["options"]
+    assert "plugins" in chart["options"]
+    assert "scales" in chart["options"]
+    assert chart["options"]["plugins"]["title"]["display"] is True
+
+
+# --- Peer Comparison Label Tests ---
+
+def test_peer_comparison_label_percentile_25():
+    p = PeerComparison("h1", "H1", 25.0, 1, 4, "متفوق")
+    assert p.comparison_label == "متفوق"
+
+
+def test_peer_comparison_label_percentile_50():
+    p = PeerComparison("h1", "H1", 50.0, 2, 4, "متوسط")
+    assert p.comparison_label == "متوسط"
+
+
+def test_peer_comparison_label_percentile_75():
+    p = PeerComparison("h1", "H1", 75.0, 3, 4, "يحتاج تحسين")
+    assert p.comparison_label == "يحتاج تحسين"
+
+
+def test_peer_comparison_label_percentile_100():
+    p = PeerComparison("h1", "H1", 100.0, 4, 4, "حرج")
+    assert p.comparison_label == "حرج"
+
+
+# --- Endpoint Error Handling Tests ---
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_advanced_comparison_endpoint_error_handling(mock_analytics, client):
+    mock_analytics.side_effect = RuntimeError("Database error")
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    assert response.status_code == 500
+    assert "خطأ في المقارنة" in response.json()["detail"]
+
+
+def test_advanced_comparison_endpoint_response_structure(client):
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    assert response.status_code == 200
+    data = response.json()
+    assert isinstance(data["comparison_data"], dict)
+    assert isinstance(data["comparison_data"]["trends"], list)
+    assert isinstance(data["comparison_data"]["peer_comparison"], list)
+    assert isinstance(data["comparison_data"]["predictions"], dict)
+    assert isinstance(data["chart_config"], dict)
+
+
+def test_advanced_comparison_trends_structure(client):
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    data = response.json()
+    for trend in data["comparison_data"]["trends"]:
+        assert "hospital_id" in trend
+        assert "hospital_name" in trend
+        assert "months" in trend
+        assert "values" in trend
+        assert isinstance(trend["months"], list)
+        assert isinstance(trend["values"], dict)
+
+
+def test_advanced_comparison_peer_comparison_structure(client):
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    data = response.json()
+    for peer in data["comparison_data"]["peer_comparison"]:
+        assert "hospital_id" in peer
+        assert "hospital_name" in peer
+        assert "percentile" in peer
+        assert "rank" in peer
+        assert "total_hospitals" in peer
+        assert "comparison_label" in peer
+
+
+def test_advanced_comparison_chart_has_required_keys(client):
+    response = client.get("/comparative/advanced-comparison/2026-06")
+    data = response.json()
+    chart = data["chart_config"]
+    assert chart["type"] == "line"
+    assert "labels" in chart["data"]
+    assert "datasets" in chart["data"]
+    assert isinstance(chart["data"]["labels"], list)
+    assert isinstance(chart["data"]["datasets"], list)
+
+
+# --- Frontend Structure Tests (Task 3) ---
+
+
+def test_comparative_html_has_collapsible_sections():
+    """اختبار أن HTML يحتوي على أقسام قابلة للطي"""
+    html_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'tabs', 'comparative.html')
+    with open(html_path, 'r', encoding='utf-8') as f:
+        soup = BeautifulSoup(f.read(), 'html.parser')
+
+    sections = soup.find_all('div', class_='collapsible-section')
+    assert len(sections) >= 5
+
+
+def test_comparative_html_has_kpi_dashboard():
+    """اختبار أن HTML يحتوي على لوحة تحكم"""
+    html_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'tabs', 'comparative.html')
+    with open(html_path, 'r', encoding='utf-8') as f:
+        soup = BeautifulSoup(f.read(), 'html.parser')
+
+    kpi_grid = soup.find('div', id='kpi-dashboard')
+    assert kpi_grid is not None
+
+
+def test_comparative_js_has_toggle_function():
+    """اختبار أن JavaScript يحتوي على دوال التحكم"""
+    js_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'comparative.js')
+    with open(js_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    assert 'function toggleSection' in content
+    assert 'function showAlert' in content
+    assert 'function updateKPIDashboard' in content
+    assert 'function renderReportSections' in content
