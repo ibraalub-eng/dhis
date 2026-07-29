@@ -34,24 +34,86 @@
     <div style="align-self:flex-end;">
       <span id="comparative-status" style="font-size:0.8rem;color:#6b7280;"></span>
     </div>
-  </div>
-
-  <!-- Report output area -->
-  <div id="comparative-report-output" style="display:none;margin-bottom:1.5rem;">
-    <div class="card" style="padding:1.2rem;border-radius:10px;border-top:3px solid #1a237e;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-        <h3 style="color:#1a237e;margin:0;font-size:1.05rem;">التقرير الذكي الشامل</h3>
-        <span id="comparative-report-month-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#eef2ff;color:#4338ca;font-weight:600;"></span>
-      </div>
-      <div id="comparative-report-text" style="white-space:pre-wrap;direction:rtl;text-align:right;font-size:0.88rem;line-height:1.8;color:#374151;background:#f9fafb;padding:1rem;border-radius:8px;border:1px solid #e5e7eb;">
-      </div>
+  <!-- KPI Dashboard -->
+  <div id="kpi-dashboard" class="kpi-grid" style="display:none;margin-bottom:1.5rem;">
+    <div class="kpi-card">
+      <div class="icon">🏥</div>
+      <div class="value" id="kpi-total-hospitals">-</div>
+      <div class="label">إجمالي المستشفيات</div>
+    </div>
+    <div class="kpi-card danger">
+      <div class="icon">⚠️</div>
+      <div class="value" id="kpi-anomalies">-</div>
+      <div class="label">مستشفيات شاذة</div>
+    </div>
+    <div class="kpi-card warning">
+      <div class="icon">📊</div>
+      <div class="value" id="kpi-confidence">-</div>
+      <div class="label">نسبة الثقة</div>
+    </div>
+    <div class="kpi-card success">
+      <div class="icon">✅</div>
+      <div class="value" id="kpi-quality">-</div>
+      <div class="label">جودة البيانات</div>
     </div>
   </div>
 
-  <!-- Data summary cards (shown after report generation) -->
-  <div id="comparative-data-section" style="display:none;margin-bottom:1.5rem;">
-    <h4 style="color:#1a237e;margin-bottom:0.8rem;font-size:0.95rem;">ملخص البيانات</h4>
-    <div id="comparative-data-cards" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"></div>
+  <!-- Report output: collapsible sections -->
+  <div id="comparative-report-output" style="display:none;margin-bottom:1.5rem;">
+    <div class="collapsible-section">
+      <div class="collapsible-header open" onclick="toggleSection(this)">
+        <span>📋 الملخص التنفيذي</span>
+        <span class="arrow">▼</span>
+      </div>
+      <div class="collapsible-body open">
+        <div id="report-executive-summary" style="white-space:pre-wrap;direction:rtl;text-align:right;font-size:0.88rem;line-height:1.8;color:#374151;"></div>
+      </div>
+    </div>
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleSection(this)">
+        <span>📊 تحليل المؤشرات</span>
+        <span class="arrow">▼</span>
+      </div>
+      <div class="collapsible-body">
+        <div id="report-indicators"></div>
+      </div>
+    </div>
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleSection(this)">
+        <span>🔍 تحليل الشذوذ</span>
+        <span class="arrow">▼</span>
+      </div>
+      <div class="collapsible-body">
+        <div id="report-anomalies"></div>
+      </div>
+    </div>
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleSection(this)">
+        <span>🔗 التجميع والارتباطات</span>
+        <span class="arrow">▼</span>
+      </div>
+      <div class="collapsible-body">
+        <div id="report-clustering"></div>
+      </div>
+    </div>
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleSection(this)">
+        <span>📈 المقارنة الطبقية</span>
+        <span class="arrow">▼</span>
+      </div>
+      <div class="collapsible-body">
+        <div id="report-stratified"></div>
+      </div>
+    </div>
+    <div class="collapsible-section">
+      <div class="collapsible-header" onclick="toggleSection(this)">
+        <span>💡 التوصيات الإجرائية</span>
+        <span class="arrow">▼</span>
+      </div>
+      <div class="collapsible-body">
+        <div id="report-recommendations"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Comparison Chart -->

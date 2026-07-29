@@ -60,31 +60,126 @@ window.initComparative = async function() {
   }
 };
 
+function toggleSection(header) {
+  header.classList.toggle('open');
+  const body = header.nextElementSibling;
+  body.classList.toggle('open');
+}
+
+function showAlert(message, type = 'info') {
+  let container = document.getElementById('alert-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'alert-container';
+    container.className = 'alert-container';
+    document.body.appendChild(container);
+  }
+
+  const alert = document.createElement('div');
+  alert.className = `alert-item ${type}`;
+  alert.innerHTML = `
+    <span>${message}</span>
+    <span class="close-btn" onclick="this.parentElement.remove()">✕</span>
+  `;
+
+  container.appendChild(alert);
+
+  setTimeout(() => {
+    if (alert.parentElement) {
+      alert.remove();
+    }
+  }, 5000);
+}
+
+function updateKPIDashboard(data) {
+  const dashboard = document.getElementById('kpi-dashboard');
+  if (!dashboard || !data) {
+    if (dashboard) dashboard.style.display = 'none';
+    return;
+  }
+
+  document.getElementById('kpi-total-hospitals').textContent = data.total_hospitals || '-';
+  document.getElementById('kpi-anomalies').textContent = data.anomaly_count || '0';
+  document.getElementById('kpi-confidence').textContent = data.confidence_score || '-';
+  document.getElementById('kpi-quality').textContent = data.quality_score || '-';
+  dashboard.style.display = 'grid';
+
+  if (data.anomaly_count > 0) {
+    showAlert(`يوجد ${data.anomaly_count} مستشفى بحاجة للانتباه`, 'warning');
+  }
+  if (data.critical_anomalies > 0) {
+    showAlert(`يوجد ${data.critical_anomalies} حالة حرجة!`, 'danger');
+  }
+}
+
+function parseReportSections(reportText) {
+  const sections = {};
+  const sectionNames = {
+    'الملخص التنفيذي': 'report-executive-summary',
+    'تحليل المؤشرات': 'report-indicators',
+    'تحليل الشذوذ': 'report-anomalies',
+    'التجميع': 'report-clustering',
+    'الارتباطات': 'report-clustering',
+    'المقارنة الطبقية': 'report-stratified',
+    'التوصيات': 'report-recommendations',
+  };
+
+  let currentSection = 'report-executive-summary';
+  const lines = reportText.split('\n');
+
+  lines.forEach(line => {
+    const trimmed = line.trim();
+    for (const [name, id] of Object.entries(sectionNames)) {
+      if (trimmed.includes(name)) {
+        currentSection = id;
+        return;
+      }
+    }
+
+    if (!sections[currentSection]) {
+      sections[currentSection] = [];
+    }
+    sections[currentSection].push(line);
+  });
+
+  return sections;
+}
+
+function renderReportSections(reportText) {
+  const sections = parseReportSections(reportText);
+
+  for (const [id, lines] of Object.entries(sections)) {
+    const element = document.getElementById(id);
+    if (element) {
+      element.textContent = lines.join('\n');
+    }
+  }
+
+  document.getElementById('comparative-report-output').style.display = 'block';
+}
+
 async function generateComprehensiveReport(month) {
   comparativeCurrentMonth = month;
   compShowLoading();
   document.getElementById('comparative-status').textContent = 'جاري توليد التقرير...';
   document.getElementById('comparative-placeholder').style.display = 'none';
   document.getElementById('comparative-report-output').style.display = 'none';
-  document.getElementById('comparative-data-section').style.display = 'none';
 
   try {
     const result = await apiComparativeGet(`/comparative/comprehensive-report/${month}`);
     comparativeCurrentData = result;
 
-    document.getElementById('comparative-report-text').textContent = result.report;
-    document.getElementById('comparative-report-month-badge').textContent = `الشهر: ${result.month}`;
-    document.getElementById('comparative-report-output').style.display = 'block';
+    renderReportSections(result.report);
 
     if (result.data) {
-      renderComparativeDataCards(result.data);
-      document.getElementById('comparative-data-section').style.display = 'block';
+      updateKPIDashboard(result.data.kpi);
     }
 
+    showAlert('تم توليد التقرير بنجاح', 'success');
     document.getElementById('comparative-status').textContent = 'تم التحديث بنجاح';
   } catch (e) {
-    document.getElementById('comparative-report-text').textContent = 'خطأ في توليد التقرير: ' + e.message;
     document.getElementById('comparative-report-output').style.display = 'block';
+    showAlert('خطأ في توليد التقرير: ' + e.message, 'danger');
     document.getElementById('comparative-status').textContent = 'خطأ في التحميل: ' + e.message;
   } finally {
     compHideLoading();
