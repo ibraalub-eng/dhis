@@ -11,11 +11,12 @@ router = APIRouter(prefix="/comparative", tags=["Comparative Analysis"])
 def get_comprehensive_report(
     month: str,
     lang: str = Query("ar", description="لغة التقرير (ar/en)"),
+    force: bool = Query(False, description="إعادة توليد التقرير وتجاوز التخزين"),
     db: Session = Depends(get_db)
 ):
     """توليد تقرير ذكي شامل"""
     try:
-        result = generate_comprehensive_report(db, month, lang)
+        result = generate_comprehensive_report(db, month, lang, use_cache=not force)
         return result
     except Exception as e:
         error_msg = f"Error generating report: {str(e)}" if lang == "en" else f"خطأ في توليد التقرير: {str(e)}"
