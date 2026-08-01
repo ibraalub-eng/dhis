@@ -12,6 +12,7 @@ from app.schemas import UploadResponse, AutoReportResponse
 from app.indicators import INDICATOR_FLAT_LIST
 from app.models import IndicatorValue, Indicator, Hospital
 from app.cache import cache
+from app.engine.comparative.report_cache import invalidate_report_cache
 from datetime import datetime
 import logging
 
@@ -134,6 +135,7 @@ def save_manual_entry(
     cache.invalidate("smart_residuals_")
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
+    invalidate_report_cache(db, month)
     return {"message": f"Saved {saved} values for {hospital.name} / {month}", "hospital": hospital.name, "month": month, "values_saved": saved}
 
 
@@ -176,6 +178,7 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     cache.invalidate("smart_residuals_")
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
+    invalidate_report_cache(db)
     return UploadResponse(**result)
 
 
@@ -219,6 +222,7 @@ async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends
     cache.invalidate("smart_residuals_")
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
+    invalidate_report_cache(db)
 
     hospitals = result["hospitals"]
     months = result["months"]
