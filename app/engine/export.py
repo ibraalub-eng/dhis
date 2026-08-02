@@ -33,6 +33,8 @@ def _sanitize(obj: Any) -> Any:
             pass
     if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
         return 0.0
+    if hasattr(obj, "__dict__") and not isinstance(obj, (int, float, str, bool)):
+        return _sanitize(vars(obj))
     return obj
 
 

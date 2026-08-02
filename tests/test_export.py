@@ -1,4 +1,5 @@
 """Tests for the full data export feature."""
+import json
 from unittest.mock import patch
 
 import pytest
@@ -108,6 +109,7 @@ def test_build_full_export_structure(db_session):
     assert "indicator_values" in pkg
     assert "analysis" in pkg
     assert "2026-06" in pkg["analysis"]
+    assert isinstance(json.loads(json.dumps(pkg, ensure_ascii=False)), dict)
 
 
 def test_build_full_export_smart_sections(db_session):
