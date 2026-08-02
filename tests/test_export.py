@@ -178,3 +178,51 @@ def test_build_full_export_no_data_raises(db_session):
         assert False, "expected NoDataError"
     except NoDataError:
         pass
+
+
+# --- API endpoint ---
+
+def test_export_endpoint_returns_json_download(client):
+    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+    assert "attachment" in resp.headers["content-disposition"]
+    data = resp.json()
+    assert data["meta"]["scope"] == "2026-06"
+
+
+def test_export_endpoint_all_months(client, db_session):
+    from app.models import Hospital, Indicator, IndicatorValue
+    hosp = db_session.query(Hospital).first()
+    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
+    db_session.add_all([
+        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
+        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
+    ])
+    db_session.commit()
+    resp = client.get("/export/full-data", params={"month": "all", "lang": "en"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["meta"]["scope"] == "all"
+    assert data["meta"]["lang"] == "en"
+    assert set(data["indicator_values"].keys()) == {"2026-05", "2026-06"}
+
+
+def test_export_endpoint_invalid_lang_422(client):
+    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "xx"})
+    assert resp.status_code == 422
+
+
+def test_export_endpoint_no_data_404(client, db_session):
+    from app.models import Hospital
+    db_session.query(Hospital).delete()
+    db_session.commit()
+    resp = client.get("/export/full-data", params={"month": "all", "lang": "ar"})
+    assert resp.status_code == 404
+    assert "لا توجد بيانات" in resp.json()["detail"]
+
+
+def test_export_endpoint_serializes_without_error(client):
+    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
+    assert resp.status_code == 200
+    assert isinstance(resp.json(), dict)
