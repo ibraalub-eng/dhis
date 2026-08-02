@@ -1,9 +1,12 @@
 import io
 import json
+import logging
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.engine.export import build_full_export, NoDataError
@@ -23,6 +26,7 @@ def export_full_data(
     except NoDataError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        logger.exception("Export failed")
         raise HTTPException(status_code=500, detail=f"خطأ في التصدير: {str(e)}")
 
     filename = f"health_export_{datetime.now().strftime('%Y-%m-%d')}.json"

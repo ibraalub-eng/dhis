@@ -152,7 +152,7 @@ def test_build_full_export_comprehensive_report_null_when_uncached(db_session):
     assert pkg["analysis"]["2026-06"]["comprehensive_report"] is None
 
 
-@patch("app.engine.comparative.report_cache._call_api", create=True)
+@patch("app.engine.comparative.report_generator._call_api")
 def test_export_never_calls_ai(mock_api, db_session):
     from app.engine.export import build_full_export
     build_full_export(db_session, "all", "ar")
@@ -226,6 +226,13 @@ def test_export_endpoint_serializes_without_error(client):
     resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
     assert resp.status_code == 200
     assert isinstance(resp.json(), dict)
+
+
+@patch("app.api.export.build_full_export")
+def test_export_endpoint_500_on_engine_failure(mock_build, client):
+    mock_build.side_effect = RuntimeError("boom")
+    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
+    assert resp.status_code == 500
 
 
 # --- Frontend structure ---
