@@ -928,5 +928,8 @@ def test_upload_excel_invalidates_report_cache(mock_api, client, db_session):
     assert resp.status_code == 200
     assert get_stored_report(db_session, "2026-06", "ar") is None
     uploaded = os.path.join(os.path.dirname(__file__), "..", "data", "uploads", "test.xlsx")
-    if os.path.exists(uploaded):
-        os.remove(uploaded)
+    try:
+        if os.path.exists(uploaded):
+            os.remove(uploaded)
+    except OSError:
+        pass  # Windows may briefly lock the file; cleanup is best-effort

@@ -42,6 +42,8 @@
     <div style="align-self:flex-end;">
       <span id="comparative-status" style="font-size:0.8rem;color:#6b7280;"></span>
     </div>
+  </div>
+
   <!-- KPI Dashboard -->
   <div id="kpi-dashboard" class="kpi-grid" style="display:none;margin-bottom:1.5rem;">
     <div class="kpi-card">
@@ -56,13 +58,13 @@
     </div>
     <div class="kpi-card warning">
       <div class="icon">📊</div>
-      <div class="value" id="kpi-confidence">-</div>
-      <div id="kpi-label-confidence" class="label">نسبة الثقة</div>
+      <div class="value" id="kpi-month-status">-</div>
+      <div id="kpi-label-month-status" class="label">حالة الشهر</div>
     </div>
     <div class="kpi-card success">
-      <div class="icon">✅</div>
-      <div class="value" id="kpi-quality">-</div>
-      <div id="kpi-label-quality" class="label">جودة البيانات</div>
+      <div class="icon">🎯</div>
+      <div class="value" id="kpi-top-factor">-</div>
+      <div id="kpi-label-top-factor" class="label">العامل الأكثر تأثيراً</div>
     </div>
   </div>
 
@@ -74,7 +76,7 @@
         <span class="arrow">▼</span>
       </div>
       <div class="collapsible-body open">
-        <div id="report-executive-summary" style="white-space:pre-wrap;font-size:0.88rem;line-height:1.8;color:#374151;"></div>
+        <div id="report-executive-summary" style="font-size:0.88rem;"></div>
       </div>
     </div>
     <div class="collapsible-section">

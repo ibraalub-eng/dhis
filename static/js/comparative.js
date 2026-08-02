@@ -25,8 +25,8 @@ const langMap = {
         peerAssessment: 'التقييم',
         kpiTotal: 'إجمالي المستشفيات',
         kpiAnomalies: 'مستشفيات شاذة',
-        kpiConfidence: 'نسبة الثقة',
-        kpiQuality: 'جودة البيانات',
+        kpiMonthStatus: 'حالة الشهر',
+        kpiTopFactor: 'العامل الأكثر تأثيراً',
     },
     'en': {
         title: 'Advanced Comparative Analysis',
@@ -49,9 +49,14 @@ const langMap = {
         peerAssessment: 'Assessment',
         kpiTotal: 'Total Hospitals',
         kpiAnomalies: 'Anomalous Hospitals',
-        kpiConfidence: 'Confidence Score',
-        kpiQuality: 'Data Quality',
+        kpiMonthStatus: 'Month Status',
+        kpiTopFactor: 'Top Contributing Factor',
     }
+};
+
+const statusMap = {
+    'ar': { normal: 'طبيعي', attention_needed: 'يحتاج انتباه', critical: 'حرج' },
+    'en': { normal: 'Normal', attention_needed: 'Needs Attention', critical: 'Critical' }
 };
 
 function toggleReportLang() {
@@ -87,15 +92,17 @@ function applyReportLang(lang) {
     document.getElementById('peer-assessment').textContent = t.peerAssessment;
     document.getElementById('kpi-label-total').textContent = t.kpiTotal;
     document.getElementById('kpi-label-anomalies').textContent = t.kpiAnomalies;
-    document.getElementById('kpi-label-confidence').textContent = t.kpiConfidence;
-    document.getElementById('kpi-label-quality').textContent = t.kpiQuality;
+    document.getElementById('kpi-label-month-status').textContent = t.kpiMonthStatus;
+    document.getElementById('kpi-label-top-factor').textContent = t.kpiTopFactor;
 
     // Set report text direction based on language
-    const reportDiv = document.getElementById('report-executive-summary');
-    if (reportDiv) {
-        reportDiv.style.direction = lang === 'ar' ? 'rtl' : 'ltr';
-        reportDiv.style.textAlign = lang === 'ar' ? 'right' : 'left';
-    }
+    ['report-executive-summary', 'report-indicators', 'report-anomalies', 'report-clustering', 'report-stratified', 'report-recommendations'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.style.direction = lang === 'ar' ? 'rtl' : 'ltr';
+            el.style.textAlign = lang === 'ar' ? 'right' : 'left';
+        }
+    });
 }
 
 async function apiComparativeGet(path) {
@@ -194,17 +201,23 @@ function updateKPIDashboard(data) {
     return;
   }
 
-  document.getElementById('kpi-total-hospitals').textContent = data.total_hospitals || '-';
-  document.getElementById('kpi-anomalies').textContent = data.anomaly_count || '0';
-  document.getElementById('kpi-confidence').textContent = data.confidence_score || '-';
-  document.getElementById('kpi-quality').textContent = data.quality_score || '-';
+  const kpi = data.kpi || {};
+  document.getElementById('kpi-total-hospitals').textContent = data.hospitals_count != null ? data.hospitals_count : '-';
+  document.getElementById('kpi-anomalies').textContent = kpi.total_anomalies != null ? kpi.total_anomalies : '0';
+
+  const statusKey = kpi.month_status || 'normal';
+  const statusEl = document.getElementById('kpi-month-status');
+  statusEl.textContent = (statusMap[reportLang] && statusMap[reportLang][statusKey]) || statusKey;
+  statusEl.className = 'value status-' + statusKey;
+
+  document.getElementById('kpi-top-factor').textContent = kpi.top_contributing_factor || '-';
   dashboard.style.display = 'grid';
 
-  if (data.anomaly_count > 0) {
-    showAlert(reportLang === 'ar' ? `يوجد ${data.anomaly_count} مستشفى بحاجة للانتباه` : `${data.anomaly_count} hospitals need attention`, 'warning');
+  if ((kpi.total_anomalies || 0) > 0) {
+    showAlert(reportLang === 'ar' ? `يوجد ${kpi.total_anomalies} مستشفى بحاجة للانتباه` : `${kpi.total_anomalies} hospitals need attention`, 'warning');
   }
-  if (data.critical_anomalies > 0) {
-    showAlert(reportLang === 'ar' ? `يوجد ${data.critical_anomalies} حالة حرجة!` : `${data.critical_anomalies} critical cases!`, 'danger');
+  if ((kpi.critical_count || 0) > 0) {
+    showAlert(reportLang === 'ar' ? `يوجد ${kpi.critical_count} حالة حرجة!` : `${kpi.critical_count} critical cases!`, 'danger');
   }
 }
 
@@ -212,12 +225,27 @@ function parseReportSections(reportText) {
   const sections = {};
   const sectionNames = {
     'الملخص التنفيذي': 'report-executive-summary',
+    'Executive Summary': 'report-executive-summary',
     'تحليل المؤشرات': 'report-indicators',
+    'Indicator Analysis': 'report-indicators',
     'تحليل الشذوذ': 'report-anomalies',
+    'Anomaly Analysis': 'report-anomalies',
     'التجميع': 'report-clustering',
+    'Clustering': 'report-clustering',
     'الارتباطات': 'report-clustering',
+    'Correlations': 'report-clustering',
     'المقارنة الطبقية': 'report-stratified',
+    'Stratified Comparison': 'report-stratified',
     'التوصيات': 'report-recommendations',
+    'Recommendations': 'report-recommendations',
+    'البواقي': 'report-executive-summary',
+    'Residuals': 'report-executive-summary',
+    'شرح SHAP': 'report-executive-summary',
+    'SHAP Explanations': 'report-executive-summary',
+    'الخريطة الجغرافية': 'report-executive-summary',
+    'Geographic Map': 'report-executive-summary',
+    'التنبؤات': 'report-executive-summary',
+    'Predictions': 'report-executive-summary',
   };
 
   let currentSection = 'report-executive-summary';
@@ -238,16 +266,66 @@ function parseReportSections(reportText) {
     sections[currentSection].push(line);
   });
 
+  if (Object.keys(sections).length === 0) {
+    sections['report-executive-summary'] = lines;
+  }
+
   return sections;
 }
 
+function _escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function _renderReportLine(line) {
+  const t = String(line || '').trim();
+  if (!t) return '<div class="report-line report-line-empty"></div>';
+
+  if (t.startsWith('- ') || t.startsWith('• ')) {
+    let content = t.replace(/^[-•]\s*/, '');
+    const segments = content.split('|').map(s => s.trim()).filter(Boolean);
+    if (segments.length > 1) {
+      const chips = segments.map(seg => {
+        const idx = seg.indexOf(': ');
+        if (idx > 0) {
+          const key = seg.slice(0, idx);
+          const val = seg.slice(idx + 2);
+          return `<span class="report-chip"><span class="report-chip-key">${_escapeHtml(key)}</span>: ${_escapeHtml(val)}</span>`;
+        }
+        return `<span class="report-chip">${_escapeHtml(seg)}</span>`;
+      });
+      return `<div class="report-line report-bullet">${chips.join('')}</div>`;
+    }
+    const idx = content.indexOf(': ');
+    if (idx > 0) {
+      const key = content.slice(0, idx);
+      const val = content.slice(idx + 2);
+      return `<div class="report-line report-bullet"><span class="report-key">${_escapeHtml(key)}</span><span class="report-sep">: </span><span class="report-value">${_escapeHtml(val)}</span></div>`;
+    }
+    return `<div class="report-line report-bullet">${_escapeHtml(content)}</div>`;
+  }
+
+  return `<div class="report-line report-text">${_escapeHtml(t)}</div>`;
+}
+
 function renderReportSections(reportText) {
+  if (!reportText) {
+    document.getElementById('comparative-report-output').style.display = 'block';
+    const el = document.getElementById('report-executive-summary');
+    if (el) el.textContent = reportLang === 'ar' ? 'لم يتم توليد محتوى التقرير.' : 'No report content was generated.';
+    return;
+  }
+
   const sections = parseReportSections(reportText);
 
   for (const [id, lines] of Object.entries(sections)) {
     const element = document.getElementById(id);
     if (element) {
-      element.textContent = lines.join('\n');
+      element.innerHTML = lines.map(_renderReportLine).join('');
     }
   }
 
@@ -268,7 +346,7 @@ async function generateComprehensiveReport(month) {
     renderReportSections(result.report);
 
     if (result.data) {
-      updateKPIDashboard(result.data.kpi);
+      updateKPIDashboard(result.data);
     }
 
     showAlert(reportLang === 'ar' ? 'تم توليد التقرير بنجاح' : 'Report generated successfully', 'success');
@@ -381,43 +459,4 @@ function renderPeerComparisonTable(peerComparison) {
   });
 }
 
-function renderComparativeDataCards(data) {
-  const container = document.getElementById('comparative-data-cards');
-  const kpi = data.kpi || {};
-  const anomalies = data.anomalies || [];
-  const clustering = data.clustering || {};
 
-  const criticalCount = anomalies.filter(a => a.severity === 'critical').length;
-  const warningCount = anomalies.filter(a => a.severity === 'warning').length;
-  const clustersCount = clustering.n_clusters || 0;
-  const silhouette = clustering.silhouette_score || 0;
-
-  const cardStyle = 'text-align:center;padding:1rem;border-radius:8px;';
-  const hoverJs = 'onmouseenter="this.style.transform=\'translateY(-3px)\';this.style.boxShadow=\'0 6px 20px rgba(0,0,0,0.12)\'" onmouseleave="this.style.transform=\'none\';this.style.boxShadow=\'none\'"';
-
-  container.innerHTML = `
-    <div class="card" style="${cardStyle}border-top:3px solid ${criticalCount > 0 ? '#ef4444' : '#22c55e'};" ${hoverJs}>
-      <div style="font-size:2rem;font-weight:700;color:${criticalCount > 0 ? '#ef4444' : '#22c55e'};">${kpi.total_anomalies || anomalies.length}</div>
-      <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">مستشفى شاذ</div>
-      <div style="font-size:0.7rem;color:#888;">${criticalCount} حرج + ${warningCount} تنبيه</div>
-    </div>
-
-    <div class="card" style="${cardStyle}border-top:3px solid #3b82f6;" ${hoverJs}>
-      <div style="font-size:2rem;font-weight:700;color:#3b82f6;">${kpi.affected_governorates || 0}</div>
-      <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">محافظات متأثرة</div>
-      <div style="font-size:0.7rem;color:#888;">تحتوي على انحرافات</div>
-    </div>
-
-    <div class="card" style="${cardStyle}border-top:3px solid #8b5cf6;" ${hoverJs}>
-      <div style="font-size:2rem;font-weight:700;color:#8b5cf6;">${clustersCount}</div>
-      <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">مجموعات تجميع</div>
-      <div style="font-size:0.7rem;color:#888;">الجودة: ${silhouette.toFixed(2)}</div>
-    </div>
-
-    <div class="card" style="${cardStyle}border-top:3px solid #f97316;" ${hoverJs}>
-      <div style="font-size:1rem;font-weight:700;color:#f97316;word-break:break-word;line-height:1.4;">${kpi.top_contributing_factor || 'غير محدد'}</div>
-      <div style="font-size:0.8rem;color:#444;font-weight:600;margin:0.3rem 0;">العامل الأكثر تأثيراً</div>
-      <div style="font-size:0.7rem;color:#888;">من تحليل SHAP</div>
-    </div>
-  `;
-}

@@ -355,6 +355,7 @@ def generate_comprehensive_report(session: Session, month: str, lang: str = "ar"
         "report": report_text,
         "report_source": report_source,
         "data": {
+            "hospitals_count": analytics.hospitals_count,
             "kpi": _to_dict(analytics.kpi),
             "anomalies": _to_list(analytics.anomalies),
             "clustering": _to_dict(analytics.clustering),
