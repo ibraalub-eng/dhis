@@ -812,7 +812,11 @@ def test_report_cache_sanitizes_numpy_types(db_session):
         "month": "2026-06",
         "report": "x",
         "report_source": "ai",
-        "data": {"score": np.float64(0.45), "count": np.int64(7)},
+        "data": {
+            "score": np.float64(0.45),
+            "count": np.int64(7),
+            "arr": np.array([1.0, 2.5, 3.0]),
+        },
     }
     store_report(db_session, "2026-06", "ar", result)
     cached = get_stored_report(db_session, "2026-06", "ar")
@@ -820,6 +824,9 @@ def test_report_cache_sanitizes_numpy_types(db_session):
     assert isinstance(cached["data"]["score"], float)
     assert cached["data"]["count"] == 7
     assert isinstance(cached["data"]["count"], int)
+    assert cached["data"]["arr"] == [1.0, 2.5, 3.0]
+    assert isinstance(cached["data"]["arr"], list)
+    assert all(isinstance(v, float) for v in cached["data"]["arr"])
 
 
 # --- Report Persistence Generator Tests ---

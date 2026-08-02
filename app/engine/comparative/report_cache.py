@@ -20,13 +20,13 @@ def _sanitize(obj: Any) -> Any:
         return {k: _sanitize(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [_sanitize(v) for v in obj]
+    if hasattr(obj, "tolist") and not isinstance(obj, (list, tuple)):
+        return _sanitize(obj.tolist())
     if hasattr(obj, "item") and not isinstance(obj, (int, float, str, bool)):
         try:
             return obj.item()
         except (ValueError, AttributeError):
             return str(obj)
-    if hasattr(obj, "tolist") and not isinstance(obj, (list, tuple)):
-        return _sanitize(obj.tolist())
     if hasattr(obj, "__dict__") and not isinstance(obj, (int, float, str, bool)):
         return _sanitize(vars(obj))
     return obj

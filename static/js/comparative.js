@@ -313,6 +313,11 @@ function _renderReportLine(line) {
 }
 
 function renderReportSections(reportText) {
+  ['report-executive-summary', 'report-indicators', 'report-anomalies', 'report-clustering', 'report-stratified', 'report-recommendations'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = '';
+  });
+
   if (!reportText) {
     document.getElementById('comparative-report-output').style.display = 'block';
     const el = document.getElementById('report-executive-summary');
