@@ -739,3 +739,264 @@ def test_generate_root_cause_with_historical(db_session):
     assert isinstance(report.historical_trends, dict)
     assert isinstance(report.peer_comparisons, dict)
     assert isinstance(report.summary_arabic, str)
+
+
+class TestIntegrationHistoricalAndComparativeRootCause:
+    """End-to-end integration test for the full historical + comparative root cause pipeline."""
+
+    def test_full_pipeline_with_history_and_peers(self, db_session):
+        from app.engine.root_cause import (
+            generate_root_cause_analysis,
+            RootCauseReport,
+            CausalNode,
+            CausalChain,
+            PeerComparison,
+        )
+        from app.models import (
+            Hospital, HospitalType, FacilityOwnership, Governorate,
+            Indicator, IndicatorValue, ValidationResult, AnomalyResult,
+            QualityScore, ConfidenceScore,
+        )
+
+        # --- 1. Create infrastructure: hospital types, ownership, governorate ---
+        htype = HospitalType(name="Government")
+        ownership = FacilityOwnership(name="Ministry of Health")
+        gov = Governorate(name="Gaza")
+        db_session.add_all([htype, ownership, gov])
+        db_session.flush()
+
+        # --- 2. Create target hospital + 4 peers of same type (MIN_PEER_SIZE=3) ---
+        target = Hospital(
+            name="Al-Shifa Hospital",
+            hospital_type_id=htype.id,
+            facility_ownership_id=ownership.id,
+            governorate_id=gov.id,
+            is_active=True,
+        )
+        peers = []
+        for i in range(4):
+            h = Hospital(
+                name=f"Peer Hospital {i+1}",
+                hospital_type_id=htype.id,
+                facility_ownership_id=ownership.id,
+                governorate_id=gov.id,
+                is_active=True,
+            )
+            peers.append(h)
+        db_session.add_all([target] + peers)
+        db_session.flush()
+
+        # --- 3. Add indicator values for 6 months (2026-01 to 2026-06) ---
+        ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
+        assert ind is not None, "Indicator '2' (Total Deliveries) must be seeded"
+
+        months = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"]
+        target_values = [280, 290, 300, 295, 285, 270]
+
+        for m, val in zip(months, target_values):
+            db_session.add(IndicatorValue(
+                hospital_id=target.id, indicator_id=ind.id,
+                month=m, value=val,
+            ))
+
+        for pi, peer in enumerate(peers):
+            for mi, m in enumerate(months):
+                db_session.add(IndicatorValue(
+                    hospital_id=peer.id, indicator_id=ind.id,
+                    month=m, value=250.0 + pi * 10 + mi * 3,
+                ))
+        db_session.commit()
+
+        # --- 4. Add validation results (rule failures) for target hospital ---
+        validation_data = [
+            ("R001", "Parent-child mismatch", "FAIL", "HIGH", "LOGIC", "Sum mismatch"),
+            ("R001", "Parent-child mismatch", "FAIL", "HIGH", "LOGIC", "Sum mismatch"),
+            ("R001", "Parent-child mismatch", "PASS", "HIGH", "LOGIC", ""),
+            ("R054", "Maternal deaths surge", "FAIL", "CRITICAL", "THRESHOLD",
+             "Maternal deaths surged above threshold"),
+        ]
+        for code, desc, status, sev, rtype, details in validation_data:
+            db_session.add(ValidationResult(
+                hospital_id=target.id, month="2026-06",
+                rule_code=code, rule_description=desc,
+                status=status, severity=sev, rule_type=rtype, details=details,
+            ))
+        db_session.commit()
+
+        # --- 5. Add anomaly results (outliers) ---
+        db_session.add_all([
+            AnomalyResult(
+                hospital_id=target.id, month="2026-06",
+                indicator_code="5", rate_name="C-section rate",
+                value=45.0, benchmark=25.0, z_score=3.5, is_outlier=True,
+            ),
+            AnomalyResult(
+                hospital_id=target.id, month="2026-06",
+                indicator_code="11", rate_name="Maternal mortality rate",
+                value=5.0, benchmark=1.0, z_score=2.8, is_outlier=True,
+            ),
+        ])
+        db_session.commit()
+
+        # --- 6. Add quality scores ---
+        db_session.add(QualityScore(
+            hospital_id=target.id, month="2026-06",
+            score=45.0, rule_compliance=35.0, completeness=55.0,
+            consistency=40.0, outlier_penalty=0.25,
+            issues=json.dumps(["R001 failures", "Severe anomalies"]),
+        ))
+        db_session.commit()
+
+        # --- 7. Add confidence scores ---
+        indicators_data = [
+            {
+                "indicator_code": "2",
+                "indicator_name": "Total Deliveries",
+                "confidence": 25.0,
+                "level": "CRITICAL",
+                "signals": [
+                    {"factor": "rule_compliance", "score": 0.1, "passed": False, "detail": "R001 failures"},
+                    {"factor": "historical", "score": 0.3, "passed": False, "detail": "volatile trend"},
+                ],
+            },
+            {
+                "indicator_code": "5",
+                "indicator_name": "C-section rate",
+                "confidence": 35.0,
+                "level": "LOW",
+                "signals": [
+                    {"factor": "cross_hospital", "score": 0.2, "passed": False, "detail": "deviates from peers"},
+                    {"factor": "rule_compliance", "score": 0.5, "passed": True, "detail": "rules pass"},
+                ],
+            },
+            {
+                "indicator_code": "3",
+                "indicator_name": "NVD",
+                "confidence": 85.0,
+                "level": "HIGH",
+                "signals": [
+                    {"factor": "rule_compliance", "score": 1.0, "passed": True, "detail": "all pass"},
+                ],
+            },
+        ]
+        db_session.add(ConfidenceScore(
+            hospital_id=target.id, month="2026-06",
+            overall_confidence=35.0, level="LOW",
+            indicator_count=3, high_count=1, medium_count=0,
+            low_count=1, critical_count=1,
+            indicators_data=json.dumps(indicators_data),
+            summary="Overall confidence is low due to rule failures and anomalies.",
+        ))
+        db_session.commit()
+
+        # --- 8. Run full root cause analysis with history + peer comparison ---
+        quality_data = {
+            "score": 45.0,
+            "rule_compliance": 35.0,
+            "completeness": 55.0,
+            "consistency": 40.0,
+            "outlier_penalty": 0.25,
+        }
+        confidence_data = {
+            "overall_confidence": 35.0,
+            "level": "LOW",
+            "indicators_data": indicators_data,
+        }
+
+        report = generate_root_cause_analysis(
+            db_session, target.id, "2026-06",
+            quality_data=quality_data,
+            confidence_data=confidence_data,
+            include_history=True,
+            compare_peers=True,
+            months_back=6,
+        )
+
+        # --- 9. Verify report type and core fields ---
+        assert isinstance(report, RootCauseReport)
+        assert report.hospital == "Al-Shifa Hospital"
+        assert report.hospital_id == target.id
+        assert report.month == "2026-06"
+        assert report.overall_quality_score == 45.0
+        assert report.overall_confidence == 35.0
+        assert report.critical_issues_count > 0
+
+        # --- 10. Verify causal tree is populated ---
+        assert isinstance(report.causal_tree, list)
+        assert len(report.causal_tree) > 0
+        for node in report.causal_tree:
+            assert isinstance(node, CausalNode)
+            assert node.factor
+            assert node.factor_type in ("rule", "quality_component", "confidence_signal")
+            assert isinstance(node.current_value, (int, float))
+            assert node.trend in ("improving", "declining", "stable")
+            assert isinstance(node.severity, str)
+
+        # --- 11. Verify causal chains structure ---
+        assert isinstance(report.causal_chains, list)
+        for chain in report.causal_chains:
+            assert isinstance(chain, CausalChain)
+            assert chain.root_cause
+            assert chain.root_cause_arabic
+            assert 0 < chain.confidence <= 1.0
+            assert len(chain.evidence) > 0
+            assert len(chain.affected_factors) > 0
+            assert chain.recommended_action
+            assert chain.impact_if_fixed >= 0
+
+        # --- 12. Verify historical trends structure ---
+        assert isinstance(report.historical_trends, dict)
+        for factor, trend in report.historical_trends.items():
+            assert isinstance(factor, str)
+            assert "slope" in trend
+            assert "direction" in trend
+            assert "r_squared" in trend
+            assert "volatility" in trend
+            assert "significant_change" in trend
+            assert trend["direction"] in ("improving", "declining", "stable")
+
+        # --- 13. Verify peer comparisons are populated ---
+        assert isinstance(report.peer_comparisons, dict)
+        assert len(report.peer_comparisons) > 0
+        for group_name, comp in report.peer_comparisons.items():
+            assert isinstance(comp, PeerComparison)
+            assert comp.peer_group
+            assert comp.peer_count >= 3
+            assert comp.mean_value > 0
+            assert isinstance(comp.hospital_percentile, float)
+            assert isinstance(comp.hospital_z_score, (int, float))
+            assert comp.benchmark_hospital
+            assert comp.benchmark_value > 0
+
+        # --- 14. Verify Arabic summary is generated ---
+        assert isinstance(report.summary_arabic, str)
+        assert len(report.summary_arabic) > 0
+
+        # --- 15. Verify rule failures are captured ---
+        assert len(report.top_rule_failures) >= 1
+        rule_codes = [rf.rule_code for rf in report.top_rule_failures]
+        assert "R001" in rule_codes or "R054" in rule_codes
+
+        # --- 16. Verify quality drivers ---
+        assert len(report.quality_drivers) >= 1
+        statuses = {qd.status for qd in report.quality_drivers}
+        assert "critical" in statuses or "needs_improvement" in statuses
+
+        # --- 17. Verify confidence gaps ---
+        assert len(report.confidence_gaps) >= 1
+        gap_levels = {cg.level for cg in report.confidence_gaps}
+        assert "CRITICAL" in gap_levels or "LOW" in gap_levels
+
+        # --- 18. Verify anomaly patterns ---
+        assert len(report.anomaly_patterns) >= 1
+        assert any(ap.pattern_type in ("severe", "moderate")
+                   for ap in report.anomaly_patterns)
+
+        # --- 19. Verify priority actions ---
+        assert len(report.priority_actions) >= 1
+        for action in report.priority_actions:
+            assert "[" in action  # each action should have [SEVERITY] prefix
+
+        # --- 20. Verify summary is comprehensive ---
+        assert report.summary
+        assert len(report.summary) > 20
