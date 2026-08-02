@@ -1,8 +1,11 @@
 """Build the full data export package for external analysis tools."""
 import math
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
+from app.engine.comparative.report_cache import get_stored_report
+from app.engine.smart import run_smart_analytics
 from app.models import (
     Hospital, Governorate, Indicator, HospitalIndicatorConfig, IndicatorValue,
 )
@@ -111,3 +114,83 @@ def _get_indicator_values(session: Session, months: List[str]) -> Dict[str, list
             "source_file": iv.source_file,
         })
     return by_month
+
+
+SCHEMA_VERSION = 1
+
+
+def _get_smart_analysis(session: Session, month: str) -> Dict[str, Any]:
+    """Full smart analytics output for a month, serialized to JSON-safe dicts."""
+    result = run_smart_analytics(session, month)
+    data = {
+        "kpi": result.kpi.__dict__ if result.kpi else {},
+        "anomalies": [a.__dict__ for a in result.anomalies],
+        "clustering": result.clustering.__dict__ if result.clustering else {},
+        "correlations": result.correlations.__dict__ if result.correlations else {},
+        "residuals": [r.__dict__ for r in result.residuals],
+        "stratified": [s.__dict__ for s in result.stratified],
+        "explanations": [
+            {**e.__dict__, "top_factors": [f.__dict__ for f in e.top_factors]}
+            for e in result.explanations
+        ],
+        "geo": {
+            "governorates": [g.__dict__ for g in result.geo.governorates],
+        } if result.geo else None,
+    }
+    if result.xgboost_predictions:
+        xgb = result.xgboost_predictions
+        data["xgboost"] = {
+            "model_r2": xgb.model_r2,
+            "model_mae": xgb.model_mae,
+            "training_months": xgb.training_months,
+            "hospitals_trained": xgb.hospitals_trained,
+            "accuracy_note": xgb.accuracy_note,
+            "predictions": [
+                {
+                    **p.__dict__,
+                    "top_drivers": [d.__dict__ for d in p.top_drivers],
+                }
+                for p in xgb.predictions
+            ],
+            "global_feature_importance": [fi.__dict__ for fi in xgb.global_feature_importance],
+        }
+    return _sanitize(data)
+
+
+def _get_comprehensive_report(session: Session, month: str, lang: str) -> Optional[Dict[str, str]]:
+    """Cached comprehensive report text only. Never triggers AI generation."""
+    cached = get_stored_report(session, month, lang)
+    if not cached:
+        return None
+    return {"report": cached.get("report"), "report_source": cached.get("report_source")}
+
+
+def build_full_export(session: Session, month: str, lang: str) -> Dict[str, Any]:
+    """Build the complete export package for month ('all' or 'YYYY-MM') and lang."""
+    months = _get_available_months(session) if month == "all" else [month]
+    master = _get_master_data(session)
+
+    if not master["hospitals"] and not months:
+        raise NoDataError("لا توجد بيانات للتصدير / No data available to export")
+
+    analysis = {}
+    for m in months:
+        try:
+            analysis[m] = {
+                "smart": _get_smart_analysis(session, m),
+                "comprehensive_report": _get_comprehensive_report(session, m, lang),
+            }
+        except Exception as e:
+            analysis[m] = {"error": str(e)}
+
+    return {
+        "meta": {
+            "exported_at": datetime.now().isoformat(),
+            "lang": lang,
+            "scope": month,
+            "schema_version": SCHEMA_VERSION,
+        },
+        "master_data": master,
+        "indicator_values": _get_indicator_values(session, months),
+        "analysis": analysis,
+    }
