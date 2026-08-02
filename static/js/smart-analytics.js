@@ -1075,3 +1075,29 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
     console.error('Hospital analysis error:', e);
   }
 }
+
+async function smartExportData() {
+  const scope = document.getElementById('smart-export-scope')?.value || 'current';
+  const month = scope === 'all' ? 'all' : (smartCurrentMonth || document.getElementById('smart-month-select')?.value || '');
+  const base = document.getElementById('apiBase')?.value || '';
+  const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=ar`;
+  document.getElementById('smart-status').textContent = 'جاري تصدير البيانات...';
+  smartShowLoading();
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `health_export_${month}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    document.getElementById('smart-status').textContent = 'تم تصدير البيانات بنجاح';
+  } catch (e) {
+    document.getElementById('smart-status').textContent = 'خطأ في التصدير: ' + e.message;
+  } finally {
+    smartHideLoading();
+  }
+}

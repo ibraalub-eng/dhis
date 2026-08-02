@@ -464,4 +464,30 @@ function renderPeerComparisonTable(peerComparison) {
   });
 }
 
+async function comparativeExportData() {
+  const scope = document.getElementById('comparative-export-scope')?.value || 'current';
+  const month = scope === 'all' ? 'all' : (comparativeCurrentMonth || document.getElementById('comparative-month')?.value || '');
+  const base = document.getElementById('apiBase')?.value || '';
+  const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=${reportLang}`;
+  document.getElementById('comparative-status').textContent = reportLang === 'ar' ? 'جاري تصدير البيانات...' : 'Exporting data...';
+  compShowLoading();
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `health_export_${month}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+    document.getElementById('comparative-status').textContent = reportLang === 'ar' ? 'تم تصدير البيانات بنجاح' : 'Data exported successfully';
+  } catch (e) {
+    showAlert((reportLang === 'ar' ? 'خطأ في التصدير: ' : 'Export error: ') + e.message, 'danger');
+  } finally {
+    compHideLoading();
+  }
+}
+
 

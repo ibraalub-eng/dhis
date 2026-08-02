@@ -226,3 +226,45 @@ def test_export_endpoint_serializes_without_error(client):
     resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
     assert resp.status_code == 200
     assert isinstance(resp.json(), dict)
+
+
+# --- Frontend structure ---
+
+def test_smart_page_has_export_button():
+    import os
+    from bs4 import BeautifulSoup
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    with open(path, encoding="utf-8") as f:
+        soup = BeautifulSoup(f.read(), "html.parser")
+    assert soup.find(id="smart-export-btn") is not None
+    assert soup.find(id="smart-export-scope") is not None
+
+
+def test_comparative_page_has_export_button():
+    import os
+    from bs4 import BeautifulSoup
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "comparative.html")
+    with open(path, encoding="utf-8") as f:
+        soup = BeautifulSoup(f.read(), "html.parser")
+    assert soup.find(id="comparative-export-btn") is not None
+    assert soup.find(id="comparative-export-scope") is not None
+
+
+def test_smart_js_has_export_handler():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    assert "function smartExportData" in content
+    assert "/export/full-data?month=" in content
+    assert "lang=ar" in content
+
+
+def test_comparative_js_has_export_handler():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "comparative.js")
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    assert "function comparativeExportData" in content
+    assert "/export/full-data?month=" in content
+    assert "lang=${reportLang}" in content

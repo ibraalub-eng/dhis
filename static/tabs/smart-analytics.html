@@ -24,6 +24,13 @@
       <button id="smart-refresh" class="btn btn-sm" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">تحديث</button>
     </div>
     <div style="align-self:flex-end;">
+      <select id="smart-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.82rem;background:white;">
+        <option value="current">الشهر المحدد</option>
+        <option value="all">كل الأشهر</option>
+      </select>
+      <button id="smart-export-btn" class="btn btn-sm" onclick="smartExportData()" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">تصدير البيانات</button>
+    </div>
+    <div style="align-self:flex-end;">
       <span id="smart-status" style="font-size:0.8rem;color:#6b7280;"></span>
     </div>
   </div>
