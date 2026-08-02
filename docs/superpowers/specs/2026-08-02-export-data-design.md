@@ -90,7 +90,7 @@ The purpose is to let an external tool (Excel, Python, Power BI, etc.) analyze t
 }
 ```
 
-**Serialization rule:** smart dataclasses serialize via `dataclasses.asdict`-style conversion (recursive `__dict__`/`asdict`), then `_sanitize` (numpy → native). The `smart` dict mirrors the existing `_envelope` structure returned by `app/api/smart_analytics.py` (`kpi`, `anomalies`, `clustering`, `correlations`, `residuals`, `stratified`, `explanations`, `geo`, `xgboost`).
+**Serialization rule:** smart dataclasses serialize via `dataclasses.asdict` (recursive), then `_sanitize` (numpy → native). The `smart` dict mirrors the existing `_envelope` structure returned by `app/api/smart_analytics.py` (`kpi`, `anomalies`, `clustering`, `correlations`, `residuals`, `stratified`, `explanations`, `geo`, `xgboost`).
 
 ## Frontend
 
