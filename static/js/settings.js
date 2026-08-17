@@ -1,7 +1,7 @@
         import { API, apiGet, apiPost, apiPut, clearApiCache } from './api.js';
         import { __ } from './i18n.js';
         import { esc } from './tree.js';
-        import { _saveUIState, _restoreUIState } from './main.js';
+        import { _saveUIState, _restoreUIState, SwitchTab, _tabInited } from './main.js';
 
         // ── Rules Manager ─────────────────────────────────────────
         export let rulesManagerData = [];
@@ -109,6 +109,189 @@
             }).catch(() => {});
         }
 
+        // ── Mini sparkline (SVG) for factor history ─────────────
+        function _rcSparkline(history) {
+            const w = 64, h = 18, pad = 1;
+            const vals = history.map(p => Number(p.value) || 0);
+            if (!vals.length) return '';
+            const min = Math.min(...vals), max = Math.max(...vals);
+            const span = (max - min) || 1;
+            const pts = vals.map((v, i) => {
+                const x = pad + (i * (w - 2 * pad)) / (vals.length - 1 || 1);
+                const y = h - pad - ((v - min) / span) * (h - 2 * pad);
+                return x.toFixed(1) + ',' + y.toFixed(1);
+            });
+            // القيم تاريخ لنسبة فشل القاعدة: انخفاض = تحسّن (أخضر)، ارتفاع = تدهور (أحمر)
+            const color = vals[vals.length - 1] < vals[0] ? '#0d9488' : '#c62828';
+            const lastX = pts[pts.length - 1].split(',')[0];
+            const lastY = pts[pts.length - 1].split(',')[1];
+            return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="vertical-align:middle;">' +
+                '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>' +
+                '<circle cx="' + lastX + '" cy="' + lastY + '" r="2" fill="' + color + '"/></svg>';
+        }
+
+        // ── Timeline: indicator value vs peer average (95% CI) ───────────
+        let _rcTimelineData = { indicators: [] };
+        let _rcTimelineSelCode = null;  // يُحفظ كود المؤشر لا فهرسه (الفهرس يتغير باختلاف المستشفى)
+
+        function drawRcTimelineChart(ind) {
+            const chartEl = document.getElementById('rcTimelineChart');
+            const textEl = document.getElementById('rcTimelineText');
+            if (!chartEl || !ind) return;
+
+            const months = ind.series.map(p => p.month);
+            const hv = ind.series.map(p => p.hospital_value);
+            const pm = ind.series.map(p => p.peer_mean);
+
+            // CI band data
+            const bandUpper = ind.series.map(p => p.peer_upper);
+            const bandLower = ind.series.map(p => p.peer_lower);
+
+            // Destroy existing chart if any
+            if (window._rcTimelineChartInstance) {
+                window._rcTimelineChartInstance.destroy();
+            }
+
+            // Create new Chart.js chart
+            const ctx = chartEl.getContext('2d');
+            window._rcTimelineChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: months,
+                    datasets: [
+                        {
+                            label: (ind.indicator_name || ind.indicator_code) + ' — المستشفى',
+                            data: hv,
+                            borderColor: CHART_COLORS.primary,
+                            backgroundColor: CHART_COLORS.primary,
+                            borderWidth: 2.5,
+                            pointRadius: 5,
+                            pointHoverRadius: 7,
+                            tension: 0.3,
+                            fill: false,
+                        },
+                        {
+                            label: 'متوسط النظير',
+                            data: pm,
+                            borderColor: CHART_COLORS.secondary,
+                            backgroundColor: CHART_COLORS.secondary,
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            pointRadius: 4,
+                            pointHoverRadius: 6,
+                            tension: 0.3,
+                            fill: false,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: { size: 10 },
+                                color: CHART_COLORS.neutral,
+                                usePointStyle: true,
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: '#1e293b',
+                            titleFont: { size: 11 },
+                            bodyFont: { size: 11 },
+                            padding: 12,
+                            cornerRadius: 6,
+                            callbacks: {
+                                title: function(items) {
+                                    return items[0].label;
+                                },
+                                label: function(context) {
+                                    const label = context.dataset.label || '';
+                                    const value = context.parsed.y;
+                                    return label + ': ' + value.toFixed(1);
+                                },
+                                afterBody: function(items) {
+                                    const monthIndex = items[0].dataIndex;
+                                    const peerCount = ind.series[monthIndex]?.peer_count;
+                                    return peerCount ? 'Peer hospitals: ' + peerCount : '';
+                                }
+                            }
+                        },
+                        ciBand: {
+                            upper: bandUpper,
+                            lower: bandLower
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: CHART_COLORS.grid },
+                            ticks: { color: CHART_COLORS.neutral, font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: CHART_COLORS.grid },
+                            ticks: { color: CHART_COLORS.neutral, font: { size: 10 } },
+                            beginAtZero: false,
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                },
+                plugins: [ciBandPlugin]
+            });
+
+            if (textEl) {
+                const withPeer = ind.series.filter(p => p.peer_count > 0);
+                const avgPeers = withPeer.length
+                    ? Math.round(withPeer.reduce((a, p) => a + (p.peer_count || 0), 0) / withPeer.length)
+                    : 0;
+                textEl.textContent = 'الخط الصلب: قيمة المستشفى شهراً بشهر. الخط المتقطع: متوسط النظير. النطاق المظلل: فاصل ثقة 95% حول متوسط النظير.'
+                    + (avgPeers ? ` متوسط عدد النظير في الشهر: ${avgPeers} مستشفى.` : '');
+            }
+        }
+
+        export function renderRcTimeline() {
+            const sel = document.getElementById('rcTimelineIndicator');
+            const chartEl = document.getElementById('rcTimelineChart');
+            const textEl = document.getElementById('rcTimelineText');
+            if (!sel || !chartEl) return;
+            const inds = (_rcTimelineData.indicators || []).filter(i => (i.series || []).length >= 2);
+            if (!inds.length) {
+                sel.innerHTML = '<option value="">لا توجد بيانات زمنية كافية</option>';
+                if (window._rcTimelineChartInstance) {
+                    window._rcTimelineChartInstance.destroy();
+                    window._rcTimelineChartInstance = null;
+                }
+                if (textEl) textEl.textContent = 'لا توجد بيانات — تتطلب المقارنة الزمنية شهرين أو أكثر للمستشفى وللنظراء.';
+                return;
+            }
+            sel.innerHTML = inds.map((i, idx) =>
+                '<option value="' + idx + '">' + esc(i.indicator_name || i.indicator_code) + ' (' + esc(i.indicator_code) + ')</option>'
+            ).join('');
+            if (_rcTimelineSelCode != null) {
+                const match = inds.findIndex(i => i.indicator_code === _rcTimelineSelCode);
+                if (match >= 0) {
+                    sel.value = String(match);
+                } else {
+                    _rcTimelineSelCode = inds[0] ? inds[0].indicator_code : null;
+                }
+            } else if (inds[0]) {
+                _rcTimelineSelCode = inds[0].indicator_code;
+            }
+            drawRcTimelineChart(inds[parseInt(sel.value, 10) || 0]);
+        }
+
+        export function renderRcTimelineChart() {
+            const sel = document.getElementById('rcTimelineIndicator');
+            const inds = (_rcTimelineData.indicators || []).filter(i => (i.series || []).length >= 2);
+            if (!sel || !inds.length) return;
+            const idx = parseInt(sel.value, 10);
+            if (!isNaN(idx) && inds[idx]) _rcTimelineSelCode = inds[idx].indicator_code;
+            drawRcTimelineChart(inds[idx || 0]);
+        }
+
         export function loadRootCause() {
             _saveUIState('root-cause');
             const hid = document.getElementById('rcHospital').value;
@@ -116,7 +299,7 @@
             if (!hid || !mth) return;
             document.getElementById('rcLoading').style.display = 'block';
             document.getElementById('rcContent').style.display = 'none';
-            apiGet('/root-cause/' + hid + '?month=' + mth).then(d => {
+            apiGet('/root-cause/' + hid + '?month=' + mth + '&include_history=true&compare_peers=true&months_back=6').then(d => {
                 document.getElementById('rcLoading').style.display = 'none';
                 document.getElementById('rcContent').style.display = 'block';
 
@@ -128,62 +311,100 @@
                 const ci = d.critical_issues_count || 0;
                 document.getElementById('rcKpiBar').innerHTML =
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + qsColor + ';">' +
-                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">Quality Score</div>' +
+                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">جودة البيانات / Quality</div>' +
                         '<div style="font-size:2rem;font-weight:700;color:' + qsColor + ';">' + qs + '</div>' +
                         '<div style="height:4px;background:#e0e0e0;border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
                             '<div style="width:' + Math.min(qs, 100) + '%;height:100%;background:' + qsColor + ';border-radius:2px;"></div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + confColor + ';">' +
-                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">Confidence</div>' +
+                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">الثقة / Confidence</div>' +
                         '<div style="font-size:2rem;font-weight:700;color:' + confColor + ';">' + conf + '</div>' +
                         '<div style="height:4px;background:#e0e0e0;border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
                             '<div style="width:' + Math.min(conf, 100) + '%;height:100%;background:' + confColor + ';border-radius:2px;"></div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + (ci > 0 ? '#c62828' : '#2e7d32') + ';">' +
-                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">Critical Issues</div>' +
+                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">المشاكل الحرجة / Critical Issues</div>' +
                         '<div style="font-size:2rem;font-weight:700;color:' + (ci > 0 ? '#c62828' : '#2e7d32') + ';">' + ci + '</div>' +
-                        '<div style="font-size:0.72rem;color:#888;margin-top:0.2rem;">' + (ci > 0 ? 'Requires attention' : 'No critical issues') + '</div>' +
+                        '<div style="font-size:0.72rem;color:#888;margin-top:0.2rem;">' + (ci > 0 ? 'يتطلب انتباهاً' : 'لا توجد مشاكل حرجة') + '</div>' +
                     '</div>';
 
-                // ── Summary ──
+                // ── Summary: Arabic primary (rendered into rcSummaryArabic), English secondary line ──
+                const arSumEl = document.getElementById('rcSummaryArabic');
+                if (arSumEl) arSumEl.textContent = d.summary_arabic || '';
                 document.getElementById('rcSummary').innerHTML =
-                    '<strong style="color:#3949ab;">Diagnostic Summary</strong><br>' + (d.summary || 'No summary available.');
+                    '<span style="color:#94a3b8;">EN summary:</span> ' + (d.summary || 'No summary available.');
 
-                // ── Priority Actions ──
+                // ── Priority Actions (with quantified impact/effort/ROI) ──
                 const al = document.getElementById('rcActionsList');
                 al.innerHTML = '';
+                const detailByAction = {};
+                (d.priority_action_details || []).forEach(p => { detailByAction[p.action] = p; });
                 if (d.priority_actions && d.priority_actions.length) {
                     d.priority_actions.forEach((a, i) => {
                         const isCritical = a.startsWith('[CRITICAL]');
                         const color = isCritical ? '#c62828' : '#e65100';
                         const icon = isCritical ? '\u26a0' : '\u26a1';
+                        const det = detailByAction[a] || {};
+                        const impact = Math.max(0, Math.min(100, det.impact || 0));
+                        const effort = Math.max(1, Math.min(5, det.effort || 3));
+                        const roi = det.roi || 0;
+                        let barHtml = '<div style="margin-top:0.2rem;font-size:0.62rem;color:#aaa;">— لا يوجد تقدير كمي</div>';
+                        if (impact > 0) {
+                            const roiCol = roi >= 15 ? '#2e7d32' : roi >= 8 ? '#e65100' : '#888';
+                            const impactCol = impact >= 60 ? '#c62828' : impact >= 30 ? '#e65100' : '#2e7d32';
+                            const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:#f9a825;font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
+                                '&#9679;'.repeat(effort) + '<span style="color:#ddd;">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
+                            barHtml = '<div style="margin-top:0.3rem;">' +
+                                '<div style="display:flex;justify-content:space-between;font-size:0.62rem;color:#888;margin-bottom:1px;">' +
+                                    '<span>&#128200; الأثر: ' + impact.toFixed(0) + ' نقطة جودة</span>' +
+                                    '<span style="color:' + roiCol + ';font-weight:700;">&#128176; عائد ' + roi.toFixed(1) + '</span>' +
+                                    '<span>الجهد: ' + effortDots + '</span>' +
+                                '</div>' +
+                                '<div style="height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden;">' +
+                                    '<div style="width:' + impact + '%;height:100%;background:linear-gradient(90deg,' + impactCol + 'cc,' + impactCol + ');border-radius:3px;"></div>' +
+                                '</div>' +
+                            '</div>';
+                        }
                         const div = document.createElement('div');
-                        div.style.cssText = 'display:flex;align-items:flex-start;gap:0.5rem;padding:0.4rem 0.5rem;margin-bottom:0.35rem;background:' + color + '08;border-radius:4px;font-size:0.8rem;';
+                        div.style.cssText = 'display:flex;align-items:flex-start;gap:0.5rem;padding:0.45rem 0.5rem;margin-bottom:0.4rem;background:' + color + '08;border-radius:4px;font-size:0.8rem;';
                         div.innerHTML = '<span style="color:' + color + ';font-weight:700;min-width:1.2rem;">' + (i + 1) + '.</span>' +
-                            '<span>' + (isCritical ? '<span style="color:' + color + ';font-weight:600;">' + icon + ' </span>' : '') + esc(a.replace('[CRITICAL] ','')) + '</span>';
+                            '<span style="flex:1;">' + (isCritical ? '<span style="color:' + color + ';font-weight:600;">' + icon + ' </span>' : '') + esc(a.replace('[CRITICAL] ','')) + barHtml +
+                            '</span>';
                         al.appendChild(div);
                     });
                 } else {
                     al.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#888;font-size:0.8rem;">No urgent actions needed.</div>';
                 }
 
-                // ── AI Recommendations ──
+                // ── AI Recommendations (ثنائية اللغة حسب لغة التطبيق) ──
                 const aiList = document.getElementById('rcAIList');
                 aiList.innerHTML = '';
+                const isAr = (typeof window.currentLang === 'undefined') ? true : (window.currentLang === 'ar');
+                const prioAr = { critical: 'حرج', high: 'عالٍ', medium: 'متوسط', low: 'منخفض' };
+                const aiPrioLabel = p => (isAr && prioAr[p]) ? prioAr[p] : p;
                 if (d.ai_recommendations && d.ai_recommendations.length) {
                     const priorityColors = {critical:'#c62828',high:'#e65100',medium:'#f9a825',low:'#388e3c'};
                     d.ai_recommendations.forEach(r => {
                         const pCol = priorityColors[r.priority] || '#888';
+                        const title = isAr ? (r.title_ar || r.title) : (r.title || r.title_ar);
+                        const desc = isAr ? (r.description_ar || r.description) : (r.description || r.description_ar);
+                        const rat = isAr ? (r.rationale_ar || r.rationale) : (r.rationale || r.rationale_ar);
+                        const items = isAr
+                            ? (r.action_items_ar && r.action_items_ar.length ? r.action_items_ar : r.action_items)
+                            : (r.action_items && r.action_items.length ? r.action_items : r.action_items_ar);
+                        const catLabel = isAr ? (r.category_ar || r.category) : r.category;
                         const card = document.createElement('div');
                         card.style.cssText = 'padding:0.5rem 0.6rem;border-radius:4px;margin-bottom:0.4rem;border-left:3px solid ' + pCol + ';font-size:0.8rem;';
                         card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.3rem;">' +
-                            '<div style="display:flex;align-items:center;gap:0.3rem;"><span class="rec-source rec-source-ai" title="AI-generated">&#9889;</span><span style="font-weight:600;color:#333;">' + esc(r.title) + '</span></div>' +
-                            '<span style="font-size:0.6rem;background:' + pCol + ';color:#fff;padding:0 6px;border-radius:8px;white-space:nowrap;">' + r.priority + '</span></div>' +
-                            (r.description ? '<div style="font-size:0.75rem;color:#555;margin-top:0.2rem;">' + esc(r.description) + '</div>' : '') +
-                            (r.rationale ? '<div style="font-size:0.7rem;color:#888;font-style:italic;margin-top:0.15rem;">' + esc(r.rationale) + '</div>' : '') +
-                            (r.action_items && r.action_items.length ? '<div style="font-size:0.72rem;color:#666;margin-top:0.15rem;"><strong>Actions:</strong> ' + r.action_items.join('; ') + '</div>' : '');
+                            '<div style="display:flex;align-items:center;gap:0.3rem;flex-wrap:wrap;"><span class="rec-source rec-source-ai" title="AI-generated">&#9889;</span>' +
+                            (catLabel ? '<span style="font-size:0.58rem;background:#eef2ff;color:#4338ca;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(catLabel) + '</span>' : '') +
+                            '<span style="font-weight:600;color:#333;">' + esc(title) + '</span></div>' +
+                            '<span style="font-size:0.6rem;background:' + pCol + ';color:#fff;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(aiPrioLabel(r.priority)) + '</span></div>' +
+                            (desc ? '<div style="font-size:0.75rem;color:#555;margin-top:0.2rem;">' + esc(desc) + '</div>' : '') +
+                            (rat ? '<div style="font-size:0.7rem;color:#888;font-style:italic;margin-top:0.15rem;">' + esc(rat) + '</div>' : '') +
+                            (items && items.length ? '<div style="font-size:0.72rem;color:#666;margin-top:0.15rem;"><strong>' + (isAr ? 'الإجراءات:' : 'Actions:') + '</strong> ' + items.map(esc).join('; ') + '</div>' : '');
                         aiList.appendChild(card);
                     });
                 } else {
@@ -263,6 +484,107 @@
                     }).join('');
                 } else { ap.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#888;font-size:0.78rem;">No anomaly patterns found.</div>'; }
 
+
+                // ── Causal Chains ──
+                const chainsEl = document.getElementById('rcCausalChains');
+                if (chainsEl) {
+                    chainsEl.innerHTML = '';
+                    if (d.causal_chains && d.causal_chains.length) {
+                        chainsEl.innerHTML = d.causal_chains.slice(0, 5).map(c => {
+                            const pct = Math.round((c.confidence || 0) * 100);
+                            const confColor = c.confidence >= 0.7 ? '#0d9488' : c.confidence >= 0.5 ? '#e65100' : '#c62828';
+                            const prio = (c.implementation_priority || '').toUpperCase();
+                            const prioColor = prio === 'CRITICAL' ? '#c62828' : prio === 'HIGH' ? '#e65100' : '#f9a825';
+                            return '<div style="padding:0.6rem;border:1px solid #99f6e4;border-radius:8px;margin-bottom:0.5rem;background:linear-gradient(135deg,#f0fdfa,#f8fafc);">' +
+                                '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">' +
+                                    '<span style="font-weight:700;font-size:0.82rem;color:#134e4a;">' + esc(c.root_cause_arabic || c.root_cause) + '</span>' +
+                                    '<span style="font-size:0.65rem;background:' + prioColor + ';color:#fff;padding:1px 8px;border-radius:10px;white-space:nowrap;font-weight:600;">' + esc(prio) + '</span>' +
+                                '</div>' +
+                                (c.chain_path && c.chain_path.length > 1
+                                    ? '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.2rem;margin:0.35rem 0;direction:rtl;" title="سلسلة السبب والنتيجة الكاملة (الأعمق ← الأحدث)">' +
+                                        c.chain_path.map((code, ci) => {
+                                            const isRoot = ci === c.chain_path.length - 1;
+                                            return '<span style="font-size:0.66rem;padding:1px 8px;border-radius:10px;font-weight:600;white-space:nowrap;' +
+                                                (isRoot ? 'background:#0d9488;color:#fff;' : 'background:#ccfbf1;color:#115e59;border:1px solid #99f6e4;') + '">' +
+                                                esc(code) + '</span>' +
+                                                (ci < c.chain_path.length - 1 ? '<span style="color:#0d9488;font-size:0.7rem;">&#8592;</span>' : '');
+                                        }).join('') +
+                                    '</div>' : '') +
+                                (c.chain_path_arabic ? '<div style="font-size:0.68rem;color:#0f766e;margin-bottom:0.3rem;">' + esc(c.chain_path_arabic) + '</div>' : '') +
+                                '<div style="margin:0.4rem 0;height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden;">' +
+                                    '<div style="width:' + pct + '%;height:100%;background:' + confColor + ';border-radius:3px;"></div>' +
+                                '</div>' +
+                                '<div style="display:flex;gap:0.8rem;font-size:0.7rem;color:#666;margin-bottom:0.3rem;">' +
+                                    '<span title="قوة الثقة في السبب الجذري">الثقة <strong>' + pct + '%</strong></span>' +
+                                    '<span title="الأثر المتوقع عند الإصلاح">الأثر <strong>' + (c.impact_if_fixed || 0) + '</strong></span>' +
+                                '</div>' +
+                                (c.affected_factors && c.affected_factors.length
+                                    ? '<div style="font-size:0.7rem;color:#555;margin-bottom:0.3rem;"><strong>العوامل المتأثرة:</strong> ' + c.affected_factors.map(esc).join(' ← ') + '</div>' : '') +
+                                (c.recommended_action ? '<div style="font-size:0.72rem;color:#0f766e;margin-top:0.2rem;">&#128161; ' + esc(c.recommended_action) + '</div>' : '') +
+                                (c.evidence && c.evidence.length ? '<div style="font-size:0.68rem;color:#888;margin-top:0.2rem;">' + c.evidence.slice(0, 3).map(esc).join(' | ') + '</div>' : '') +
+                            '</div>';
+                        }).join('');
+                    } else {
+                        chainsEl.innerHTML = '<div style="padding:0.5rem;color:#888;font-size:0.78rem;">لا توجد سلاسل سببية — فعّل التحليل التاريخي أو لا توجد فشل قواعد حرج.</div>';
+                    }
+                }
+
+                // ── Causal Tree ──
+                const treeEl = document.getElementById('rcCausalTree');
+                if (treeEl) {
+                    treeEl.innerHTML = '';
+                    if (d.causal_tree && d.causal_tree.length) {
+                        treeEl.innerHTML = d.causal_tree.slice(0, 12).map(n => {
+                            const sevColor = n.severity === 'CRITICAL' ? '#c62828' : n.severity === 'HIGH' ? '#e65100' : n.severity === 'critical' ? '#c62828' : n.severity === 'high' ? '#e65100' : '#0d9488';
+                            const trendArrow = n.trend === 'declining' ? '&#9660;' : n.trend === 'improving' ? '&#9650;' : '&#8212;';
+                            return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
+                                '<span style="width:9px;height:9px;border-radius:50%;background:' + sevColor + ';flex-shrink:0;"></span>' +
+                                '<span style="font-weight:600;font-size:0.78rem;">' + esc(n.factor) + '</span>' +
+                                '<span style="font-size:0.7rem;color:#555;">' + (n.current_value != null ? n.current_value : '') + '</span>' +
+                                (n.history && n.history.length > 1
+                                    ? '<span title="الاتجاه عبر الأشهر: ' + esc(n.history.map(h => h.month + ' = ' + h.value).join('، ')) + '">' + _rcSparkline(n.history) + '</span>'
+                                    : '<span style="font-size:0.7rem;color:#888;" title="الاتجاه عبر الأشهر">' + trendArrow + ' ' + esc(n.trend || '') + '</span>') +
+                                '<span style="margin-right:auto;font-size:0.65rem;color:#aaa;">' + esc(n.factor_type || '') + '</span>' +
+                            '</div>';
+                        }).join('');
+                    } else {
+                        treeEl.innerHTML = '<div style="padding:0.5rem;color:#888;font-size:0.78rem;">لا توجد بيانات شجرة سببية.</div>';
+                    }
+                }
+
+                // ── Peer Comparisons (per indicator) ──
+                const peerEl = document.getElementById('rcPeerComparisons');
+                if (peerEl) {
+                    peerEl.innerHTML = '';
+                    const comps = d.peer_comparisons || {};
+                    const entries = Object.values(comps);
+                    if (entries.length) {
+                        peerEl.innerHTML = entries.slice(0, 10).map(c => {
+                            const gap = c.gap_pct || 0;
+                            const over = gap > 0;
+                            const color = Math.abs(gap) > 20 ? (over ? '#c62828' : '#1565c0') : '#888';
+                            return '<div style="padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
+                                '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                                    '<span style="font-weight:600;font-size:0.78rem;">' + esc(c.indicator_name || c.indicator_code) + '</span>' +
+                                    '<span style="font-size:0.7rem;color:' + color + ';font-weight:700;">' + (over ? '▲ +' : '▼ ') + Math.abs(gap).toFixed(1) + '%</span>' +
+                                '</div>' +
+                                '<div style="font-size:0.68rem;color:#888;">المستشفى ' + c.hospital_value + ' مقابل متوسط النظير ' + c.peer_mean + ' (' + c.peer_count + ' مستشفى) — مئوية ' + c.hospital_percentile + ' | z=' + c.hospital_z_score + '</div>' +
+                            '</div>';
+                        }).join('');
+                    } else {
+                        peerEl.innerHTML = '<div style="padding:0.5rem;color:#888;font-size:0.78rem;">لا توجد مقارنات نظير — تحتاج 3+ مستشفيات بنفس النوع/الملكية/المحافظة.</div>';
+                    }
+                }
+
+                // ── Timeline: indicator value vs peer average with 95% CI band ──
+                apiGet('/root-cause/' + hid + '/timeline?month=' + mth + '&months_back=6').then(tl => {
+                    _rcTimelineData = tl || { indicators: [] };
+                    renderRcTimeline();
+                }).catch(() => {
+                    _rcTimelineData = { indicators: [] };
+                    renderRcTimeline();
+                });
+
                 // Fetch ML data for PCA
                 const mlUrl = '/analysis/ml?month=' + mth;
                 apiGet(mlUrl).then(mlData => {
@@ -301,6 +623,7 @@
         export function initRootCause() {
             const hsel = document.getElementById('rcHospital');
             const msel = document.getElementById('rcMonth');
+            if (!hsel || !msel) return; // التبويب لم يُحمَّل — لا شيء لنهيئه
             const phH = '<option value="">Select hospital</option>';
             const phM = '<option value="">Select month</option>';
             hsel.innerHTML = phH;
@@ -313,10 +636,46 @@
                 populateMonthSelect('rcMonth', false),
             ]).then(() => {
                 _restoreUIState('root-cause');
-                if (hsel.value && msel.value) loadRootCause();
+                // إذا وُجد سياق معلّق قادم من شاشة أخرى (التحليل الذكي)، طبّقه بدل الحالة المحفوظة
+                if (!applyRootCauseContext() && hsel.value && msel.value) loadRootCause();
             }).catch(() => {
                 _restoreUIState('root-cause');
+                applyRootCauseContext();
             });
+        }
+
+        /**
+         * يُنقل المستخدم من أي شاشة إلى تبويب Root Cause مع تمرير سياق
+         * (المستشفى + الشهر) تلقائياً. يخزّن السياق، يفتح التبويب، ثم يطبّق
+         * السياق فوراً إن كان التبويب مُهيّأ مسبقاً، أو بعد اكتمال تهيئته.
+         */
+        export function goRootCause(hospitalId, month) {
+            window._rootCauseContext = { hospitalId: String(hospitalId), month: String(month) };
+            const alreadyInited = _tabInited.has('root-cause');
+            SwitchTab('root-cause');
+            if (alreadyInited) applyRootCauseContext();
+        }
+
+        /**
+         * يطبّق سياق السبب الجذري المعلّق على قائمتي المستشفى والشهر
+         * ويحمّل النتيجة. يعيد true إذا طُبّق السياق وتحمّل.
+         */
+        export function applyRootCauseContext() {
+            const ctx = window._rootCauseContext;
+            if (!ctx) return false;
+            const hsel = document.getElementById('rcHospital');
+            const msel = document.getElementById('rcMonth');
+            if (!hsel || !msel) return false;
+            // طبّق السياق فقط عند تطابق الخيارين في القائمتين، حتى لا ينتج
+            // مزيج خاطئ (مستشفى من السياق + شهر من الحالة المحفوظة)
+            const hasHospital = [...hsel.options].some(o => o.value === ctx.hospitalId);
+            const hasMonth = [...msel.options].some(o => o.value === ctx.month);
+            window._rootCauseContext = null;
+            if (!hasHospital || !hasMonth) return false;
+            hsel.value = ctx.hospitalId;
+            msel.value = ctx.month;
+            loadRootCause();
+            return true;
         }
 
         // ── Shared: Populate month select from DB ───────────────────
@@ -330,7 +689,7 @@
         }
 
         // ── Dashboard ──────────────────────────────────────────────
-        let trendChartInstance = null, yoyChartInstance = null, confidenceChartInstance = null, radarChartInstance = null;
+        let trendChartInstance = null, confidenceChartInstance = null, radarChartInstance = null;
         let scorecardTrendInstance = null, scorecardRatesInstance = null;
 
         function renderKpiCards(hid) {
@@ -452,16 +811,22 @@
 
         // ── Hospital Scorecard ───────────────────────────────────
         export function showHospitalScorecard(hospitalId) {
-            const panel = document.getElementById('scorecardPanel');
-            panel.style.display = 'block';
-            document.getElementById('scorecardTitle').textContent = 'Loading...';
-            document.getElementById('scorecardContent').innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Loading...</p>';
+            // عرض التفاصيل في نافذة منبثقة (modal) داخل نفس الصفحة
+            const modal = document.getElementById('detailModal');
+            document.getElementById('modalTitle').textContent = __('Loading...');
+            document.getElementById('modalBody').innerHTML =
+                '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;gap:0.9rem;">' +
+                '<span class="spinner spinner-lg"></span>' +
+                '<span style="color:#888;font-size:0.85rem;">' + __('Loading hospital details...') + '</span>' +
+                '</div>';
+            modal.classList.add('show');
 
             apiGet('/dashboard/hospital-performance/' + hospitalId).then(d => {
                 const gradeColors = {A:'#2e7d32', B:'#1565c0', C:'#e65100', D:'#c62828'};
                 const gc = gradeColors[d.grade] || '#888';
-                document.getElementById('scorecardTitle').innerHTML =
-                    '<span class="scorecard-grade" style="background:' + gc + ';">' + d.grade + '</span>' + esc(d.name);
+                document.getElementById('modalTitle').innerHTML =
+                    '<span class="scorecard-grade" style="background:' + gc + ';">' + d.grade + '</span>' + esc(d.name) +
+                    ' <span style="font-size:0.72rem;font-weight:400;color:#888;">\u2014 Hospital Scorecard</span>';
 
                 const qc = d.avg_score >= 75 ? '#2e7d32' : d.avg_score >= 50 ? '#e65100' : '#c62828';
                 let html = '<div class="scorecard-kpi-bar">' +
@@ -500,7 +865,7 @@
                 }
                 html += '</div>';
 
-                document.getElementById('scorecardContent').innerHTML = html;
+                document.getElementById('modalBody').innerHTML = html;
 
                 if (scorecardTrendInstance) { scorecardTrendInstance.destroy(); scorecardTrendInstance = null; }
                 if (scorecardRatesInstance) { scorecardRatesInstance.destroy(); scorecardRatesInstance = null; }
@@ -528,65 +893,102 @@
 
                 const ratesCtx = document.getElementById('scorecardRatesChart');
                 if (ratesCtx && d.clinical_rates && d.clinical_rates.length) {
-                    const labels = d.clinical_rates.map(r => r.rate_name.replace(' Rate', '').replace(' Ratio', ''));
+                    // Shorten long rate names and wrap them so every category is readable
+                    const labels = d.clinical_rates.map(r => {
+                        let name = r.rate_name.replace(' Rate', '').replace(' Ratio', '');
+                        return name.length > 14 ? name.replace(/\s+/g, '\n') : name;
+                    });
+                    // Inline plugin: draws the numeric value above each bar so zeros
+                    // are explicit and never look "missing"; null (no data) values get
+                    // a gray hatched placeholder marked "N/A" instead of a bar.
+                    const valueLabelPlugin = {
+                        id: 'scorecardValueLabels',
+                        afterDatasetsDraw(chart) {
+                            const { ctx } = chart;
+                            const yScale = chart.scales.y;
+                            chart.data.datasets.forEach((dataset, di) => {
+                                const meta = chart.getDatasetMeta(di);
+                                meta.data.forEach((bar, i) => {
+                                    const v = dataset.data[i];
+                                    if (v === null || v === undefined) {
+                                        // No data: draw a small gray hatched placeholder
+                                        // instead of a bar so the category is visible.
+                                        const phH = 6;
+                                        ctx.save();
+                                        ctx.strokeStyle = '#bdbdbd';
+                                        ctx.fillStyle = 'rgba(158,158,158,0.25)';
+                                        ctx.lineWidth = 1.5;
+                                        ctx.setLineDash([3, 2]);
+                                        ctx.beginPath();
+                                        ctx.rect(bar.x - bar.width / 2 + 1, yScale.bottom - phH, bar.width - 2, phH);
+                                        ctx.fill();
+                                        ctx.stroke();
+                                        ctx.setLineDash([]);
+                                        ctx.fillStyle = '#9e9e9e';
+                                        ctx.font = 'bold 8px sans-serif';
+                                        ctx.textAlign = 'center';
+                                        ctx.textBaseline = 'top';
+                                        ctx.fillText('N/A', bar.x, yScale.bottom + 1);
+                                        ctx.restore();
+                                        return;
+                                    }
+                                    ctx.save();
+                                    ctx.fillStyle = di === 0 ? '#1a237e' : '#e65100';
+                                    ctx.font = 'bold 9px sans-serif';
+                                    ctx.textAlign = 'center';
+                                    ctx.textBaseline = 'bottom';
+                                    ctx.fillText(String(v), bar.x, bar.y - 2);
+                                    ctx.restore();
+                                });
+                            });
+                        }
+                    };
                     scorecardRatesInstance = new Chart(ratesCtx, {
                         type: 'bar',
                         data: {
                             labels: labels,
                             datasets: [
-                                { label: 'Hospital', data: d.clinical_rates.map(r => r.value), backgroundColor: '#3f51b5', borderRadius: 3 },
-                                { label: 'Peer Avg', data: d.clinical_rates.map(r => r.peer_avg ?? null), backgroundColor: '#ff9800', borderRadius: 3 }
+                                { label: 'Hospital', data: d.clinical_rates.map(r => r.value), backgroundColor: '#3f51b5', borderRadius: 3, minBarLength: 3 },
+                                { label: 'Peer Avg', data: d.clinical_rates.map(r => r.peer_avg ?? null), backgroundColor: '#ff9800', borderRadius: 3, minBarLength: 3 }
                             ]
                         },
+                        plugins: [valueLabelPlugin],
                         options: {
                             responsive: true, resizeDelay: 200,
-                            plugins: { legend: { position: 'top', labels: { font: { size: 9 } } } },
-                            scales: { y: { beginAtZero: true } }
+                            // Render instantly: zero-bar slivers + value labels must be
+                            // visible immediately, and some embedded webviews never fire
+                            // the animation frame that would grow the bars.
+                            animation: false,
+                            plugins: {
+                                legend: { position: 'top', labels: { font: { size: 9 } } },
+                                tooltip: {
+                                    callbacks: {
+                                        title: items => items.length ? d.clinical_rates[items[0].dataIndex].rate_name : '',
+                                        label: item => {
+                                            const v = item.parsed.y;
+                                            if (v === null || v === undefined) return ' ' + item.dataset.label + ': No data';
+                                            return ' ' + item.dataset.label + ': ' + v;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: { beginAtZero: true, ticks: { font: { size: 9 } } },
+                                x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0, font: { size: 9 } } }
+                            }
                         }
                     });
                 }
             }).catch(e => {
-                document.getElementById('scorecardContent').innerHTML = '<p style="color:#c62828;">Error: ' + e.message + '</p>';
+                document.getElementById('modalBody').innerHTML = '<p style="color:#c62828;">Error: ' + e.message + '</p>';
             });
         }
 
         export function closeScorecard() {
-            document.getElementById('scorecardPanel').style.display = 'none';
-        }
-
-        function renderYoyChart(hid) {
-            let url = '/dashboard/yoy?';
-            if (hid) url += 'hospital_id=' + hid;
-            apiGet(url).then(d => {
-                if (yoyChartInstance) yoyChartInstance.destroy();
-                const canvas = document.getElementById('yoyChart');
-                if (!d.labels || !d.labels.length) {
-                    canvas.parentElement.innerHTML = '<p style="font-size:0.85rem;color:#888;text-align:center;padding:1rem;">No data for year-over-year comparison.</p>';
-                    return;
-                }
-                const colors = ['#3f51b5', '#ff5722', '#4caf50', '#ff9800'];
-                const datasets = (d.years || []).map((y, i) => ({
-                    label: String(y),
-                    data: d.labels.map(m => (d.data['year_' + y] || {})[m] ?? null),
-                    borderColor: colors[i % colors.length],
-                    backgroundColor: colors[i % colors.length] + '22',
-                    fill: false,
-                    tension: 0.3,
-                    pointRadius: 4,
-                }));
-                const ctx = canvas.getContext('2d');
-                yoyChartInstance = new Chart(ctx, {
-                    type: 'line',
-                    data: { labels: d.labels, datasets },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        resizeDelay: 200,
-                        plugins: { legend: { position: 'top', labels: { font: { size: 10 } } } },
-                        scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
-                    }
-                });
-            }).catch(() => {});
+            document.getElementById('detailModal').classList.remove('show');
+            // تنظيف الرسوم عند الإغلاق حتى لا تتسرب كائنات Chart المرتبطة بلوحات مفصولة
+            if (scorecardTrendInstance) { scorecardTrendInstance.destroy(); scorecardTrendInstance = null; }
+            if (scorecardRatesInstance) { scorecardRatesInstance.destroy(); scorecardRatesInstance = null; }
         }
 
         export function loadDashboard() {
@@ -633,9 +1035,6 @@
                         scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
                     }
                 });
-
-                // YoY chart
-                renderYoyChart(hid);
 
                 // Confidence distribution (donut)
                 if (confidenceChartInstance) confidenceChartInstance.destroy();
@@ -737,6 +1136,7 @@
 
         export function initDashboard() {
             const hsel = document.getElementById('dashHospital');
+            if (!hsel) return; // التبويب لم يُحمَّل
             const ph = '<option value="">All Hospitals</option>';
             hsel.innerHTML = ph;
             apiGet('/hospitals/').then(data => {
@@ -748,17 +1148,23 @@
                 _restoreUIState('dashboard');
                 loadDashboard();
             });
-            apiGet('/dashboard/yoy').then(d => {
+            // قائمة السنوات مشتقة من الأشهر المتاحة (نقطة /dashboard/yoy أُزيلت)
+            apiGet('/analysis/months').then(months => {
+                const list = months.months || months || [];
+                const years = [...new Set(list.map(m => String(m).slice(0, 4)))].sort();
                 const ysel = document.getElementById('dashYear');
+                if (!ysel) return;
                 const cur = ysel.value;
                 ysel.innerHTML = '<option value="">All Years</option>' +
-                    (d.years || []).map(y => '<option value="' + y + '">' + y + '</option>').join('');
+                    years.map(y => '<option value="' + y + '">' + y + '</option>').join('');
                 if (cur) ysel.value = cur;
             }).catch(() => {});
         }
 
         export function loadAllSettings() {
-            document.getElementById('settingsLoading').classList.remove('hidden');
+            const loadingEl = document.getElementById('settingsLoading');
+            if (!loadingEl) return; // التبويب لم يُحمَّل
+            loadingEl.classList.remove('hidden');
             Promise.all([
                 apiGet('/config/').then(cfg => {
                     Object.keys(cfg).forEach(cat => {
@@ -774,7 +1180,8 @@
                 loadWeights(),
                 loadAiSettings(),
             ]).then(() => {
-                document.getElementById('settingsLoading').classList.add('hidden');
+                const l = document.getElementById('settingsLoading');
+                if (l) l.classList.add('hidden');
             });
             initDevHints();
         }
@@ -877,12 +1284,77 @@
             });
         }
 
+        // قائمة النماذج المتاحة لكل مزوّد (تُبنى القائمة المنسدلة منها)
+        const _AI_MODEL_OPTIONS = {
+            gemini: [
+                { value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (recommended free)' },
+                { value: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash' },
+                { value: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
+            ],
+            deepseek: [
+                { value: 'deepseek-chat', label: 'DeepSeek Chat' },
+                { value: 'deepseek-reasoner', label: 'DeepSeek Reasoner' },
+            ],
+            minimax: [
+                { value: 'minimax-abab5.5s-chat', label: 'MiniMax abab5.5s' },
+            ],
+            kimi: [
+                { value: 'moonshot-v1-8k', label: 'Kimi moonshot-v1-8k' },
+                { value: 'moonshot-v1-32k', label: 'Kimi moonshot-v1-32k' },
+            ],
+            openai: [
+                { value: 'gpt-4o-mini', label: 'OpenAI GPT-4o Mini' },
+                { value: 'gpt-4o', label: 'OpenAI GPT-4o' },
+            ],
+        };
+        const _AI_MODEL_DEFAULTS = {
+            gemini: 'gemini-3.5-flash-lite',
+            deepseek: 'deepseek-chat',
+            minimax: 'minimax-abab5.5s-chat',
+            kimi: 'moonshot-v1-8k',
+            openai: 'gpt-4o-mini',
+        };
+
+        function buildAiModelSelect(currentValue) {
+            const sel = document.getElementById('ai_model');
+            if (!sel) return;
+            let html = '';
+            for (const [provider, opts] of Object.entries(_AI_MODEL_OPTIONS)) {
+                html += '<optgroup label="' + provider + '">' +
+                    opts.map(o => '<option value="' + esc(o.value) + '">' + esc(o.label) + '</option>').join('') +
+                    '</optgroup>';
+            }
+            sel.innerHTML = html;
+            if (currentValue && !Array.from(sel.options).some(o => o.value === currentValue)) {
+                const opt = document.createElement('option');
+                opt.value = currentValue;
+                opt.textContent = currentValue + ' (custom)';
+                sel.appendChild(opt);
+            }
+            if (currentValue) sel.value = currentValue;
+        }
+
+        function ensureAiModelForProvider(provider) {
+            const sel = document.getElementById('ai_model');
+            if (!sel) return;
+            const current = sel.value;
+            const providerModels = _AI_MODEL_OPTIONS[provider] || _AI_MODEL_OPTIONS.gemini;
+            const belongsToProvider = providerModels.some(o => o.value === current);
+            const belongsToAny = Object.values(_AI_MODEL_OPTIONS).some(list => list.some(o => o.value === current));
+            if (!belongsToProvider && belongsToAny) {
+                // المستخدم بدّل المزوّد: اختر النموذج الافتراضي للمزوّد الجديد
+                sel.value = _AI_MODEL_DEFAULTS[provider] || _AI_MODEL_DEFAULTS.gemini;
+            }
+            // قيمة مخصصة (غير موجودة في أي قائمة) تُبقى كما هي
+        }
+
         export function loadAiSettings() {
             return fetch(API() + '/config/ai/settings').then(r => r.json()).then(cfg => {
                 document.getElementById('ai_enabled').value = cfg.ai_enabled || 'true';
                 document.getElementById('ai_provider').value = cfg.ai_provider || 'gemini';
                 document.getElementById('ai_api_key').value = cfg.ai_api_key || '';
-                document.getElementById('ai_model').value = cfg.ai_model || 'gemini-2.0-flash-lite';
+                const provider = document.getElementById('ai_provider').value;
+                buildAiModelSelect(cfg.ai_model || _AI_MODEL_DEFAULTS[provider] || 'gemini-3.5-flash-lite');
                 document.getElementById('ai_api_url').value = cfg.ai_api_url || '';
                 document.getElementById('ai_max_recommendations').value = cfg.ai_max_recommendations || 8;
                 document.getElementById('ai_timeout').value = cfg.ai_timeout || 30;
@@ -920,40 +1392,26 @@
         export function onAiProviderChange() {
             const provider = document.getElementById('ai_provider').value;
             const urlRow = document.getElementById('ai_api_url_row');
-            const modelInput = document.getElementById('ai_model');
             const urlInput = document.getElementById('ai_api_url');
             if (provider === 'gemini') {
                 urlRow.style.display = 'none';
-                if (!modelInput.value || !modelInput.value.startsWith('gemini')) {
-                    modelInput.value = 'gemini-2.0-flash-lite';
-                }
             } else if (provider === 'deepseek') {
                 urlRow.style.display = 'none';
-                if (!modelInput.value || !modelInput.value.startsWith('deepseek')) {
-                    modelInput.value = 'deepseek-chat';
-                    if (!urlInput.value) urlInput.value = 'https://api.deepseek.com/v1/chat/completions';
-                }
+                if (!urlInput.value) urlInput.value = 'https://api.deepseek.com/v1/chat/completions';
             } else if (provider === 'minimax') {
                 urlRow.style.display = '';
-                if (!modelInput.value || !modelInput.value.startsWith('minimax')) {
-                    modelInput.value = 'minimax-abab5.5s-chat';
-                }
             } else if (provider === 'kimi') {
                 urlRow.style.display = '';
-                if (!modelInput.value || !modelInput.value.startsWith('moonshot')) {
-                    modelInput.value = 'moonshot-v1-8k';
-                    if (!urlInput.value) urlInput.value = 'https://api.moonshot.cn/v1/chat/completions';
-                }
+                if (!urlInput.value) urlInput.value = 'https://api.moonshot.cn/v1/chat/completions';
             } else {
                 urlRow.style.display = '';
-                if (!modelInput.value || modelInput.value.startsWith('deepseek') || modelInput.value.startsWith('minimax') || modelInput.value.startsWith('moonshot')) {
-                    modelInput.value = 'gpt-4o-mini';
-                    if (!urlInput.value) urlInput.value = 'https://api.openai.com/v1/chat/completions';
-                }
+                if (!urlInput.value) urlInput.value = 'https://api.openai.com/v1/chat/completions';
             }
+            ensureAiModelForProvider(provider);
         }
 
         export function loadRulesManager() {
+            if (!document.getElementById('rulesTbody')) return; // التبويب لم يُحمَّل بعد
             const typeFilter = document.getElementById('rulesTypeFilter').value;
             const sevFilter = document.getElementById('rulesSeverityFilter').value;
             const enabledFilter = document.getElementById('rulesEnabledFilter').value;
@@ -1276,10 +1734,6 @@
             'missing': {title: 'FAIL if indicator has no value', text: 'Checks whether a critical indicator code is present in the data. FAIL if the indicator is missing (null/undefined). Takes a single code.'},
             'all_zero': {title: 'FAIL if ALL listed codes are zero', text: 'Checks if all key indicators are zero, suggesting the facility may not be operational or data is missing. Takes codes[] list.'},
         };
-        export let ruleEditId = null;
-        export let _indicatorsCache = [];
-        export let _vbState = {};
-
         export function loadControlSettings() {
             apiGet('/config/control/settings').then(data => {
                 const cb = document.getElementById('cfg_auto_disable_null');
