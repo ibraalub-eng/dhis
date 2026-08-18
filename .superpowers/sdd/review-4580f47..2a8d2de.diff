@@ -1,0 +1,218 @@
+﻿# Review package: 4580f47..2a8d2de
+
+## Commits
+2a8d2de feat: add export data buttons to smart and comprehensive report pages
+
+## Files changed
+ static/js/comparative.js         | 26 +++++++++++++++++++++++++
+ static/js/smart-analytics.js     | 26 +++++++++++++++++++++++++
+ static/tabs/comparative.html     |  7 +++++++
+ static/tabs/smart-analytics.html |  7 +++++++
+ tests/test_export.py             | 42 ++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 108 insertions(+)
+
+## Diff
+diff --git a/static/js/comparative.js b/static/js/comparative.js
+index 14bf98f..b4cfc10 100644
+--- a/static/js/comparative.js
++++ b/static/js/comparative.js
+@@ -457,11 +457,37 @@ function renderPeerComparisonTable(peerComparison) {
+       <td style="padding:0.55rem 0.8rem;font-weight:500;">${peer.hospital_name}</td>
+       <td style="padding:0.55rem 0.8rem;">${peer.percentile.toFixed(1)}%</td>
+       <td style="padding:0.55rem 0.8rem;">
+         <span style="display:inline-block;padding:0.15rem 0.6rem;border-radius:10px;font-size:0.78rem;font-weight:600;background:${lbl.bg};color:${lbl.color};">${peer.comparison_label}</span>
+       </td>
+     `;
+     tbody.appendChild(row);
+   });
+ }
+ 
++async function comparativeExportData() {
++  const scope = document.getElementById('comparative-export-scope')?.value || 'current';
++  const month = scope === 'all' ? 'all' : (comparativeCurrentMonth || document.getElementById('comparative-month')?.value || '');
++  const base = document.getElementById('apiBase')?.value || '';
++  const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=${reportLang}`;
++  document.getElementById('comparative-status').textContent = reportLang === 'ar' ? '╪ش╪د╪▒┘è ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز...' : 'Exporting data...';
++  compShowLoading();
++  try {
++    const res = await fetch(url);
++    if (!res.ok) throw new Error('HTTP ' + res.status);
++    const blob = await res.blob();
++    const a = document.createElement('a');
++    a.href = URL.createObjectURL(blob);
++    a.download = `health_export_${month}.json`;
++    document.body.appendChild(a);
++    a.click();
++    a.remove();
++    URL.revokeObjectURL(a.href);
++    document.getElementById('comparative-status').textContent = reportLang === 'ar' ? '╪ز┘à ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪ذ┘╪ش╪د╪ص' : 'Data exported successfully';
++  } catch (e) {
++    showAlert((reportLang === 'ar' ? '╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: ' : 'Export error: ') + e.message, 'danger');
++  } finally {
++    compHideLoading();
++  }
++}
++
+ 
+diff --git a/static/js/smart-analytics.js b/static/js/smart-analytics.js
+index 818574f..62f517c 100644
+--- a/static/js/smart-analytics.js
++++ b/static/js/smart-analytics.js
+@@ -1068,10 +1068,36 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
+       } else {
+         Plotly.purge('smart-hospital-trend');
+         document.getElementById('smart-hospital-trend-text').textContent = '┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز ╪د╪ز╪ش╪د┘ç ┘à╪ز╪د╪ص╪ر.';
+       }
+     }
+   } catch (e) {
+     document.getElementById('smart-hospital-name').textContent = '╪«╪╖╪ث ┘┘è ╪د┘╪ز╪ص┘à┘è┘';
+     console.error('Hospital analysis error:', e);
+   }
+ }
++
++async function smartExportData() {
++  const scope = document.getElementById('smart-export-scope')?.value || 'current';
++  const month = scope === 'all' ? 'all' : (smartCurrentMonth || document.getElementById('smart-month-select')?.value || '');
++  const base = document.getElementById('apiBase')?.value || '';
++  const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=ar`;
++  document.getElementById('smart-status').textContent = '╪ش╪د╪▒┘è ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز...';
++  smartShowLoading();
++  try {
++    const res = await fetch(url);
++    if (!res.ok) throw new Error('HTTP ' + res.status);
++    const blob = await res.blob();
++    const a = document.createElement('a');
++    a.href = URL.createObjectURL(blob);
++    a.download = `health_export_${month}.json`;
++    document.body.appendChild(a);
++    a.click();
++    a.remove();
++    URL.revokeObjectURL(a.href);
++    document.getElementById('smart-status').textContent = '╪ز┘à ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪ذ┘╪ش╪د╪ص';
++  } catch (e) {
++    document.getElementById('smart-status').textContent = '╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: ' + e.message;
++  } finally {
++    smartHideLoading();
++  }
++}
+diff --git a/static/tabs/comparative.html b/static/tabs/comparative.html
+index f384cf7..010e069 100644
+--- a/static/tabs/comparative.html
++++ b/static/tabs/comparative.html
+@@ -32,20 +32,27 @@
+     </div>
+     <div>
+       <label id="label-hospital" style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;">╪د┘┘à╪│╪ز╪┤┘┘ë</label>
+       <select id="hospital-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:150px;font-size:0.85rem;background:white;">
+         <option value="">╪ش┘à┘è╪╣ ╪د┘┘à╪│╪ز╪┤┘┘è╪د╪ز</option>
+       </select>
+     </div>
+     <div style="align-self:flex-end;">
+       <button id="btn-generate" class="btn btn-sm" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز┘ê┘┘è╪» ╪د┘╪ز┘é╪▒┘è╪▒ ╪د┘╪░┘â┘è ╪د┘╪┤╪د┘à┘</button>
+     </div>
++    <div style="align-self:flex-end;">
++      <select id="comparative-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.82rem;background:white;">
++        <option value="current">╪د┘╪┤┘ç╪▒ ╪د┘┘à╪ص╪»╪»</option>
++        <option value="all">┘â┘ ╪د┘╪ث╪┤┘ç╪▒</option>
++      </select>
++      <button id="comparative-export-btn" class="btn btn-sm" onclick="comparativeExportData()" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز</button>
++    </div>
+     <div style="align-self:flex-end;">
+       <span id="comparative-status" style="font-size:0.8rem;color:#6b7280;"></span>
+     </div>
+   </div>
+ 
+   <!-- KPI Dashboard -->
+   <div id="kpi-dashboard" class="kpi-grid" style="display:none;margin-bottom:1.5rem;">
+     <div class="kpi-card">
+       <div class="icon">≡اح</div>
+       <div class="value" id="kpi-total-hospitals">-</div>
+diff --git a/static/tabs/smart-analytics.html b/static/tabs/smart-analytics.html
+index a8e0518..1846427 100644
+--- a/static/tabs/smart-analytics.html
++++ b/static/tabs/smart-analytics.html
+@@ -16,20 +16,27 @@
+     </div>
+     <div>
+       <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;">╪د┘┘à╪│╪ز╪┤┘┘ë</label>
+       <select id="smart-hospital-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:220px;font-size:0.85rem;background:white;">
+         <option value="">-- ╪ش┘à┘è╪╣ ╪د┘┘à╪│╪ز╪┤┘┘è╪د╪ز --</option>
+       </select>
+     </div>
+     <div style="align-self:flex-end;">
+       <button id="smart-refresh" class="btn btn-sm" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز╪ص╪»┘è╪س</button>
+     </div>
++    <div style="align-self:flex-end;">
++      <select id="smart-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.82rem;background:white;">
++        <option value="current">╪د┘╪┤┘ç╪▒ ╪د┘┘à╪ص╪»╪»</option>
++        <option value="all">┘â┘ ╪د┘╪ث╪┤┘ç╪▒</option>
++      </select>
++      <button id="smart-export-btn" class="btn btn-sm" onclick="smartExportData()" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز</button>
++    </div>
+     <div style="align-self:flex-end;">
+       <span id="smart-status" style="font-size:0.8rem;color:#6b7280;"></span>
+     </div>
+   </div>
+ 
+   <!-- Hospital-specific analysis (hidden by default) -->
+   <div id="smart-hospital-panel" style="display:none;margin-bottom:1.5rem;">
+     <div class="card" style="padding:1.2rem;border:2px solid #1a237e;border-radius:10px;">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+         <h3 style="color:#1a237e;margin:0;font-size:1.05rem;">╪ز╪ص┘┘è┘ ╪د┘┘à╪│╪ز╪┤┘┘ë: <span id="smart-hospital-name" style="font-weight:700;"></span></h3>
+diff --git a/tests/test_export.py b/tests/test_export.py
+index 3fc41ea..aaaf427 100644
+--- a/tests/test_export.py
++++ b/tests/test_export.py
+@@ -219,10 +219,52 @@ def test_export_endpoint_no_data_404(client, db_session):
+     db_session.commit()
+     resp = client.get("/export/full-data", params={"month": "all", "lang": "ar"})
+     assert resp.status_code == 404
+     assert "┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز" in resp.json()["detail"]
+ 
+ 
+ def test_export_endpoint_serializes_without_error(client):
+     resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
+     assert resp.status_code == 200
+     assert isinstance(resp.json(), dict)
++
++
++# --- Frontend structure ---
++
++def test_smart_page_has_export_button():
++    import os
++    from bs4 import BeautifulSoup
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
++    with open(path, encoding="utf-8") as f:
++        soup = BeautifulSoup(f.read(), "html.parser")
++    assert soup.find(id="smart-export-btn") is not None
++    assert soup.find(id="smart-export-scope") is not None
++
++
++def test_comparative_page_has_export_button():
++    import os
++    from bs4 import BeautifulSoup
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "comparative.html")
++    with open(path, encoding="utf-8") as f:
++        soup = BeautifulSoup(f.read(), "html.parser")
++    assert soup.find(id="comparative-export-btn") is not None
++    assert soup.find(id="comparative-export-scope") is not None
++
++
++def test_smart_js_has_export_handler():
++    import os
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
++    with open(path, encoding="utf-8") as f:
++        content = f.read()
++    assert "function smartExportData" in content
++    assert "/export/full-data?month=" in content
++    assert "lang=ar" in content
++
++
++def test_comparative_js_has_export_handler():
++    import os
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "comparative.js")
++    with open(path, encoding="utf-8") as f:
++        content = f.read()
++    assert "function comparativeExportData" in content
++    assert "/export/full-data?month=" in content
++    assert "lang=${reportLang}" in content

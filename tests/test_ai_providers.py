@@ -17,7 +17,10 @@ def test_local_root_cause_fallback_enhanced():
             "R001": {"direction": "declining", "slope": -2.5}
         },
         "peer_comparisons": {
-            "hospital_type": {"hospital_percentile": 12.5}
+            "cs_rate": {
+                "indicator_code": "cs_rate", "indicator_name": "cs_rate",
+                "gap_pct": 35.0, "hospital_z_score": 1.5,
+            }
         },
     }
 
@@ -26,6 +29,13 @@ def test_local_root_cause_fallback_enhanced():
     assert len(result) > 0
     assert any("Historical Decline" in r.category or "Peer Comparison" in r.category
                for r in result)
+    # كل توصية ثنائية اللغة: حقول عربية حقيقية بجانب الإنجليزية
+    for r in result:
+        assert r.title and r.title_ar
+        assert r.description and r.description_ar
+        assert r.action_items and r.action_items_ar
+    peer = [r for r in result if r.category == "Peer Comparison"]
+    assert peer and "35" in peer[0].title_ar
 
 
 def test_generate_root_cause_ai_uses_enhanced_prompt_with_historical_data():
@@ -41,7 +51,10 @@ def test_generate_root_cause_ai_uses_enhanced_prompt_with_historical_data():
             "R001": {"direction": "declining", "slope": -2.5}
         },
         "peer_comparisons": {
-            "hospital_type": {"hospital_percentile": 12.5}
+            "cs_rate": {
+                "indicator_code": "cs_rate", "indicator_name": "cs_rate",
+                "gap_pct": 35.0, "hospital_z_score": 1.5,
+            }
         },
     }
 
@@ -52,8 +65,12 @@ def test_generate_root_cause_ai_uses_enhanced_prompt_with_historical_data():
                for r in result)
 
 
-def test_generate_root_cause_ai_uses_basic_fallback_without_historical_data():
+def test_generate_root_cause_ai_uses_basic_fallback_without_historical_data(monkeypatch):
     from app.plugins.ai import generate_root_cause_ai
+    import app.plugins.ai as ai_module
+    # تعطيل الذكاء الاصطناعي بشكل حتمي حتى يُختبر المسار الاحتياطي المحلي
+    # (لا نعتمد على استجابة نموذج خارجي — الاستدعاء الفعلي يُغطى باختبارات أخرى)
+    monkeypatch.setattr(ai_module, "AI_ENABLED", False)
 
     report_data = {
         "hospital": "Test Hospital",

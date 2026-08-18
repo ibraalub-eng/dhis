@@ -1,7 +1,10 @@
         import { API } from './api.js';
         import { __ } from './i18n.js';
+        import { EXPR_EXPLANATIONS, rulesManagerData, loadRulesManager } from './settings.js';
 
         let ruleEditId = null;
+        let _indicatorsCache = [];
+        let _vbState = {};
 
         // ── Indicator loading ──────────────────────────────────────
         export async function loadIndicators() {

@@ -1,102 +1,40 @@
-### Task 1: Backend Models + Schemas
+## Task 1: Set Up Chart.js Dependencies
 
 **Files:**
-- Modify: `app/models.py`
-- Modify: `app/schemas.py`
-- Test: `tests/test_api_ownership_types.py`
+- Modify: `static/tabs/root-cause.html`
 
 **Interfaces:**
-- Produces: `FacilityOwnership`, `FacilityType` SQLAlchemy models; `FacilityOwnershipBase`, `FacilityOwnershipCreate`, `FacilityOwnershipOut`, `FacilityTypeBase`, `FacilityTypeCreate`, `FacilityTypeOut` Pydantic schemas; extended `Hospital`, `HospitalBase`, `HospitalOut` with new fields
+- Consumes: None
+- Produces: Chart.js library available globally
 
-- [ ] **Step 1: Add FacilityOwnership and FacilityType models**
+- [ ] **Step 1: Locate current Plotly.js CDN link**
 
-Add to `app/models.py` after the `HospitalType` class:
+Open `static/tabs/root-cause.html` and find the Plotly.js CDN script tag. It should be in the head or before closing body tag.
 
-```python
-class FacilityOwnership(Base):
-    __tablename__ = "facility_ownerships"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), unique=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    hospitals = relationship("Hospital", back_populates="facility_ownership")
+- [ ] **Step 2: Replace Plotly.js with Chart.js CDN**
 
+Replace the Plotly.js script tag with Chart.js CDN:
 
-class FacilityType(Base):
-    __tablename__ = "facility_types"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), unique=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    hospitals = relationship("Hospital", back_populates="facility_type")
+```html
+<!-- Remove this line -->
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+<!-- Add this line -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 ```
 
-- [ ] **Step 2: Extend Hospital model**
+- [ ] **Step 3: Verify Chart.js is loaded**
 
-Add these columns to the `Hospital` class:
-
-```python
-    organisation_unit_id = Column(String(100), nullable=True)
-    facility_ownership_id = Column(Integer, ForeignKey("facility_ownerships.id", ondelete="SET NULL"), nullable=True)
-    facility_type_id = Column(Integer, ForeignKey("facility_types.id", ondelete="SET NULL"), nullable=True)
-
-    facility_ownership = relationship("FacilityOwnership", back_populates="hospitals")
-    facility_type = relationship("FacilityType", back_populates="hospitals")
+Add a temporary test in browser console:
+```javascript
+console.log('Chart.js version:', Chart.version);
 ```
 
-- [ ] **Step 3: Add Pydantic schemas**
+Expected output: Chart.js version number (e.g., "4.4.0")
 
-Add to `app/schemas.py` after `HospitalTypeOut`:
-
-```python
-class FacilityOwnershipBase(BaseModel):
-    name: str
-
-class FacilityOwnershipCreate(FacilityOwnershipBase):
-    pass
-
-class FacilityOwnershipOut(FacilityOwnershipBase):
-    id: int
-    created_at: Optional[datetime] = None
-    class Config:
-        from_attributes = True
-
-class FacilityTypeBase(BaseModel):
-    name: str
-
-class FacilityTypeCreate(FacilityTypeBase):
-    pass
-
-class FacilityTypeOut(FacilityTypeBase):
-    id: int
-    created_at: Optional[datetime] = None
-    class Config:
-        from_attributes = True
-```
-
-- [ ] **Step 4: Extend HospitalBase and HospitalOut**
-
-Add to `HospitalBase`:
-```python
-    organisation_unit_id: Optional[str] = None
-    facility_ownership_id: Optional[int] = None
-    facility_type_id: Optional[int] = None
-```
-
-Add to `HospitalOut`:
-```python
-    facility_ownership_name: Optional[str] = None
-    facility_type_name: Optional[str] = None
-```
-
-- [ ] **Step 5: Run tests to verify imports work**
-
-Run: `python -c "from app.models import FacilityOwnership, FacilityType; from app.schemas import FacilityOwnershipOut, FacilityTypeOut; print('OK')"`
-Expected: `OK`
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit changes**
 
 ```bash
-git add app/models.py app/schemas.py
-git commit -m "feat: add FacilityOwnership, FacilityType models and schemas"
+git add static/tabs/root-cause.html
+git commit -m "chore: replace Plotly.js with Chart.js CDN"
 ```
-
----

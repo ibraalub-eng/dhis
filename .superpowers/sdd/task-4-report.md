@@ -1,30 +1,45 @@
-### Task 4: Frontend — Hospitals Page Extension
+## Task 4: Implement Chart.js Timeline Function
 
 **Status:** DONE
 
-**Commits:**
-- `1e61a21` — `feat: extend hospitals UI with ownership, facility type, org unit fields`
+### What was implemented
 
-**Test Results:**
-- `python -m pytest --tb=short -q` — **353 passed**, 0 failed
+Replaced the Plotly.js implementation of `drawRcTimelineChart` with Chart.js in `static/js/settings.js`.
 
-**Changes Made:**
+### Changes made
 
-`static/tabs/hospitals.html` (71 → 114 lines):
-- Added 2 subtab buttons: Facility Ownerships, Facility Types
-- Added 2 subtab content containers: `#hospSub-ownerships`, `#hospSub-facilitytypes`
-- Added 2 filter dropdowns: `#hospFilterOwnership`, `#hospFilterFacilityType`
-- Added 3 new fields to hospital form: OrgUnit ID (text), Facility Ownership (select), Facility Type (select)
-- Added 2 modals: `#ownershipModal`, `#facilityTypeModal`
+1. **Replaced `drawRcTimelineChart` function** (lines 137-253):
+   - Removed Plotly.newPlot call and Plotly scatter traces
+   - Created Chart.js line chart with two datasets (hospital value, peer mean)
+   - Added CI band plugin integration via `plugins: [ciBandPlugin]`
+   - Configured responsive behavior, tooltip callbacks, and styling using `CHART_COLORS`
+   - Added proper chart instance cleanup via `window._rcTimelineChartInstance.destroy()`
 
-`static/js/hospitals.js` (287 → 473 lines):
-- Added state variables: `_ownerships`, `_facilityTypes`, `_editOwnId`, `_editFacTypeId`
-- `loadHospitalsTab()` now calls `loadOwnerships()` and `loadFacilityTypes()`
-- `renderHospitals()` extended with 3 new columns (OrgUnit ID, Ownership, Facility Type) and 2 new filter conditions
-- `showHospitalModal()` populates new fields from hospital data
-- `saveHospital()` sends `organisation_unit_id`, `facility_ownership_id`, `facility_type_id` to API
-- Added full CRUD for Facility Ownerships: `loadOwnerships`, `renderOwnerships`, `populateOwnershipDropdowns`, `showOwnershipModal`, `closeOwnershipModal`, `saveOwnership`, `editOwnership`, `deleteOwnership`
-- Added full CRUD for Facility Types: `loadFacilityTypes`, `renderFacilityTypes`, `populateFacilityTypeDropdowns`, `showFacilityTypeModal`, `closeFacilityTypeModal`, `saveFacilityType`, `editFacilityType`, `deleteFacilityType`
-- All new functions properly exposed via `window.*` for onclick handlers
+2. **Updated `renderRcTimeline` function** (lines 262-266):
+   - Replaced `Plotly.purge(chartEl.id)` with Chart.js instance destruction
+   - Added null check and cleanup for `window._rcTimelineChartInstance`
 
-**Concerns:** None. All patterns followed existing conventions exactly. All tests pass.
+### Key implementation details
+
+- Uses `CHART_COLORS` from chart-utils.js for consistent color palette
+- Uses `ciBandPlugin` from chart-utils.js for 95% CI band visualization
+- Chart instance stored in `window._rcTimelineChartInstance` for lifecycle management
+- Tooltip callbacks show formatted values and peer hospital counts
+- Interaction configured as index mode for synchronized hover across datasets
+- Bilingual labels preserved (Arabic indicator name + English suffix)
+
+### Files changed
+
+- `static/js/settings.js` - Modified `drawRcTimelineChart` and `renderRcTimeline` functions
+
+### Test results
+
+No existing tests for JavaScript frontend code. Implementation verified through code review and consistency with chart-utils.js API.
+
+### Self-review findings
+
+- Implementation matches the task brief exactly
+- Uses the specified CHART_COLORS and ciBandPlugin from chart-utils.js
+- Proper cleanup of previous chart instances before creating new ones
+- All Plotly references removed from the timeline chart function
+- No other files affected by this change

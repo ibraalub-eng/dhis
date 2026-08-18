@@ -75,7 +75,7 @@ def _run_confidence_for_hospital(
     return result
 
 
-@router.get("/{hospital_id}", response_model=HospitalConfidenceOut)
+@router.get("/{hospital_id:int}", response_model=HospitalConfidenceOut)
 def get_confidence_scores(
     hospital_id: int,
     month: str = Query(..., description="Month YYYY-MM"),

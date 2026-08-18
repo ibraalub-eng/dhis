@@ -31,8 +31,7 @@
     </div>
     <div class="dashboard-grid" id="dashKpiCards"></div>
     <div class="charts-row" style="margin-top:1rem;">
-        <div class="card chart-full"><h2>Quality Score Trend</h2><canvas id="trendChart"></canvas></div>
-        <div class="card chart-full"><h2>Year-over-Year Comparison</h2><canvas id="yoyChart"></canvas></div>
+        <div class="card"><h2>Quality Score Trend</h2><canvas id="trendChart"></canvas></div>
         <div class="card"><h2>Confidence Distribution</h2><canvas id="confidenceChart"></canvas></div>
         <div class="card"><h2>Quality Components</h2><canvas id="radarChart"></canvas></div>
     </div>
@@ -62,16 +61,5 @@
             </thead>
             <tbody id="rankingBody"></tbody>
         </table>
-    </div>
-</div>
-
-<!-- Section 3: Hospital Scorecard (hidden until row click) -->
-<div id="scorecardPanel" class="card" style="margin-top:1.5rem;display:none;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-        <h2 id="scorecardTitle">Hospital Scorecard</h2>
-        <button class="btn btn-sm" onclick="closeScorecard()" style="background:#e0e0e0;border:none;cursor:pointer;padding:0.3rem 0.8rem;border-radius:4px;">Close</button>
-    </div>
-    <div id="scorecardContent">
-        <p style="color:#888;text-align:center;padding:2rem;">Select a hospital from the ranking table above.</p>
     </div>
 </div>

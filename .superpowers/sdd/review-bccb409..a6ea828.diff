@@ -1,0 +1,237 @@
+﻿# Review package: bccb409..a6ea828
+
+## Commits
+a6ea828 feat: build full data export package with analysis and cached reports
+
+## Files changed
+ app/engine/export.py | 83 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ tests/test_export.py | 85 +++++++++++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 167 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/app/engine/export.py b/app/engine/export.py
+index 0208eae..d1718af 100644
+--- a/app/engine/export.py
++++ b/app/engine/export.py
+@@ -1,15 +1,18 @@
+ """Build the full data export package for external analysis tools."""
+ import math
++from datetime import datetime
+ from typing import Any, Dict, List, Optional
+ from sqlalchemy.orm import Session
+ 
++from app.engine.comparative.report_cache import get_stored_report
++from app.engine.smart import run_smart_analytics
+ from app.models import (
+     Hospital, Governorate, Indicator, HospitalIndicatorConfig, IndicatorValue,
+ )
+ 
+ 
+ class NoDataError(ValueError):
+     """Raised when there is nothing to export."""
+ 
+ 
+ def _sanitize(obj: Any) -> Any:
+@@ -104,10 +107,90 @@ def _get_indicator_values(session: Session, months: List[str]) -> Dict[str, list
+         ind = indicators.get(iv.indicator_id)
+         by_month.setdefault(iv.month, []).append({
+             "hospital_id": iv.hospital_id,
+             "hospital_name": hosp.name if hosp else "",
+             "indicator_code": ind.code if ind else "",
+             "indicator_name": ind.name if ind else "",
+             "value": iv.value,
+             "source_file": iv.source_file,
+         })
+     return by_month
++
++
++SCHEMA_VERSION = 1
++
++
++def _get_smart_analysis(session: Session, month: str) -> Dict[str, Any]:
++    """Full smart analytics output for a month, serialized to JSON-safe dicts."""
++    result = run_smart_analytics(session, month)
++    data = {
++        "kpi": result.kpi.__dict__ if result.kpi else {},
++        "anomalies": [a.__dict__ for a in result.anomalies],
++        "clustering": result.clustering.__dict__ if result.clustering else {},
++        "correlations": result.correlations.__dict__ if result.correlations else {},
++        "residuals": [r.__dict__ for r in result.residuals],
++        "stratified": [s.__dict__ for s in result.stratified],
++        "explanations": [
++            {**e.__dict__, "top_factors": [f.__dict__ for f in e.top_factors]}
++            for e in result.explanations
++        ],
++        "geo": {
++            "governorates": [g.__dict__ for g in result.geo.governorates],
++        } if result.geo else None,
++    }
++    if result.xgboost_predictions:
++        xgb = result.xgboost_predictions
++        data["xgboost"] = {
++            "model_r2": xgb.model_r2,
++            "model_mae": xgb.model_mae,
++            "training_months": xgb.training_months,
++            "hospitals_trained": xgb.hospitals_trained,
++            "accuracy_note": xgb.accuracy_note,
++            "predictions": [
++                {
++                    **p.__dict__,
++                    "top_drivers": [d.__dict__ for d in p.top_drivers],
++                }
++                for p in xgb.predictions
++            ],
++            "global_feature_importance": [fi.__dict__ for fi in xgb.global_feature_importance],
++        }
++    return _sanitize(data)
++
++
++def _get_comprehensive_report(session: Session, month: str, lang: str) -> Optional[Dict[str, str]]:
++    """Cached comprehensive report text only. Never triggers AI generation."""
++    cached = get_stored_report(session, month, lang)
++    if not cached:
++        return None
++    return {"report": cached.get("report"), "report_source": cached.get("report_source")}
++
++
++def build_full_export(session: Session, month: str, lang: str) -> Dict[str, Any]:
++    """Build the complete export package for month ('all' or 'YYYY-MM') and lang."""
++    months = _get_available_months(session) if month == "all" else [month]
++    master = _get_master_data(session)
++
++    if not master["hospitals"] and not months:
++        raise NoDataError("┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز ┘┘╪ز╪╡╪»┘è╪▒ / No data available to export")
++
++    analysis = {}
++    for m in months:
++        try:
++            analysis[m] = {
++                "smart": _get_smart_analysis(session, m),
++                "comprehensive_report": _get_comprehensive_report(session, m, lang),
++            }
++        except Exception as e:
++            analysis[m] = {"error": str(e)}
++
++    return {
++        "meta": {
++            "exported_at": datetime.now().isoformat(),
++            "lang": lang,
++            "scope": month,
++            "schema_version": SCHEMA_VERSION,
++        },
++        "master_data": master,
++        "indicator_values": _get_indicator_values(session, months),
++        "analysis": analysis,
++    }
+diff --git a/tests/test_export.py b/tests/test_export.py
+index 37301a5..618e806 100644
+--- a/tests/test_export.py
++++ b/tests/test_export.py
+@@ -1,12 +1,13 @@
+ """Tests for the full data export feature."""
+-import json
++from unittest.mock import patch
++
+ import pytest
+ from fastapi.testclient import TestClient
+ from app.main import app
+ from app.database import get_db
+ 
+ 
+ @pytest.fixture
+ def client(db_session):
+     def override_get_db():
+         try:
+@@ -86,10 +87,92 @@ def test_get_indicator_values_grouped_by_month(db_session):
+     db_session.commit()
+     result = _get_indicator_values(db_session, ["2026-06"])
+     assert "2026-06" in result
+     row = result["2026-06"][0]
+     assert row["hospital_id"] == hosp.id
+     assert row["hospital_name"] == hosp.name
+     assert row["indicator_code"] == "2"
+     assert row["indicator_name"] == ind.name
+     assert row["value"] == 300
+     assert row["source_file"] == "x.xlsx"
++
++
++# --- build_full_export ---
++
++def test_build_full_export_structure(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert pkg["meta"]["scope"] == "2026-06"
++    assert pkg["meta"]["lang"] == "ar"
++    assert pkg["meta"]["schema_version"] == 1
++    assert "master_data" in pkg
++    assert "indicator_values" in pkg
++    assert "analysis" in pkg
++    assert "2026-06" in pkg["analysis"]
++
++
++def test_build_full_export_smart_sections(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    smart = pkg["analysis"]["2026-06"]["smart"]
++    for key in ("kpi", "anomalies", "clustering", "correlations", "residuals",
++                "stratified", "explanations", "geo"):
++        assert key in smart
++
++
++@patch("app.engine.export.run_smart_analytics")
++def test_build_full_export_month_error_embedded(mock_analytics, db_session):
++    mock_analytics.side_effect = RuntimeError("boom")
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert "error" in pkg["analysis"]["2026-06"]
++    assert "boom" in pkg["analysis"]["2026-06"]["error"]
++
++
++def test_build_full_export_all_months(db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    from app.engine.export import build_full_export
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add_all([
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
++    ])
++    db_session.commit()
++    pkg = build_full_export(db_session, "all", "ar")
++    assert pkg["meta"]["scope"] == "all"
++    assert set(pkg["indicator_values"].keys()) == {"2026-05", "2026-06"}
++    assert set(pkg["analysis"].keys()) == {"2026-05", "2026-06"}
++
++
++def test_build_full_export_comprehensive_report_null_when_uncached(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert pkg["analysis"]["2026-06"]["comprehensive_report"] is None
++
++
++@patch("app.engine.comparative.report_cache._call_api", create=True)
++def test_export_never_calls_ai(mock_api, db_session):
++    from app.engine.export import build_full_export
++    build_full_export(db_session, "all", "ar")
++    assert mock_api.call_count == 0
++
++
++def test_build_full_export_report_from_cache(db_session):
++    from app.engine.comparative.report_cache import store_report
++    from app.engine.export import build_full_export
++    store_report(db_session, "2026-06", "ar", {"report": "┘╪╡ ┘à╪«╪▓┘", "report_source": "ai", "month": "2026-06"})
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    rep = pkg["analysis"]["2026-06"]["comprehensive_report"]
++    assert rep == {"report": "┘╪╡ ┘à╪«╪▓┘", "report_source": "ai"}
++
++
++def test_build_full_export_no_data_raises(db_session):
++    from app.models import Hospital
++    from app.engine.export import build_full_export, NoDataError
++    db_session.query(Hospital).delete()
++    db_session.commit()
++    try:
++        build_full_export(db_session, "all", "ar")
++        assert False, "expected NoDataError"
++    except NoDataError:
++        pass

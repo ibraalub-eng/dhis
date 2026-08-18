@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict
 
 
@@ -23,6 +23,16 @@ class HospitalClusterAssignment:
 
 
 @dataclass
+class ClusterProfile:
+    """ملف تعريف عنقود: حجمه وأعضاؤه وأبرز المؤشرات التي تميزه عن المتوسط العام."""
+    cluster_id: int
+    size: int
+    hospitals: List[str]
+    distinguishing_features: List[Dict]  # {feature, cluster_mean, overall_mean, deviation_pct, direction}
+    summary_ar: str
+
+
+@dataclass
 class SmartClusteringResult:
     n_clusters: int
     silhouette_score: float
@@ -31,6 +41,7 @@ class SmartClusteringResult:
     noise_hospitals: List[str]
     pca_coordinates: Dict[str, Dict[str, float]]
     centroids: List[Dict]
+    profiles: List[ClusterProfile] = field(default_factory=list)
 
 
 @dataclass
@@ -139,6 +150,19 @@ class KPISummary:
 
 
 @dataclass
+class CompositePattern:
+    """نمط مركب: مجموعة مؤشرات مرتفعة/منخفضة تتكرر معاً في عدة مستشفيات."""
+    indicators: List[str]          # رموز المؤشرات المكونة للنمط
+    arabic_names: List[str]        # الأسماء العربية المقابلة
+    statuses: List[str]            # elevated / lowered لكل مؤشر
+    hospitals_count: int           # عدد المستشفيات المطبِّقة للنمط
+    support: float                 # نسبة المستشفيات الحاملة للنمط
+    lift: float                    # قوة الارتباط الفائق (تجاوز التواجد المستقل)
+    summary_ar: str
+    hospitals: List[str] = field(default_factory=list)  # أسماء المستشفيات الحاملة للنمط
+
+
+@dataclass
 class SmartAnalyticsResult:
     month: str
     hospitals_count: int
@@ -150,6 +174,7 @@ class SmartAnalyticsResult:
     explanations: List[AnomalyExplanation]
     geo: GeoAggregationResult
     kpi: KPISummary
+    patterns: List[CompositePattern] = field(default_factory=list)
     xgboost_predictions: "XGBoostPredictionResult" = None
 
 
@@ -191,3 +216,8 @@ class XGBoostPredictionResult:
     predictions: List[XGBoostPrediction]
     global_feature_importance: List[XGBoostGlobalExplanation]
     accuracy_note: str
+    trained_at: str = ""            # متى دُرِّب النموذج المحفوظ (ISO)
+    retrained: bool = False          # هل أُعيد تدريبه في هذه الجولة (أم حُمّل من القرص)
+    data_fingerprint: str = ""      # بصمة بيانات المصدر التي دُرِّب عليها
+    walk_forward: List[Dict] = field(default_factory=list)  # تحقق زمني: R²/MAE لكل شهر تالٍ
+    feature_variant: str = "baseline"  # مجموعة الميزات المختارة عبر walk-forward

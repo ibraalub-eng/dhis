@@ -15,6 +15,7 @@
         export function initIndicatorTree() {
             const hsel = document.getElementById('treeHospitalSelect');
             const msel = document.getElementById('treeMonthSelect');
+            if (!hsel || !msel) return; // التبويب لم يُحمَّل
             if (hsel.options.length > 1 && msel.options.length > 1) {
                 _restoreUIState('indicator-tree');
                 if (hsel.value && msel.value) loadIndicatorTree();

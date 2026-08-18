@@ -6,8 +6,66 @@ from sklearn.impute import SimpleImputer
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 
-from app.engine.smart.schemas import SmartClusteringResult, HospitalClusterAssignment
+from app.engine.smart.schemas import (
+    SmartClusteringResult, HospitalClusterAssignment, ClusterProfile,
+)
 from app.engine.smart.anomaly import FEATURE_KEYS
+from app.engine.smart.explainability import ARABIC_NAMES
+
+
+def _build_cluster_profiles(all_hospital_data, labels, hospital_names) -> list:
+    """ملف تعريف لكل عنقود: المؤشرات الأكثر انحرافاً عن المتوسط العام مع جملة عربية مختصرة."""
+    features = [k for k in FEATURE_KEYS if any(
+        k in all_hospital_data[h]["values"] for h in all_hospital_data
+    )]
+
+    overall = {}
+    for f in features:
+        vals = [all_hospital_data[h]["values"].get(f) for h in all_hospital_data]
+        vals = [v for v in vals if v is not None]
+        overall[f] = (sum(vals) / len(vals)) if vals else 0.0
+
+    profiles = []
+    for cid in sorted(int(c) for c in set(labels) - {-1}):
+        members = [hospital_names[i] for i in range(len(hospital_names)) if labels[i] == cid]
+        if not members:
+            continue
+        dist = []
+        for f in features:
+            vals = [all_hospital_data[m]["values"].get(f) for m in members]
+            vals = [v for v in vals if v is not None]
+            if not vals:
+                continue
+            cmean = sum(vals) / len(vals)
+            om = overall.get(f, 0.0)
+            if om != 0:
+                dev = (cmean - om) / om * 100
+            else:
+                dev = 100.0 if cmean > 0 else 0.0
+            dist.append({
+                "feature": f,
+                "cluster_mean": round(cmean, 2),
+                "overall_mean": round(om, 2),
+                "deviation_pct": round(dev, 1),
+                "direction": "above" if dev > 0 else "below",
+            })
+        dist.sort(key=lambda d: -abs(d["deviation_pct"]))
+        top = dist[:3]
+        parts = []
+        for d in top:
+            name = ARABIC_NAMES.get(d["feature"], d["feature"])
+            if d["deviation_pct"] > 0:
+                parts.append(f"{name} أعلى بـ {abs(d['deviation_pct']):.0f}%")
+            else:
+                parts.append(f"{name} أقل بـ {abs(d['deviation_pct']):.0f}%")
+        profiles.append(ClusterProfile(
+            cluster_id=cid,
+            size=len(members),
+            hospitals=members,
+            distinguishing_features=top,
+            summary_ar="، ".join(parts),
+        ))
+    return profiles
 
 
 def _prepare_features(all_hospital_data: Dict[str, Any]) -> tuple:
@@ -26,6 +84,9 @@ def _prepare_features(all_hospital_data: Dict[str, Any]) -> tuple:
         ])
 
     numeric_array = np.array(numeric_features, dtype=float)
+    # Columns where EVERY hospital is NaN would make SimpleImputer skip them AND
+    # leave NaN that poisons StandardScaler + clustering. Zero-fill up-front.
+    numeric_array[:, np.isnan(numeric_array).all(axis=0)] = 0.0
     imputer = SimpleImputer(strategy="median")
     numeric_imputed = imputer.fit_transform(numeric_array)
     scaler = StandardScaler()
@@ -104,6 +165,8 @@ def run_clustering(
                 distance_to_centroid=0.0,
             ))
 
+    profiles = _build_cluster_profiles(all_hospital_data, labels, hospital_names)
+
     return SmartClusteringResult(
         n_clusters=n_clusters,
         silhouette_score=sil_score,
@@ -112,4 +175,5 @@ def run_clustering(
         noise_hospitals=noise_hospitals,
         pca_coordinates=pca_coordinates,
         centroids=[],
+        profiles=profiles,
     )

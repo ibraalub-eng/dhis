@@ -235,6 +235,8 @@ def run_clinical_analysis(
     consistency: float = 0,
     rule_compliance: float = 0,
     outlier_penalty: float = 0,
+    include_ai: bool = True,
+    session=None,
 ) -> ClinicalAnalysisResult:
     classifications = compute_all_classifications(values)
     risk_prof = compute_risk_profile(hospital, month, values)
@@ -247,6 +249,8 @@ def run_clinical_analysis(
         quality_score=quality_score,
         issues=issues,
         rule_failures=rule_failures,
+        include_ai=include_ai,
+        session=session,
     )
     summary = generate_clinical_summary(
         hospital=hospital,

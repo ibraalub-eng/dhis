@@ -1,26 +1,42 @@
-# Task 6
+## Task 6: Test Chart Migration
 
-Seed defaults + final verification
+**Files:**
+- Test: Browser console
 
-- [ ] **Step 1: Seed ML config defaults**
+**Interfaces:**
+- Consumes: All previous tasks
+- Produces: Verified chart functionality
 
-Run seed script from Task 2 Step 4.
+- [ ] **Step 1: Open browser and navigate to root cause tab**
 
-- [ ] **Step 2: Run all tests**
+Navigate to the root cause analysis tab in the application.
 
-Run: `python -m pytest -v`
+- [ ] **Step 2: Select a hospital and month**
 
-Expected: All 337+ tests pass (no regressions).
+Choose a hospital and month from the dropdowns to trigger chart loading.
 
-- [ ] **Step 3: Verify final build**
+- [ ] **Step 3: Verify chart renders**
 
-Run: `python -c "from app.main import app; print('App loads OK')"`
+Check that:
+- Chart displays with two lines (teal for hospital, purple for peer)
+- CI band renders as purple shaded area
+- Legend shows both datasets
+- Tooltips appear on hover
 
-Expected: No import errors.
+- [ ] **Step 4: Test interactive features**
 
-- [ ] **Step 4: Commit any remaining changes**
+Test:
+- Legend toggle (click to hide/show datasets)
+- Hover effects (points enlarge on hover)
+- Responsive behavior (resize browser window)
+
+- [ ] **Step 5: Check console for errors**
+
+Open browser console and verify no JavaScript errors.
+
+- [ ] **Step 6: Commit final changes**
 
 ```bash
 git add -A
-git commit -m "chore: seed ML config and final fixes"
+git commit -m "test: verify Chart.js migration works correctly"
 ```

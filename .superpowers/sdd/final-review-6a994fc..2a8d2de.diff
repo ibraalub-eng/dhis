@@ -1,0 +1,1726 @@
+﻿# Review package: 6a994fc..2a8d2de
+
+## Commits
+2a8d2de feat: add export data buttons to smart and comprehensive report pages
+4580f47 feat: add full data export API endpoint
+5f03999 fix: serialize nested dataclasses in full data export package
+a6ea828 feat: build full data export package with analysis and cached reports
+bccb409 feat: add export engine helpers for master data and indicator values
+53e0f7e docs: add full data export implementation plan
+e3e7685 docs: tighten serialization rule in export design spec
+1bb9460 docs: add full data export design spec
+
+## Files changed
+ app/api/export.py                                  |  34 +
+ app/engine/export.py                               | 198 +++++
+ app/main.py                                        |   3 +-
+ docs/superpowers/plans/2026-08-02-export-data.md   | 833 +++++++++++++++++++++
+ .../specs/2026-08-02-export-data-design.md         | 139 ++++
+ static/js/comparative.js                           |  26 +
+ static/js/smart-analytics.js                       |  26 +
+ static/tabs/comparative.html                       |   7 +
+ static/tabs/smart-analytics.html                   |   7 +
+ tests/test_export.py                               | 270 +++++++
+ 10 files changed, 1542 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/app/api/export.py b/app/api/export.py
+new file mode 100644
+index 0000000..3f199a2
+--- /dev/null
++++ b/app/api/export.py
+@@ -0,0 +1,34 @@
++import io
++import json
++from datetime import datetime
++from fastapi import APIRouter, Depends, HTTPException, Query
++from fastapi.responses import StreamingResponse
++from sqlalchemy.orm import Session
++
++from app.database import get_db
++from app.engine.export import build_full_export, NoDataError
++
++router = APIRouter(prefix="/export", tags=["Export"])
++
++
++@router.get("/full-data")
++def export_full_data(
++    month: str = Query(..., description="╪د┘╪┤┘ç╪▒ (YYYY-MM) ╪ث┘ê all"),
++    lang: str = Query("ar", description="┘╪║╪ر ╪د┘╪ز┘é╪▒┘è╪▒ (ar/en)", pattern="^(ar|en)$"),
++    db: Session = Depends(get_db),
++):
++    """╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪د┘┘â╪د┘à┘╪ر ┘â┘à┘┘ JSON"""
++    try:
++        payload = build_full_export(db, month, lang)
++    except NoDataError as e:
++        raise HTTPException(status_code=404, detail=str(e))
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: {str(e)}")
++
++    filename = f"health_export_{datetime.now().strftime('%Y-%m-%d')}.json"
++    content = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
++    return StreamingResponse(
++        io.BytesIO(content),
++        media_type="application/json",
++        headers={"Content-Disposition": f"attachment; filename={filename}"},
++    )
+diff --git a/app/engine/export.py b/app/engine/export.py
+new file mode 100644
+index 0000000..79a704f
+--- /dev/null
++++ b/app/engine/export.py
+@@ -0,0 +1,198 @@
++"""Build the full data export package for external analysis tools."""
++import math
++from datetime import datetime
++from typing import Any, Dict, List, Optional
++from sqlalchemy.orm import Session
++
++from app.engine.comparative.report_cache import get_stored_report
++from app.engine.smart import run_smart_analytics
++from app.models import (
++    Hospital, Governorate, Indicator, HospitalIndicatorConfig, IndicatorValue,
++)
++
++
++class NoDataError(ValueError):
++    """Raised when there is nothing to export."""
++
++
++def _sanitize(obj: Any) -> Any:
++    """Recursively convert numpy/NaN/Inf values to native JSON-safe types."""
++    if isinstance(obj, dict):
++        return {k: _sanitize(v) for k, v in obj.items()}
++    if isinstance(obj, (list, tuple)):
++        return [_sanitize(v) for v in obj]
++    if hasattr(obj, "tolist") and not isinstance(obj, (int, float, str, bool)):
++        try:
++            return _sanitize(obj.tolist())
++        except (ValueError, AttributeError, TypeError):
++            pass
++    if hasattr(obj, "item") and not isinstance(obj, (int, float, str, bool)):
++        try:
++            return obj.item()
++        except (ValueError, AttributeError, TypeError):
++            pass
++    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
++        return 0.0
++    if hasattr(obj, "__dict__") and not isinstance(obj, (int, float, str, bool)):
++        return _sanitize(vars(obj))
++    return obj
++
++
++def _get_available_months(session: Session) -> List[str]:
++    """Distinct months that have indicator values, sorted ascending."""
++    months = [m for (m,) in session.query(IndicatorValue.month).distinct().all()]
++    return sorted(months)
++
++
++def _get_master_data(session: Session) -> Dict[str, Any]:
++    """Governorates, hospitals, indicators, and hospital indicator configs."""
++    governorates = [
++        {"id": g.id, "name": g.name}
++        for g in session.query(Governorate).order_by(Governorate.name).all()
++    ]
++
++    hospitals = []
++    for h in session.query(Hospital).order_by(Hospital.name).all():
++        hospitals.append({
++            "id": h.id,
++            "name": h.name,
++            "region": h.region,
++            "address": h.address,
++            "governorate_name": h.governorate.name if h.governorate else None,
++            "hospital_type_name": h.hospital_type.name if h.hospital_type else None,
++            "facility_ownership_name": h.facility_ownership.name if h.facility_ownership else None,
++            "facility_type_name": h.facility_type.name if h.facility_type else None,
++            "is_active": h.is_active,
++        })
++
++    indicators = [
++        {
++            "code": i.code,
++            "name": i.name,
++            "level": i.level,
++            "group_name": i.group_name,
++            "parent_code": i.parent.code if i.parent else None,
++        }
++        for i in session.query(Indicator).order_by(Indicator.sort_order, Indicator.id).all()
++    ]
++
++    configs = [
++        {
++            "hospital_id": c.hospital_id,
++            "indicator_code": c.indicator.code if c.indicator else None,
++            "is_enabled": c.is_enabled,
++            "weight_override": c.weight_override,
++        }
++        for c in session.query(HospitalIndicatorConfig).all()
++    ]
++
++    return {
++        "governorates": governorates,
++        "hospitals": hospitals,
++        "indicators": indicators,
++        "hospital_indicator_configs": configs,
++    }
++
++
++def _get_indicator_values(session: Session, months: List[str]) -> Dict[str, list]:
++    """Indicator values grouped by month."""
++    by_month: Dict[str, list] = {}
++    if not months:
++        return by_month
++
++    hospitals = {h.id: h for h in session.query(Hospital).all()}
++    indicators = {i.id: i for i in session.query(Indicator).all()}
++
++    rows = session.query(IndicatorValue).filter(IndicatorValue.month.in_(months)).all()
++    for iv in rows:
++        hosp = hospitals.get(iv.hospital_id)
++        ind = indicators.get(iv.indicator_id)
++        by_month.setdefault(iv.month, []).append({
++            "hospital_id": iv.hospital_id,
++            "hospital_name": hosp.name if hosp else "",
++            "indicator_code": ind.code if ind else "",
++            "indicator_name": ind.name if ind else "",
++            "value": iv.value,
++            "source_file": iv.source_file,
++        })
++    return by_month
++
++
++SCHEMA_VERSION = 1
++
++
++def _get_smart_analysis(session: Session, month: str) -> Dict[str, Any]:
++    """Full smart analytics output for a month, serialized to JSON-safe dicts."""
++    result = run_smart_analytics(session, month)
++    data = {
++        "kpi": result.kpi.__dict__ if result.kpi else {},
++        "anomalies": [a.__dict__ for a in result.anomalies],
++        "clustering": result.clustering.__dict__ if result.clustering else {},
++        "correlations": result.correlations.__dict__ if result.correlations else {},
++        "residuals": [r.__dict__ for r in result.residuals],
++        "stratified": [s.__dict__ for s in result.stratified],
++        "explanations": [
++            {**e.__dict__, "top_factors": [f.__dict__ for f in e.top_factors]}
++            for e in result.explanations
++        ],
++        "geo": {
++            "governorates": [g.__dict__ for g in result.geo.governorates],
++        } if result.geo else None,
++    }
++    if result.xgboost_predictions:
++        xgb = result.xgboost_predictions
++        data["xgboost"] = {
++            "model_r2": xgb.model_r2,
++            "model_mae": xgb.model_mae,
++            "training_months": xgb.training_months,
++            "hospitals_trained": xgb.hospitals_trained,
++            "accuracy_note": xgb.accuracy_note,
++            "predictions": [
++                {
++                    **p.__dict__,
++                    "top_drivers": [d.__dict__ for d in p.top_drivers],
++                }
++                for p in xgb.predictions
++            ],
++            "global_feature_importance": [fi.__dict__ for fi in xgb.global_feature_importance],
++        }
++    return _sanitize(data)
++
++
++def _get_comprehensive_report(session: Session, month: str, lang: str) -> Optional[Dict[str, str]]:
++    """Cached comprehensive report text only. Never triggers AI generation."""
++    cached = get_stored_report(session, month, lang)
++    if not cached:
++        return None
++    return {"report": cached.get("report"), "report_source": cached.get("report_source")}
++
++
++def build_full_export(session: Session, month: str, lang: str) -> Dict[str, Any]:
++    """Build the complete export package for month ('all' or 'YYYY-MM') and lang."""
++    months = _get_available_months(session) if month == "all" else [month]
++    master = _get_master_data(session)
++
++    if not master["hospitals"] and not months:
++        raise NoDataError("┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز ┘┘╪ز╪╡╪»┘è╪▒ / No data available to export")
++
++    analysis = {}
++    for m in months:
++        try:
++            analysis[m] = {
++                "smart": _get_smart_analysis(session, m),
++                "comprehensive_report": _get_comprehensive_report(session, m, lang),
++            }
++        except Exception as e:
++            analysis[m] = {"error": str(e)}
++
++    return {
++        "meta": {
++            "exported_at": datetime.now().isoformat(),
++            "lang": lang,
++            "scope": month,
++            "schema_version": SCHEMA_VERSION,
++        },
++        "master_data": master,
++        "indicator_values": _get_indicator_values(session, months),
++        "analysis": analysis,
++    }
+diff --git a/app/main.py b/app/main.py
+index 71cc7a1..a438791 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -5,21 +5,21 @@ from contextlib import asynccontextmanager  # noqa: E402
+ from fastapi import FastAPI  # noqa: E402
+ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+ from fastapi.staticfiles import StaticFiles  # noqa: E402
+ from fastapi.responses import FileResponse  # noqa: E402
+ from alembic.config import Config  # noqa: E402
+ from alembic import command  # noqa: E402
+ from alembic.script import ScriptDirectory  # noqa: E402
+ from app.database import init_db, SessionLocal, engine  # noqa: E402
+ from app.models import AppConfig, FacilityOwnership, FacilityType  # noqa: E402
+ from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
+-from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router  # noqa: E402
++from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router  # noqa: E402
+ from app.tasks import get_task  # noqa: E402
+ from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR  # noqa: E402
+ from scripts.seed_indicators import seed_indicators  # noqa: E402
+ from scripts.seed_rules import seed_rules  # noqa: E402
+ import os  # noqa: E402
+ import logging  # noqa: E402
+ 
+ setup_structured_logging(logging.INFO)
+ 
+ 
+@@ -236,20 +236,21 @@ app.include_router(config_api.router)
+ app.include_router(root_cause.router)
+ app.include_router(dashboard.router)
+ app.include_router(file_ops.router)
+ app.include_router(audit_api.router)
+ app.include_router(governorates_api.router)
+ app.include_router(hospital_types_api.router)
+ app.include_router(facility_ownerships_api.router)
+ app.include_router(facility_types_api.router)
+ app.include_router(smart_analytics_router.router)
+ app.include_router(comparative_router.router)
++app.include_router(export_router.router)
+ 
+ from fastapi.responses import JSONResponse  # noqa: E402
+ 
+ 
+ @app.get("/tasks/{task_id}")
+ def task_status(task_id: str):
+     task = get_task(task_id)
+     if not task:
+         return JSONResponse(status_code=404, content={"error": "Task not found"})
+     return task
+diff --git a/docs/superpowers/plans/2026-08-02-export-data.md b/docs/superpowers/plans/2026-08-02-export-data.md
+new file mode 100644
+index 0000000..ab2e844
+--- /dev/null
++++ b/docs/superpowers/plans/2026-08-02-export-data.md
+@@ -0,0 +1,833 @@
++# Full Data Export Implementation Plan
++
++> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
++
++**Goal:** Add a "╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز / Export Data" button to the smart analytics page (`╪د┘╪ز╪ص┘┘è┘ ╪د┘╪░┘â┘è`) and the comprehensive report page (`╪د┘╪ز┘é╪▒┘è╪▒ ╪د┘╪┤╪د┘à┘`) that downloads a single JSON file containing master data, indicator values, full smart analytics results, and (when cached) the comprehensive report text.
++
++**Architecture:** A new `app/engine/export.py` module builds the full package via `build_full_export(session, month, lang)`. A new `app/api/export.py` router exposes `GET /export/full-data?month=YYYY-MM|all&lang=ar|en` returning the JSON as a `StreamingResponse` attachment. Both pages call this one endpoint. Comprehensive report text comes ONLY from the persistent cache (`get_stored_report`) ظ¤ never AI-generated during export.
++
++**Tech Stack:** Python 3.14, FastAPI, SQLAlchemy (SQLite), pytest, dataclasses, numpy.
++
++**Established repo convention:** This project commits directly to `master` (all prior tasks did). No feature branch is created.
++
++## Global Constraints
++
++- Reuse existing `analysis_cache` via `get_stored_report(session, month, lang)` from `app/engine/comparative/report_cache.py` for report text ظ¤ NEVER call `generate_comprehensive_report` or `_call_api` during export.
++- Smart analysis per month comes from `run_smart_analytics(session, month)` (in `app/engine/smart/__init__.py`).
++- JSON must be UTF-8, `ensure_ascii=False`, and numpy/NaN/Inf must be converted to native JSON types (never left as numpy scalars).
++- `month` param: `all` OR a `YYYY-MM` string. `lang` validated with `pattern="^(ar|en)$"`.
++- No data at all (no hospitals AND no indicator values) ظْ HTTP 404 with bilingual message.
++- A single month's analysis failure must not fail the whole export ظ¤ embed `{"error": str(e)}` in `analysis[month]` and continue.
++- All new tests go in `tests/test_export.py`.
++- Verify with: `python -m pytest tests/test_export.py -q` (all must pass) and `python -m pytest tests/test_comparative.py tests/test_smart_analytics.py -q` (existing tests must still pass).
++- Commit after each task with the exact message given.
++
++---
++
++### Task 1: Export Engine ظ¤ Master Data, Months, Indicator Values, Sanitize
++
++**Files:**
++- Create: `app/engine/export.py`
++- Test: `tests/test_export.py`
++
++**Interfaces:**
++- Produces (consumed by Task 2, Task 3):
++  - `_sanitize(obj) -> Any` ظ¤ recursive: dict/list/tuple recursion; numpy scalar `.item()`; numpy array `.tolist()`; float NaN/Inf ظْ 0.0.
++  - `_get_available_months(session) -> List[str]` ظ¤ sorted distinct `IndicatorValue.month` values.
++  - `_get_master_data(session) -> dict` ظ¤ keys `governorates`, `hospitals`, `indicators`, `hospital_indicator_configs`.
++  - `_get_indicator_values(session, months) -> Dict[str, list]` ظ¤ month ظْ list of value dicts.
++  - Constant `NoDataError` (subclass of `ValueError`).
++
++- [ ] **Step 1: Write the failing tests**
++
++Create `tests/test_export.py` with a `client` fixture (same pattern as `tests/test_comparative.py:72-87`):
++
++```python
++"""Tests for the full data export feature."""
++import json
++import pytest
++from fastapi.testclient import TestClient
++from app.main import app
++from app.database import get_db
++
++
++@pytest.fixture
++def client(db_session):
++    def override_get_db():
++        try:
++            yield db_session
++        finally:
++            pass
++
++    app.dependency_overrides[get_db] = override_get_db
++    with TestClient(app, raise_server_exceptions=False) as c:
++        yield c
++    app.dependency_overrides.clear()
++
++
++# --- Engine helpers ---
++
++def test_sanitize_converts_numpy_scalars(db_session):
++    import numpy as np
++    from app.engine.export import _sanitize
++    out = _sanitize({"score": np.float64(0.45), "count": np.int64(7), "nan": float("nan"), "inf": float("inf")})
++    assert out["score"] == 0.45
++    assert isinstance(out["score"], float)
++    assert out["count"] == 7
++    assert isinstance(out["count"], int)
++    assert out["nan"] == 0.0
++    assert out["inf"] == 0.0
++
++
++def test_sanitize_converts_numpy_array(db_session):
++    import numpy as np
++    from app.engine.export import _sanitize
++    out = _sanitize({"arr": np.array([1.0, 2.5, 3.0])})
++    assert out["arr"] == [1.0, 2.5, 3.0]
++    assert isinstance(out["arr"], list)
++    assert all(isinstance(v, float) for v in out["arr"])
++
++
++def test_get_available_months_empty(db_session):
++    from app.engine.export import _get_available_months
++    assert _get_available_months(db_session) == []
++
++
++def test_get_available_months_distinct_sorted(db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    from app.engine.export import _get_available_months
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add_all([
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=90),
++    ])
++    db_session.commit()
++    assert _get_available_months(db_session) == ["2026-05", "2026-06"]
++
++
++def test_get_master_data_returns_all_sections(db_session):
++    from app.engine.export import _get_master_data
++    md = _get_master_data(db_session)
++    assert "governorates" in md
++    assert "hospitals" in md
++    assert "indicators" in md
++    assert "hospital_indicator_configs" in md
++    assert len(md["hospitals"]) == 3
++    assert len(md["indicators"]) > 0
++    h = md["hospitals"][0]
++    for key in ("id", "name", "region", "address", "governorate_name",
++                "hospital_type_name", "facility_ownership_name", "facility_type_name", "is_active"):
++        assert key in h
++
++
++def test_get_indicator_values_grouped_by_month(db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    from app.engine.export import _get_indicator_values
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add(IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=300, source_file="x.xlsx"))
++    db_session.commit()
++    result = _get_indicator_values(db_session, ["2026-06"])
++    assert "2026-06" in result
++    row = result["2026-06"][0]
++    assert row["hospital_id"] == hosp.id
++    assert row["hospital_name"] == hosp.name
++    assert row["indicator_code"] == "2"
++    assert row["indicator_name"] == ind.name
++    assert row["value"] == 300
++    assert row["source_file"] == "x.xlsx"
++```
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `python -m pytest tests/test_export.py -q`
++Expected: ERROR at collection ظ¤ `ModuleNotFoundError: No module named 'app.engine.export'`
++
++- [ ] **Step 3: Create the module**
++
++Create `app/engine/export.py`:
++
++```python
++"""Build the full data export package for external analysis tools."""
++import math
++from typing import Any, Dict, List, Optional
++from sqlalchemy.orm import Session
++
++from app.models import (
++    Hospital, Governorate, Indicator, HospitalIndicatorConfig, IndicatorValue,
++)
++
++
++class NoDataError(ValueError):
++    """Raised when there is nothing to export."""
++
++
++def _sanitize(obj: Any) -> Any:
++    """Recursively convert numpy/NaN/Inf values to native JSON-safe types."""
++    if isinstance(obj, dict):
++        return {k: _sanitize(v) for k, v in obj.items()}
++    if isinstance(obj, (list, tuple)):
++        return [_sanitize(v) for v in obj]
++    if hasattr(obj, "tolist") and not isinstance(obj, (int, float, str, bool)):
++        try:
++            return _sanitize(obj.tolist())
++        except (ValueError, AttributeError, TypeError):
++            pass
++    if hasattr(obj, "item") and not isinstance(obj, (int, float, str, bool)):
++        try:
++            return obj.item()
++        except (ValueError, AttributeError, TypeError):
++            pass
++    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
++        return 0.0
++    return obj
++
++
++def _get_available_months(session: Session) -> List[str]:
++    """Distinct months that have indicator values, sorted ascending."""
++    months = [m for (m,) in session.query(IndicatorValue.month).distinct().all()]
++    return sorted(months)
++
++
++def _get_master_data(session: Session) -> Dict[str, Any]:
++    """Governorates, hospitals, indicators, and hospital indicator configs."""
++    governorates = [
++        {"id": g.id, "name": g.name}
++        for g in session.query(Governorate).order_by(Governorate.name).all()
++    ]
++
++    hospitals = []
++    for h in session.query(Hospital).order_by(Hospital.name).all():
++        hospitals.append({
++            "id": h.id,
++            "name": h.name,
++            "region": h.region,
++            "address": h.address,
++            "governorate_name": h.governorate.name if h.governorate else None,
++            "hospital_type_name": h.hospital_type.name if h.hospital_type else None,
++            "facility_ownership_name": h.facility_ownership.name if h.facility_ownership else None,
++            "facility_type_name": h.facility_type.name if h.facility_type else None,
++            "is_active": h.is_active,
++        })
++
++    indicators = [
++        {
++            "code": i.code,
++            "name": i.name,
++            "level": i.level,
++            "group_name": i.group_name,
++            "parent_code": i.parent.code if i.parent else None,
++        }
++        for i in session.query(Indicator).order_by(Indicator.sort_order, Indicator.id).all()
++    ]
++
++    configs = [
++        {
++            "hospital_id": c.hospital_id,
++            "indicator_code": c.indicator.code if c.indicator else None,
++            "is_enabled": c.is_enabled,
++            "weight_override": c.weight_override,
++        }
++        for c in session.query(HospitalIndicatorConfig).all()
++    ]
++
++    return {
++        "governorates": governorates,
++        "hospitals": hospitals,
++        "indicators": indicators,
++        "hospital_indicator_configs": configs,
++    }
++
++
++def _get_indicator_values(session: Session, months: List[str]) -> Dict[str, list]:
++    """Indicator values grouped by month."""
++    by_month: Dict[str, list] = {}
++    if not months:
++        return by_month
++
++    hospitals = {h.id: h for h in session.query(Hospital).all()}
++    indicators = {i.id: i for i in session.query(Indicator).all()}
++
++    rows = session.query(IndicatorValue).filter(IndicatorValue.month.in_(months)).all()
++    for iv in rows:
++        hosp = hospitals.get(iv.hospital_id)
++        ind = indicators.get(iv.indicator_id)
++        by_month.setdefault(iv.month, []).append({
++            "hospital_id": iv.hospital_id,
++            "hospital_name": hosp.name if hosp else "",
++            "indicator_code": ind.code if ind else "",
++            "indicator_name": ind.name if ind else "",
++            "value": iv.value,
++            "source_file": iv.source_file,
++        })
++    return by_month
++```
++
++- [ ] **Step 4: Run tests to verify they pass**
++
++Run: `python -m pytest tests/test_export.py -k "sanitize or available_months or master_data or indicator_values" -q`
++Expected: 7 passed
++
++- [ ] **Step 5: Commit**
++
++```bash
++git add app/engine/export.py tests/test_export.py
++git commit -m "feat: add export engine helpers for master data and indicator values"
++```
++
++---
++
++### Task 2: Export Engine ظ¤ Smart Analysis, Report from Cache, Build Package
++
++**Files:**
++- Modify: `app/engine/export.py`
++- Test: `tests/test_export.py`
++
++**Interfaces:**
++- Consumes: Task 1 helpers `_sanitize`, `_get_available_months`, `_get_master_data`, `_get_indicator_values`, `NoDataError`.
++- Consumes: `get_stored_report(session, month, lang)` from `app.engine.comparative.report_cache`.
++- Consumes: `run_smart_analytics(session, month)` from `app.engine.smart`.
++- Produces (consumed by Task 3):
++  - `build_full_export(session, month: str, lang: str) -> dict` with shape:
++    `{meta: {exported_at, lang, scope, schema_version}, master_data, indicator_values, analysis: {month: {"smart": {...}, "comprehensive_report": {...}|None}}}`
++
++- [ ] **Step 1: Write the failing tests**
++
++Append to `tests/test_export.py`:
++
++```python
++# --- build_full_export ---
++
++def test_build_full_export_structure(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert pkg["meta"]["scope"] == "2026-06"
++    assert pkg["meta"]["lang"] == "ar"
++    assert pkg["meta"]["schema_version"] == 1
++    assert "master_data" in pkg
++    assert "indicator_values" in pkg
++    assert "analysis" in pkg
++    assert "2026-06" in pkg["analysis"]
++
++
++def test_build_full_export_smart_sections(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    smart = pkg["analysis"]["2026-06"]["smart"]
++    for key in ("kpi", "anomalies", "clustering", "correlations", "residuals",
++                "stratified", "explanations", "geo"):
++        assert key in smart
++
++
++@patch("app.engine.export.run_smart_analytics")
++def test_build_full_export_month_error_embedded(mock_analytics, db_session):
++    mock_analytics.side_effect = RuntimeError("boom")
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert "error" in pkg["analysis"]["2026-06"]
++    assert "boom" in pkg["analysis"]["2026-06"]["error"]
++
++
++def test_build_full_export_all_months(db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    from app.engine.export import build_full_export
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add_all([
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
++    ])
++    db_session.commit()
++    pkg = build_full_export(db_session, "all", "ar")
++    assert pkg["meta"]["scope"] == "all"
++    assert set(pkg["indicator_values"].keys()) == {"2026-05", "2026-06"}
++    assert set(pkg["analysis"].keys()) == {"2026-05", "2026-06"}
++
++
++def test_build_full_export_comprehensive_report_null_when_uncached(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert pkg["analysis"]["2026-06"]["comprehensive_report"] is None
++
++
++@patch("app.engine.comparative.report_cache._call_api")
++def test_export_never_calls_ai(mock_api, db_session):
++    from app.engine.export import build_full_export
++    build_full_export(db_session, "all", "ar")
++    assert mock_api.call_count == 0
++
++
++def test_build_full_export_report_from_cache(db_session):
++    from app.engine.comparative.report_cache import store_report
++    from app.engine.export import build_full_export
++    store_report(db_session, "2026-06", "ar", {"report": "┘╪╡ ┘à╪«╪▓┘", "report_source": "ai", "month": "2026-06"})
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    rep = pkg["analysis"]["2026-06"]["comprehensive_report"]
++    assert rep == {"report": "┘╪╡ ┘à╪«╪▓┘", "report_source": "ai"}
++
++
++def test_build_full_export_no_data_raises(db_session):
++    from app.models import Hospital
++    from app.engine.export import build_full_export, NoDataError
++    db_session.query(Hospital).delete()
++    db_session.commit()
++    try:
++        build_full_export(db_session, "all", "ar")
++        assert False, "expected NoDataError"
++    except NoDataError:
++        pass
++```
++
++Add `from unittest.mock import patch` to the top of `tests/test_export.py` if not already imported.
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `python -m pytest tests/test_export.py -k "build_full_export or never_calls_ai" -q`
++Expected: FAIL ظ¤ `ImportError: cannot import name 'build_full_export'` (and `run_smart_analytics` not patched since `app.engine.export` has no such symbol yet).
++
++- [ ] **Step 3: Implement the changes**
++
++Append to `app/engine/export.py`:
++
++```python
++from datetime import datetime
++
++from app.engine.smart import run_smart_analytics
++from app.engine.comparative.report_cache import get_stored_report
++
++SCHEMA_VERSION = 1
++
++
++def _get_smart_analysis(session: Session, month: str) -> Dict[str, Any]:
++    """Full smart analytics output for a month, serialized to JSON-safe dicts."""
++    result = run_smart_analytics(session, month)
++    data = {
++        "kpi": result.kpi.__dict__ if result.kpi else {},
++        "anomalies": [a.__dict__ for a in result.anomalies],
++        "clustering": result.clustering.__dict__ if result.clustering else {},
++        "correlations": result.correlations.__dict__ if result.correlations else {},
++        "residuals": [r.__dict__ for r in result.residuals],
++        "stratified": [s.__dict__ for s in result.stratified],
++        "explanations": [
++            {**e.__dict__, "top_factors": [f.__dict__ for f in e.top_factors]}
++            for e in result.explanations
++        ],
++        "geo": {
++            "governorates": [g.__dict__ for g in result.geo.governorates],
++        } if result.geo else None,
++    }
++    if result.xgboost_predictions:
++        xgb = result.xgboost_predictions
++        data["xgboost"] = {
++            "model_r2": xgb.model_r2,
++            "model_mae": xgb.model_mae,
++            "training_months": xgb.training_months,
++            "hospitals_trained": xgb.hospitals_trained,
++            "accuracy_note": xgb.accuracy_note,
++            "predictions": [
++                {
++                    **p.__dict__,
++                    "top_drivers": [d.__dict__ for d in p.top_drivers],
++                }
++                for p in xgb.predictions
++            ],
++            "global_feature_importance": [fi.__dict__ for fi in xgb.global_feature_importance],
++        }
++    return _sanitize(data)
++
++
++def _get_comprehensive_report(session: Session, month: str, lang: str) -> Optional[Dict[str, str]]:
++    """Cached comprehensive report text only. Never triggers AI generation."""
++    cached = get_stored_report(session, month, lang)
++    if not cached:
++        return None
++    return {"report": cached.get("report"), "report_source": cached.get("report_source")}
++
++
++def build_full_export(session: Session, month: str, lang: str) -> Dict[str, Any]:
++    """Build the complete export package for month ('all' or 'YYYY-MM') and lang."""
++    months = _get_available_months(session) if month == "all" else [month]
++    master = _get_master_data(session)
++
++    if not master["hospitals"] and not months:
++        raise NoDataError("┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز ┘┘╪ز╪╡╪»┘è╪▒ / No data available to export")
++
++    analysis = {}
++    for m in months:
++        try:
++            analysis[m] = {
++                "smart": _get_smart_analysis(session, m),
++                "comprehensive_report": _get_comprehensive_report(session, m, lang),
++            }
++        except Exception as e:
++            analysis[m] = {"error": str(e)}
++
++    return {
++        "meta": {
++            "exported_at": datetime.now().isoformat(),
++            "lang": lang,
++            "scope": month,
++            "schema_version": SCHEMA_VERSION,
++        },
++        "master_data": master,
++        "indicator_values": _get_indicator_values(session, months),
++        "analysis": analysis,
++    }
++```
++
++- [ ] **Step 4: Run tests to verify they pass**
++
++Run: `python -m pytest tests/test_export.py -k "build_full_export or never_calls_ai" -q`
++Expected: 7 passed
++
++- [ ] **Step 5: Run the full export suite**
++
++Run: `python -m pytest tests/test_export.py -q`
++Expected: all pass (14 total)
++
++- [ ] **Step 6: Commit**
++
++```bash
++git add app/engine/export.py tests/test_export.py
++git commit -m "feat: build full data export package with analysis and cached reports"
++```
++
++---
++
++### Task 3: Export API Endpoint
++
++**Files:**
++- Create: `app/api/export.py`
++- Modify: `app/main.py` (import + `include_router`)
++- Test: `tests/test_export.py`
++
++**Interfaces:**
++- Consumes: `build_full_export`, `NoDataError` from Task 2.
++- Produces: `GET /export/full-data?month=YYYY-MM|all&lang=ar|en` ظْ `StreamingResponse` JSON attachment, or 404/422.
++
++- [ ] **Step 1: Write the failing tests**
++
++Append to `tests/test_export.py`:
++
++```python
++# --- API endpoint ---
++
++def test_export_endpoint_returns_json_download(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
++    assert resp.status_code == 200
++    assert resp.headers["content-type"].startswith("application/json")
++    assert "attachment" in resp.headers["content-disposition"]
++    data = resp.json()
++    assert data["meta"]["scope"] == "2026-06"
++
++
++def test_export_endpoint_all_months(client, db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add_all([
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
++    ])
++    db_session.commit()
++    resp = client.get("/export/full-data", params={"month": "all", "lang": "en"})
++    assert resp.status_code == 200
++    data = resp.json()
++    assert data["meta"]["scope"] == "all"
++    assert data["meta"]["lang"] == "en"
++    assert set(data["indicator_values"].keys()) == {"2026-05", "2026-06"}
++
++
++def test_export_endpoint_invalid_lang_422(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "xx"})
++    assert resp.status_code == 422
++
++
++def test_export_endpoint_no_data_404(client, db_session):
++    from app.models import Hospital
++    db_session.query(Hospital).delete()
++    db_session.commit()
++    resp = client.get("/export/full-data", params={"month": "all", "lang": "ar"})
++    assert resp.status_code == 404
++    assert "┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز" in resp.json()["detail"]
++
++
++def test_export_endpoint_serializes_without_error(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
++    assert resp.status_code == 200
++    assert isinstance(resp.json(), dict)
++```
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `python -m pytest tests/test_export.py -k "endpoint" -q`
++Expected: FAIL ظ¤ `404 Not Found` (router not registered yet).
++
++- [ ] **Step 3: Create the router**
++
++Create `app/api/export.py`:
++
++```python
++import io
++import json
++from datetime import datetime
++from fastapi import APIRouter, Depends, HTTPException, Query
++from sqlalchemy.orm import Session
++
++from app.database import get_db
++from app.engine.export import build_full_export, NoDataError
++
++router = APIRouter(prefix="/export", tags=["Export"])
++
++
++@router.get("/full-data")
++def export_full_data(
++    month: str = Query(..., description="╪د┘╪┤┘ç╪▒ (YYYY-MM) ╪ث┘ê all"),
++    lang: str = Query("ar", description="┘╪║╪ر ╪د┘╪ز┘é╪▒┘è╪▒ (ar/en)", pattern="^(ar|en)$"),
++    db: Session = Depends(get_db),
++):
++    """╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪د┘┘â╪د┘à┘╪ر ┘â┘à┘┘ JSON"""
++    try:
++        payload = build_full_export(db, month, lang)
++    except NoDataError as e:
++        raise HTTPException(status_code=404, detail=str(e))
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: {str(e)}")
++
++    filename = f"health_export_{datetime.now().strftime('%Y-%m-%d')}.json"
++    content = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
++    return StreamingResponse(
++        io.BytesIO(content),
++        media_type="application/json",
++        headers={"Content-Disposition": f"attachment; filename={filename}"},
++    )
++```
++
++Add the import of `StreamingResponse` to the top of `app/api/export.py`:
++
++```python
++from fastapi.responses import StreamingResponse
++```
++
++- [ ] **Step 4: Register the router in `app/main.py`**
++
++Modify the import at `app/main.py:15` ظ¤ append `, export as export_router` to the `app.api` import list (after `comparative`):
++
++```python
++from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router  # noqa: E402
++```
++
++Add after the existing `app.include_router(comparative_router.router)` at `app/main.py:245`:
++
++```python
++app.include_router(export_router.router)
++```
++
++- [ ] **Step 5: Run tests to verify they pass**
++
++Run: `python -m pytest tests/test_export.py -k "endpoint" -q`
++Expected: 5 passed
++
++- [ ] **Step 6: Run the full export suite**
++
++Run: `python -m pytest tests/test_export.py -q`
++Expected: all pass (19 total)
++
++- [ ] **Step 7: Commit**
++
++```bash
++git add app/api/export.py app/main.py tests/test_export.py
++git commit -m "feat: add full data export API endpoint"
++```
++
++---
++
++### Task 4: Export Buttons on Both Pages
++
++**Files:**
++- Modify: `static/tabs/smart-analytics.html` (controls bar, after the refresh button div at lines 23-25)
++- Modify: `static/tabs/comparative.html` (controls bar, after the generate button div at lines 39-41)
++- Modify: `static/js/smart-analytics.js` (append `smartExportData`)
++- Modify: `static/js/comparative.js` (append `comparativeExportData`)
++- Test: `tests/test_export.py`
++
++**Interfaces:**
++- Consumes: `GET /export/full-data?month=<YYYY-MM|all>&lang=<ar|en>` from Task 3.
++- Produces: `window.smartExportData()` and `window.comparativeExportData()` invoked via inline `onclick`.
++
++- [ ] **Step 1: Write the failing tests**
++
++Append to `tests/test_export.py`:
++
++```python
++# --- Frontend structure ---
++
++def test_smart_page_has_export_button():
++    import os
++    from bs4 import BeautifulSoup
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
++    with open(path, encoding="utf-8") as f:
++        soup = BeautifulSoup(f.read(), "html.parser")
++    assert soup.find(id="smart-export-btn") is not None
++    assert soup.find(id="smart-export-scope") is not None
++
++
++def test_comparative_page_has_export_button():
++    import os
++    from bs4 import BeautifulSoup
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "comparative.html")
++    with open(path, encoding="utf-8") as f:
++        soup = BeautifulSoup(f.read(), "html.parser")
++    assert soup.find(id="comparative-export-btn") is not None
++    assert soup.find(id="comparative-export-scope") is not None
++
++
++def test_smart_js_has_export_handler():
++    import os
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
++    with open(path, encoding="utf-8") as f:
++        content = f.read()
++    assert "function smartExportData" in content
++    assert "/export/full-data?month=" in content
++    assert "lang=ar" in content
++
++
++def test_comparative_js_has_export_handler():
++    import os
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "comparative.js")
++    with open(path, encoding="utf-8") as f:
++        content = f.read()
++    assert "function comparativeExportData" in content
++    assert "/export/full-data?month=" in content
++    assert "lang=${reportLang}" in content
++```
++
++- [ ] **Step 2: Run tests to verify they fail**
++
++Run: `python -m pytest tests/test_export.py -k "page_has_export or js_has_export" -q`
++Expected: FAIL ظ¤ buttons/handlers don't exist yet.
++
++- [ ] **Step 3: Add the export controls to the smart analytics page**
++
++Modify `static/tabs/smart-analytics.html`. After the refresh button `</div>` (line 25, immediately before the `<div style="align-self:flex-end;">` containing `#smart-status`), insert:
++
++```html
++    <div style="align-self:flex-end;">
++      <select id="smart-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.82rem;background:white;">
++        <option value="current">╪د┘╪┤┘ç╪▒ ╪د┘┘à╪ص╪»╪»</option>
++        <option value="all">┘â┘ ╪د┘╪ث╪┤┘ç╪▒</option>
++      </select>
++      <button id="smart-export-btn" class="btn btn-sm" onclick="smartExportData()" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز</button>
++    </div>
++```
++
++- [ ] **Step 4: Add the export controls to the comparative page**
++
++Modify `static/tabs/comparative.html`. After the generate button `</div>` (line 41, immediately before the `<div style="align-self:flex-end;">` containing `#comparative-status`), insert:
++
++```html
++    <div style="align-self:flex-end;">
++      <select id="comparative-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.82rem;background:white;">
++        <option value="current">╪د┘╪┤┘ç╪▒ ╪د┘┘à╪ص╪»╪»</option>
++        <option value="all">┘â┘ ╪د┘╪ث╪┤┘ç╪▒</option>
++      </select>
++      <button id="comparative-export-btn" class="btn btn-sm" onclick="comparativeExportData()" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز</button>
++    </div>
++```
++
++- [ ] **Step 5: Add the smart export handler**
++
++Append to `static/js/smart-analytics.js`:
++
++```javascript
++async function smartExportData() {
++  const scope = document.getElementById('smart-export-scope')?.value || 'current';
++  const month = scope === 'all' ? 'all' : (smartCurrentMonth || document.getElementById('smart-month-select')?.value || '');
++  const base = document.getElementById('apiBase')?.value || '';
++  const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=ar`;
++  document.getElementById('smart-status').textContent = '╪ش╪د╪▒┘è ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز...';
++  smartShowLoading();
++  try {
++    const res = await fetch(url);
++    if (!res.ok) throw new Error('HTTP ' + res.status);
++    const blob = await res.blob();
++    const a = document.createElement('a');
++    a.href = URL.createObjectURL(blob);
++    a.download = `health_export_${month}.json`;
++    document.body.appendChild(a);
++    a.click();
++    a.remove();
++    URL.revokeObjectURL(a.href);
++    document.getElementById('smart-status').textContent = '╪ز┘à ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪ذ┘╪ش╪د╪ص';
++  } catch (e) {
++    document.getElementById('smart-status').textContent = '╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: ' + e.message;
++  } finally {
++    smartHideLoading();
++  }
++}
++```
++
++- [ ] **Step 6: Add the comparative export handler**
++
++Append to `static/js/comparative.js`:
++
++```javascript
++async function comparativeExportData() {
++  const scope = document.getElementById('comparative-export-scope')?.value || 'current';
++  const month = scope === 'all' ? 'all' : (comparativeCurrentMonth || document.getElementById('comparative-month')?.value || '');
++  const base = document.getElementById('apiBase')?.value || '';
++  const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=${reportLang}`;
++  document.getElementById('comparative-status').textContent = reportLang === 'ar' ? '╪ش╪د╪▒┘è ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز...' : 'Exporting data...';
++  compShowLoading();
++  try {
++    const res = await fetch(url);
++    if (!res.ok) throw new Error('HTTP ' + res.status);
++    const blob = await res.blob();
++    const a = document.createElement('a');
++    a.href = URL.createObjectURL(blob);
++    a.download = `health_export_${month}.json`;
++    document.body.appendChild(a);
++    a.click();
++    a.remove();
++    URL.revokeObjectURL(a.href);
++    document.getElementById('comparative-status').textContent = reportLang === 'ar' ? '╪ز┘à ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪ذ┘╪ش╪د╪ص' : 'Data exported successfully';
++  } catch (e) {
++    showAlert((reportLang === 'ar' ? '╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: ' : 'Export error: ') + e.message, 'danger');
++  } finally {
++    compHideLoading();
++  }
++}
++```
++
++- [ ] **Step 7: Run tests to verify they pass**
++
++Run: `python -m pytest tests/test_export.py -k "page_has_export or js_has_export" -q`
++Expected: 4 passed
++
++- [ ] **Step 8: Run the full export suite**
++
++Run: `python -m pytest tests/test_export.py -q`
++Expected: all pass (23 total)
++
++- [ ] **Step 9: Run the regression suites**
++
++Run: `python -m pytest tests/test_comparative.py tests/test_smart_analytics.py -q`
++Expected: all pass (existing behavior unchanged)
++
++- [ ] **Step 10: Commit**
++
++```bash
++git add static/tabs/smart-analytics.html static/tabs/comparative.html static/js/smart-analytics.js static/js/comparative.js tests/test_export.py
++git commit -m "feat: add export data buttons to smart and comprehensive report pages"
++```
++
++---
++
++## Self-Review Notes
++
++- **Spec coverage:** All spec sections map to tasks ظ¤ engine helpers (T1), smart analysis + cache-only report + package build (T2), endpoint + 404/422 + registration (T3), both pages' buttons + scope selector + handlers (T4), testing (all). Non-goals respected: no AI generation (tested in `test_export_never_calls_ai`), JSON only.
++- **Type consistency:** `build_full_export(session, month, lang)` signature identical across T2/T3. `get_stored_report`/`run_smart_analytics` names match the real modules. `NoDataError` raised in T2, caught in T3.
++- **Numpy handling:** `_sanitize` checks `tolist()` before `.item()` (learned from prior review), so multi-element arrays become lists, single-element numpy scalars become native.
++- **The `client` fixture in `tests/test_export.py`** reuses the exact `db_session` override pattern from `tests/test_comparative.py:72-87`.
+diff --git a/docs/superpowers/specs/2026-08-02-export-data-design.md b/docs/superpowers/specs/2026-08-02-export-data-design.md
+new file mode 100644
+index 0000000..26c8f31
+--- /dev/null
++++ b/docs/superpowers/specs/2026-08-02-export-data-design.md
+@@ -0,0 +1,139 @@
++# Full Data Export Design
++
++> **Status:** Approved
++> **Date:** 2026-08-02
++> **Language of spec:** This feature is part of the Arabic/English Health AI system. The design decisions below are language-agnostic; the UI labels are bilingual (ar/en).
++
++## Goal
++
++Add an "╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز / Export Data" button to the **smart analytics page** (`╪د┘╪ز╪ص┘┘è┘ ╪د┘╪░┘â┘è`) and the **comprehensive report page** (`╪د┘╪ز┘é╪▒┘è╪▒ ╪د┘╪┤╪د┘à┘`). Both buttons produce the **same full JSON package** containing:
++
++- Generated analysis outputs (smart analytics results + comprehensive report text)
++- Hospital master data, including locations/regions and governorates
++- Indicators and indicator values
++
++The purpose is to let an external tool (Excel, Python, Power BI, etc.) analyze the data or produce its own report.
++
++## Requirements (from brainstorming)
++
++1. **Format:** single JSON file.
++2. **Scope:** both the currently selected month and all months. The user picks via a small selector next to the button: "╪د┘╪┤┘ç╪▒ ╪د┘┘à╪ص╪»╪»" / "┘â┘ ╪د┘╪ث╪┤┘ç╪▒".
++3. **Analysis content:** everything ظ¤ full smart analytics results AND the comprehensive report text (when available).
++4. **Language:** follows the page's current language. The comparative page sends its `reportLang`; the smart analytics page sends `ar` (its default). Indicator names are exported from the DB as-is (English) plus the `code` field. The comprehensive report text is generated/cached per language.
++5. **AI quota safety:** export must NEVER trigger AI generation. Comprehensive report text is read from the persistent cache only (`get_stored_report`); months without a cached report get `comprehensive_report: null`.
++6. **Both pages export the identical full package** (single shared backend endpoint).
++
++## Architecture
++
++### New backend modules
++
++- `app/engine/export.py` ظ¤ pure logic, no FastAPI dependency:
++  - `build_full_export(session, month, lang) -> dict` builds the complete package.
++  - `_get_available_months(session) -> List[str]` ظ¤ distinct `IndicatorValue.month` values (sorted).
++  - `_get_master_data(session) -> dict` ظ¤ governorates, hospitals, indicators, hospital indicator configs.
++  - `_get_indicator_values(session, months) -> dict[month -> list]`.
++  - `_get_smart_analysis(session, month) -> dict` ظ¤ calls `run_smart_analytics(session, month)` and serializes dataclasses to JSON-safe dicts.
++  - `_get_comprehensive_report(session, month, lang) -> Optional[dict]` ظ¤ `get_stored_report(session, month, lang)`, returns `{"report": ..., "report_source": ...}` or `None`.
++  - `_sanitize(obj)` ظ¤ recursive numpy/NaN/Inf ظْ native JSON-safe values (mirror the pattern in `app/api/smart_analytics.py:14`).
++
++- `app/api/export.py` ظ¤ FastAPI router:
++  - `router = APIRouter(prefix="/export", tags=["Export"])`
++  - `GET /export/full-data?month=YYYY-MM|all&lang=ar|en`
++    - `month: str = Query(...)`, `lang: str = Query("ar", pattern="^(ar|en)$")`
++    - If `month == "all"`: use `_get_available_months`.
++    - If no data exists at all ظْ `HTTPException(404, detail=...)` (bilingual message).
++    - Wrap result with `meta`, run `_sanitize`, return `StreamingResponse(media_type="application/json", headers={"Content-Disposition": f"attachment; filename=health_export_YYYY-MM-DD.json"})`.
++    - Per-month analysis failure: catch, embed `{"error": str(e)}` for that month, continue.
++
++- Register router in `app/main.py` (`include_router(export_router)`).
++
++### Output JSON structure
++
++```json
++{
++  "meta": {
++    "exported_at": "ISO timestamp",
++    "lang": "ar|en",
++    "scope": "all | 2026-06",
++    "schema_version": 1
++  },
++  "master_data": {
++    "governorates": [{ "id": 1, "name": "╪║╪▓╪ر" }],
++    "hospitals": [{
++      "id": 1, "name": "╪د┘╪┤┘╪د╪ة", "region": "...", "address": "...",
++      "governorate_name": "╪║╪▓╪ر", "hospital_type_name": "...",
++      "facility_ownership_name": "...", "facility_type_name": "...", "is_active": true
++    }],
++    "indicators": [{ "code": "2", "name": "Total Deliveries", "level": 0, "group_name": "...", "parent_code": null }],
++    "hospital_indicator_configs": [{ "hospital_id": 1, "indicator_code": "2", "is_enabled": true, "weight_override": null }]
++  },
++  "indicator_values": {
++    "2026-06": [{ "hospital_id": 1, "hospital_name": "╪د┘╪┤┘╪د╪ة", "indicator_code": "2", "indicator_name": "Total Deliveries", "value": 300, "source_file": null }],
++    "2026-05": []
++  },
++  "analysis": {
++    "2026-06": {
++      "smart": {
++        "kpi": { "total_anomalies": 2, "critical_count": 1, "warning_count": 1, "affected_governorates": 1, "top_contributing_factor": "...", "month_status": "attention_needed" },
++        "anomalies": [],
++        "clustering": {},
++        "correlations": {},
++        "residuals": [],
++        "stratified": [],
++        "explanations": [],
++        "geo": {},
++        "xgboost": {}
++      },
++      "comprehensive_report": { "report": "text...", "report_source": "ai|local" }
++    }
++  }
++}
++```
++
++**Serialization rule:** smart dataclasses serialize via `dataclasses.asdict` (recursive), then `_sanitize` (numpy ظْ native). The `smart` dict mirrors the existing `_envelope` structure returned by `app/api/smart_analytics.py` (`kpi`, `anomalies`, `clustering`, `correlations`, `residuals`, `stratified`, `explanations`, `geo`, `xgboost`).
++
++## Frontend
++
++- **Smart analytics page** (`static/tabs/smart-analytics.html`, controls bar lines 12ظô29):
++  - Add a "╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز / Export Data" button (`id="smart-export-btn"`, class `btn btn-sm btn-outline` or the existing gradient style).
++  - Add a small scope selector: `<select id="smart-export-scope"><option value="current">╪د┘╪┤┘ç╪▒ ╪د┘┘à╪ص╪»╪»</option><option value="all">┘â┘ ╪د┘╪ث╪┤┘ç╪▒</option></select>`.
++- **Comprehensive report page** (`static/tabs/comparative.html`, controls bar lines 20ظô45):
++  - Add `id="comparative-export-btn"` + `id="comparative-export-scope"` similarly.
++- **JS handlers** (`static/js/smart-analytics.js`, `static/js/comparative.js`):
++  - On click: build URL `/export/full-data?month=<currentMonth-or-all>&lang=<pageLang>`.
++  - Use `window.open(url)` or an `<a download>` trigger so the browser saves the file (server returns `Content-Disposition: attachment`).
++  - Show the existing loading overlay during export; hide after `load`/`error` of the download.
++- **Language source:**
++  - comparative.js: `reportLang` variable.
++  - smart-analytics.js: constant `'ar'`.
++
++## Error Handling
++
++- Empty dataset ظْ `404` with bilingual detail.
++- A single month's analysis fails ظْ that month gets `"error"` in `analysis[month]`; export still succeeds.
++- Invalid `lang` ظْ 422 via FastAPI `pattern` validation.
++- JSON serialization of unexpected types ظْ `_sanitize` normalizes; any residual failure is surfaced per-month.
++
++## Testing
++
++New file `tests/test_export.py`:
++
++1. `test_export_meta_and_structure` ظ¤ response 200, Content-Type json, filename header, `meta` present.
++2. `test_export_master_data` ظ¤ hospitals/governorates/indicators/configs present and correct.
++3. `test_export_indicator_values` ظ¤ values grouped by month, correct columns.
++4. `test_export_smart_analysis` ظ¤ `analysis[month].smart` has kpi/anomalies/clustering/etc.
++5. `test_export_all_months` ظ¤ `month=all` returns every available month.
++6. `test_export_comprehensive_report_null_when_uncached` ظ¤ no cache row ظْ `comprehensive_report` is `None`; and no AI call is made (patch `_call_api`, assert not called).
++7. `test_export_comprehensive_report_from_cache` ظ¤ after storing a report via `store_report`, export returns it.
++8. `test_export_empty_db_404` ظ¤ no data ظْ 404.
++9. `test_export_invalid_lang_422` ظ¤ `lang=xx` ظْ 422.
++10. `test_export_sanitizes_numpy` ظ¤ smart output with numpy values serializes to native types.
++
++Use existing test fixtures (`db_session`, `client` from `tests/conftest.py` / `tests/test_api.py` pattern).
++
++## Non-Goals
++
++- No new export formats (XLSX/CSV) in this feature.
++- No AI generation during export.
++- No changes to the existing report caching behavior.
++- No pagination/streaming of huge files ظ¤ the JSON is built fully in memory (acceptable for current dataset size).
+diff --git a/static/js/comparative.js b/static/js/comparative.js
+index 14bf98f..b4cfc10 100644
+--- a/static/js/comparative.js
++++ b/static/js/comparative.js
+@@ -457,11 +457,37 @@ function renderPeerComparisonTable(peerComparison) {
+       <td style="padding:0.55rem 0.8rem;font-weight:500;">${peer.hospital_name}</td>
+       <td style="padding:0.55rem 0.8rem;">${peer.percentile.toFixed(1)}%</td>
+       <td style="padding:0.55rem 0.8rem;">
+         <span style="display:inline-block;padding:0.15rem 0.6rem;border-radius:10px;font-size:0.78rem;font-weight:600;background:${lbl.bg};color:${lbl.color};">${peer.comparison_label}</span>
+       </td>
+     `;
+     tbody.appendChild(row);
+   });
+ }
+ 
++async function comparativeExportData() {
++  const scope = document.getElementById('comparative-export-scope')?.value || 'current';
++  const month = scope === 'all' ? 'all' : (comparativeCurrentMonth || document.getElementById('comparative-month')?.value || '');
++  const base = document.getElementById('apiBase')?.value || '';
++  const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=${reportLang}`;
++  document.getElementById('comparative-status').textContent = reportLang === 'ar' ? '╪ش╪د╪▒┘è ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز...' : 'Exporting data...';
++  compShowLoading();
++  try {
++    const res = await fetch(url);
++    if (!res.ok) throw new Error('HTTP ' + res.status);
++    const blob = await res.blob();
++    const a = document.createElement('a');
++    a.href = URL.createObjectURL(blob);
++    a.download = `health_export_${month}.json`;
++    document.body.appendChild(a);
++    a.click();
++    a.remove();
++    URL.revokeObjectURL(a.href);
++    document.getElementById('comparative-status').textContent = reportLang === 'ar' ? '╪ز┘à ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪ذ┘╪ش╪د╪ص' : 'Data exported successfully';
++  } catch (e) {
++    showAlert((reportLang === 'ar' ? '╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: ' : 'Export error: ') + e.message, 'danger');
++  } finally {
++    compHideLoading();
++  }
++}
++
+ 
+diff --git a/static/js/smart-analytics.js b/static/js/smart-analytics.js
+index 818574f..62f517c 100644
+--- a/static/js/smart-analytics.js
++++ b/static/js/smart-analytics.js
+@@ -1068,10 +1068,36 @@ async function loadHospitalAnalysis(hospitalId, currentMonth) {
+       } else {
+         Plotly.purge('smart-hospital-trend');
+         document.getElementById('smart-hospital-trend-text').textContent = '┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز ╪د╪ز╪ش╪د┘ç ┘à╪ز╪د╪ص╪ر.';
+       }
+     }
+   } catch (e) {
+     document.getElementById('smart-hospital-name').textContent = '╪«╪╖╪ث ┘┘è ╪د┘╪ز╪ص┘à┘è┘';
+     console.error('Hospital analysis error:', e);
+   }
+ }
++
++async function smartExportData() {
++  const scope = document.getElementById('smart-export-scope')?.value || 'current';
++  const month = scope === 'all' ? 'all' : (smartCurrentMonth || document.getElementById('smart-month-select')?.value || '');
++  const base = document.getElementById('apiBase')?.value || '';
++  const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=ar`;
++  document.getElementById('smart-status').textContent = '╪ش╪د╪▒┘è ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز...';
++  smartShowLoading();
++  try {
++    const res = await fetch(url);
++    if (!res.ok) throw new Error('HTTP ' + res.status);
++    const blob = await res.blob();
++    const a = document.createElement('a');
++    a.href = URL.createObjectURL(blob);
++    a.download = `health_export_${month}.json`;
++    document.body.appendChild(a);
++    a.click();
++    a.remove();
++    URL.revokeObjectURL(a.href);
++    document.getElementById('smart-status').textContent = '╪ز┘à ╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪ذ┘╪ش╪د╪ص';
++  } catch (e) {
++    document.getElementById('smart-status').textContent = '╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: ' + e.message;
++  } finally {
++    smartHideLoading();
++  }
++}
+diff --git a/static/tabs/comparative.html b/static/tabs/comparative.html
+index f384cf7..010e069 100644
+--- a/static/tabs/comparative.html
++++ b/static/tabs/comparative.html
+@@ -32,20 +32,27 @@
+     </div>
+     <div>
+       <label id="label-hospital" style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;">╪د┘┘à╪│╪ز╪┤┘┘ë</label>
+       <select id="hospital-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:150px;font-size:0.85rem;background:white;">
+         <option value="">╪ش┘à┘è╪╣ ╪د┘┘à╪│╪ز╪┤┘┘è╪د╪ز</option>
+       </select>
+     </div>
+     <div style="align-self:flex-end;">
+       <button id="btn-generate" class="btn btn-sm" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز┘ê┘┘è╪» ╪د┘╪ز┘é╪▒┘è╪▒ ╪د┘╪░┘â┘è ╪د┘╪┤╪د┘à┘</button>
+     </div>
++    <div style="align-self:flex-end;">
++      <select id="comparative-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.82rem;background:white;">
++        <option value="current">╪د┘╪┤┘ç╪▒ ╪د┘┘à╪ص╪»╪»</option>
++        <option value="all">┘â┘ ╪د┘╪ث╪┤┘ç╪▒</option>
++      </select>
++      <button id="comparative-export-btn" class="btn btn-sm" onclick="comparativeExportData()" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز</button>
++    </div>
+     <div style="align-self:flex-end;">
+       <span id="comparative-status" style="font-size:0.8rem;color:#6b7280;"></span>
+     </div>
+   </div>
+ 
+   <!-- KPI Dashboard -->
+   <div id="kpi-dashboard" class="kpi-grid" style="display:none;margin-bottom:1.5rem;">
+     <div class="kpi-card">
+       <div class="icon">≡اح</div>
+       <div class="value" id="kpi-total-hospitals">-</div>
+diff --git a/static/tabs/smart-analytics.html b/static/tabs/smart-analytics.html
+index a8e0518..1846427 100644
+--- a/static/tabs/smart-analytics.html
++++ b/static/tabs/smart-analytics.html
+@@ -16,20 +16,27 @@
+     </div>
+     <div>
+       <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;">╪د┘┘à╪│╪ز╪┤┘┘ë</label>
+       <select id="smart-hospital-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:220px;font-size:0.85rem;background:white;">
+         <option value="">-- ╪ش┘à┘è╪╣ ╪د┘┘à╪│╪ز╪┤┘┘è╪د╪ز --</option>
+       </select>
+     </div>
+     <div style="align-self:flex-end;">
+       <button id="smart-refresh" class="btn btn-sm" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز╪ص╪»┘è╪س</button>
+     </div>
++    <div style="align-self:flex-end;">
++      <select id="smart-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.82rem;background:white;">
++        <option value="current">╪د┘╪┤┘ç╪▒ ╪د┘┘à╪ص╪»╪»</option>
++        <option value="all">┘â┘ ╪د┘╪ث╪┤┘ç╪▒</option>
++      </select>
++      <button id="smart-export-btn" class="btn btn-sm" onclick="smartExportData()" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز</button>
++    </div>
+     <div style="align-self:flex-end;">
+       <span id="smart-status" style="font-size:0.8rem;color:#6b7280;"></span>
+     </div>
+   </div>
+ 
+   <!-- Hospital-specific analysis (hidden by default) -->
+   <div id="smart-hospital-panel" style="display:none;margin-bottom:1.5rem;">
+     <div class="card" style="padding:1.2rem;border:2px solid #1a237e;border-radius:10px;">
+       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+         <h3 style="color:#1a237e;margin:0;font-size:1.05rem;">╪ز╪ص┘┘è┘ ╪د┘┘à╪│╪ز╪┤┘┘ë: <span id="smart-hospital-name" style="font-weight:700;"></span></h3>
+diff --git a/tests/test_export.py b/tests/test_export.py
+new file mode 100644
+index 0000000..aaaf427
+--- /dev/null
++++ b/tests/test_export.py
+@@ -0,0 +1,270 @@
++"""Tests for the full data export feature."""
++import json
++from unittest.mock import patch
++
++import pytest
++from fastapi.testclient import TestClient
++from app.main import app
++from app.database import get_db
++
++
++@pytest.fixture
++def client(db_session):
++    def override_get_db():
++        try:
++            yield db_session
++        finally:
++            pass
++
++    app.dependency_overrides[get_db] = override_get_db
++    with TestClient(app, raise_server_exceptions=False) as c:
++        yield c
++    app.dependency_overrides.clear()
++
++
++# --- Engine helpers ---
++
++def test_sanitize_converts_numpy_scalars(db_session):
++    import numpy as np
++    from app.engine.export import _sanitize
++    out = _sanitize({"score": np.float64(0.45), "count": np.int64(7), "nan": float("nan"), "inf": float("inf")})
++    assert out["score"] == 0.45
++    assert isinstance(out["score"], float)
++    assert out["count"] == 7
++    assert isinstance(out["count"], int)
++    assert out["nan"] == 0.0
++    assert out["inf"] == 0.0
++
++
++def test_sanitize_converts_numpy_array(db_session):
++    import numpy as np
++    from app.engine.export import _sanitize
++    out = _sanitize({"arr": np.array([1.0, 2.5, 3.0])})
++    assert out["arr"] == [1.0, 2.5, 3.0]
++    assert isinstance(out["arr"], list)
++    assert all(isinstance(v, float) for v in out["arr"])
++
++
++def test_get_available_months_empty(db_session):
++    from app.engine.export import _get_available_months
++    assert _get_available_months(db_session) == []
++
++
++def test_get_available_months_distinct_sorted(db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    from app.engine.export import _get_available_months
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add_all([
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=90),
++    ])
++    db_session.commit()
++    assert _get_available_months(db_session) == ["2026-05", "2026-06"]
++
++
++def test_get_master_data_returns_all_sections(db_session):
++    from app.engine.export import _get_master_data
++    md = _get_master_data(db_session)
++    assert "governorates" in md
++    assert "hospitals" in md
++    assert "indicators" in md
++    assert "hospital_indicator_configs" in md
++    assert len(md["hospitals"]) == 3
++    assert len(md["indicators"]) > 0
++    h = md["hospitals"][0]
++    for key in ("id", "name", "region", "address", "governorate_name",
++                "hospital_type_name", "facility_ownership_name", "facility_type_name", "is_active"):
++        assert key in h
++
++
++def test_get_indicator_values_grouped_by_month(db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    from app.engine.export import _get_indicator_values
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add(IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=300, source_file="x.xlsx"))
++    db_session.commit()
++    result = _get_indicator_values(db_session, ["2026-06"])
++    assert "2026-06" in result
++    row = result["2026-06"][0]
++    assert row["hospital_id"] == hosp.id
++    assert row["hospital_name"] == hosp.name
++    assert row["indicator_code"] == "2"
++    assert row["indicator_name"] == ind.name
++    assert row["value"] == 300
++    assert row["source_file"] == "x.xlsx"
++
++
++# --- build_full_export ---
++
++def test_build_full_export_structure(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert pkg["meta"]["scope"] == "2026-06"
++    assert pkg["meta"]["lang"] == "ar"
++    assert pkg["meta"]["schema_version"] == 1
++    assert "master_data" in pkg
++    assert "indicator_values" in pkg
++    assert "analysis" in pkg
++    assert "2026-06" in pkg["analysis"]
++    assert isinstance(json.loads(json.dumps(pkg, ensure_ascii=False)), dict)
++
++
++def test_build_full_export_smart_sections(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    smart = pkg["analysis"]["2026-06"]["smart"]
++    for key in ("kpi", "anomalies", "clustering", "correlations", "residuals",
++                "stratified", "explanations", "geo"):
++        assert key in smart
++
++
++@patch("app.engine.export.run_smart_analytics")
++def test_build_full_export_month_error_embedded(mock_analytics, db_session):
++    mock_analytics.side_effect = RuntimeError("boom")
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert "error" in pkg["analysis"]["2026-06"]
++    assert "boom" in pkg["analysis"]["2026-06"]["error"]
++
++
++def test_build_full_export_all_months(db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    from app.engine.export import build_full_export
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add_all([
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
++    ])
++    db_session.commit()
++    pkg = build_full_export(db_session, "all", "ar")
++    assert pkg["meta"]["scope"] == "all"
++    assert set(pkg["indicator_values"].keys()) == {"2026-05", "2026-06"}
++    assert set(pkg["analysis"].keys()) == {"2026-05", "2026-06"}
++
++
++def test_build_full_export_comprehensive_report_null_when_uncached(db_session):
++    from app.engine.export import build_full_export
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    assert pkg["analysis"]["2026-06"]["comprehensive_report"] is None
++
++
++@patch("app.engine.comparative.report_cache._call_api", create=True)
++def test_export_never_calls_ai(mock_api, db_session):
++    from app.engine.export import build_full_export
++    build_full_export(db_session, "all", "ar")
++    assert mock_api.call_count == 0
++
++
++def test_build_full_export_report_from_cache(db_session):
++    from app.engine.comparative.report_cache import store_report
++    from app.engine.export import build_full_export
++    store_report(db_session, "2026-06", "ar", {"report": "┘╪╡ ┘à╪«╪▓┘", "report_source": "ai", "month": "2026-06"})
++    pkg = build_full_export(db_session, "2026-06", "ar")
++    rep = pkg["analysis"]["2026-06"]["comprehensive_report"]
++    assert rep == {"report": "┘╪╡ ┘à╪«╪▓┘", "report_source": "ai"}
++
++
++def test_build_full_export_no_data_raises(db_session):
++    from app.models import Hospital
++    from app.engine.export import build_full_export, NoDataError
++    db_session.query(Hospital).delete()
++    db_session.commit()
++    try:
++        build_full_export(db_session, "all", "ar")
++        assert False, "expected NoDataError"
++    except NoDataError:
++        pass
++
++
++# --- API endpoint ---
++
++def test_export_endpoint_returns_json_download(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
++    assert resp.status_code == 200
++    assert resp.headers["content-type"].startswith("application/json")
++    assert "attachment" in resp.headers["content-disposition"]
++    data = resp.json()
++    assert data["meta"]["scope"] == "2026-06"
++
++
++def test_export_endpoint_all_months(client, db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add_all([
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
++    ])
++    db_session.commit()
++    resp = client.get("/export/full-data", params={"month": "all", "lang": "en"})
++    assert resp.status_code == 200
++    data = resp.json()
++    assert data["meta"]["scope"] == "all"
++    assert data["meta"]["lang"] == "en"
++    assert set(data["indicator_values"].keys()) == {"2026-05", "2026-06"}
++
++
++def test_export_endpoint_invalid_lang_422(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "xx"})
++    assert resp.status_code == 422
++
++
++def test_export_endpoint_no_data_404(client, db_session):
++    from app.models import Hospital
++    db_session.query(Hospital).delete()
++    db_session.commit()
++    resp = client.get("/export/full-data", params={"month": "all", "lang": "ar"})
++    assert resp.status_code == 404
++    assert "┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز" in resp.json()["detail"]
++
++
++def test_export_endpoint_serializes_without_error(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
++    assert resp.status_code == 200
++    assert isinstance(resp.json(), dict)
++
++
++# --- Frontend structure ---
++
++def test_smart_page_has_export_button():
++    import os
++    from bs4 import BeautifulSoup
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
++    with open(path, encoding="utf-8") as f:
++        soup = BeautifulSoup(f.read(), "html.parser")
++    assert soup.find(id="smart-export-btn") is not None
++    assert soup.find(id="smart-export-scope") is not None
++
++
++def test_comparative_page_has_export_button():
++    import os
++    from bs4 import BeautifulSoup
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "comparative.html")
++    with open(path, encoding="utf-8") as f:
++        soup = BeautifulSoup(f.read(), "html.parser")
++    assert soup.find(id="comparative-export-btn") is not None
++    assert soup.find(id="comparative-export-scope") is not None
++
++
++def test_smart_js_has_export_handler():
++    import os
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
++    with open(path, encoding="utf-8") as f:
++        content = f.read()
++    assert "function smartExportData" in content
++    assert "/export/full-data?month=" in content
++    assert "lang=ar" in content
++
++
++def test_comparative_js_has_export_handler():
++    import os
++    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "comparative.js")
++    with open(path, encoding="utf-8") as f:
++        content = f.read()
++    assert "function comparativeExportData" in content
++    assert "/export/full-data?month=" in content
++    assert "lang=${reportLang}" in content

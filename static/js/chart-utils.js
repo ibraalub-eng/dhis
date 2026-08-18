@@ -20,24 +20,36 @@ if (typeof window !== 'undefined') {
 const ciBandPlugin = {
   id: 'ciBand',
   beforeDraw(chart) {
-    const { ctx, chartArea, scales } = chart;
+    const { ctx, scales } = chart;
     const ciData = chart.config.options.plugins.ciBand;
     
     if (!ciData || !ciData.upper || !ciData.lower) return;
+    if (!scales || !scales.x || !scales.y) return;
     
-    const { upper, lower } = ciData;
+    const upper = ciData.upper;
+    const lower = ciData.lower;
     const xScale = scales.x;
     const yScale = scales.y;
+    
+    // Filter out null/undefined values
+    const validIndices = [];
+    for (let i = 0; i < upper.length; i++) {
+      if (upper[i] != null && lower[i] != null) {
+        validIndices.push(i);
+      }
+    }
+    
+    if (validIndices.length < 2) return;
     
     ctx.save();
     ctx.fillStyle = CHART_COLORS.ciBand;
     ctx.beginPath();
     
     // Draw upper bound
-    upper.forEach((value, index) => {
+    validIndices.forEach((index, i) => {
       const x = xScale.getPixelForValue(index);
-      const y = yScale.getPixelForValue(value);
-      if (index === 0) {
+      const y = yScale.getPixelForValue(upper[index]);
+      if (i === 0) {
         ctx.moveTo(x, y);
       } else {
         ctx.lineTo(x, y);
@@ -45,11 +57,12 @@ const ciBandPlugin = {
     });
     
     // Draw lower bound in reverse
-    lower.reverse().forEach((value, index) => {
-      const x = xScale.getPixelForValue(lower.length - 1 - index);
-      const y = yScale.getPixelForValue(value);
+    for (let i = validIndices.length - 1; i >= 0; i--) {
+      const index = validIndices[i];
+      const x = xScale.getPixelForValue(index);
+      const y = yScale.getPixelForValue(lower[index]);
       ctx.lineTo(x, y);
-    });
+    }
     
     ctx.closePath();
     ctx.fill();

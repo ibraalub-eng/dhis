@@ -16,6 +16,7 @@ function riskColor(level) {
 export function initAudit() {
     const hSel = document.getElementById('auditHospitalSelect');
     const mSel = document.getElementById('auditMonthSelect');
+    if (!hSel || !mSel) return; // التبويب لم يُحمَّل — لا شيء لنهيئه
     if (hSel.options.length > 1 && mSel.options.length > 1) return;
     Promise.all([
         apiGet('/hospitals/').then(d => {

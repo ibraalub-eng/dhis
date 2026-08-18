@@ -4,9 +4,12 @@
 
         // ── Outliers Tab ──────────────────────────────────────────
         export function loadOutliers() {
-            const mode = document.getElementById('outlierMode').value;
+            const modeEl = document.getElementById('outlierMode');
+            if (!modeEl) return; // التبويب لم يُحمَّل
+            const mode = modeEl.value;
             const month = document.getElementById('outlierMonthFilter').value;
-            document.getElementById('outlierLoading').classList.remove('hidden');
+            const loadingEl = document.getElementById('outlierLoading');
+            if (loadingEl) loadingEl.classList.remove('hidden');
             if (mode === 'ml') {
                 if (!month) {
                     document.getElementById('outlierLoading').classList.add('hidden');
@@ -166,6 +169,7 @@
 
         // ── Rule Failures Tab ──────────────────────────────────────
         export function loadRuleFailures() {
+            if (!document.getElementById('ruleFailuresContainer') && !document.getElementById('ruleFailuresBody')) return;
             const hosp = document.getElementById('ruleFailHospitalFilter').value;
             const mon = document.getElementById('ruleFailMonthFilter').value;
             const sev = document.getElementById('ruleFailSeverityFilter').value;
@@ -204,10 +208,19 @@
                 '<span style="' + rfPill + 'background:#e6510011;border:1px solid #e6510044;"><span style="font-weight:700;color:#e65100;">' + (topSev[0] ? topSev[0][0] : '--') + '</span><span style="color:#e6510066;">Top Severity</span></span>' +
                 '<span style="' + rfPill + 'background:#1565c011;border:1px solid #1565c044;"><span style="font-weight:700;color:#1565c0;">' + new Set(data.map(d => d.hospital)).size + '</span><span style="color:#1565c066;">Hospitals</span></span>' +
                 '<span style="' + rfPill + 'background:#2e7d3211;border:1px solid #2e7d3244;"><span style="font-weight:700;color:#2e7d32;">' + new Set(data.map(d => d.rule_code)).size + '</span><span style="color:#2e7d3266;">Rules</span></span>';
-            // Populate filters
+            // Populate filters (hospital by ID so hospital_id filter works)
             const hospSel = document.getElementById('ruleFailHospitalFilter');
             const monSel = document.getElementById('ruleFailMonthFilter');
-            populateSelectOptions(hospSel, [...new Set(data.map(d => d.hospital))], currentHosp);
+            const prevHosp = hospSel.value;
+            const hospMap = {};
+            data.forEach(d => { if (d.hospital_id && d.hospital) hospMap[d.hospital_id] = d.hospital; });
+            hospSel.innerHTML = '<option value="">All</option>';
+            Object.entries(hospMap).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
+                const opt = document.createElement('option');
+                opt.value = id; opt.textContent = name;
+                hospSel.appendChild(opt);
+            });
+            hospSel.value = currentHosp && hospMap[currentHosp] ? currentHosp : (prevHosp && hospMap[prevHosp] ? prevHosp : '');
             populateSelectOptions(monSel, [...new Set(data.map(d => d.month))], currentMon);
             // Render
             const tbody = document.getElementById('ruleFailTbody');
@@ -216,7 +229,7 @@
                 return;
             }
             tbody.innerHTML = data.map(d => {
-                const sevBadge = d.severity === 'CRITICAL' ? 'badge-critical' : d.severity === 'HIGH' ? 'badge-high' : d.severity === __('MEDIUM') ? 'badge-medium' : 'badge-low';
+                const sevBadge = d.severity === 'CRITICAL' ? 'badge-critical' : d.severity === 'HIGH' ? 'badge-high' : d.severity === 'MEDIUM' ? 'badge-medium' : 'badge-low';
                 const typeBadge = d.rule_type === 'LOGIC' ? 'badge-pass' : d.rule_type === 'CLINICAL' ? 'badge-medium' : d.rule_type === 'STATISTICAL' ? 'badge-high' : 'badge-stable';
                 return '<tr>' +
                     '<td>' + esc(d.hospital) + '</td>' +

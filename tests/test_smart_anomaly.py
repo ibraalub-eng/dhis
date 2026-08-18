@@ -1,5 +1,6 @@
+import numpy as np
 import pytest
-from app.engine.smart.anomaly import detect_smart_anomalies
+from app.engine.smart.anomaly import detect_smart_anomalies, _prepare_features
 
 
 @pytest.fixture
@@ -25,6 +26,24 @@ def default_config():
         "ensemble_mahal_weight": 0.20,
         "ensemble_residual_weight": 0.15,
     }
+
+
+def test_prepare_features_no_nan_when_column_fully_missing():
+    """Regression: a feature column with no observed values across ALL hospitals
+    must be zero-filled after imputation, not left as NaN which would poison
+    StandardScaler and the anomaly models."""
+    data = {
+        "HospA": {"hospital_id": 1, "governorate": "Gaza", "hospital_type": "general",
+                   "values": {"cs_rate": 30.0, "smm_total": 5.0, "mat_deaths": 1.0}},
+        "HospB": {"hospital_id": 2, "governorate": "Gaza", "hospital_type": "general",
+                   "values": {"cs_rate": 25.0, "smm_total": 3.0, "mat_deaths": 0.0}},
+        "HospC": {"hospital_id": 3, "governorate": "North Gaza", "hospital_type": "general",
+                   "values": {"cs_rate": 28.0, "smm_total": 4.0, "mat_deaths": 0.5}},
+    }
+    combined, names = _prepare_features(data)
+    assert not np.isnan(combined).any(), "feature matrix must be NaN-free"
+    assert len(names) == 3
+    assert combined.shape[0] == 3
 
 
 def test_returns_list_of_smart_anomaly_result(sample_data, default_config):
@@ -75,3 +94,42 @@ def test_severity_classification(sample_data, default_config):
     results = detect_smart_anomalies(sample_data, default_config)
     for r in results:
         assert r.severity in ("normal", "warning", "critical")
+
+
+def test_residual_scores_feed_into_ensemble(sample_data, default_config):
+    """Passing residual scores must actually change the ensemble (bug fix: the
+    15% residual weight used to be multiplied by a zero array)."""
+    base = detect_smart_anomalies(sample_data, default_config)
+    base_scores = {r.hospital_name: r.anomaly_score for r in base}
+
+    residual = {name: 0.0 for name in sample_data}
+    residual["Hospital E"] = 1.0
+    boosted = detect_smart_anomalies(sample_data, default_config, residual_scores=residual)
+    boosted_map = {r.hospital_name: r for r in boosted}
+
+    # residual method score now reflects the input (was always 0 before)
+    assert boosted_map["Hospital E"].method_scores["residual"] == pytest.approx(1.0)
+    # the ensemble output must differ somewhere vs. the no-residual baseline
+    changed = any(
+        abs(boosted_map[n].anomaly_score - base_scores[n]) > 1e-6
+        for n in base_scores
+    )
+    assert changed, "Residual scores did not affect the ensemble at all"
+
+
+def test_residual_method_score_zero_when_not_supplied(sample_data, default_config):
+    """Without residual scores the method score stays zero (backward compatible)."""
+    results = detect_smart_anomalies(sample_data, default_config)
+    for r in results:
+        assert r.method_scores["residual"] == 0.0
+
+
+def test_residual_scores_clamped_to_unit_range(sample_data, default_config):
+    """Residual inputs outside [0,1] are clamped before entering the ensemble."""
+    residual = {name: 0.0 for name in sample_data}
+    residual["Hospital A"] = 5.0   # above 1
+    residual["Hospital B"] = -3.0  # below 0
+    results = detect_smart_anomalies(sample_data, default_config, residual_scores=residual)
+    by_name = {r.hospital_name: r for r in results}
+    assert by_name["Hospital A"].method_scores["residual"] == pytest.approx(1.0)
+    assert by_name["Hospital B"].method_scores["residual"] == pytest.approx(0.0)

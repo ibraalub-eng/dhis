@@ -33,3 +33,36 @@ def test_run_pca_disabled():
 def test_run_pca_too_few():
     result = run_pca({"HospA": {"cs": 30}}, {"enabled": True})
     assert result is None
+
+
+def test_run_pca_zero_variance_no_nan():
+    """Regression: identical rows across hospitals (zero variance) must not
+    produce NaN explained-variance that breaks JSON serialization."""
+    row = {"cs": 30, "smm_total": 8, "mat_deaths": 2, "nd": 5, "sb": 3,
+           "preterm": 12, "lbw": 8, "total_births": 100, "high_risk": 25, "adolescent": 5}
+    data = {f"Hosp{i}": dict(row) for i in range(5)}
+    config = {"enabled": True, "variance_threshold": 0.8, "max_components": 5}
+    result = run_pca(data, config)
+    assert result is not None
+    import math
+    for v in result.explained_variance + result.cumulative_variance:
+        assert math.isfinite(v)
+    # Sanity: with a constant matrix the ratio is 0/0 -> 0.0, never NaN.
+    assert all(v >= 0 for v in result.explained_variance)
+
+
+def test_run_pca_zero_variance_no_runtime_warning():
+    """Regression: fitting PCA on a zero-variance matrix must not emit a
+    RuntimeWarning (the np.errstate must wrap pca.fit() itself)."""
+    import warnings
+    import math
+
+    row = {"cs": 30, "smm_total": 8, "mat_deaths": 2, "nd": 5, "sb": 3,
+           "preterm": 12, "lbw": 8, "total_births": 100, "high_risk": 25, "adolescent": 5}
+    data = {f"Hosp{i}": dict(row) for i in range(5)}
+    config = {"enabled": True, "variance_threshold": 0.8, "max_components": 5}
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
+        result = run_pca(data, config)
+    assert result is not None
+    assert all(math.isfinite(v) for v in result.explained_variance)

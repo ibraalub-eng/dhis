@@ -229,6 +229,11 @@ Each object has these fields:
 - rationale: str (why this matters for data quality, 1-2 sentences)
 - action_items: list[str] (3-5 specific actionable steps)
 - affected_indicators: list[str] (indicator codes or rule codes affected)
+- category_ar: str (Arabic name of the category)
+- title_ar: str (Arabic translation of title)
+- description_ar: str (Arabic translation of description)
+- rationale_ar: str (Arabic translation of rationale)
+- action_items_ar: list[str] (Arabic translations of action items)
 
 Give concrete, hospital-specific advice. Prioritize critical data quality issues first.
 
@@ -317,6 +322,11 @@ Each object has these fields:
 - affected_indicators: list[str] (indicator codes or rule codes affected)
 - expected_impact: float (numeric improvement estimate in quality score points)
 - implementation_timeline: str (e.g., "1-2 weeks", "1 month")
+- category_ar: str (Arabic name of the category)
+- title_ar: str (Arabic translation of title)
+- description_ar: str (Arabic translation of description)
+- rationale_ar: str (Arabic translation of rationale)
+- action_items_ar: list[str] (Arabic translations of action items)
 
 Give concrete, hospital-specific advice. Prioritize critical data quality issues first.
 

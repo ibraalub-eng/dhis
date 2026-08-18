@@ -12,6 +12,23 @@ from app.engine.smart.schemas import (
 from app.engine.smart.anomaly import FEATURE_KEYS
 
 
+def _bh_significant(p_values, q: float = 0.05):
+    """تصحيح Benjamini-Hochberg FDR: قناع منطقي للمقارنات التي تبقى معنوية بعد التصحيح."""
+    p = np.asarray(p_values, dtype=float)
+    m = len(p)
+    if m == 0:
+        return np.zeros(0, dtype=bool)
+    order = np.argsort(p)
+    ranked = p[order]
+    ok = ranked <= (np.arange(1, m + 1) / m * q)
+    if not ok.any():
+        return np.zeros(m, dtype=bool)
+    k = int(np.max(np.where(ok)[0])) + 1
+    mask = np.zeros(m, dtype=bool)
+    mask[order[:k]] = True
+    return mask
+
+
 def _build_dataframe(all_hospital_data: Dict[str, Any]) -> pd.DataFrame:
     rows = []
     for name, entry in all_hospital_data.items():
@@ -39,7 +56,7 @@ def analyze_correlations(
     numeric_cols = [c for c in FEATURE_KEYS if c in df.columns]
 
     matrix = {}
-    strong_correlations = []
+    candidates = []  # (ind_a, ind_b, r, p, a_vals, b_vals) لكل زوج مُختبر (j > i)
 
     for i, ind_a in enumerate(numeric_cols):
         matrix[ind_a] = {}
@@ -58,21 +75,30 @@ def analyze_correlations(
                 r = float(r_val)
                 p = float(p_val)
             matrix[ind_a][ind_b] = r
+            if j > i:
+                candidates.append((ind_a, ind_b, r, p, a_vals, b_vals))
 
-            if j > i and abs(r) > 0.7 and p < 0.05:
-                s_r_val, _ = spearmanr(a_vals, b_vals)
-                s_r = float(s_r_val)
-                if abs(r) > 0.9:
-                    strength = "strong_positive" if r > 0 else "strong_negative"
-                elif abs(r) > 0.7:
-                    strength = "moderate_positive" if r > 0 else "moderate_negative"
-                else:
-                    strength = "weak"
-                strong_correlations.append(CorrelationPair(
-                    indicator_a=ind_a, indicator_b=ind_b,
-                    pearson_r=r, spearman_r=s_r,
-                    p_value=p, strength=strength,
-                ))
+    # تصحيح FDR (Benjamini-Hochberg) على كل المقارنات الزوجية لاستبعاد العلاقات المصطنعة
+    strong_correlations = []
+    if candidates:
+        q = float(config.get("fdr_q", 0.05))
+        keep = _bh_significant(np.array([c[3] for c in candidates], dtype=float), q)
+        for (ind_a, ind_b, r, p, a_vals, b_vals), sig in zip(candidates, keep):
+            if not sig or abs(r) <= 0.7:
+                continue
+            s_r_val, _ = spearmanr(a_vals, b_vals)
+            s_r = float(s_r_val)
+            if abs(r) > 0.9:
+                strength = "strong_positive" if r > 0 else "strong_negative"
+            elif abs(r) > 0.7:
+                strength = "moderate_positive" if r > 0 else "moderate_negative"
+            else:
+                strength = "weak"
+            strong_correlations.append(CorrelationPair(
+                indicator_a=ind_a, indicator_b=ind_b,
+                pearson_r=r, spearman_r=s_r,
+                p_value=p, strength=strength,
+            ))
 
     feature_importance = []
     encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")

@@ -1,30 +1,23 @@
-# Task 9: ML PCA Decomposition Module — Report
+## Task 9: Enhance Local Fallback with Comparative Logic
 
-## Status: ✅ Complete
+### Summary
+Added `_local_root_cause_fallback_enhanced()` to `app/plugins/ai/providers.py` that generates recommendations using historical trends and peer comparison data when AI is unavailable.
 
-## Files Created
+### Files Modified
+- `app/plugins/ai/providers.py` — Added enhanced fallback function
+- `tests/test_ai_providers.py` — Created test file
 
-| File | Purpose |
-|------|---------|
-| `app/engine/ml/decomposition.py` | PCA decomposition for root cause analysis |
-| `tests/test_ml_decomposition.py` | 3 tests covering basic, disabled, and too-few-hospital cases |
+### Implementation
+The enhanced fallback analyzes two data sources:
+1. **Historical trends** — Detects rapidly declining (slope < -2) and gradually declining (slope < -1) indicators, generating appropriate priority recommendations
+2. **Peer comparisons** — Identifies hospitals in bottom quartile (percentile < 25) and significant deviations from peer mean (|z| > 2)
 
-## Test Results
+Falls back to a general "Maintain Data Quality Standards" recommendation if no issues detected.
 
-```
-tests/test_ml_decomposition.py::test_run_pca_basic PASSED
-tests/test_ml_decomposition.py::test_run_pca_disabled PASSED
-tests/test_ml_decomposition.py::test_run_pca_too_few PASSED
-3 passed
-```
+### TDD Cycle
+- RED: Test failed with ImportError as expected
+- GREEN: Implementation added, test passes
+- All tests green
 
-Full ML suite (14 tests): **all passed**
-
-## Implementation Summary
-
-- `run_pca()` accepts hospital feature data dict and config dict
-- Returns `Optional[PCAResult]` (None if disabled, <3 hospitals, or <2 features)
-- Standardizes features with `StandardScaler` before PCA
-- Respects `max_components` and `variance_threshold` config keys
-- Extracts component loadings and top-3 contributing features per component
-- Uses `random_state=42` for reproducibility
+### Commit
+`8f36544` — feat(ai): enhance local fallback with historical and comparative logic

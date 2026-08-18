@@ -63,6 +63,8 @@ def generate_recommendations(
     quality_score: float = None,
     issues: List[str] = None,
     rule_failures: List[dict] = None,
+    include_ai: bool = True,
+    session=None,
 ) -> List[Recommendation]:
     _RULE_FAILURE_CACHE["items"] = rule_failures or []
     recs = []
@@ -82,26 +84,33 @@ def generate_recommendations(
                 recs.extend(result if isinstance(result, list) else [result])
         except Exception as e:
             logger.warning(f"Recommendation rule failed: {e}")
-    try:
-        from app.plugins.ai import generate as ai_generate
-        ai_recs = ai_generate(values, classifications, risk_profile, morbidity_profile, quality_score)
-        seen_titles = {r.title for r in recs}
-        for a in ai_recs:
-            if a.title not in seen_titles:
-                recs.append(Recommendation(
-                    category=a.category,
-                    priority=a.priority,
-                    title=a.title,
-                    description=a.description,
-                    rationale=a.rationale,
-                    action_items=a.action_items,
-                    indicators_monitored=a.indicators_monitored,
-                ))
-                seen_titles.add(a.title)
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.warning(f"AI recommendations plugin error: {e}")
+    # استدعاء الذكاء الاصطناعي اختياري: عند تعطيله (include_ai=False) تُبنى
+    # التوصيات من القواعد المحلية فقط — يلزم للنقاط النهائية السريعة (لوحات
+    # القيادة) التي لا تعرض التوصيات ولا تحتاج استدعاء نموذج خارجي لكل مستشفى.
+    if include_ai:
+        try:
+            from app.plugins.ai import generate as ai_generate
+            # تمرير الجلسة يمكّن التخزين المؤقت: نفس (مستشفى، شهر) = نفس القيم =
+            # نفس مفتاح التخزين — فلا يُستدعى Gemini مجدداً خلال مدة الصلاحية.
+            ai_recs = ai_generate(values, classifications, risk_profile,
+                                  morbidity_profile, quality_score, session=session)
+            seen_titles = {r.title for r in recs}
+            for a in ai_recs:
+                if a.title not in seen_titles:
+                    recs.append(Recommendation(
+                        category=a.category,
+                        priority=a.priority,
+                        title=a.title,
+                        description=a.description,
+                        rationale=a.rationale,
+                        action_items=a.action_items,
+                        indicators_monitored=a.indicators_monitored,
+                    ))
+                    seen_titles.add(a.title)
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.warning(f"AI recommendations plugin error: {e}")
     for r in recs:
         r.triggered_by_rules = _match_rule_failures(r.indicators_monitored, _RULE_FAILURE_CACHE["items"])
         if not r.data_reliable:

@@ -3,6 +3,34 @@
         import { _restoreUIState, _saveUIState } from './main.js';
         import { esc } from './tree.js';
 
+        // ── Merged Comparative Analysis (Trends + Comparison) ────
+        export function switchAnalysisMode(mode) {
+            const t = document.getElementById('analysisTrendSection');
+            const c = document.getElementById('analysisCompareSection');
+            const btnT = document.getElementById('analysisModeTrend');
+            const btnC = document.getElementById('analysisModeCompare');
+            if (!t || !c) return;
+            t.style.display = mode === 'trend' ? '' : 'none';
+            c.style.display = mode === 'compare' ? '' : 'none';
+            const base = 'font-size:0.78rem;padding:0.25rem 0.8rem;cursor:pointer;border-radius:4px;';
+            const active = 'background:#1a237e;color:#fff;border:none;font-weight:600;';
+            const idle = 'background:white;color:#1a237e;border:1px solid #c7d2fe;font-weight:400;';
+            if (btnT) btnT.setAttribute('style', base + (mode === 'trend' ? active : idle));
+            if (btnC) btnC.setAttribute('style', base + (mode === 'compare' ? active : idle));
+            try { localStorage.setItem('analysisMode', mode); } catch(e) {}
+            if (mode === 'trend') {
+                initTrends();
+            } else {
+                initCompare();
+            }
+        }
+
+        export function initAnalysis() {
+            let mode = 'trend';
+            try { mode = localStorage.getItem('analysisMode') || 'trend'; } catch(e) {}
+            switchAnalysisMode(mode);
+        }
+
         // ── Quality Trend ──────────────────────────────────────────
         // Combined Trend Analysis
         export function initTrends() {
@@ -54,7 +82,6 @@
             }
 
             const scores = data.data;
-            const values = scores.map(s => s.score);
 
             // Direction indicators
             const dirColor = data.trend_direction === 'improving' ? '#2e7d32' : data.trend_direction === 'declining' ? '#c62828' : '#e65100';
@@ -73,69 +100,8 @@
                 declineHtml = `<span style="color:#c62828;font-weight:700;">&#9660; ${data.consecutive_declines} consecutive decline${data.consecutive_declines > 1 ? 's' : ''}</span>`;
             }
 
-            // Build SVG chart
-            const mn = Math.min(...values), mx = Math.max(...values), range = mx - mn || 1;
-            const pad = 10;
-            const w = 600, h = 200;
-            const chartW = w - pad * 2, chartH = h - pad * 2;
-            let path = '', areaPath = '';
-            const labels = scores.map(s => s.month);
-            const n = values.length;
-
-            let prevX = 0, prevY = 0;
-            values.forEach((v, i) => {
-                const x = pad + (i / (n - 1)) * chartW;
-                const y = pad + chartH - ((v - mn) / range) * chartH;
-                path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
-                areaPath += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
-                prevX = x; prevY = y;
-            });
-            areaPath += 'L' + prevX.toFixed(1) + ',' + (pad + chartH) + 'L' + pad.toFixed(1) + ',' + (pad + chartH) + 'Z';
-
-            const lineColor = data.trend_direction === 'improving' ? '#4caf50' : data.trend_direction === 'declining' ? '#f44336' : '#ff9800';
-
-            // Score circles + tooltip for each point
-            let circles = '';
-            scores.forEach((s, i) => {
-                const x = pad + (i / (n - 1)) * chartW;
-                const y = pad + chartH - ((s.score - mn) / range) * chartH;
-                circles += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="${lineColor}" stroke="white" stroke-width="2">
-                    <title>${s.month}: ${s.score}/100 (Completeness: ${s.completeness || '--'}, Compliance: ${s.rule_compliance || '--'}, Issues: ${s.issues_count})</title>
-                </circle>`;
-            });
-
-            // X-axis labels
-            let xLabels = '';
-            const step = Math.max(1, Math.floor(n / 8));
-            labels.forEach((l, i) => {
-                if (i % step === 0 || i === n - 1) {
-                    const x = pad + (i / (n - 1)) * chartW;
-                    xLabels += `<text x="${x.toFixed(1)}" y="${h - 2}" text-anchor="middle" font-size="11" fill="#888">${l}</text>`;
-                }
-            });
-
-            // Y-axis labels
-            const ySteps = 5;
-            let yLabels = '';
-            for (let i = 0; i <= ySteps; i++) {
-                const val = mn + (range / ySteps) * i;
-                const y = pad + chartH - (i / ySteps) * chartH;
-                yLabels += `<text x="${pad - 3}" y="${y + 4}" text-anchor="end" font-size="11" fill="#888">${Math.round(val)}</text>`;
-                yLabels += `<line x1="${pad}" y1="${y}" x2="${w - pad}" y2="${y}" stroke="#eee" stroke-width="1"/>`;
-            }
-
-            const svg = `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="width:100%;max-width:${w}px;">
-                <defs><linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="${lineColor}" stop-opacity="0.2"/>
-                    <stop offset="100%" stop-color="${lineColor}" stop-opacity="0.02"/>
-                </linearGradient></defs>
-                ${yLabels}
-                <path d="${areaPath}" fill="url(#areaGrad)"/>
-                <path d="${path}" fill="none" stroke="${lineColor}" stroke-width="3" stroke-linejoin="round"/>
-                ${circles}
-                ${xLabels}
-            </svg>`;
-
+            // ── Interactive Plotly chart (replaces static SVG) ────
+            window._qualityTrendData = data;
             const currentColor = data.current_score >= 80 ? '#2e7d32' : data.current_score >= 50 ? '#e65100' : '#c62828';
 
             const pill = 'display:inline-flex;flex-direction:column;align-items:center;gap:0.15rem;padding:0.4rem 0.8rem;border-radius:6px;font-size:0.72rem;';
@@ -167,9 +133,97 @@
                     </div>
                 </div>
                 ${declineHtml ? `<div style="background:#ffebee;border:1px solid #ef9a9a;border-radius:4px;padding:0.4rem 0.8rem;margin-bottom:0.8rem;font-size:0.82rem;color:#c62828;">${declineHtml}</div>` : ''}
-                <div style="text-align:center;">${svg}</div>
+                <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:0.4rem 0.6rem;">
+                    <span style="font-size:0.78rem;color:#666;font-weight:600;">المقياس:</span>
+                    <button data-metric="score" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid #1a237e;background:#1a237e;color:#fff;font-weight:700;" onclick="switchQualityTrendMetric('score')">درجة الجودة</button>
+                    <button data-metric="completeness" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid #c7d2fe;background:#fff;color:#1a237e;" onclick="switchQualityTrendMetric('completeness')">الاكتمال</button>
+                    <button data-metric="rule_compliance" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid #c7d2fe;background:#fff;color:#1a237e;" onclick="switchQualityTrendMetric('rule_compliance')">الالتزام</button>
+                    <button data-metric="consistency" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid #c7d2fe;background:#fff;color:#1a237e;" onclick="switchQualityTrendMetric('consistency')">الاتساق</button>
+                </div>
+                <div id="qualityTrendPlot" style="width:100%;height:340px;"></div>
             `;
+            renderQualityTrendPlot(data, 'score');
         }
+
+        // ── Interactive Plotly quality trend chart ────────────────
+        const QUALITY_METRICS = {
+            score: { label: 'درجة الجودة', color: '#1a237e' },
+            completeness: { label: 'الاكتمال', color: '#2e7d32' },
+            rule_compliance: { label: 'الالتزام', color: '#e65100' },
+            consistency: { label: 'الاتساق', color: '#6a1b9a' },
+        };
+
+        function _qtValue(s, key) {
+            const v = s[key];
+            return (v === null || v === undefined) ? '—' : Number(v).toFixed(1);
+        }
+
+        function renderQualityTrendPlot(data, metric) {
+            const el = document.getElementById('qualityTrendPlot');
+            if (!el || !data || !data.data || !data.data.length) return;
+            const scores = data.data;
+            const months = scores.map(s => s.month);
+            const cfg = QUALITY_METRICS[metric] || QUALITY_METRICS.score;
+
+            const hoverText = scores.map(s => {
+                const parts = ['<b>' + s.month + '</b>', cfg.label + ': <b>' + _qtValue(s, metric) + '</b>'];
+                if (metric !== 'score') parts.push('درجة الجودة: ' + _qtValue(s, 'score'));
+                parts.push('الاكتمال: ' + _qtValue(s, 'completeness'));
+                parts.push('الالتزام: ' + _qtValue(s, 'rule_compliance'));
+                parts.push('الاتساق: ' + _qtValue(s, 'consistency'));
+                if (s.outlier_penalty !== null && s.outlier_penalty !== undefined) parts.push('خصم الشذوذ: ' + Number(s.outlier_penalty).toFixed(1));
+                if (s.issues_count) parts.push('المشكلات: ' + s.issues_count);
+                return parts.join('<br>');
+            });
+
+            const traces = [{
+                type: 'scatter', mode: 'lines+markers',
+                x: months,
+                y: scores.map(s => s[metric]),
+                name: cfg.label,
+                line: { color: cfg.color, width: 3, shape: 'spline' },
+                marker: { size: 10, color: cfg.color, line: { width: 2, color: '#fff' } },
+                fill: 'tozeroy',
+                fillcolor: cfg.color + '26',
+                text: hoverText,
+                hoverinfo: 'text',
+            }];
+
+            // Reference: overall score shown as dashed line when a component is selected
+            if (metric !== 'score') {
+                traces.push({
+                    type: 'scatter', mode: 'lines',
+                    x: months, y: scores.map(s => s.score),
+                    name: 'درجة الجودة (مرجع)',
+                    line: { color: '#1a237e', width: 1.5, dash: 'dot' },
+                    hoverinfo: 'skip',
+                });
+            }
+
+            Plotly.newPlot(el, traces, {
+                margin: { t: 20, b: 45, l: 45, r: 15 },
+                xaxis: { title: 'الشهر', tickangle: -35, gridcolor: '#f0f0f0' },
+                yaxis: { title: 'الدرجة (0-100)', range: [0, 100], gridcolor: '#f5f5f5', zeroline: false },
+                hovermode: 'x unified',
+                legend: { orientation: 'h', y: 1.08, x: 0 },
+                paper_bgcolor: 'white',
+                plot_bgcolor: 'white',
+                font: { family: 'Segoe UI, Tahoma, Arial, sans-serif', size: 12 },
+            }, { displayModeBar: true, responsive: true });
+        }
+
+        window.switchQualityTrendMetric = function(metric) {
+            const data = window._qualityTrendData;
+            if (!data) return;
+            document.querySelectorAll('.qt-metric-btn').forEach(b => {
+                const active = b.getAttribute('data-metric') === metric;
+                b.style.background = active ? '#1a237e' : '#fff';
+                b.style.color = active ? '#fff' : '#1a237e';
+                b.style.borderColor = active ? '#1a237e' : '#c7d2fe';
+                b.style.fontWeight = active ? '700' : '400';
+            });
+            renderQualityTrendPlot(data, metric);
+        };
 
         function renderTrends(data) {
             const summary = data.summary;
@@ -214,11 +268,11 @@
             if (!sel) return;
             if (sel.options.length <= 1) {
                 populateMonthSelectFor('compareMonthSelect', () => {
-                    _restoreUIState('compare');
+                    _restoreUIState('analysis');
                     if (sel.value) loadComparison();
                 });
             } else {
-                _restoreUIState('compare');
+                _restoreUIState('analysis');
                 if (sel.value) loadComparison();
             }
         }
@@ -324,7 +378,8 @@
             const hospSel = document.getElementById('clinicalHospitalSelect');
             const monthSel = document.getElementById('clinicalMonthSelect');
             if (!hospSel.value || !monthSel.value) {
-                document.getElementById('clinicalResults').innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">' + __('Select a hospital and month, then click Analyze.') + '</p>';
+                document.getElementById('clinicalLoading').classList.add('hidden');
+                document.getElementById('clinicalResults').innerHTML = '<div class="card" style="text-align:center;padding:2rem 1.5rem;color:#888;"><div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128202;</div><p style="margin:0;font-size:0.85rem;">' + __('Select a hospital and month for detailed analysis.') + '</p></div>';
                 return;
             }
             document.getElementById('clinicalLoading').classList.remove('hidden');
@@ -344,27 +399,59 @@
             const hsel = document.getElementById('clinicalHospitalSelect');
             const msel = document.getElementById('clinicalMonthSelect');
             const hid = hsel.value;
-            const phM = '<option value="">' + __('Select Month') + '</option>';
+            const prevMonth = msel.value; // الشهر المحدد قبل إعادة بناء القائمة
+            const phM = '<option value="">' + __('All Months') + '</option>';
+
+            let months = [];
             if (!hid) {
-                msel.innerHTML = phM;
-                document.getElementById('clinicalResults').innerHTML = '<div class="card" style="text-align:center;padding:2rem 1.5rem;color:#888;"><div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128202;</div><p style="margin:0;font-size:0.85rem;">Select a hospital and month, then click Analyze.</p></div>';
-                return;
+                // All Hospitals → كل الأشهر المتاحة
+                try {
+                    const data = await apiGet('/analysis/months');
+                    months = data.months || data || [];
+                } catch (e) {}
+            } else {
+                try {
+                    const settings = await apiGet('/config/month-settings?hospital_id=' + hid);
+                    months = (settings.enabled_months || []).slice().sort();
+                } catch (e) {}
             }
-            try {
-                const settings = await apiGet('/config/month-settings?hospital_id=' + hid);
-                const enabled = settings.enabled_months || [];
-                msel.innerHTML = phM + enabled.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-                if (msel.value) loadClinical();
-            } catch {
-                msel.innerHTML = phM;
+            msel.innerHTML = phM + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+
+            // استعادة الشهر المحدد سابقاً إن كان متاحاً، وإلا اختيار أحدث شهر متاح تلقائياً
+            if (prevMonth && months.includes(prevMonth)) {
+                msel.value = prevMonth;
+            } else if (hid && months.length) {
+                msel.value = months[months.length - 1];
+            }
+
+            // نطاق محدد (مستشفى + شهر) → العرض التفصيلي فقط (لا تُعاد تصفية الدفعة فوقه)
+            // نطاق واسع (أي «الكل») → إعادة تصفية نتائج الدفعة المجمّعة إن وُجدت
+            if (hid && msel.value) {
+                loadClinical();
+            } else if (typeof window.applyReportFilter === 'function') {
+                window.applyReportFilter();
+            }
+        };
+
+        window.onClinicalMonthChange = function() {
+            const hsel = document.getElementById('clinicalHospitalSelect');
+            const hid = hsel && hsel.value;
+            const msel = document.getElementById('clinicalMonthSelect');
+            // نطاق محدد (مستشفى + شهر) → العرض التفصيلي فقط
+            if (hid && msel && msel.value) {
+                loadClinical();
+            } else if (typeof window.applyReportFilter === 'function') {
+                // نطاق واسع → إعادة تصفية نتائج الدفعة المجمّعة إن وُجدت
+                window.applyReportFilter();
             }
         };
 
         export function initClinical() {
             const hsel = document.getElementById('clinicalHospitalSelect');
             const msel = document.getElementById('clinicalMonthSelect');
-            const phH = '<option value="">' + __('Select Hospital') + '</option>';
-            const phM = '<option value="">' + __('Select Month') + '</option>';
+            if (!hsel || !msel) return; // التبويب لم يُحمَّل
+            const phH = '<option value="">' + __('All Hospitals') + '</option>';
+            const phM = '<option value="">' + __('All Months') + '</option>';
             hsel.innerHTML = phH;
             msel.innerHTML = phM;
             apiGet('/hospitals/').then(data => {
@@ -374,9 +461,15 @@
                 if (hsel.value) {
                     // Filter months for restored hospital
                     return apiGet('/config/month-settings?hospital_id=' + hsel.value).then(settings => {
-                        const enabled = settings.enabled_months || [];
+                        const enabled = (settings.enabled_months || []).slice().sort();
                         msel.innerHTML = phM + enabled.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-                        if (hsel.value && msel.value) loadClinical();
+                        if (hsel.value && msel.value) {
+                            loadClinical();
+                        } else if (hsel.value && enabled.length) {
+                            // لا يوجد شهر مستعاد → اختيار أحدث شهر متاح وعرضه تلقائياً
+                            msel.value = enabled[enabled.length - 1];
+                            loadClinical();
+                        }
                     });
                 }
             }).catch(() => {
@@ -389,8 +482,24 @@
             return '<span class="badge" style="background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44;">' + text + '</span>';
         }
 
-        export function renderClinical(analysis) {
-            const container = document.getElementById('clinicalResults');
+        // ينتقل من التوصية الحرجة إلى تحليل السبب الجذري لنفس (المستشفى، الشهر)
+        export function openRootCauseForHospital(linkEl) {
+            const name = linkEl.getAttribute('data-hosp');
+            const month = linkEl.getAttribute('data-month');
+            const hsel = document.getElementById('clinicalHospitalSelect');
+            if (!hsel || !name || !month) return;
+            let hid = null;
+            for (let i = 0; i < hsel.options.length; i++) {
+                if (hsel.options[i].text === name) { hid = hsel.options[i].value; break; }
+            }
+            if (!hid) return;
+            // إغلاق النافذة المنبثقة عند الانتقال لتبويب السبب الجذري (إن كانت مفتوحة)
+            if (typeof window.closeModal === 'function') window.closeModal();
+            if (typeof window.goRootCause === 'function') window.goRootCause(hid, month);
+        }
+
+        export function renderClinical(analysis, container) {
+            container = container || document.getElementById('clinicalResults');
             if (!analysis) {
                 container.innerHTML = '<div class="empty-state empty-text">' + __('No clinical data for this hospital/month') + '</div>';
                 return;
@@ -398,10 +507,35 @@
             const a = analysis;
             const s = a.summary;
             const overallColor = s.overall_assessment.startsWith('CRITICAL') ? '#b71c1c' : s.overall_assessment.startsWith('ATTENTION') ? '#e65100' : '#2e7d32';
+            const overallLevel = overallColor === '#b71c1c' ? __('Critical') : overallColor === '#e65100' ? __('Attention') : __('Normal');
+            const recs = a.recommendations || [];
+            const criticalRecs = recs.filter(r => (r.priority || '').toLowerCase() === 'critical');
+            const highRecs = recs.filter(r => (r.priority || '').toLowerCase() === 'high');
+            const topIssues = recs.filter(r => { const p = (r.priority || '').toLowerCase(); return p === 'critical' || p === 'high'; }).slice(0, 3);
             let html = '<div class="clinical-card">';
             html += '<h3 class="clinical-header">' + a.hospital + ' &mdash; ' + a.month + '</h3>';
 
-            html += '<div class="clinical-banner" style="background:' + overallColor + '11;border-left:4px solid ' + overallColor + ';"><strong style="color:' + overallColor + ';">' + s.overall_assessment + '</strong></div>';
+            // ── بطاقة الحالة: قرار أولاً ──
+            html += '<div class="clinical-status-card" style="display:flex;flex-wrap:wrap;gap:1rem;align-items:center;padding:0.8rem 1rem;border-radius:8px;background:' + overallColor + '0d;border:1px solid ' + overallColor + '55;">';
+            html += '<span style="font-size:1.1rem;font-weight:800;color:' + overallColor + ';">' + overallLevel + '</span>';
+            html += '<span style="font-size:0.78rem;color:#555;">' + criticalRecs.length + ' ' + __('critical') + ' &middot; ' + highRecs.length + ' ' + __('high-priority recommendations') + '</span>';
+            html += '</div>';
+
+            // ── أهم 3 مشاكل حرجة ──
+            if (topIssues.length) {
+                html += '<div style="margin:0.6rem 0;padding:0.7rem 1rem;border-radius:8px;background:#b71c1c08;border:1px solid #b71c1c33;">';
+                html += '<div style="font-size:0.8rem;font-weight:700;color:#b71c1c;margin-bottom:0.35rem;">&#9888; ' + __('Critical issues — act first') + '</div>';
+                topIssues.forEach(rec => {
+                    const p = (rec.priority || '').toLowerCase();
+                    const pColor = p === 'critical' ? '#b71c1c' : '#c62828';
+                    html += '<div style="display:flex;align-items:flex-start;gap:0.45rem;padding:0.28rem 0;">';
+                    html += '<span style="font-size:0.62rem;font-weight:700;color:' + pColor + ';background:' + pColor + '11;border:1px solid ' + pColor + '44;border-radius:8px;padding:0.08rem 0.45rem;white-space:nowrap;margin-top:0.05rem;">' + rec.priority.toUpperCase() + '</span>';
+                    html += '<span style="flex:1;font-size:0.8rem;color:#333;font-weight:600;">' + esc(rec.title) + '</span>';
+                    html += '</div>';
+                });
+                html += '</div>';
+            }
+
             html += '<p class="clinical-overview">' + s.overview + '</p>';
 
             if (s.key_findings && s.key_findings.length) {
@@ -410,39 +544,31 @@
                 html += '</ul>';
             }
 
-            if (s.clinical_indicators && s.clinical_indicators.length) {
-                html += '<div class="clinical-section-title">' + __('Clinical Indicators') + '</div><div class="grid-3" style="margin:0.5rem 0;">';
-                s.clinical_indicators.forEach(ind => {
-                    const parts = ind.split(': ');
-                    html += '<div class="clinical-stat"><div class="value">' + (parts[1]||'') + '</div><div class="label">' + (parts[0]||'') + '</div></div>';
-                });
-                html += '</div>';
-            }
-
             if (a.classifications && a.classifications.length) {
-                html += '<div class="clinical-section-title">' + __('Clinical Classifications') + '</div>';
+                html += '<details class="clinical-detail" open><summary>' + __('Clinical Classifications') + ' (' + a.classifications.length + ')</summary>';
                 html += '<div class="clinical-table-wrap" style="max-height:300px;overflow-y:auto;"><table><thead><tr><th>' + __('Indicator') + '</th><th>' + __('Value') + '</th><th>' + __('Status') + '</th><th>' + __('Narrative') + '</th></tr></thead><tbody>';
                 a.classifications.filter(c => c.value !== null).forEach(c => {
                     html += '<tr><td>' + c.rate_name + '</td><td>' + (c.value !== null && c.value !== undefined ? c.value.toFixed(1) + c.unit : '--') + '</td><td>' + _badgeHtml(c.color, c.label) + '</td><td style="font-size:0.8rem;">' + c.narrative + '</td></tr>';
                 });
-                html += '</tbody></table></div>';
+                html += '</tbody></table></div></details>';
             }
 
             const rp = a.risk_profile;
             if (rp && rp.metrics && rp.metrics.length) {
                 const riskColor = rp.overall_risk_level === 'critical' ? '#b71c1c' : rp.overall_risk_level === 'high' ? '#c62828' : rp.overall_risk_level === 'moderate' ? '#e65100' : '#2e7d32';
-                html += '<div class="clinical-section-title">' + __('Risk Profile') + ' ' + _badgeHtml(riskColor, rp.overall_risk_level.toUpperCase()) + '</div>';
+                const critCount = rp.metrics.filter(m => m.severity === 'critical' || m.severity === 'high').length;
+                html += '<details class="clinical-detail"><summary>' + __('Risk Profile') + ' ' + _badgeHtml(riskColor, rp.overall_risk_level.toUpperCase()) + (critCount ? ' <span style="font-weight:400;font-size:0.72rem;color:#c62828;">(' + critCount + ' critical/high)</span>' : '') + '</summary>';
                 html += '<div class="clinical-table-wrap" style="max-height:250px;overflow-y:auto;"><table><thead><tr><th>' + __('Metric') + '</th><th>' + __('Value') + '</th><th>' + __('Severity') + '</th><th>' + __('Interpretation') + '</th></tr></thead><tbody>';
                 rp.metrics.forEach(m => {
                     const sevColor = m.severity === 'critical' ? '#b71c1c' : m.severity === 'high' ? '#c62828' : m.severity === 'moderate' ? '#e65100' : '#2e7d32';
                     html += '<tr><td>' + m.metric_name + '</td><td>' + (m.value !== null ? m.value.toFixed(1) + m.unit : '--') + '</td><td>' + _badgeHtml(sevColor, m.severity) + '</td><td style="font-size:0.8rem;">' + m.interpretation + '</td></tr>';
                 });
-                html += '</tbody></table></div>';
+                html += '</tbody></table></div></details>';
             }
 
             const mp = a.morbidity_profile;
             if (mp && mp.key_findings && mp.key_findings.length) {
-                html += '<div class="clinical-section-title">' + __('Morbidity-Mortality Assessment') + '</div>';
+                html += '<details class="clinical-detail"><summary>' + __('Morbidity-Mortality Assessment') + '</summary>';
                 html += '<p class="clinical-overview">' + s.morbidity_assessment + '</p>';
                 if (mp.mortality_preventability_signals && mp.mortality_preventability_signals.length) {
                     html += '<ul class="issue-list">';
@@ -458,14 +584,20 @@
                     html += '<tr><td>' + m.metric_name + '</td><td>' + (m.value !== null ? m.value.toFixed(1) + m.unit : '--') + '</td><td>' + _badgeHtml(sevColor, m.severity) + '</td><td style="font-size:0.8rem;">' + m.interpretation + '</td></tr>';
                 });
                 html += '</tbody></table></div>';
+                html += '</details>';
             }
 
             if (a.recommendations && a.recommendations.length) {
-                html += '<div class="clinical-section-title">' + __('Recommendations') + ' (' + a.recommendations.length + ')</div>';
+                html += '<details class="clinical-detail"><summary>' + __('Recommendations') + ' (' + a.recommendations.length + ')</summary>';
                 a.recommendations.forEach(rec => {
                     const priColor = rec.priority === 'critical' ? '#b71c1c' : rec.priority === 'high' ? '#c62828' : rec.priority === 'medium' ? '#e65100' : '#2e7d32';
+                    const priLow = (rec.priority || '').toLowerCase();
                     html += '<div class="clinical-rec-card" style="border-left-color:' + priColor + ';">';
-                    html += '<div class="clinical-rec-header">' + _badgeHtml(priColor, rec.priority.toUpperCase()) + '<strong>' + rec.title + '</strong></div>';
+                    html += '<div class="clinical-rec-header">' + _badgeHtml(priColor, rec.priority.toUpperCase()) + '<strong>' + rec.title + '</strong>';
+                    if (priLow === 'critical' || priLow === 'high') {
+                        html += '<a href="#" data-hosp="' + esc(a.hospital) + '" data-month="' + a.month + '" onclick="openRootCauseForHospital(this);return false;" style="margin-left:auto;font-size:0.68rem;color:#1565c0;text-decoration:underline;white-space:nowrap;">&#128269; ' + __('Root Cause') + '</a>';
+                    }
+                    html += '</div>';
                     html += '<div class="clinical-rec-desc">' + rec.description + '</div>';
                     if (rec.data_reliable === false) {
                         html += '<div class="clinical-reliability-warn">&#x26A0; ' + __('Data reliability concern') + ' &mdash; ' + __('underlying indicators have validation failures') + '</div>';
@@ -495,6 +627,7 @@
                     }
                     html += '</div>';
                 });
+                html += '</details>';
             }
 
             html += '</div>';

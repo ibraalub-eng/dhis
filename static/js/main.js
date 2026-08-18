@@ -7,7 +7,7 @@
                 quality: [['qualityMonthFilter','lastQualityMonth']],
                 'root-cause': [['rcHospital','lastRcHospital'],['rcMonth','lastRcMonth']],
                 trends: [['trendHospitalSelect','lastTrendHospital']],
-                comparison: [['compareHospital1','lastCompareH1'],['compareHospital2','lastCompareH2'],['compareMonthSelect','lastCompareMonth']],
+                analysis: [['trendHospitalSelect','lastTrendHospital'],['compareMonthSelect','lastCompareMonth']],
                 clinical: [['clinicalHospitalSelect','lastClinHospital'],['clinicalMonthSelect','lastClinMonth']],
                 audit: [['auditHospitalSelect','lastAuditHospital'],['auditMonthSelect','lastAuditMonth']],
                 'indicator-tree': [['treeHospitalSelect','lastTreeHospital'],['treeMonthSelect','lastTreeMonth']],
@@ -25,7 +25,7 @@
                 quality: [['qualityMonthFilter','lastQualityMonth']],
                 'root-cause': [['rcHospital','lastRcHospital'],['rcMonth','lastRcMonth']],
                 trends: [['trendHospitalSelect','lastTrendHospital']],
-                comparison: [['compareHospital1','lastCompareH1'],['compareHospital2','lastCompareH2'],['compareMonthSelect','lastCompareMonth']],
+                analysis: [['trendHospitalSelect','lastTrendHospital'],['compareMonthSelect','lastCompareMonth']],
                 clinical: [['clinicalHospitalSelect','lastClinHospital'],['clinicalMonthSelect','lastClinMonth']],
                 audit: [['auditHospitalSelect','lastAuditHospital'],['auditMonthSelect','lastAuditMonth']],
                 'indicator-tree': [['treeHospitalSelect','lastTreeHospital'],['treeMonthSelect','lastTreeMonth']],
@@ -72,11 +72,19 @@
             _tabInited.add(name);
             const src = targetContent.dataset.src;
             if (src && targetContent.dataset.loaded === 'false') {
-                fetch(src).then(r => r.text()).then(html => {
+                fetch(src).then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.text();
+                }).then(html => {
                     targetContent.innerHTML = html + targetContent.innerHTML;
                     targetContent.dataset.loaded = 'true';
                     _initTab(name);
-                }).catch(() => { _initTab(name); });
+                }).catch(() => {
+                    // لا نُهيّئ التبويب إذا فشل تحميل محتواه — عناصره غير موجودة
+                    targetContent.innerHTML = '<div style="padding:2rem;text-align:center;color:#b91c1c;font-size:0.9rem;">' +
+                        'تعذّر تحميل محتوى هذا التبويب (الخادم غير متاح). أعد المحاولة لاحقاً أو تأكد من تشغيل الخادم.' +
+                        '</div>';
+                });
             } else {
                 _initTab(name);
             }
@@ -84,20 +92,16 @@
         function _initTab(name) {
             if (name === 'dashboard') window.initDashboard();
             if (name === 'quality') window.loadQualityReports();
-            if (name === 'alerts') window.loadAlerts();
+            if (name === 'alerts') { window.loadAlerts(); window.loadRuleFailures(); }
             if (name === 'outliers') window.loadOutliers();
-            if (name === 'rulefailures') window.loadRuleFailures();
             if (name === 'settings') window.loadAllSettings();
             if (name === 'root-cause') window.initRootCause();
-            if (name === 'trends') window.initTrends();
-            if (name === 'compare') window.initCompare();
-            if (name === 'clinical') window.initClinical();
-            if (name === 'ai-reports') { if (!window.restoreReportData()) window.populateReportMonthSelect(); }
+            if (name === 'analysis') window.initAnalysis();
+            if (name === 'clinical') { window.initClinical(); }
             if (name === 'indicator-tree') window.initIndicatorTree();
             if (name === 'rules-manager') window.loadRulesManager();
             if (name === 'audit') window.initAudit();
             if (name === 'smart-analytics') window.initSmartAnalytics();
-            if (name === 'comparative') window.initComparative();
         }
 
         document.querySelectorAll('.tab').forEach(tab => {

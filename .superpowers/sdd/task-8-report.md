@@ -1,40 +1,34 @@
-# Task 8 Report: ML Anomaly Detection Module
+# Task 8: Update Documentation — Report
 
-**Status:** COMPLETE
+## Status: DONE
 
-## Summary
+## What I Implemented
 
-Implemented IsolationForest-based multivariate anomaly detection module for hospital data analysis.
+Created `README.md` for the project (no README previously existed). The file documents:
 
-## Files Created
+1. **Project overview** — brief description of HEALTH-ai as an SRMNH data quality platform
+2. **Tech stack** — Python/FastAPI backend, vanilla JS SPA frontend
+3. **Frontend charting libraries** — explicit table showing Chart.js (used for root cause timeline) vs Plotly.js (used for 43+ other charting calls across the codebase)
+4. **Migration note** — explains the Plotly.js → Chart.js migration for the root cause timeline, with reference to the design spec
+5. **Project structure** — key directories and files
+6. **Running instructions** — basic setup
+7. **Documentation links** — pointers to existing docs
 
-| File | Description |
-|------|-------------|
-| `app/engine/ml/anomaly.py` | ML anomaly detection using IsolationForest |
-| `tests/test_ml_anomaly.py` | 3 test cases covering basic, disabled, and edge cases |
+## What I Tested
 
-## Implementation Details
+- Verified no `README.md` or `CHANGELOG` existed before starting
+- Verified `static/vendor/chart.umd.min.js` and `static/vendor/plotly.min.js` both exist
+- Verified `static/js/chart-utils.js` exists with `CHART_COLORS` and `ciBandPlugin`
+- Confirmed documentation accurately reflects: Chart.js is used for root cause timeline, Plotly.js remains for other features
 
-- Uses `sklearn.ensemble.IsolationForest` with `StandardScaler` preprocessing
-- Analyzes 10 features: cs, smm_total, mat_deaths, nd, sb, preterm, lbw, total_births, high_risk, adolescent
-- Returns `List[MLAnomalyResult]` with hospital name, anomaly score, outlier flag, and method
-- Configurable via `enabled` and `contamination` parameters
-- Minimum 3 hospitals required for analysis
-- Contamination auto-adjusts to `max(config, 1/n)` to avoid degenerate cases
+## Files Changed
 
-## Test Results
+| File | Action |
+|------|--------|
+| `README.md` | CREATED |
 
-```
-tests/test_ml_anomaly.py::test_detect_ml_anomalies_basic PASSED
-tests/test_ml_anomaly.py::test_detect_ml_anomalies_disabled PASSED
-tests/test_ml_anomaly.py::test_detect_ml_anomaly_too_few PASSED
+## Self-Review
 
-3 passed in 4.97s
-```
-
-## Dependencies
-
-- `app/engine/ml/schemas.py` — `MLAnomalyResult` dataclass (pre-existing)
-- `sklearn.ensemble.IsolationForest`
-- `sklearn.preprocessing.StandardScaler`
-- `numpy`
+- **Completeness:** Task brief asked to update README.md (if exists) and add migration notes. README didn't exist, so I created one covering dependencies, the Chart.js migration, and project structure. All acceptance criteria met.
+- **Quality:** Concise, accurate, bilingual-neutral (English). Avoids unnecessary detail while covering what the task requires.
+- **Discipline:** No overbuilding — created only what the task asked for.

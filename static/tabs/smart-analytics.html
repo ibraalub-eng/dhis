@@ -1,4 +1,4 @@
-<div class="smart-analytics-tab" dir="rtl" style="padding:1rem;max-width:1400px;margin:0 auto;position:relative;">
+<div class="smart-analytics-tab" dir="rtl" style="padding:0.5rem 0.25rem;max-width:100%;margin:0 auto;position:relative;">
 
   <!-- Loading overlay -->
   <div id="smart-loading-overlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.85);z-index:500;border-radius:12px;backdrop-filter:blur(3px);display:none;flex-direction:column;align-items:center;justify-content:center;gap:1rem;">
@@ -31,12 +31,58 @@
       <button id="smart-export-btn" class="btn btn-sm" onclick="smartExportData()" style="background:linear-gradient(135deg,#1a237e,#312e81);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">تصدير البيانات</button>
     </div>
     <div style="align-self:flex-end;">
+      <button id="smart-report-generate" class="btn btn-sm" onclick="smartGenerateComprehensiveReport()" style="background:linear-gradient(135deg,#4338ca,#6d28d9);color:white;padding:0.5rem 1.2rem;border-radius:6px;font-weight:600;">🤖 توليد التقرير الشامل</button>
+      <button id="smart-report-lang-toggle" class="btn btn-sm btn-outline" onclick="smartToggleReportLang()" style="padding:0.35rem 0.8rem;border-radius:6px;border:1px solid #c7d2fe;background:white;cursor:pointer;font-size:0.82rem;">🇬🇧 English</button>
+    </div>
+    <div style="align-self:flex-end;">
       <span id="smart-status" style="font-size:0.8rem;color:#6b7280;"></span>
     </div>
   </div>
 
-  <!-- Hospital-specific analysis (hidden by default) -->
-  <div id="smart-hospital-panel" style="display:none;margin-bottom:1.5rem;">
+  <!-- ═══════════════════════════════════════════════════════════════
+       لوحة القرار — قرار أولاً (تعتمد على الشهر المحدد، تظهر دائماً)
+       ═══════════════════════════════════════════════════════════════ -->
+  <div id="smart-decision-section" style="margin-bottom:1.2rem;">
+    <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.8rem;">
+      <h2 style="margin:0;color:#1a237e;font-size:1.1rem;">🛡️ لوحة القرار</h2>
+      <span id="smart-decision-month" style="font-size:0.8rem;font-weight:700;color:#4338ca;background:#eef2ff;border:1px solid #c7d2fe;padding:0.2rem 0.7rem;border-radius:12px;"></span>
+      <span style="font-size:0.72rem;color:#6b7280;">حالة الشهر + المستشفيات الحرجة + الإنذار المبكر</span>
+    </div>
+
+    <!-- KPI Cards -->
+    <div id="smart-kpi-container" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1rem;"></div>
+
+    <!-- Critical hospitals (action list) -->
+    <div class="card" style="padding:1rem;margin-bottom:1rem;border-top:3px solid #ef4444;border-radius:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.5rem;">
+        <h3 style="color:#1a237e;margin:0;font-size:0.95rem;">🚨 مستشفيات تحتاج تدخلاً عاجلاً</h3>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span id="smart-critical-count" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#fef2f2;color:#dc2626;font-weight:600;"></span>
+          <button class="btn btn-sm btn-outline" onclick="smartOpenMonthSections('smart-anomaly-table')" style="font-size:0.7rem;padding:0.25rem 0.6rem;">📋 الجدول الكامل</button>
+        </div>
+      </div>
+      <div id="smart-critical-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:0.6rem;"></div>
+      <p id="smart-critical-text" style="font-size:0.75rem;color:#6b7280;margin-top:0.5rem;"></p>
+    </div>
+
+    <!-- Early Warning System (moved into the decision board) -->
+    <div class="card" style="padding:1.2rem;margin-bottom:1.2rem;border-radius:10px;border-top:3px solid #ea580c;display:none;" id="smart-early-warning-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+        <h3 style="color:#1a237e;margin:0;font-size:0.95rem;">&#128680; نظام الإنذار المبكر</h3>
+        <span style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#fff7ed;color:#c2410c;font-weight:600;" title="المؤشرات القيادية الصاعدة شهرياً (مبكرة/نقص وزن/مضاعفات/خطر عالٍ/مراهقات/قيصرية) تسبق التدهور عادةً. الاحتمال تقدير تحفظي من قوة الإشارة لا احتمال حقيقي.">مؤشرات قيادية + احتمال</span>
+      </div>
+      <p style="font-size:0.78rem;color:#6b7280;margin-bottom:0.8rem;line-height:1.6;">
+        إشارات مبكرة قبل تفاقم النتائج: مستشفيات ارتفعت لديها مؤشرات قيادية هذا الشهر مقابل الشهر السابق.
+        <strong>إشارة للتحقيق لا تشخيصاً</strong> — تحقَّق من البيانات قبل الاستنتاج.
+      </p>
+      <p id="smart-early-warning-summary" style="font-size:0.8rem;font-weight:600;color:#9a3412;margin-bottom:0.6rem;"></p>
+      <div id="smart-early-warnings" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0.8rem;"></div>
+      <p id="smart-early-warning-note" style="font-size:0.72rem;color:#6b7280;margin-top:0.5rem;line-height:1.5;"></p>
+    </div>
+  </div>
+
+  <!-- Hospital-specific analysis (hidden until a hospital is selected — تعتمد على الشهر + المستشفى) -->
+  <div id="smart-hospital-panel" style="display:none;margin-bottom:1.2rem;">
     <div class="card" style="padding:1.2rem;border:2px solid #1a237e;border-radius:10px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
         <h3 style="color:#1a237e;margin:0;font-size:1.05rem;">تحليل المستشفى: <span id="smart-hospital-name" style="font-weight:700;"></span></h3>
@@ -46,18 +92,485 @@
         </div>
       </div>
       <div id="smart-hospital-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.8rem;margin-bottom:1rem;"></div>
+      <!-- توقعات الشهر القادم — المؤشرات القيادية الصاعدة بأوزانها وما يُتوقع أن تسبقه -->
+      <div id="smart-hospital-forecast" style="margin-bottom:1rem;"></div>
       <h4 style="color:#333;margin-bottom:0.5rem;font-size:0.9rem;">الأداء عبر الأشهر</h4>
       <div id="smart-hospital-trend" style="height:280px;"></div>
       <p id="smart-hospital-trend-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
     </div>
   </div>
 
-  <!-- Methodology (collapsible) -->
-  <details style="margin-bottom:1.5rem;" open>
+  <!-- ═══════════════════════════════════════════════════════════════
+       تحليلات الشهر — مرتبطة باختيار الشهر/المستشفى (مطوية افتراضياً)
+       ═══════════════════════════════════════════════════════════════ -->
+  <details id="smart-month-sections" style="margin-bottom:1.2rem;border:1px solid #c7d2fe;border-radius:10px;background:#fff;">
+    <summary style="cursor:pointer;padding:0.7rem 1rem;background:linear-gradient(135deg,#eef2ff,#f0f9ff);border-radius:10px;font-weight:600;color:#1e1b4b;font-size:0.9rem;list-style:none;display:flex;align-items:center;gap:0.5rem;">
+      <span style="font-size:1.1rem;">&#128202;</span>
+      تحليلات الشهر
+      <span style="margin-right:auto;font-size:0.72rem;color:#6b7280;font-weight:400;">مرتبطة باختيار الشهر/المستشفى — اضغط للفتح (تُحمَّل الرسوم عند الفتح فقط)</span>
+    </summary>
+    <div style="padding:1rem 0.75rem;">
+
+      <!-- Healthy Hospitals (Role Models) -->
+      <div class="card" style="padding:1.2rem;margin-bottom:1.2rem;border-radius:10px;border-top:3px solid #16a34a;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+          <h3 style="color:#1a237e;margin:0;font-size:0.95rem;">&#127942; مستشفيات سليمة — نماذج يُحتذى بها</h3>
+          <span style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#f0fdf4;color:#15803d;font-weight:600;" title="تُحسب درجة مركّبة: 50% جودة البيانات + 30% ثقة + 20% انخفاض درجة الشذوذ. تُستبعد المستشفيات الشاذة (درجة ≥ 0.3).">جودة + ثقة + شذوذ</span>
+        </div>
+        <p style="font-size:0.78rem;color:#6b7280;margin-bottom:0.8rem;line-height:1.6;">
+          أفضل المستشفيات أداءً في جودة الإبلاغ والثقة وانتظام البيانات — يمكن الاستفادة من ممارساتها كنموذج يُحتذى به لباقي المستشفيات.
+        </p>
+        <div id="smart-healthy-hospitals" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0.8rem;"></div>
+        <p id="smart-healthy-text" style="font-size:0.78rem;color:#666;margin-top:0.6rem;"></p>
+      </div>
+
+      <!-- Interactive Summary Charts -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem;margin-bottom:1.2rem;">
+        <div class="card" style="padding:1rem;border-radius:10px;">
+          <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#127873; توزيع الحالات</h3>
+          <div id="smart-severity-donut" style="height:300px;"></div>
+          <p style="font-size:0.78rem;color:#666;margin-top:0.5rem;">اضغط على أي قطاع لعرض تفاصيل المستشفيات الشاذة</p>
+        </div>
+        <div class="card" style="padding:1rem;border-radius:10px;">
+          <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128202; توزيع درجات الشذوذ</h3>
+          <div id="smart-score-histogram" style="height:300px;"></div>
+          <p style="font-size:0.78rem;color:#666;margin-top:0.5rem;">الخطوط المتقطعة تُظهر عتبتي التنبيه (0.3) والحرج (0.6)</p>
+        </div>
+        <div class="card" style="padding:1rem;border-radius:10px;">
+          <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128302; الفعلي مقابل المتوقع (XGBoost)</h3>
+          <div id="smart-predicted-scatter" style="height:300px;"></div>
+          <p style="font-size:0.78rem;color:#666;margin-top:0.5rem;">النقاط فوق الخط القطري تعني توقّع ارتفاع الدرجة القادمة</p>
+        </div>
+      </div>
+
+      <!-- Maps & Clustering -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem;">
+        <div class="card" style="padding:1rem;border-radius:10px;">
+          <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128205; خريطة المحافظات</h3>
+          <div id="smart-geo-map" style="height:320px;"></div>
+          <p id="smart-geo-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
+        </div>
+        <div class="card" style="padding:1rem;border-radius:10px;">
+          <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128200; تجميع المستشفيات</h3>
+          <div id="smart-cluster-scatter" style="height:320px;"></div>
+          <div id="smart-cluster-profiles" style="margin-top:0.6rem;"></div>
+          <p id="smart-cluster-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
+        </div>
+      </div>
+
+      <!-- Correlation & Residuals -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem;">
+        <div class="card" style="padding:1rem;border-radius:10px;">
+          <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128293; مصفوفة الارتباط</h3>
+          <div id="smart-correlation-heatmap" style="height:320px;"></div>
+          <p id="smart-corr-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
+        </div>
+        <div class="card" style="padding:1rem;border-radius:10px;">
+          <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128200; رسم البواقي</h3>
+          <select id="smart-residual-indicator" style="margin-bottom:0.5rem;padding:0.35rem;border-radius:4px;border:1px solid #d1d5db;font-size:0.82rem;">
+            <option value="cs_rate">معدل العمليات القيصارية</option>
+            <option value="smm_total">المضاعفات الخطيرة</option>
+            <option value="mat_deaths">الوفيات الأمومية</option>
+          </select>
+          <div id="smart-residual-plot" style="height:280px;"></div>
+          <p id="smart-residual-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
+        </div>
+      </div>
+
+      <!-- Composite Patterns -->
+      <div class="card" style="padding:1.2rem;margin-bottom:1.2rem;border-radius:10px;border-top:3px solid #0d9488;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+          <h3 style="color:#1a237e;margin:0;font-size:0.95rem;">&#129518; الأنماط المركبة للمؤشرات</h3>
+          <span style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#f0fdfa;color:#0f766e;font-weight:600;" title="خوارزمية Apriori تبحث عن توليفات مؤشرات مرتفعة/منخفضة تتكرر معاً في عدة مستشفيات أكثر من المتوقع (Lift &gt; 1).">Apriori + Lift</span>
+        </div>
+        <p style="font-size:0.78rem;color:#6b7280;margin-bottom:0.8rem;line-height:1.6;">
+          توليفات مؤشرات تظهر معاً في عدة مستشفيات — مثل «ارتفاع القيصرية مع الولادات المبكرة ووفيات المولودين» — وقد تشير إلى نمط سريري أو منهجي مشترك.
+        </p>
+        <div id="smart-composite-patterns" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0.8rem;"></div>
+        <p id="smart-patterns-text" style="font-size:0.78rem;color:#666;margin-top:0.6rem;"></p>
+      </div>
+
+      <!-- Temporal Lead-Lag Analysis -->
+      <div class="card" style="padding:1.2rem;margin-bottom:1.2rem;border-radius:10px;border-top:3px solid #7c3aed;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+          <h3 style="color:#1a237e;margin:0;font-size:0.95rem;">&#128337;&#65039; العلاقات المتأخرة زمنياً (A عند t → B عند t+L)</h3>
+          <span style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#f5f3ff;color:#6d28d9;font-weight:600;" title="لكل زوج مؤشرات وإزاحة L من 1–3 أشهر: ارتباط جزئي غرانجر-لايك corr(A_t, B_{t+L} | B_t) يزيل أثر استمرارية المؤشر الناتج، مع ضبط FDR لتعدد الاختبارات واختيار أفضل إزاحة لكل زوج.">غرانجر-لايك + FDR + اختيار الإزاحة</span>
+        </div>
+        <p style="font-size:0.78rem;color:#6b7280;margin-bottom:0.8rem;line-height:1.6;">
+          هل يسبق ارتفاع مؤشر ما ارتفاع مؤشر آخر بعد شهر أو شهرين أو ثلاثة؟ يُفصل الآن بين
+          «القيادة الحقيقية» (تبقى بعد التحكم بماضي المؤشر الناتج) واستمرارية المؤشر نفسه،
+          مع ضبط تعدد الاختبارات وقياس اتساق المستشفيات — وتُصاغ النتيجة كتنبؤ قابل للتنفيذ.
+        </p>
+        <div style="margin-bottom:0.8rem;">
+          <div style="font-size:0.8rem;color:#4c1d95;font-weight:700;margin-bottom:0.3rem;">🗺️ مصفوفة القيادة الزمنية — الصف (القيادي) ← العمود (النتيجة)</div>
+          <div id="smart-lag-matrix" style="height:480px;"></div>
+          <p style="font-size:0.68rem;color:#888;margin-top:0.3rem;">
+            الخلية = أقوى ارتباط جزئي (بعد التحكم بماضي النتيجة) لأفضل إزاحة من 1–3 أشهر. ✱ = اجتاز ضبط FDR. القطر فارغ (لا نقارن المؤشر بنفسه).
+          </p>
+        </div>
+        <div style="font-size:0.8rem;color:#4c1d95;font-weight:700;margin-bottom:0.5rem;">🔮 تنبؤات قابلة للتنفيذ — «ماذا يتبع ماذا؟»</div>
+        <div id="smart-lag-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:0.8rem;"></div>
+        <p id="smart-lag-note" style="font-size:0.72rem;color:#6b7280;margin-top:0.6rem;line-height:1.5;"></p>
+      </div>
+
+      <!-- Anomaly Table (full width) -->
+      <div class="card" style="padding:1rem;border-radius:10px;overflow:hidden;">
+        <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#9888;&#65039; جدول الشذوذ</h3>
+        <div id="smart-anomaly-table" style="overflow-x:auto;"></div>
+        <p id="smart-table-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
+      </div>
+
+      <!-- Feature Importance (full width) -->
+      <div class="card" style="padding:1rem;border-radius:10px;">
+        <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128161; أهمية العوامل</h3>
+        <select id="smart-fi-indicator" style="margin-bottom:0.5rem;padding:0.35rem;border-radius:4px;border:1px solid #d1d5db;font-size:0.82rem;">
+          <option value="cs_rate">معدل العمليات القيصرية</option>
+          <option value="smm_total">المضاعفات الخطيرة</option>
+          <option value="mat_deaths">الوفيات الأمومية</option>
+        </select>
+        <div id="smart-feature-importance" style="height:280px;"></div>
+        <p id="smart-fi-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
+      </div>
+
+      <!-- Stratified Comparison -->
+      <div class="card" style="padding:1rem;margin-bottom:1.2rem;border-radius:10px;">
+        <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128202; مقارنة طبقية</h3>
+        <select id="smart-strat-indicator" style="margin-bottom:0.5rem;padding:0.35rem;border-radius:4px;border:1px solid #d1d5db;font-size:0.82rem;">
+          <option value="cs_rate">معدل العمليات القيصرية</option>
+          <option value="smm_total">المضاعفات الخطيرة</option>
+          <option value="mat_deaths">الوفيات الأمومية</option>
+        </select>
+        <div id="smart-stratified-chart" style="height:320px;"></div>
+        <p id="smart-strat-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
+      </div>
+
+      <!-- XGBoost Predictions -->
+      <div id="smart-xgboost-section" style="display:none;margin-bottom:1.2rem;">
+        <div class="card" style="padding:1.2rem;border-top:3px solid #f97316;border-radius:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+            <h3 style="color:#1a237e;margin:0;font-size:1rem;">&#128302; تنبؤات XGBoost + SHAP</h3>
+            <span id="smart-xgb-model-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#fff7ed;color:#c2410c;font-weight:600;"></span>
+            <span id="smart-xgb-variant-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#eef2ff;color:#4338ca;font-weight:600;cursor:help;"></span>
+          </div>
+          <p id="smart-xgb-note" style="font-size:0.78rem;color:#92400e;margin-bottom:1rem;background:#fff7ed;padding:0.6rem;border-radius:6px;border:1px solid #fed7aa;line-height:1.5;"></p>
+          <div style="display:grid;grid-template-columns:2fr 3fr;gap:1rem;">
+            <div>
+              <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128293; أهمية العوامل العامة</h4>
+              <div id="smart-xgb-global-fi" style="height:260px;"></div>
+            </div>
+            <div>
+              <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128203; تنبؤات المستشفيات</h4>
+              <div id="smart-xgb-predictions-table" style="overflow-x:auto;"></div>
+            </div>
+          </div>
+          <div style="margin-top:1.2rem;border-top:1px dashed #fed7aa;padding-top:1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+              <h4 style="color:#333;font-size:0.88rem;margin:0;">&#128202; التحقق الزمني Walk-Forward</h4>
+              <span id="smart-xgb-walkforward-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#fff7ed;color:#c2410c;font-weight:600;"></span>
+            </div>
+            <p style="font-size:0.74rem;color:#6b7280;margin-bottom:0.6rem;line-height:1.5;">
+              كل طية: تدريب على الأشهر حتى m ثم تقييم على الشهر التالي m+1 — محاكاة حقيقية لتنبؤ الشهر القادم دون تسريب زمني.
+            </p>
+            <div style="display:grid;grid-template-columns:1fr 2fr;gap:1rem;">
+              <div id="smart-xgb-walkforward-chart" style="height:220px;"></div>
+              <div id="smart-xgb-walkforward-table" style="overflow-x:auto;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Governorate Analysis -->
+      <div id="smart-gov-section" style="display:none;margin-bottom:1.2rem;">
+        <div class="card" style="padding:1.2rem;border-top:3px solid #8b5cf6;border-radius:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+            <h3 style="color:#1a237e;margin:0;font-size:1rem;">&#127981; تحليل المحافظات بـ XGBoost</h3>
+            <span id="smart-gov-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#f5f3ff;color:#7c3aed;font-weight:600;"></span>
+          </div>
+          <p id="smart-gov-note" style="font-size:0.78rem;color:#6b7280;margin-bottom:1rem;background:#f5f3ff;padding:0.6rem;border-radius:6px;border:1px solid #ddd6fe;line-height:1.5;"></p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+            <div>
+              <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128293; تأثير المحافظة على كل مؤشر</h4>
+              <div id="smart-gov-impact-chart" style="height:300px;"></div>
+            </div>
+            <div>
+              <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128202; متوسط المؤشرات حسب المحافظة</h4>
+              <div id="smart-gov-heatmap" style="height:300px;"></div>
+            </div>
+          </div>
+          <div style="margin-top:1rem;">
+            <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128293; ارتباطات المحافظات عبر المؤشرات</h4>
+            <div id="smart-gov-cross-table" style="overflow-x:auto;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Regional Health Intelligence -->
+      <div id="smart-regional-section" style="display:none;margin-bottom:1.2rem;">
+        <div class="card" style="padding:1.2rem;border-top:3px solid #0f766e;border-radius:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;flex-wrap:wrap;gap:0.5rem;">
+            <h3 style="color:#0f766e;margin:0;font-size:1.05rem;">&#127759; الاستخبارات الصحية الإقليمية</h3>
+            <span id="smart-regional-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#f0fdfa;color:#0f766e;font-weight:600;"></span>
+          </div>
+          <p style="font-size:0.78rem;color:#6b7280;margin-bottom:1rem;line-height:1.6;">
+            تحليل على مستوى المحافظة: مقارنة كل محافظة بمعيار الإقليم (متوسط/مئوي/انحراف)،
+            علاقة حجم الولادات بالوفيات (خام مقابل معياري)، النسبة الملاحظة/المتوقعة (O/E)،
+            والاتجاهات الشهرية. <strong>الارتباط لا يعني سببّية</strong> — والمعدلات تُحسب فقط بمقامات صالحة.
+          </p>
+
+          <!-- Regional KPIs -->
+          <div id="smart-regional-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.7rem;margin-bottom:1.2rem;"></div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+            <div>
+              <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128202; معدل وفيات المواليد حسب المحافظة (مقابل معيار الإقليم)</h4>
+              <div id="smart-regional-mortality-chart" style="height:300px;"></div>
+            </div>
+            <div>
+              <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128302; الولادات مقابل الوفيات</h4>
+              <div id="smart-regional-bvm-chart" style="height:300px;"></div>
+              <p id="smart-regional-bvm-note" style="font-size:0.72rem;color:#6b7280;margin-top:0.4rem;line-height:1.5;"></p>
+            </div>
+          </div>
+
+          <!-- Mortality risk table -->
+          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128737;&#65039; تحليل الوفيات الإقليمي</h4>
+          <div id="smart-regional-mortality-table" style="overflow-x:auto;margin-bottom:1.2rem;"></div>
+
+          <!-- O/E -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.2rem;">
+            <div>
+              <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#129504; الملاحظة مقابل المتوقعة (O/E)</h4>
+              <div id="smart-regional-oe-table" style="overflow-x:auto;"></div>
+              <p id="smart-regional-oe-note" style="font-size:0.72rem;color:#6b7280;margin-top:0.4rem;line-height:1.5;"></p>
+            </div>
+            <div>
+              <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128308; درجة الخطر الإقليمية (مع الثقة)</h4>
+              <div id="smart-regional-risk-chart" style="height:280px;"></div>
+              <p id="smart-regional-risk-note" style="font-size:0.72rem;color:#6b7280;margin-top:0.4rem;line-height:1.5;"></p>
+            </div>
+          </div>
+
+          <!-- Regional anomalies -->
+          <h4 style="color:#333;font-size:0.88rem;margin:1.2rem 0 0.5rem;">&#9888;&#65039; الشذوذ الإقليمي (محافظة مقابل نظيراتها وتاريخها)</h4>
+          <div id="smart-regional-anomalies-table" style="overflow-x:auto;"></div>
+          <p id="smart-regional-anomalies-note" style="font-size:0.72rem;color:#6b7280;margin-top:0.4rem;line-height:1.5;"></p>
+
+          <!-- Risk factor explanations (SHAP-style) -->
+          <h4 style="color:#333;font-size:0.88rem;margin:1.2rem 0 0.5rem;">&#129504; شرح عوامل الخطر لكل محافظة (تفكيك الدرجة)</h4>
+          <div id="smart-regional-explain" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0.7rem;"></div>
+          <p id="smart-regional-explain-note" style="font-size:0.72rem;color:#6b7280;margin-top:0.4rem;line-height:1.5;"></p>
+
+          <!-- Ranking table -->
+          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#127942; ترتيب المحافظات ومقارنتها بالمعيار</h4>
+          <div id="smart-regional-ranking-table" style="overflow-x:auto;"></div>
+
+          <!-- Trends -->
+          <h4 style="color:#333;font-size:0.88rem;margin:1.2rem 0 0.5rem;">&#128200; اتجاهات إقليمية (محافظة × مؤشر)</h4>
+          <div id="smart-regional-trends" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:0.7rem;"></div>
+          <p id="smart-regional-trends-note" style="font-size:0.72rem;color:#6b7280;margin-top:0.5rem;"></p>
+        </div>
+      </div>
+
+    </div>
+  </details>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       تحليل عام — كل الأشهر (لا يتغير باختيار الشهر أو المستشفى)
+       ═══════════════════════════════════════════════════════════════ -->
+  <details id="smart-global-sections" style="margin-bottom:1.2rem;border:1px solid #c7d2fe;border-radius:10px;background:#fff;">
+    <summary style="cursor:pointer;padding:0.7rem 1rem;background:linear-gradient(135deg,#ecfeff,#f0f9ff);border-radius:10px;font-weight:600;color:#164e63;font-size:0.9rem;list-style:none;display:flex;align-items:center;gap:0.5rem;">
+      <span style="font-size:1.1rem;">&#127916;</span>
+      تحليل عام — كل الأشهر
+      <span style="margin-right:auto;font-size:0.72rem;color:#6b7280;font-weight:400;">لا يتغير باختيار الشهر أو المستشفى — يُحمَّل مرة واحدة</span>
+    </summary>
+    <div style="padding:1rem 0.75rem;">
+
+      <!-- Animated Timeline (Playback) -->
+      <div class="card" style="padding:1.2rem;margin-bottom:0.5rem;border-radius:10px;border-top:3px solid #0891b2;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+          <h3 style="color:#1a237e;margin:0;font-size:1rem;">&#127916; تطور درجات الشذوذ عبر الأشهر</h3>
+          <span id="smart-timeline-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#ecfeff;color:#0e7490;font-weight:600;"></span>
+        </div>
+        <p style="font-size:0.78rem;color:#6b7280;margin-bottom:0.5rem;line-height:1.6;">
+          اضغط <strong>▶ تشغيل</strong> لمشاهدة تطور كل مستشفى عبر الأشهر، أو اسحب المنزلق أسفل الرسم. كل نقطة لونها حسب الحالة (أخضر طبيعي، أصفر تنبيه، أحمر حرج).
+        </p>
+        <div id="smart-timeline-chart" style="height:460px;"></div>
+        <p id="smart-timeline-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
+      </div>
+
+    </div>
+  </details>
+
+  <!-- Comprehensive Report (merged) — يُعرض عند الطلب -->
+  <div id="smart-report-section" style="display:none;margin-bottom:1.5rem;">
+    <div class="card" style="padding:1.2rem;border-top:3px solid #4338ca;border-radius:10px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+        <h3 id="smart-report-title" style="color:#1a237e;margin:0;font-size:1rem;">&#128203; التقرير الشامل الذكي</h3>
+        <span id="smart-report-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#eef2ff;color:#4338ca;font-weight:600;"></span>
+      </div>
+      <div style="display:flex;gap:1rem;align-items:flex-end;margin-bottom:1.2rem;flex-wrap:wrap;">
+        <div>
+          <label id="smart-label-comparison" style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;">طريقة المقارنة</label>
+          <select id="smart-comparison-type" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:130px;font-size:0.85rem;background:white;">
+            <option value="all">جميع المستشفيات</option>
+            <option value="governorate">نفس المحافظة</option>
+            <option value="type">نفس النوع</option>
+          </select>
+        </div>
+        <div>
+          <span id="smart-report-status" style="font-size:0.8rem;color:#6b7280;"></span>
+        </div>
+      </div>
+
+      <!-- Executive Decision Board -->
+      <div id="smart-decision-board" style="display:none;margin-bottom:1.2rem;">
+        <div class="card" style="padding:1rem;border-radius:10px;border-top:4px solid #1a237e;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.8rem;">
+            <h3 style="margin:0;color:#1a237e;font-size:1rem;">&#128202; لوحة القرارات التنفيذية</h3>
+            <div style="display:flex;align-items:center;gap:0.6rem;">
+              <span id="smart-decision-verdict" style="font-size:0.8rem;font-weight:700;padding:3px 12px;border-radius:12px;color:#fff;"></span>
+              <span id="smart-decision-risk" style="font-size:0.8rem;font-weight:700;padding:3px 10px;border-radius:12px;background:#f1f5f9;color:#334155;"></span>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+            <div>
+              <div style="font-size:0.75rem;color:#64748b;margin-bottom:0.3rem;">&#128205; نقاط التركيز الجغرافية</div>
+              <div id="smart-decision-hotspots" style="font-size:0.8rem;"></div>
+              <div style="font-size:0.75rem;color:#64748b;margin:0.8rem 0 0.3rem;">&#128172; الاتجاه الشهري</div>
+              <div id="smart-decision-trend" style="font-size:0.8rem;"></div>
+            </div>
+            <div>
+              <div style="font-size:0.75rem;color:#64748b;margin-bottom:0.3rem;">&#128308; المستشفيات الأهم للمتابعة</div>
+              <div id="smart-decision-watchlist" style="font-size:0.8rem;"></div>
+            </div>
+          </div>
+          <div style="font-size:0.75rem;color:#64748b;margin:0.8rem 0 0.3rem;">&#128640; إجراءات الأولوية</div>
+          <div id="smart-decision-priorities" style="font-size:0.8rem;"></div>
+        </div>
+      </div>
+
+      <!-- KPI Dashboard -->
+      <div id="smart-report-kpi-dashboard" class="kpi-grid" style="display:none;margin-bottom:1.2rem;">
+        <div class="kpi-card">
+          <div class="icon">🏥</div>
+          <div class="value" id="smart-kpi-total-hospitals">-</div>
+          <div id="smart-kpi-label-total" class="label">إجمالي المستشفيات</div>
+        </div>
+        <div class="kpi-card danger">
+          <div class="icon">⚠️</div>
+          <div class="value" id="smart-kpi-anomalies">-</div>
+          <div id="smart-kpi-label-anomalies" class="label">مستشفيات شاذة</div>
+        </div>
+        <div class="kpi-card warning">
+          <div class="icon">📊</div>
+          <div class="value" id="smart-kpi-month-status">-</div>
+          <div id="smart-kpi-label-month-status" class="label">حالة الشهر</div>
+        </div>
+        <div class="kpi-card success">
+          <div class="icon">🎯</div>
+          <div class="value" id="smart-kpi-top-factor">-</div>
+          <div id="smart-kpi-label-top-factor" class="label">العامل الأكثر تأثيراً</div>
+        </div>
+      </div>
+
+      <!-- Report output: collapsible sections -->
+      <div id="smart-report-output" style="display:none;margin-bottom:1.2rem;">
+        <div class="collapsible-section">
+          <div class="collapsible-header open" onclick="toggleSection(this)">
+            <span id="smart-section-executive">📋 الملخص التنفيذي</span>
+            <span class="arrow">▼</span>
+          </div>
+          <div class="collapsible-body open">
+            <div id="smart-report-executive-summary" style="font-size:0.88rem;"></div>
+          </div>
+        </div>
+        <div class="collapsible-section">
+          <div class="collapsible-header" onclick="toggleSection(this)">
+            <span id="smart-section-indicators">📊 تحليل المؤشرات</span>
+            <span class="arrow">▼</span>
+          </div>
+          <div class="collapsible-body">
+            <div id="smart-report-indicators"></div>
+          </div>
+        </div>
+        <div class="collapsible-section">
+          <div class="collapsible-header" onclick="toggleSection(this)">
+            <span id="smart-section-anomalies">🔍 تحليل الشذوذ</span>
+            <span class="arrow">▼</span>
+          </div>
+          <div class="collapsible-body">
+            <div id="smart-report-anomalies"></div>
+          </div>
+        </div>
+        <div class="collapsible-section">
+          <div class="collapsible-header" onclick="toggleSection(this)">
+            <span id="smart-section-clustering">🔗 التجميع والارتباطات</span>
+            <span class="arrow">▼</span>
+          </div>
+          <div class="collapsible-body">
+            <div id="smart-report-clustering"></div>
+          </div>
+        </div>
+        <div class="collapsible-section">
+          <div class="collapsible-header" onclick="toggleSection(this)">
+            <span id="smart-section-stratified">📈 المقارنة الطبقية</span>
+            <span class="arrow">▼</span>
+          </div>
+          <div class="collapsible-body">
+            <div id="smart-report-stratified"></div>
+          </div>
+        </div>
+        <div class="collapsible-section">
+          <div class="collapsible-header" onclick="toggleSection(this)">
+            <span id="smart-section-recommendations">💡 التوصيات الإجرائية</span>
+            <span class="arrow">▼</span>
+          </div>
+          <div class="collapsible-body">
+            <div id="smart-report-recommendations"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comparison Chart -->
+      <div id="smart-comparison-chart-container" class="card" style="display:none;margin-bottom:1.2rem;padding:1.2rem;border-radius:10px;border-top:3px solid #312e81;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+          <h4 id="smart-chart-title" style="color:#1a237e;margin:0;font-size:0.95rem;">مقارنة أداء المستشفيات عبر الأشهر</h4>
+          <span id="smart-chart-filter-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#eef2ff;color:#4338ca;font-weight:600;"></span>
+        </div>
+        <div style="position:relative;height:350px;">
+          <canvas id="smart-comparison-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Peer Comparison Table -->
+      <div id="smart-peer-comparison-container" class="card" style="display:none;padding:1.2rem;border-radius:10px;border-top:3px solid #4338ca;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+          <h4 id="smart-peer-title" style="color:#1a237e;margin:0;font-size:0.95rem;">مقارنة المستشفيات ببعضها</h4>
+          <span id="smart-peer-filter-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#eef2ff;color:#4338ca;font-weight:600;"></span>
+        </div>
+        <div style="overflow-x:auto;">
+          <table id="smart-peer-comparison-table" style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+            <thead>
+              <tr style="background:#f8fafc;border-bottom:2px solid #c7d2fe;">
+                <th id="smart-peer-rank" style="padding:0.6rem 0.8rem;text-align:right;color:#4338ca;font-weight:600;">الترتيب</th>
+                <th id="smart-peer-hospital" style="padding:0.6rem 0.8rem;text-align:right;color:#4338ca;font-weight:600;">المستشفى</th>
+                <th id="smart-peer-percentile" style="padding:0.6rem 0.8rem;text-align:right;color:#4338ca;font-weight:600;">النسبة المئوية</th>
+                <th id="smart-peer-assessment" style="padding:0.6rem 0.8rem;text-align:right;color:#4338ca;font-weight:600;">التقييم</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Methodology (collapsed by default) -->
+  <details style="margin-bottom:1.5rem;">
     <summary style="cursor:pointer;padding:0.7rem 1rem;background:linear-gradient(135deg,#eef2ff,#f0f9ff);border:1px solid #c7d2fe;border-radius:8px;font-weight:600;color:#1e1b4b;font-size:0.9rem;list-style:none;display:flex;align-items:center;gap:0.5rem;">
       <span style="font-size:1.1rem;">&#9432;</span>
       كيف تُحسب درجة الشذوذ؟
-      <span style="margin-right:auto;font-size:0.75rem;color:#6b7280;font-weight:400;">اضطغط للطي</span>
+      <span style="margin-right:auto;font-size:0.75rem;color:#6b7280;font-weight:400;">اضطغط للفتح</span>
     </summary>
     <div style="padding:1rem;background:#f8fafc;border:1px solid #e2e8f0;border-top:0;border-radius:0 0 8px 8px;">
       <p style="font-size:0.82rem;color:#374151;line-height:1.7;margin:0 0 0.8rem 0;">
@@ -94,117 +607,10 @@
     </div>
   </details>
 
-  <!-- KPI Cards -->
-  <div id="smart-kpi-container" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"></div>
-
-  <!-- Maps & Clustering -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem;">
-    <div class="card" style="padding:1rem;border-radius:10px;">
-      <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128205; خريطة المحافظات</h3>
-      <div id="smart-geo-map" style="height:320px;"></div>
-      <p id="smart-geo-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
-    </div>
-    <div class="card" style="padding:1rem;border-radius:10px;">
-      <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128200; تجميع المستشفيات</h3>
-      <div id="smart-cluster-scatter" style="height:320px;"></div>
-      <p id="smart-cluster-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
-    </div>
-  </div>
-
-  <!-- Correlation & Residuals -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.2rem;margin-bottom:1.2rem;">
-    <div class="card" style="padding:1rem;border-radius:10px;">
-      <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128293; مصفوفة الارتباط</h3>
-      <div id="smart-correlation-heatmap" style="height:320px;"></div>
-      <p id="smart-corr-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
-    </div>
-    <div class="card" style="padding:1rem;border-radius:10px;">
-      <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128200; رسم البواقي</h3>
-      <select id="smart-residual-indicator" style="margin-bottom:0.5rem;padding:0.35rem;border-radius:4px;border:1px solid #d1d5db;font-size:0.82rem;">
-        <option value="cs_rate">معدل العمليات القيصارية</option>
-        <option value="smm_total">المضاعفات الخطيرة</option>
-        <option value="mat_deaths">الوفيات الأمومية</option>
-      </select>
-      <div id="smart-residual-plot" style="height:280px;"></div>
-      <p id="smart-residual-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
-    </div>
-  </div>
-
-  <!-- Anomaly Table & Feature Importance -->
-  <div style="display:grid;grid-template-columns:3fr 2fr;gap:1.2rem;margin-bottom:1.2rem;">
-    <div class="card" style="padding:1rem;border-radius:10px;overflow:hidden;">
-      <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#9888;&#65039; جدول الشذوذ</h3>
-      <div id="smart-anomaly-table" style="overflow-x:auto;"></div>
-      <p id="smart-table-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
-    </div>
-    <div class="card" style="padding:1rem;border-radius:10px;">
-      <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128161; أهمية العوامل</h3>
-      <select id="smart-fi-indicator" style="margin-bottom:0.5rem;padding:0.35rem;border-radius:4px;border:1px solid #d1d5db;font-size:0.82rem;">
-        <option value="cs_rate">معدل العمليات القيصارية</option>
-        <option value="smm_total">المضاعفات الخطيرة</option>
-        <option value="mat_deaths">الوفيات الأمومية</option>
-      </select>
-      <div id="smart-feature-importance" style="height:300px;"></div>
-      <p id="smart-fi-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
-    </div>
-  </div>
-
-  <!-- Stratified Comparison -->
-  <div class="card" style="padding:1rem;margin-bottom:1.2rem;border-radius:10px;">
-    <h3 style="color:#1a237e;margin-bottom:0.5rem;font-size:0.95rem;">&#128202; مقارنة طبقية</h3>
-    <select id="smart-strat-indicator" style="margin-bottom:0.5rem;padding:0.35rem;border-radius:4px;border:1px solid #d1d5db;font-size:0.82rem;">
-      <option value="cs_rate">معدل العمليات القيصارية</option>
-      <option value="smm_total">المضاعفات الخطيرة</option>
-      <option value="mat_deaths">الوفيات الأمومية</option>
-    </select>
-    <div id="smart-stratified-chart" style="height:320px;"></div>
-    <p id="smart-strat-text" style="font-size:0.78rem;color:#666;margin-top:0.5rem;"></p>
-  </div>
-
-  <!-- XGBoost Predictions -->
-  <div id="smart-xgboost-section" style="display:none;margin-bottom:1.2rem;">
-    <div class="card" style="padding:1.2rem;border-top:3px solid #f97316;border-radius:10px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
-        <h3 style="color:#1a237e;margin:0;font-size:1rem;">&#128302; تنبؤات XGBoost + SHAP</h3>
-        <span id="smart-xgb-model-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#fff7ed;color:#c2410c;font-weight:600;"></span>
-      </div>
-      <p id="smart-xgb-note" style="font-size:0.78rem;color:#92400e;margin-bottom:1rem;background:#fff7ed;padding:0.6rem;border-radius:6px;border:1px solid #fed7aa;line-height:1.5;"></p>
-      <div style="display:grid;grid-template-columns:2fr 3fr;gap:1rem;">
-        <div>
-          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128293; أهمية العوامل العامة</h4>
-          <div id="smart-xgb-global-fi" style="height:260px;"></div>
-        </div>
-        <div>
-          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128203; تنبؤات المستشفيات</h4>
-          <div id="smart-xgb-predictions-table" style="overflow-x:auto;"></div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Governorate Analysis -->
-  <div id="smart-gov-section" style="display:none;margin-bottom:1.2rem;">
-    <div class="card" style="padding:1.2rem;border-top:3px solid #8b5cf6;border-radius:10px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
-        <h3 style="color:#1a237e;margin:0;font-size:1rem;">&#127981; تحليل المحافظات بـ XGBoost</h3>
-        <span id="smart-gov-badge" style="font-size:0.7rem;padding:0.2rem 0.7rem;border-radius:12px;background:#f5f3ff;color:#7c3aed;font-weight:600;"></span>
-      </div>
-      <p id="smart-gov-note" style="font-size:0.78rem;color:#6b7280;margin-bottom:1rem;background:#f5f3ff;padding:0.6rem;border-radius:6px;border:1px solid #ddd6fe;line-height:1.5;"></p>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-        <div>
-          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128293; تأثير المحافظة على كل مؤشر</h4>
-          <div id="smart-gov-impact-chart" style="height:300px;"></div>
-        </div>
-        <div>
-          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128202; متوسط المؤشرات حسب المحافظة</h4>
-          <div id="smart-gov-heatmap" style="height:300px;"></div>
-        </div>
-      </div>
-      <div style="margin-top:1rem;">
-        <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128293; ارتباطات المحافظات عبر المؤشرات</h4>
-        <div id="smart-gov-cross-table" style="overflow-x:auto;"></div>
-      </div>
-    </div>
+  <!-- Disclaimer -->
+  <div style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1px solid #fbbf24;border-radius:8px;padding:0.8rem 1rem;margin-top:0.5rem;display:flex;align-items:center;gap:0.6rem;">
+    <span style="font-size:1.1rem;">&#9888;&#65039;</span>
+    <span id="smart-disclaimer" style="color:#92400e;font-size:0.82rem;">النتائج مبنية على بيانات المستشفيات المسجلة فقط. يجب تفسيرها كمعلومات أولية وليست قرارات نهائية.</span>
   </div>
 
   <!-- Drill-down Modal -->
@@ -230,14 +636,13 @@
           </div>
         </div>
         <p id="smart-drilldown-text" style="font-size:0.82rem;color:#444;background:#f9fafb;padding:0.7rem;border-radius:6px;border:1px solid #e5e7eb;line-height:1.6;"></p>
+        <div style="margin-top:1rem;">
+          <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128202; قيم العوامل الفعلية مقابل متوسط النظير</h4>
+          <div id="smart-drilldown-factors" style="font-size:0.8rem;overflow-x:auto;"></div>
+          <p style="font-size:0.7rem;color:#888;margin-top:0.4rem;">القيم من التحليل الطبقي: متوسط مجموعة النظير (نفس المحافظة والنوع) للشهر الحالي.</p>
+        </div>
       </div>
     </div>
-  </div>
-
-  <!-- Disclaimer -->
-  <div style="background:linear-gradient(135deg,#fffbeb,#fef3c7);border:1px solid #fbbf24;border-radius:8px;padding:0.8rem 1rem;margin-top:0.5rem;display:flex;align-items:center;gap:0.6rem;">
-    <span style="font-size:1.1rem;">&#9888;&#65039;</span>
-    <span id="smart-disclaimer" style="color:#92400e;font-size:0.82rem;">النتائج مبنية على بيانات المستشفيات المسجلة فقط. يجب تفسيرها كمعلومات أولية وليست قرارات نهائية.</span>
   </div>
 
   <!-- KPI Detail Modal -->

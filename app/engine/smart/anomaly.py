@@ -30,6 +30,10 @@ def _prepare_features(all_hospital_data: Dict[str, Any]) -> tuple:
         ])
 
     numeric_array = np.array(numeric_features, dtype=float)
+    # Columns where EVERY hospital is NaN (e.g. an indicator disabled everywhere)
+    # would make SimpleImputer skip them AND leave NaN that poisons StandardScaler
+    # and the models. Zero-fill them up-front so they stay neutral.
+    numeric_array[:, np.isnan(numeric_array).all(axis=0)] = 0.0
     imputer = SimpleImputer(strategy="median")
     numeric_imputed = imputer.fit_transform(numeric_array)
     scaler = StandardScaler()
@@ -54,12 +58,23 @@ def detect_smart_anomalies(
     all_hospital_data: Dict[str, Any],
     config: Dict[str, Any],
     enabled: bool = True,
+    residual_scores: Dict[str, float] = None,
 ) -> List[SmartAnomalyResult]:
     if not enabled or len(all_hospital_data) < 3:
         return []
 
     combined, hospital_names = _prepare_features(all_hospital_data)
     n = len(hospital_names)
+
+    # Residual scores (0-1 per hospital) computed upstream from OLS residuals;
+    # they now genuinely feed the ensemble instead of staying at zero.
+    if residual_scores:
+        residual_arr = np.array(
+            [min(max(float(residual_scores.get(name, 0.0)), 0.0), 1.0) for name in hospital_names],
+            dtype=float,
+        )
+    else:
+        residual_arr = np.zeros(n)
 
     contamination = float(config.get("contamination", 0.05))
     lof_neighbors = int(min(config.get("lof_neighbors", 5), n - 1))
@@ -95,13 +110,12 @@ def detect_smart_anomalies(
     w_lof = config.get("ensemble_lof_weight", 0.30)
     w_mahal = config.get("ensemble_mahal_weight", 0.20)
     w_res = config.get("ensemble_residual_weight", 0.15)
-    residual_scores = np.zeros(n)
 
     ensemble = (
         w_if * if_scores
         + w_lof * lof_scores
         + w_mahal * mahal_norm
-        + w_res * residual_scores
+        + w_res * residual_arr
     )
     ensemble = _normalize_scores(ensemble)
 
@@ -125,7 +139,7 @@ def detect_smart_anomalies(
                 "isolation_forest": float(if_scores[i]),
                 "lof": float(lof_scores[i]),
                 "mahalanobis": float(mahal_norm[i]),
-                "residual": float(residual_scores[i]),
+                "residual": float(residual_arr[i]),
             },
             severity=severity,
             is_outlier=severity in ("warning", "critical"),

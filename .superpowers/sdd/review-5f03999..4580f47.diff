@@ -1,0 +1,164 @@
+﻿# Review package: 5f03999..4580f47
+
+## Commits
+4580f47 feat: add full data export API endpoint
+
+## Files changed
+ app/api/export.py    | 34 ++++++++++++++++++++++++++++++++++
+ app/main.py          |  3 ++-
+ tests/test_export.py | 48 ++++++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 84 insertions(+), 1 deletion(-)
+
+## Diff
+diff --git a/app/api/export.py b/app/api/export.py
+new file mode 100644
+index 0000000..3f199a2
+--- /dev/null
++++ b/app/api/export.py
+@@ -0,0 +1,34 @@
++import io
++import json
++from datetime import datetime
++from fastapi import APIRouter, Depends, HTTPException, Query
++from fastapi.responses import StreamingResponse
++from sqlalchemy.orm import Session
++
++from app.database import get_db
++from app.engine.export import build_full_export, NoDataError
++
++router = APIRouter(prefix="/export", tags=["Export"])
++
++
++@router.get("/full-data")
++def export_full_data(
++    month: str = Query(..., description="╪د┘╪┤┘ç╪▒ (YYYY-MM) ╪ث┘ê all"),
++    lang: str = Query("ar", description="┘╪║╪ر ╪د┘╪ز┘é╪▒┘è╪▒ (ar/en)", pattern="^(ar|en)$"),
++    db: Session = Depends(get_db),
++):
++    """╪ز╪╡╪»┘è╪▒ ╪د┘╪ذ┘è╪د┘╪د╪ز ╪د┘┘â╪د┘à┘╪ر ┘â┘à┘┘ JSON"""
++    try:
++        payload = build_full_export(db, month, lang)
++    except NoDataError as e:
++        raise HTTPException(status_code=404, detail=str(e))
++    except Exception as e:
++        raise HTTPException(status_code=500, detail=f"╪«╪╖╪ث ┘┘è ╪د┘╪ز╪╡╪»┘è╪▒: {str(e)}")
++
++    filename = f"health_export_{datetime.now().strftime('%Y-%m-%d')}.json"
++    content = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
++    return StreamingResponse(
++        io.BytesIO(content),
++        media_type="application/json",
++        headers={"Content-Disposition": f"attachment; filename={filename}"},
++    )
+diff --git a/app/main.py b/app/main.py
+index 71cc7a1..a438791 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -5,21 +5,21 @@ from contextlib import asynccontextmanager  # noqa: E402
+ from fastapi import FastAPI  # noqa: E402
+ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+ from fastapi.staticfiles import StaticFiles  # noqa: E402
+ from fastapi.responses import FileResponse  # noqa: E402
+ from alembic.config import Config  # noqa: E402
+ from alembic import command  # noqa: E402
+ from alembic.script import ScriptDirectory  # noqa: E402
+ from app.database import init_db, SessionLocal, engine  # noqa: E402
+ from app.models import AppConfig, FacilityOwnership, FacilityType  # noqa: E402
+ from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
+-from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router  # noqa: E402
++from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router  # noqa: E402
+ from app.tasks import get_task  # noqa: E402
+ from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR  # noqa: E402
+ from scripts.seed_indicators import seed_indicators  # noqa: E402
+ from scripts.seed_rules import seed_rules  # noqa: E402
+ import os  # noqa: E402
+ import logging  # noqa: E402
+ 
+ setup_structured_logging(logging.INFO)
+ 
+ 
+@@ -236,20 +236,21 @@ app.include_router(config_api.router)
+ app.include_router(root_cause.router)
+ app.include_router(dashboard.router)
+ app.include_router(file_ops.router)
+ app.include_router(audit_api.router)
+ app.include_router(governorates_api.router)
+ app.include_router(hospital_types_api.router)
+ app.include_router(facility_ownerships_api.router)
+ app.include_router(facility_types_api.router)
+ app.include_router(smart_analytics_router.router)
+ app.include_router(comparative_router.router)
++app.include_router(export_router.router)
+ 
+ from fastapi.responses import JSONResponse  # noqa: E402
+ 
+ 
+ @app.get("/tasks/{task_id}")
+ def task_status(task_id: str):
+     task = get_task(task_id)
+     if not task:
+         return JSONResponse(status_code=404, content={"error": "Task not found"})
+     return task
+diff --git a/tests/test_export.py b/tests/test_export.py
+index 38ce866..3fc41ea 100644
+--- a/tests/test_export.py
++++ b/tests/test_export.py
+@@ -171,10 +171,58 @@ def test_build_full_export_report_from_cache(db_session):
+ def test_build_full_export_no_data_raises(db_session):
+     from app.models import Hospital
+     from app.engine.export import build_full_export, NoDataError
+     db_session.query(Hospital).delete()
+     db_session.commit()
+     try:
+         build_full_export(db_session, "all", "ar")
+         assert False, "expected NoDataError"
+     except NoDataError:
+         pass
++
++
++# --- API endpoint ---
++
++def test_export_endpoint_returns_json_download(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
++    assert resp.status_code == 200
++    assert resp.headers["content-type"].startswith("application/json")
++    assert "attachment" in resp.headers["content-disposition"]
++    data = resp.json()
++    assert data["meta"]["scope"] == "2026-06"
++
++
++def test_export_endpoint_all_months(client, db_session):
++    from app.models import Hospital, Indicator, IndicatorValue
++    hosp = db_session.query(Hospital).first()
++    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
++    db_session.add_all([
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
++        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
++    ])
++    db_session.commit()
++    resp = client.get("/export/full-data", params={"month": "all", "lang": "en"})
++    assert resp.status_code == 200
++    data = resp.json()
++    assert data["meta"]["scope"] == "all"
++    assert data["meta"]["lang"] == "en"
++    assert set(data["indicator_values"].keys()) == {"2026-05", "2026-06"}
++
++
++def test_export_endpoint_invalid_lang_422(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "xx"})
++    assert resp.status_code == 422
++
++
++def test_export_endpoint_no_data_404(client, db_session):
++    from app.models import Hospital
++    db_session.query(Hospital).delete()
++    db_session.commit()
++    resp = client.get("/export/full-data", params={"month": "all", "lang": "ar"})
++    assert resp.status_code == 404
++    assert "┘╪د ╪ز┘ê╪ش╪» ╪ذ┘è╪د┘╪د╪ز" in resp.json()["detail"]
++
++
++def test_export_endpoint_serializes_without_error(client):
++    resp = client.get("/export/full-data", params={"month": "2026-06", "lang": "ar"})
++    assert resp.status_code == 200
++    assert isinstance(resp.json(), dict)

@@ -3,11 +3,18 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult, ClinicalInsight
+from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult
 from sqlalchemy import func, text
 from app.engine.pipeline import get_enabled_values_for_hospital_month
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+# المعدلات السريرية الرئيسية المعروضة في لوحة المستشفى وعمود متوسط المعدل السريري
+_MAIN_CLINICAL_RATES = {
+    "C-Section Rate", "Maternal Mortality Ratio", "Neonatal Mortality Rate",
+    "Preterm Birth Rate", "Severe Maternal Morbidity Rate", "Stillbirth Rate",
+    "NICU Admission Rate",
+}
 
 
 @router.get("/overview")
@@ -18,10 +25,11 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     # Filter hospitals by active status
     total_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).count()
 
-    # Count reports only for enabled months
-    reports_q = db.query(QualityScore).distinct(
-        QualityScore.hospital_id, QualityScore.month
-    )
+    # Count reports only for enabled months.
+    # NOTE: Query.distinct(col1, col2) emits PostgreSQL-only DISTINCT ON which is
+    # silently ignored on SQLite (inflating the count with duplicate rows). Use a
+    # portable subquery on the (hospital_id, month) pair instead.
+    reports_q = db.query(QualityScore.hospital_id, QualityScore.month).distinct()
     if enabled_months:
         reports_q = reports_q.filter(QualityScore.month.in_(enabled_months))
     total_reports = reports_q.count()
@@ -151,41 +159,6 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     }
 
 
-@router.get("/yoy")
-def year_over_year(hospital_id: int | None = None, db: Session = Depends(get_db)):
-    sql = """
-        SELECT SUBSTR(qs.month, 6, 2) as mm,
-               SUBSTR(qs.month, 1, 4) as yyyy,
-               AVG(qs.score) as score
-        FROM quality_scores qs
-        WHERE 1=1
-    """
-    params = {}
-    if hospital_id:
-        sql += " AND qs.hospital_id = :hid"
-        params["hid"] = hospital_id
-    sql += " GROUP BY mm, yyyy ORDER BY yyyy, mm"
-    rows = db.execute(text(sql), params).fetchall()
-
-    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-    years = sorted(set(r[1] for r in rows))
-    result = {}
-    for y in years:
-        year_data = {month_names[int(r[0]) - 1]: round(float(r[2]), 1)
-                     for r in rows if r[1] == y}
-        result[f"year_{y}"] = year_data
-
-    all_months = sorted(set(int(r[0]) for r in rows))
-    labels = [month_names[m - 1] for m in all_months]
-
-    return {
-        "labels": labels,
-        "years": sorted(years),
-        "data": result,
-    }
-
-
 @router.get("/kpi")
 def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, db: Session = Depends(get_db)):
     from app.api.analysis import get_enabled_months
@@ -281,24 +254,27 @@ def dashboard_ranking(hospital_id: int | None = None, db: Session = Depends(get_
             ValidationResult.status == "FAIL"
         ).count()
 
-        insights = db.query(ClinicalInsight).filter(
-            ClinicalInsight.hospital_id == h.id
-        ).all()
-        rate_values = {}
-        for ins in insights:
-            try:
-                data = json.loads(ins.analysis_data)
-            except (json.JSONDecodeError, TypeError):
-                continue
-            for c in data.get("classifications", []):
-                rn = c.get("rate_name", "")
-                val = c.get("value")
-                if val is not None:
-                    rate_values.setdefault(rn, []).append(val)
+        # المعدل السريري: متوسط قيم المعدلات الرئيسية لآخر شهر متاح، يُحسب مباشرة
+        # من بيانات المستشفى (مثل لوحة المستشفى) — جدول ClinicalInsight لا يُملأ
+        # في أي مكان، فكان العمود صفراً دائماً.
         clinical_rates = {}
-        for rn, vals in rate_values.items():
-            if vals:
-                clinical_rates[rn] = round(sum(vals) / len(vals), 1)
+        if scores:
+            latest_month = scores[-1].month
+            try:
+                from app.engine.pipeline import get_enabled_values_for_hospital_month
+                from app.engine.clinical import run_clinical_analysis
+                values = get_enabled_values_for_hospital_month(db, h.id, latest_month)
+                if values:
+                    # include_ai=False: نحتاج قيم المعدلات فقط — لا توصيات AI لكل مستشفى
+                    result = run_clinical_analysis(hospital=h.name, month=latest_month,
+                                                   values=values, include_ai=False)
+                    clinical_rates = {
+                        c.rate_name: round(c.value, 1)
+                        for c in result.classifications
+                        if c.rate_name in _MAIN_CLINICAL_RATES and c.value is not None
+                    }
+            except Exception:
+                pass
 
         rows.append({
             "id": h.id,
@@ -346,20 +322,23 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
     if latest_month:
         try:
             values = get_enabled_values_for_hospital_month(db, hospital_id, latest_month)
-            if values:
-                from app.engine.clinical import run_clinical_analysis
-                result = run_clinical_analysis(hospital=hospital.name, month=latest_month, values=values)
-                MAIN_RATES = {"C-Section Rate", "Maternal Mortality Ratio", "Neonatal Mortality Rate",
-                              "Preterm Birth Rate", "Severe Maternal Morbidity Rate", "Stillbirth Rate",
-                              "NICU Admission Rate"}
-                for c in result.classifications:
-                    if c.rate_name in MAIN_RATES:
-                        clinical_rates.append({
-                            "rate_name": c.rate_name,
-                            "value": round(c.value, 1) if c.value else 0,
-                            "unit": c.unit,
-                            "classification": c.classification,
-                        })
+            # Run the analysis even when values are empty: every rate comes back None
+            # (= no data) so the UI shows an explicit "N/A" marker instead of an
+            # empty chart.
+            from app.engine.clinical import run_clinical_analysis
+            result = run_clinical_analysis(hospital=hospital.name, month=latest_month,
+                                           values=values, include_ai=False)
+            for c in result.classifications:
+                if c.rate_name in _MAIN_CLINICAL_RATES:
+                    # Keep None as None (missing denominator = no data) instead of
+                    # flattening to 0, so the UI can distinguish "reported zero"
+                    # from "no data available".
+                    clinical_rates.append({
+                        "rate_name": c.rate_name,
+                        "value": round(c.value, 1) if c.value is not None else None,
+                        "unit": c.unit,
+                        "classification": c.classification,
+                    })
         except Exception:
             pass
 
@@ -373,7 +352,7 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
                     continue
                 from app.engine.clinical import run_clinical_analysis as rca_peer
                 try:
-                    pr = rca_peer(hospital=ph.name, month=latest_month, values=pv)
+                    pr = rca_peer(hospital=ph.name, month=latest_month, values=pv, include_ai=False)
                 except Exception:
                     continue
                 for c in pr.classifications:

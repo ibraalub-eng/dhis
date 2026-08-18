@@ -1,157 +1,165 @@
-        import { API, apiGet, uploadedData } from './api.js';
+        import { API, apiGet } from './api.js';
         import { __ } from './i18n.js';
         import { esc } from './tree.js';
-        import { switchTab } from './main.js';
         import { renderClinical } from './validation.js';
 
-        // ── AI Reports ──────────────────────────────────────────
-        let _reportHospitals = [];
+        // ── Unified analysis (Analyze + Generate AI Reports merged — same engine, one button) ──
+        // نطاق محدد (مستشفى+شهر) = عرض تفصيلي واحد · نطاق واسع = بطاقات مجمّعة مرتّبة بالمخاطر
+        let _reportData = null;
 
-        function _populateReportMonthSelect(months) {
-            const mSel = document.getElementById('reportMonthSelect');
-            const currentVal = mSel.value;
-            mSel.innerHTML = '<option value="">All Months</option>' + (months || []).map(m => '<option value="' + m + '">' + m + '</option>').join('');
-            if (currentVal && months.includes(currentVal)) mSel.value = currentVal;
-        }
+        export function runAnalysis() {
+            const monthSel = document.getElementById('clinicalMonthSelect');
+            const hSel = document.getElementById('clinicalHospitalSelect');
+            if (!monthSel || !hSel) return;
 
-        export function onReportHospitalChange() {
-            const hSel = document.getElementById('reportHospitalSelect');
-            const opt = hSel.options[hSel.selectedIndex];
-            const hid = opt ? opt.getAttribute('data-id') : null;
-            if (hid) {
-                fetch(API() + '/config/month-settings?hospital_id=' + hid)
-                    .then(r => r.json())
-                    .then(data => {
-                        _populateReportMonthSelect(data.enabled_months || []);
-                    }).catch(() => {});
-            } else {
-                fetch(API() + '/analysis/months').then(r => r.json()).then(data => {
-                    const months = data.months || data || [];
-                    _populateReportMonthSelect(months);
-                }).catch(() => {});
+            // نطاق التحليل من الخيارات الفعلية للقوائم (ترمّز النطاق الصحيح تلقائياً)
+            const selectedMonth = monthSel.value;
+            const selectedHospital = hSel && hSel.value ? hSel.value : '';
+            const months = selectedMonth ? [selectedMonth] : Array.from(monthSel.options).map(o => o.value).filter(Boolean);
+            const hospitals = selectedHospital ? [selectedHospital] : Array.from(hSel.options).map(o => o.value).filter(Boolean);
+            const pairs = [];
+            for (const m of months) for (const h of hospitals) pairs.push([h, m]);
+
+            // نطاق محدد (مستشفى + شهر واحد) → التحليل التفصيلي مباشرة (نفس مخرجات الدفعة لكن بعرض «قرار أولاً»)
+            if (pairs.length === 1 && selectedHospital && selectedMonth) {
+                _reportData = null;
+                if (typeof window.loadClinical === 'function') window.loadClinical();
+                return;
             }
-            applyReportFilter();
-        }
 
-        function _loadReportHospitals() {
-            const hSel = document.getElementById('reportHospitalSelect');
-            apiGet('/hospitals/').then(data => {
-                const list = data.value || data || [];
-                _reportHospitals = list;
-                const currentVal = hSel.value;
-                if (hSel.options.length <= 1) {
-                    hSel.innerHTML = '<option value="">All Hospitals</option>' + list.map(h => '<option value="' + h.name + '" data-id="' + h.id + '">' + h.name + '</option>').join('');
-                } else {
-                    list.forEach(h => {
-                        const opt = Array.from(hSel.options).find(o => o.value === h.name);
-                        if (opt) opt.setAttribute('data-id', h.id);
-                    });
-                }
-                if (currentVal && list.some(h => h.name === currentVal)) hSel.value = currentVal;
-            }).catch(() => {});
-        }
-
-        export function populateReportMonthSelect() {
-            const mSel = document.getElementById('reportMonthSelect');
-            if (mSel.options.length <= 1) {
-                fetch(API() + '/analysis/months').then(r => r.json()).then(data => {
-                    const months = data.months || data || [];
-                    _populateReportMonthSelect(months);
-                }).catch(() => {});
-            }
-            _loadReportHospitals();
-        }
-
-        export function generateReport() {
-            const sel = document.getElementById('reportMonthSelect');
-            const month = sel.value;
-            const btn = document.getElementById('generateReportBtn');
+            // نطاق واسع → توليد دفعة (مستشفى × شهر) مع شريط تقدم ونتائج جزئية
+            const btn = document.getElementById('clinicalRunBtn');
             const status = document.getElementById('reportStatus');
-            const container = document.getElementById('reportResults');
+            const container = document.getElementById('clinicalResults');
             const spinner = document.getElementById('reportLoading');
+            const progWrap = document.getElementById('reportProgressWrap');
+            const progBar = document.getElementById('reportProgressBar');
+            const progText = document.getElementById('reportProgressText');
+            const progPct = document.getElementById('reportProgressPct');
 
             btn.disabled = true;
             btn.textContent = __('Generating...');
-            status.textContent = __('Generating report, please wait...');
+            status.textContent = __('Generating report, please wait...') + ' (' + pairs.length + ' ' + __('items') + ')';
+            // شريط التقدم والحالة يظهران في بطاقة الفلاتر بجانب الزر — لا مؤشر داخل النتائج
             container.innerHTML = '';
             spinner.classList.remove('hidden');
+            if (progWrap) progWrap.style.display = 'block';
+            if (progBar) progBar.style.width = '0%';
+            if (progText) progText.textContent = '0 / ' + pairs.length;
+            if (progPct) progPct.textContent = '0%';
 
-            let url = API() + '/analysis/generate-report';
-            if (month) url += '?month=' + encodeURIComponent(month);
+            // توليد تدريجي لكل (مستشفى، شهر) مع تزامن محدود — تقدم حقيقي ونتائج جزئية،
+            // وكل زوج مُكتمل يُخزَّن مؤقتاً في الخادم فيعود التكرار فورياً.
+            const merged = { reports: [], errors: [], months: [...new Set(months)], hospitals: [], total: 0 };
+            const seen = new Set();
+            let done = 0;
+            const CONCURRENCY = 4;
 
-            fetch(url, { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    btn.disabled = false;
-                    btn.textContent = __('Generate Report');
-                    spinner.classList.add('hidden');
-                    if (data.errors && data.errors.length) {
-                        status.textContent = 'Completed with ' + data.errors.length + ' errors';
-                    } else {
-                        status.textContent = 'Generated ' + data.total + ' reports';
+            async function worker(pair) {
+                const [hid, m] = pair;
+                const params = [];
+                if (m) params.push('month=' + encodeURIComponent(m));
+                if (hid) params.push('hospital_id=' + encodeURIComponent(hid));
+                let url = API() + '/analysis/generate-report';
+                if (params.length) url += '?' + params.join('&');
+                try {
+                    const res = await fetch(url, { method: 'POST' });
+                    const data = await res.json();
+                    (data.reports || []).forEach(r => {
+                        const key = r.hospital + '|' + r.month;
+                        if (!seen.has(key)) { seen.add(key); merged.reports.push(r); }
+                    });
+                    (data.errors || []).forEach(e => merged.errors.push(e));
+                    (data.hospitals || []).forEach(n => { if (!merged.hospitals.includes(n)) merged.hospitals.push(n); });
+                } catch (e) {
+                    merged.errors.push(hid + '/' + m + ': ' + (e && e.message || e));
+                }
+            }
+
+            async function run() {
+                let idx = 0;
+                async function next() {
+                    while (idx < pairs.length) {
+                        const pair = pairs[idx++];
+                        await worker(pair);
+                        done++;
+                        const pct = Math.round(done / pairs.length * 100);
+                        if (progBar) progBar.style.width = pct + '%';
+                        if (progText) progText.textContent = done + ' / ' + pairs.length;
+                        if (progPct) progPct.textContent = pct + '%';
+                        // عرض جزئي للنتائج أثناء التوليد
+                        if (done === pairs.length || done % 3 === 0) {
+                            merged.total = merged.reports.length;
+                            renderReport(merged);
+                        }
                     }
-                    renderReport(data);
-                })
-                .catch(err => {
-                    btn.disabled = false;
-                    btn.textContent = __('Generate Report');
-                    spinner.classList.add('hidden');
-                    status.textContent = 'Error: ' + err;
-                    container.innerHTML = '<p style="color:#c62828;">Failed to generate report: ' + err + '</p>';
-                });
-        }
+                }
+                await Promise.all(Array.from({ length: Math.min(CONCURRENCY, pairs.length) }, next));
+                btn.disabled = false;
+                btn.textContent = __('Run Analysis');
+                spinner.classList.add('hidden');
+                if (progWrap) progWrap.style.display = 'none';
+                merged.total = merged.reports.length;
+                if (merged.errors.length) {
+                    status.textContent = 'Completed with ' + merged.errors.length + ' errors';
+                } else {
+                    status.textContent = 'Generated ' + merged.total + ' reports';
+                }
+                renderReport(merged);
+                // تمرير أخير لموضع النتائج ليرى المستخدم المخرجات النهائية
+                // (فوري لا smooth — بعض الـ webviews لا تشغّل إطارات الحركة فيعلق التمرير الناعم)
+                const finalResults = document.getElementById('clinicalResults');
+                if (finalResults) finalResults.scrollIntoView({ block: 'start' });
+            }
 
-        let _reportData = null;
+            run();
+        }
 
         function renderReport(data) {
             _reportData = data;
-            if (data.hospitals && typeof data.hospitals[0] === 'string') {
-                data.hospitals = data.hospitals.map(h => {
-                    if (typeof h === 'string') {
-                        const found = _reportHospitals.find(x => x.name === h);
-                        return found || { name: h };
-                    }
-                    return h;
-                });
-            }
-            try { localStorage.setItem('ai_report_data', JSON.stringify(data)); } catch(e) {}
-            const container = document.getElementById('reportResults');
+            const container = document.getElementById('clinicalResults');
             if (!data.reports || !data.reports.length) {
                 container.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">' + __('No data found for the selected criteria.') + '</p>';
                 return;
             }
-
-            const filtSel = document.getElementById('reportHospitalSelect');
-            const currentVal = filtSel.value;
-            const hospSet = new Set(data.reports.map(r => r.hospital));
-            const allOpts = Array.from(filtSel.options);
-            allOpts.forEach(o => { o.disabled = !!(o.value && !hospSet.has(o.value)); });
-            filtSel.value = currentVal && hospSet.has(currentVal) ? currentVal : '';
-
             applyReportFilter();
         }
 
-        export function restoreReportData() {
-            try {
-                const saved = localStorage.getItem('ai_report_data');
-                if (saved) {
-                    const data = JSON.parse(saved);
-                    if (data && data.reports && data.reports.length) {
-                _reportData = data;
-                _populateReportMonthSelect(data.months || []);
-                const hlist = data.hospitals || [];
-                document.getElementById('reportHospitalSelect').innerHTML = '<option value="">' + __('All Hospitals') + '</option>' + hlist.map(h => {
-                    const name = typeof h === 'string' ? h : h.name;
-                    const id = typeof h === 'object' ? h.id : null;
-                    return '<option value="' + name + '"' + (id ? ' data-id="' + id + '"' : '') + '>' + name + '</option>';
-                }).join('');
-                _loadReportHospitals();
-                renderReport(data);
-                return true;
-                    }
-                }
-            } catch(e) {}
-            return false;
+        // يفتح نافذة منبثقة تعرض التحليل التفصيلي لنفس (المستشفى، الشهر) من البطاقة المجمّعة
+        export function openBatchDetail(linkEl) {
+            const hosp = linkEl.getAttribute('data-hosp');
+            const month = linkEl.getAttribute('data-month');
+            const hSel = document.getElementById('clinicalHospitalSelect');
+            const titleEl = document.getElementById('modalTitle');
+            const bodyEl = document.getElementById('modalBody');
+            if (!hSel || !hosp || !month || !titleEl || !bodyEl) return;
+            let hid = null;
+            Array.from(hSel.options).forEach(o => { if (o.text === hosp) hid = o.value; });
+            if (!hid) return;
+
+            titleEl.textContent = hosp + ' — ' + month;
+            bodyEl.innerHTML = '<div style="text-align:center;padding:2.5rem;color:#888;"><span class="spinner spinner-lg"></span><br><span style="font-size:0.85rem;">' + __('Loading hospital details...') + '</span></div>';
+            document.getElementById('detailModal').classList.add('show');
+
+            fetch(API() + '/clinical/' + hid + '?month=' + encodeURIComponent(month))
+                .then(r => r.json())
+                .then(analysis => {
+                    renderClinical(analysis, bodyEl);
+                })
+                .catch(err => {
+                    bodyEl.innerHTML = '<p style="color:#c62828;padding:1.5rem;">' + __('Failed to load details') + ': ' + err.message + '</p>';
+                });
+        }
+
+        function _riskGroupHeader(lvl, count) {
+            const labels = { critical: __('Critical'), high: __('High'), moderate: __('Moderate'), low: __('Low'), '': __('Other') };
+            const colors = { critical: '#b71c1c', high: '#c62828', moderate: '#e65100', low: '#2e7d32', '': '#888' };
+            const icons = { critical: '&#128308;', high: '&#128992;', moderate: '&#128993;', low: '&#128994;', '': '&#9899;' };
+            const key = labels[lvl] !== undefined ? lvl : '';
+            return '<div style="display:flex;align-items:center;gap:0.5rem;margin:1rem 0 0.4rem 0;padding:0.45rem 0.7rem;background:' + colors[key] + '11;border-left:4px solid ' + colors[key] + ';border-radius:4px;">' +
+                '<span style="font-size:0.85rem;">' + icons[key] + '</span>' +
+                '<strong style="font-size:0.85rem;color:' + colors[key] + ';">' + labels[key] + ' (' + count + ')</strong>' +
+                '</div>';
         }
 
         function _riskColor(level) {
@@ -176,16 +184,25 @@
             return '<span style="display:inline-flex;align-items:center;gap:0.2rem;font-size:0.7rem;background:' + color + '11;border:1px solid ' + color + '44;border-radius:4px;padding:0.1rem 0.45rem;"><strong style="color:' + color + ';">' + esc(value) + '</strong><span style="color:' + color + '88;">' + esc(label) + '</span></span>';
         }
 
+        // يُستدعى عند تغيير المستشفى/الشهر في شريط الفلاتر الموحّد لإعادة تصفية النتائج المجمّعة
         export function applyReportFilter() {
             const data = _reportData;
-            const container = document.getElementById('reportResults');
+            const container = document.getElementById('clinicalResults');
             if (!data || !data.reports) return;
 
-            const selectedHospital = document.getElementById('reportHospitalSelect').value;
+            const hSel = document.getElementById('clinicalHospitalSelect');
+            const mSel = document.getElementById('clinicalMonthSelect');
+            // قيمة select هي معرّف المستشفى — نأخذ الاسم من نص الخيار للتصفية على r.hospital
+            const selectedOpt = hSel && hSel.value ? hSel.options[hSel.selectedIndex] : null;
+            const selectedHospital = selectedOpt ? selectedOpt.text : '';
+            const selectedMonth = mSel ? mSel.value : '';
 
             let filtered = data.reports;
             if (selectedHospital) {
                 filtered = filtered.filter(r => r.hospital === selectedHospital);
+            }
+            if (selectedMonth) {
+                filtered = filtered.filter(r => r.month === selectedMonth);
             }
 
             if (!filtered.length) {
@@ -196,8 +213,39 @@
             const monthsInFilter = [...new Set(filtered.map(r => r.month))].sort();
             const hospInFilter = [...new Set(filtered.map(r => r.hospital))].sort();
 
-            let html = '<div style="margin-bottom:0.8rem;padding:0.6rem 0.8rem;background:#f5f5f5;border-radius:6px;display:flex;gap:1rem;flex-wrap:wrap;font-size:0.82rem;">';
-            html += '<span><strong>' + __('Hospitals') + ':</strong> ' + hospInFilter.join(', ') + '</span>';
+            // ── ملخص الأزمة: قرار أولاً — عدّ المستشفيات حسب مستوى الخطر + أسماء الحرجة ──
+            const riskGroups = { critical: [], high: [], moderate: [], low: [] };
+            const riskOrder = ['critical', 'high', 'moderate', 'low'];
+            const riskColors = { critical: '#b71c1c', high: '#c62828', moderate: '#e65100', low: '#2e7d32' };
+            const riskLabels = { critical: __('Critical'), high: __('High'), moderate: __('Moderate'), low: __('Low') };
+            filtered.forEach(r => {
+                const lvl = ((r.risk_profile || {}).overall_risk_level || '').toLowerCase();
+                const group = riskGroups[lvl] !== undefined ? riskGroups[lvl] : null;
+                if (group && !group.includes(r.hospital)) group.push(r.hospital);
+            });
+
+            // شريط الأزمة: خلفية وحدود أوضح مع حدّ جانبي أحمر بارز — أول ما يُرى
+            let html = '<div style="margin:0.8rem 0 0.5rem 0;padding:0.7rem 0.9rem;background:#fff0f0;border:1px solid #e57373;border-left:4px solid #b71c1c;border-radius:6px;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;font-size:0.8rem;">';
+            html += '<strong style="color:#b71c1c;font-size:0.85rem;">' + __('Hospitals by risk') + ':</strong>';
+            riskOrder.forEach(lvl => {
+                const n = riskGroups[lvl].length;
+                if (n > 0) {
+                    html += '<span style="display:inline-flex;align-items:center;gap:0.25rem;background:' + riskColors[lvl] + '11;border:1px solid ' + riskColors[lvl] + '44;border-radius:12px;padding:0.1rem 0.6rem;">';
+                    html += '<strong style="color:' + riskColors[lvl] + ';">' + n + '</strong>';
+                    html += '<span style="color:' + riskColors[lvl] + '88;font-size:0.72rem;">' + riskLabels[lvl] + '</span>';
+                    html += '</span>';
+                }
+            });
+            const crisisHospitals = riskGroups.critical.length ? riskGroups.critical : (riskGroups.high.length ? riskGroups.high : []);
+            if (crisisHospitals.length) {
+                const isCritical = riskGroups.critical.length > 0;
+                html += '<span style="width:100%;font-size:0.78rem;color:#b71c1c;">&#9888; <strong>' + (isCritical ? __('Critical hospitals') : __('High-risk hospitals')) + ':</strong> ' + esc(crisisHospitals.join(' · ')) + '</span>';
+            }
+            html += '</div>';
+
+            html += '<div style="margin:0.5rem 0 0.8rem 0;padding:0.6rem 0.8rem;background:#f5f5f5;border-radius:6px;display:flex;gap:1rem;flex-wrap:wrap;font-size:0.82rem;">';
+            // العدد فقط بدل قائمة الأسماء — الأسماء في شريط الأزمة ورؤوس البطاقات
+            html += '<span><strong>' + __('Hospitals') + ':</strong> ' + hospInFilter.length + '</span>';
             html += '<span><strong>' + __('Months') + ':</strong> ' + monthsInFilter.join(', ') + '</span>';
             html += '<span><strong>' + __('Showing') + ':</strong> ' + filtered.length + ' / ' + data.reports.length + '</span>';
             if (data.errors && data.errors.length) {
@@ -211,10 +259,47 @@
                 byHospital[r.hospital].push(r);
             });
 
-            Object.keys(byHospital).sort().forEach(hospital => {
+            // ترتيب المستشفيات بدرجة الخطر: الحرجة أولاً ثم العالية ثم المتوسطة فالمنخفضة،
+            // مع الترتيب الأبجدي كاحتياط للتعادل (الأسوأ عبر تقارير المستشفى)
+            const riskRank = { critical: 0, high: 1, moderate: 2, low: 3 };
+            const hospitalRiskRank = {};
+            const hospitalWorstLevel = {};
+            Object.keys(byHospital).forEach(hospital => {
+                let worst = 4; // مستوى غير معروف
+                let worstLvl = '';
+                byHospital[hospital].forEach(r => {
+                    const lvl = ((r.risk_profile || {}).overall_risk_level || '').toLowerCase();
+                    const rank = riskRank[lvl] !== undefined ? riskRank[lvl] : 4;
+                    if (rank < worst) { worst = rank; worstLvl = lvl; }
+                });
+                hospitalRiskRank[hospital] = worst;
+                hospitalWorstLevel[hospital] = worstLvl;
+            });
+            const riskBadgeColors = { critical: '#b71c1c', high: '#c62828', moderate: '#e65100', low: '#2e7d32' };
+            const riskBadgeLabels = { critical: __('Critical'), high: __('High'), moderate: __('Moderate'), low: __('Low') };
+
+            // فواصل مجموعات الخطر بين البطاقات: الحرجة → العالية → المتوسطة → المنخفضة → الأخرى
+            const sortedHospitals = Object.keys(byHospital)
+                .sort((a, b) => hospitalRiskRank[a] - hospitalRiskRank[b] || a.localeCompare(b));
+            let currentRank = -1;
+            sortedHospitals.forEach(hospital => {
+                const rank = hospitalRiskRank[hospital];
+                if (rank !== currentRank) {
+                    currentRank = rank;
+                    const groupLvl = hospitalWorstLevel[hospital] || '';
+                    const groupCount = sortedHospitals.filter(h => hospitalRiskRank[h] === rank).length;
+                    html += _riskGroupHeader(groupLvl, groupCount);
+                }
                 const reports = byHospital[hospital];
+                const worstLvl = hospitalWorstLevel[hospital] || '';
+                const badgeColor = riskBadgeColors[worstLvl] || '#888';
+                const badgeLabel = riskBadgeLabels[worstLvl] || '';
                 html += '<div class="card" style="margin-bottom:0.8rem;padding:0.6rem 0.8rem;">';
-                html += '<h3 style="margin:0 0 0.5rem 0;color:#1a237e;font-size:0.95rem;">' + esc(hospital) + ' <span style="font-weight:400;font-size:0.78rem;color:#888;">(' + reports.length + ')</span></h3>';
+                html += '<h3 style="margin:0 0 0.5rem 0;color:#1a237e;font-size:0.95rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">' + esc(hospital);
+                if (badgeLabel) {
+                    html += '<span style="font-size:0.66rem;font-weight:700;color:#fff;background:' + badgeColor + ';border-radius:10px;padding:0.1rem 0.55rem;">' + badgeLabel + '</span>';
+                }
+                html += '<span style="font-weight:400;font-size:0.78rem;color:#888;">(' + reports.length + ')</span></h3>';
 
                 reports.sort((a, b) => a.month.localeCompare(b.month)).forEach(r => {
                     const s = r.summary || {};
@@ -237,11 +322,12 @@
                     html += '<div style="display:flex;align-items:center;gap:0.5rem;">';
                     html += '<strong style="font-size:0.85rem;">' + r.month + '</strong>';
                     html += _scoreBadge(score);
-                    if (rp.overall_risk_level) {
-                        html += '<span style="font-size:0.72rem;color:' + _riskColor(rp.overall_risk_level) + ';font-weight:600;">Risk: ' + rp.overall_risk_level + '</span>';
-                    }
                     html += '</div>';
+                    html += '<span style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">';
                     html += '<span style="font-size:0.72rem;color:#888;">Deliveries: ' + deliveries + '</span>';
+                    if (cls.length) html += '<span style="font-size:0.72rem;color:#888;">' + cls.length + ' indicators</span>';
+                    html += '<a href="#" data-hosp="' + esc(r.hospital) + '" data-month="' + r.month + '" onclick="openBatchDetail(this);return false;" style="font-size:0.7rem;color:#1565c0;text-decoration:underline;white-space:nowrap;">' + __('Open Details') + '</a>';
+                    html += '</span>';
                     html += '</div>';
 
                     // ── Key indicator pills ──
@@ -259,16 +345,6 @@
                             html += '<div style="font-size:0.74rem;color:#555;padding:0.05rem 0;padding-left:0.6rem;">▸ ' + esc(f) + '</div>';
                         });
                         html += '</div>';
-                    }
-
-                    // ── Clinical indicators ──
-                    if (s.clinical_indicators && s.clinical_indicators.length) {
-                        html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
-                        html += '<summary style="cursor:pointer;color:#1a237e;font-weight:600;font-size:0.76rem;">Clinical Indicators</summary>';
-                        s.clinical_indicators.forEach(ci => {
-                            html += '<div style="padding:0.05rem 0;padding-left:0.6rem;color:#555;">▸ ' + esc(ci) + '</div>';
-                        });
-                        html += '</details>';
                     }
 
                     // ── Risk profile metrics (critical/high only) ──
@@ -356,51 +432,6 @@
             });
 
             container.innerHTML = html;
-        }
-
-        export function showReportDetail(hospital, month) {
-            const data = uploadedData;
-            let analysis = null;
-            if (data && data.clinical_analyses) {
-                analysis = data.clinical_analyses.find(a => a.hospital === hospital && a.month === month);
-            }
-            if (!analysis) {
-                // try loading from the uploaded report data — fetch single clinical endpoint
-                const hosp = uploadedData && uploadedData.hospitals ? uploadedData.hospitals.find(h => h.name === hospital) : null;
-                if (hosp) {
-                    fetch(API() + '/clinical/' + hosp.id + '?month=' + encodeURIComponent(month))
-                        .then(r => r.json())
-                        .then(ca => {
-                            if (ca && ca.hospital) {
-                                showModal('<h3>Clinical Intelligence: ' + esc(ca.hospital) + ' / ' + ca.month + '</h3><div id="modalClinicalContent"></div>');
-                                const tmpContainer = document.createElement('div');
-                                document.body.appendChild(tmpContainer);
-                                // quick inline render
-                                let inner = '';
-                                const s = ca.summary || {};
-                                inner += '<div style="padding:0.5rem;background:#e8eaf6;border-radius:4px;margin-bottom:0.5rem;">';
-                                inner += '<strong>Assessment:</strong> ' + (s.overall_assessment || 'N/A');
-                                inner += ' | <strong>Risk:</strong> ' + (ca.risk_profile?.overall_risk_level || 'N/A');
-                                inner += '</div>';
-                                if (s.executive_summary) {
-                                    inner += '<div style="padding:0.5rem;background:#f3e5f5;border-left:3px solid #7b1fa2;border-radius:4px;margin-bottom:0.5rem;font-size:0.85rem;color:#4a148c;line-height:1.6;">';
-                                    inner += esc(s.executive_summary).replace(/\n/g,'<br>');
-                                    inner += '</div>';
-                                }
-                                document.getElementById('modalClinicalContent').innerHTML = inner;
-                                tmpContainer.remove();
-                            }
-                        })
-                        .catch(() => { showModal('<p>Could not load clinical details for ' + esc(hospital) + ' / ' + month + '</p>'); });
-                } else {
-                    showModal('<p>No clinical data available for ' + esc(hospital) + ' / ' + month + '</p>');
-                }
-                return;
-            }
-            switchTab('clinical');
-            document.getElementById('clinicalHospitalSelect').value = analysis.hospital;
-            document.getElementById('clinicalMonthSelect').value = analysis.month;
-            renderClinical(analysis);
         }
 
         export function showRuleFailureDetail(ruleCode, hospital, month) {

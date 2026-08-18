@@ -2,11 +2,90 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Hospital, QualityScore, ConfidenceScore
-from app.engine.root_cause import generate_root_cause_analysis
+from app.engine.root_cause import generate_root_cause_analysis, get_historical_data, get_peer_historical_data
 from app.engine.pipeline import run_full_analysis
 import json
 
 router = APIRouter(prefix="/root-cause", tags=["root-cause"])
+
+# المؤشرات المصدرية الأساسية للمقارنة الزمنية (أكواد مخزنة) مع أسمائها العربية
+_TIMELINE_INDICATORS = [
+    ("2", "إجمالي الولادات"),
+    ("6", "المواليد الأحياء"),
+    ("5", "الولادات القيصرية"),
+    ("10", "المضاعفات الخطيرة (SMM)"),
+    ("11", "الوفيات الأمومية"),
+    ("17", "وفيات المواليد"),
+    ("7", "الوفيات الجنينية"),
+    ("6.f", "الولادات المبكرة"),
+    ("6.g", "نقص وزن الولادة"),
+]
+
+
+@router.get("/{hospital_id}/timeline")
+def get_root_cause_timeline(
+    hospital_id: int,
+    month: str = Query(..., description="Month YYYY-MM"),
+    months_back: int = Query(6, ge=2, le=12, description="Months of history to compare"),
+    db: Session = Depends(get_db),
+):
+    """المقارنة الزمنية لكل مؤشر: قيمة المستشفى شهراً بشهر مقابل متوسط النظير.
+
+    يبني سلسلة {month, hospital_value, peer_mean, peer_lower, peer_upper} لكل مؤشر
+    مصدري مخزن — باستخدام get_historical_data (خط المستشفى) و get_peer_historical_data
+    (متوسط النظير) مع فاصل ثقة 95% حول متوسط النظير.
+    """
+    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hospital or not hospital.is_active:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+
+    indicators = []
+    for code, ar_name in _TIMELINE_INDICATORS:
+        hist = get_historical_data(db, hospital_id, code, months_back, month=month)
+        if len(hist) < 2:
+            continue  # لا مقارنة زمنية بشهر واحد
+        peers = get_peer_historical_data(db, hospital_id, code, months_back, month=month)
+
+        # تجميع قيم النظير لكل شهر
+        month_peers = {}
+        for pts in peers.values():
+            for p in pts:
+                month_peers.setdefault(p.month, []).append(p.value)
+
+        series = []
+        for p in hist:
+            pvals = month_peers.get(p.month)
+            if pvals:
+                n = len(pvals)
+                mean = sum(pvals) / n
+                std = (sum((v - mean) ** 2 for v in pvals) / (n - 1)) ** 0.5 if n > 1 else 0.0
+                margin = 1.96 * std / (n ** 0.5) if n > 1 else 0.0  # فاصل ثقة 95%
+                series.append({
+                    "month": p.month,
+                    "hospital_value": round(p.value, 2),
+                    "peer_mean": round(mean, 2),
+                    "peer_lower": round(max(0.0, mean - margin), 2),
+                    "peer_upper": round(mean + margin, 2),
+                    "peer_count": n,
+                })
+            else:
+                series.append({
+                    "month": p.month,
+                    "hospital_value": round(p.value, 2),
+                    "peer_mean": None, "peer_lower": None, "peer_upper": None, "peer_count": 0,
+                })
+        indicators.append({
+            "indicator_code": code,
+            "indicator_name": ar_name,
+            "series": series,
+        })
+
+    return {
+        "hospital": hospital.name,
+        "hospital_id": hospital_id,
+        "month": month,
+        "indicators": indicators,
+    }
 
 
 @router.get("/{hospital_id}")
@@ -89,6 +168,17 @@ def get_root_cause_analysis(
         "critical_issues_count": report.critical_issues_count,
         "summary": report.summary,
         "priority_actions": report.priority_actions,
+        "priority_action_details": [
+            {
+                "action": p.action,
+                "source": p.source,
+                "severity": p.severity,
+                "impact": p.impact,
+                "effort": p.effort,
+                "roi": p.roi,
+            }
+            for p in report.priority_action_details
+        ],
         "top_rule_failures": [
             {
                 "rule_code": f.rule_code,
@@ -144,6 +234,10 @@ def get_root_cause_analysis(
                 "trend": n.trend,
                 "trend_slope": n.trend_slope,
                 "severity": n.severity,
+                "history": [
+                    {"month": h.month, "value": h.value}
+                    for h in n.history
+                ],
             }
             for n in report.causal_tree
         ]
@@ -157,18 +251,24 @@ def get_root_cause_analysis(
                 "recommended_action": c.recommended_action,
                 "impact_if_fixed": c.impact_if_fixed,
                 "implementation_priority": c.implementation_priority,
+                "chain_path": c.chain_path,
+                "chain_path_arabic": c.chain_path_arabic,
             }
             for c in report.causal_chains
         ]
         response["historical_trends"] = report.historical_trends
         response["peer_comparisons"] = {
             k: {
+                "indicator_code": v.indicator_code,
+                "indicator_name": v.indicator_name,
+                "hospital_value": v.hospital_value,
                 "peer_group": v.peer_group,
                 "peer_count": v.peer_count,
-                "mean_value": v.mean_value,
+                "peer_mean": v.peer_mean,
+                "peer_std": v.peer_std,
                 "hospital_percentile": v.hospital_percentile,
                 "hospital_z_score": v.hospital_z_score,
-                "gap_to_benchmark": v.gap_to_benchmark,
+                "gap_pct": v.gap_pct,
             }
             for k, v in report.peer_comparisons.items()
         }

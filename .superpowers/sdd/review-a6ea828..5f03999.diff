@@ -1,0 +1,77 @@
+﻿# Review package: a6ea828..5f03999
+
+## Commits
+5f03999 fix: serialize nested dataclasses in full data export package
+
+## Files changed
+ app/engine/export.py | 2 ++
+ tests/test_export.py | 2 ++
+ 2 files changed, 4 insertions(+)
+
+## Diff
+diff --git a/app/engine/export.py b/app/engine/export.py
+index d1718af..79a704f 100644
+--- a/app/engine/export.py
++++ b/app/engine/export.py
+@@ -26,20 +26,22 @@ def _sanitize(obj: Any) -> Any:
+             return _sanitize(obj.tolist())
+         except (ValueError, AttributeError, TypeError):
+             pass
+     if hasattr(obj, "item") and not isinstance(obj, (int, float, str, bool)):
+         try:
+             return obj.item()
+         except (ValueError, AttributeError, TypeError):
+             pass
+     if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+         return 0.0
++    if hasattr(obj, "__dict__") and not isinstance(obj, (int, float, str, bool)):
++        return _sanitize(vars(obj))
+     return obj
+ 
+ 
+ def _get_available_months(session: Session) -> List[str]:
+     """Distinct months that have indicator values, sorted ascending."""
+     months = [m for (m,) in session.query(IndicatorValue.month).distinct().all()]
+     return sorted(months)
+ 
+ 
+ def _get_master_data(session: Session) -> Dict[str, Any]:
+diff --git a/tests/test_export.py b/tests/test_export.py
+index 618e806..38ce866 100644
+--- a/tests/test_export.py
++++ b/tests/test_export.py
+@@ -1,11 +1,12 @@
+ """Tests for the full data export feature."""
++import json
+ from unittest.mock import patch
+ 
+ import pytest
+ from fastapi.testclient import TestClient
+ from app.main import app
+ from app.database import get_db
+ 
+ 
+ @pytest.fixture
+ def client(db_session):
+@@ -101,20 +102,21 @@ def test_get_indicator_values_grouped_by_month(db_session):
+ def test_build_full_export_structure(db_session):
+     from app.engine.export import build_full_export
+     pkg = build_full_export(db_session, "2026-06", "ar")
+     assert pkg["meta"]["scope"] == "2026-06"
+     assert pkg["meta"]["lang"] == "ar"
+     assert pkg["meta"]["schema_version"] == 1
+     assert "master_data" in pkg
+     assert "indicator_values" in pkg
+     assert "analysis" in pkg
+     assert "2026-06" in pkg["analysis"]
++    assert isinstance(json.loads(json.dumps(pkg, ensure_ascii=False)), dict)
+ 
+ 
+ def test_build_full_export_smart_sections(db_session):
+     from app.engine.export import build_full_export
+     pkg = build_full_export(db_session, "2026-06", "ar")
+     smart = pkg["analysis"]["2026-06"]["smart"]
+     for key in ("kpi", "anomalies", "clustering", "correlations", "residuals",
+                 "stratified", "explanations", "geo"):
+         assert key in smart
+ 

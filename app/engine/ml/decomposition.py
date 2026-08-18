@@ -33,13 +33,21 @@ def run_pca(
         return None
 
     scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        X_scaled = scaler.fit_transform(X)
+    # Zero-variance columns (identical values across hospitals) produce NaN after
+    # scaling; PCA then emits NaN explained-variance which breaks JSON serialization.
+    X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
 
     n = min(config.get("max_components", 5), X_scaled.shape[0], X_scaled.shape[1])
     pca = PCA(n_components=n, random_state=42)
-    pca.fit(X_scaled)
+    # The divide (explained_variance / total_var) happens inside fit() itself, so
+    # the errstate must wrap the fit call to silence the zero-variance warning.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        pca.fit(X_scaled)
 
-    explained = [round(float(v), 4) for v in pca.explained_variance_ratio_]
+    raw_explained = pca.explained_variance_ratio_
+    explained = [round(float(v), 4) if np.isfinite(v) else 0.0 for v in raw_explained]
     cumulative = []
     running = 0.0
     for v in explained:
@@ -59,7 +67,8 @@ def run_pca(
     for comp_idx in range(n_selected):
         comp_loadings = {}
         for feat_idx, feat_name in enumerate(FEATURE_KEYS):
-            comp_loadings[feat_name] = round(float(pca.components_[comp_idx][feat_idx]), 4)
+            raw_val = pca.components_[comp_idx][feat_idx]
+            comp_loadings[feat_name] = round(float(raw_val), 4) if np.isfinite(raw_val) else 0.0
         loadings[comp_idx + 1] = comp_loadings
         sorted_feats = sorted(comp_loadings.items(), key=lambda x: abs(x[1]), reverse=True)
         top_features[comp_idx + 1] = [f[0] for f in sorted_feats[:3]]

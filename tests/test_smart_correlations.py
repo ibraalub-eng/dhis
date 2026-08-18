@@ -65,8 +65,72 @@ def test_feature_importance_present(sample_data, default_config):
         assert len(fi.features) > 0
 
 
+def test_bh_correction_flags_only_significant():
+    """تصحيح FDR يبقي فقط الاختبارات الأصغر من عتبة Benjamini-Hochberg."""
+    from app.engine.smart.correlations import _bh_significant
+    pvals = np.array([0.5, 0.3, 0.01])
+    mask = _bh_significant(pvals, q=0.05)
+    assert mask.tolist() == [False, False, True]
+
+
+def test_bh_correction_none_significant():
+    from app.engine.smart.correlations import _bh_significant
+    mask = _bh_significant(np.array([0.9, 0.8, 0.7]), q=0.05)
+    assert not mask.any()
+
+
+def test_bh_correction_empty():
+    from app.engine.smart.correlations import _bh_significant
+    mask = _bh_significant(np.array([]))
+    assert len(mask) == 0
+
+
 def test_too_few_hospitals():
     data = {"H1": {"hospital_id": 1, "governorate": "Gaza", "hospital_type": "general", "values": {"cs_rate": 30.0}}}
     result = analyze_correlations(data, {})
     assert result is not None
     assert len(result.strong_correlations) == 0
+
+
+def test_correlations_serialized_as_plain_dicts(sample_data, default_config):
+    """التسلسل للواجهة يحوّل strong_correlations/feature_importance لقواميس بمفاتيح رقمية صالحة."""
+    from app.api.smart_analytics import _correlations_to_dict
+    result = analyze_correlations(sample_data, default_config)
+    serialized = _correlations_to_dict(result)
+    assert isinstance(serialized, dict)
+    assert "matrix" in serialized and "indicators" in serialized
+    assert isinstance(serialized["strong_correlations"], list)
+    for pair in serialized["strong_correlations"]:
+        assert isinstance(pair, dict)
+        assert "pearson_r" in pair and "spearman_r" in pair
+        assert isinstance(pair["pearson_r"], float)
+        assert abs(pair["pearson_r"]) <= 1.0
+    assert isinstance(serialized["feature_importance"], list)
+    for fi in serialized["feature_importance"]:
+        assert isinstance(fi, dict)
+        assert all(isinstance(e, dict) for e in fi["features"])
+
+
+def test_correlations_serialization_sanitizes_nan():
+    """القيم غير المنتهية داخل pearson_r تُنظف إلى 0.0 بدل التسريب كـ NaN."""
+    import math
+    from app.api.smart_analytics import _correlations_to_dict
+    from app.engine.smart.schemas import (
+        SmartCorrelationResult, CorrelationPair, FeatureImportance, ImportanceEntry,
+    )
+    result = SmartCorrelationResult(
+        matrix={"cs_rate": {"cs_rate": 1.0}},
+        indicators=["cs_rate"],
+        strong_correlations=[CorrelationPair(
+            indicator_a="cs_rate", indicator_b="smm_total",
+            pearson_r=float("nan"), spearman_r=0.8, p_value=0.001, strength="strong_positive",
+        )],
+        feature_importance=[FeatureImportance(
+            target_indicator="cs_rate",
+            features=[ImportanceEntry(feature_name="x", importance=0.3, rank=1)],
+        )],
+    )
+    serialized = _correlations_to_dict(result)
+    pair = serialized["strong_correlations"][0]
+    assert pair["pearson_r"] == 0.0
+    assert not math.isnan(pair["pearson_r"])

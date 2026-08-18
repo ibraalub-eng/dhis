@@ -138,6 +138,7 @@ def _get_smart_analysis(session: Session, month: str) -> Dict[str, Any]:
         "geo": {
             "governorates": [g.__dict__ for g in result.geo.governorates],
         } if result.geo else None,
+        "patterns": [p.__dict__ for p in result.patterns],
     }
     if result.xgboost_predictions:
         xgb = result.xgboost_predictions

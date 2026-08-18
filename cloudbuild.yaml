@@ -1,0 +1,96 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Health AI — SRMNH  →  Cloud Build CI/CD
+#
+#  Runs automatically on every push (or manually):
+#     1. build   — build the Docker image
+#     2. test    — run the full pytest suite INSIDE the built image
+#     3. deploy  — push to Cloud Run
+#     4. smoke   — health-check the live service URL (/health)
+#
+#  Required substitutions (set on the trigger or via --substitutions):
+#     _REGION   (default europe-west1)
+#     _SERVICE  (default health-ai)
+#     _IMAGE    (default europe-west1-docker.pkg.dev/$PROJECT_ID/health-ai-images/health-ai)
+#
+#  Manual run:
+#     gcloud builds submit --config cloudbuild.yaml --substitutions=_REGION=europe-west1,_SERVICE=health-ai
+# ─────────────────────────────────────────────────────────────────────────────
+
+substitutions:
+  _REGION: europe-west1
+  _SERVICE: health-ai
+  _IMAGE: europe-west1-docker.pkg.dev/${PROJECT_ID}/health-ai-images/health-ai
+
+steps:
+  # 1 ── Build the image ──────────────────────────────────────────────────────
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE}", "."]
+    waitFor: ["-"]
+
+  # 2 ── Run the test suite INSIDE the built image ────────────────────────────
+  #     The image has all Python deps; we mount the workspace (source + tests)
+  #     over /workspace and run pytest there with an in-memory SQLite DB.
+  #     Any failing test aborts the pipeline BEFORE the deploy step.
+  - id: test
+    name: gcr.io/cloud-builders/docker
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        docker run --rm \
+          --workdir /workspace \
+          -v /workspace:/workspace \
+          ${_IMAGE} \
+          sh -c "python -m pytest tests/ -q --tb=short --disable-warnings -p no:cacheprovider"
+    waitFor: ["build"]
+
+  # 3 ── Deploy to Cloud Run ──────────────────────────────────────────────────
+  #     Uses the same env/secret wiring as deploy-cloudrun.sh. DATABASE_URL
+  #     must exist in Secret Manager (create it once via deploy-cloudrun.sh).
+  - id: deploy
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud run deploy "${_SERVICE}" \
+          --image "${_IMAGE}" \
+          --platform managed \
+          --region "${_REGION}" \
+          --allow-unauthenticated \
+          --min-instances 0 \
+          --max-instances 3 \
+          --memory 1Gi \
+          --cpu 1 \
+          --timeout 300 \
+          --set-env-vars "AI_RECOMMENDATIONS_ENABLED=false,DATA_DIR=/tmp/health-ai-data" \
+          --set-secrets "DATABASE_URL=database-url:latest"
+    waitFor: ["test"]
+
+  # 4 ── Smoke test the live service ──────────────────────────────────────────
+  #     Retries for up to ~2 minutes while the revision warms up, then fails
+  #     the build if /health never returns 200.
+  - id: smoke
+    name: gcr.io/cloud-builders/curl
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        URL="$$(gcloud run services describe "${_SERVICE}" --region "${_REGION}" --format='value(status.url)')"
+        echo "Smoke-testing ${URL}/health"
+        for i in $$(seq 1 24); do
+          if curl -fsS --max-time 10 "${URL}/health"; then
+            echo ""
+            echo "✅ Health check passed (attempt $$i)"
+            exit 0
+          fi
+          echo "   attempt $$i failed, retrying in 5s..."
+          sleep 5
+        done
+        echo "❌ Service never became healthy" >&2
+        exit 1
+    waitFor: ["deploy"]
+
+options:
+  logging: CLOUD_LOGGING_ONLY

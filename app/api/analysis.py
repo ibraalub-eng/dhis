@@ -623,9 +623,12 @@ def heatmap_data(month: str = Query(None), db: Session = Depends(get_db)):
 @router.post("/generate-report")
 def generate_report(
     month: Optional[str] = Query(None, description="Month YYYY-MM, or omit for all months"),
+    hospital_id: Optional[int] = Query(None, description="Hospital ID, or omit for all hospitals"),
     db: Session = Depends(get_db),
 ):
     hospitals = db.query(Hospital).order_by(Hospital.name).all()
+    if hospital_id:
+        hospitals = [h for h in hospitals if h.id == hospital_id]
     if not hospitals:
         raise HTTPException(status_code=404, detail="No hospitals found")
 
@@ -715,6 +718,7 @@ def generate_report(
                     consistency=qs.consistency if qs else 0,
                     rule_compliance=qs.rule_compliance if qs else 0,
                     outlier_penalty=qs.outlier_penalty if qs else 0,
+                    session=db,  # مشاركة نفس التخزين المؤقت للـ AI (مفتاح: مستشفى + شهر) مع التحليل الفردي
                 )
                 reports.append(ca.to_dict())
             except Exception as e:

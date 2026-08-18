@@ -10,14 +10,17 @@ from app.engine.smart.stratified import run_stratified_analysis
 from app.engine.smart.explainability import explain_anomalies
 from app.engine.smart.geo import aggregate_by_governorate
 from app.engine.smart.xgboost_predictor import run_xgboost_predictions
+from app.engine.smart.patterns import detect_composite_patterns
 
 
 def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
     from app.models import Hospital, IndicatorValue, Indicator
+    from app.engine.pipeline import get_disabled_indicator_ids
 
     hospitals = session.query(Hospital).filter(Hospital.is_active).all()
     indicators = session.query(Indicator).all()
     indicator_map = {ind.id: ind.code for ind in indicators}
+    code_to_id = {ind.code: ind.id for ind in indicators}
 
     all_data = {}
     for hosp in hospitals:
@@ -26,29 +29,53 @@ def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
             IndicatorValue.month == month,
         ).all()
 
+        # قاعدة الإعدادات: المؤشرات المعطّلة (يدوياً أو تلقائياً لغياب البيانات)
+        # لا تدخل في التحليل الذكي إطلاقاً — تُستبعد قبل بناء المتجهات
+        disabled_ids = set(get_disabled_indicator_ids(session, hosp.id, month))
+        disabled_codes = {
+            ind.code for ind in indicators if ind.id in disabled_ids
+        }
+
         indicator_values = {}
         for iv in values:
             code = indicator_map.get(iv.indicator_id, "")
-            if code and iv.value is not None:
+            if code and code not in disabled_codes and iv.value is not None:
                 indicator_values[code] = float(iv.value)
 
-        total_deliveries = indicator_values.get("2", 0)
-        cs_count = indicator_values.get("5", 0)
-        live_births = indicator_values.get("6", 0)
+        def _src(code: str) -> float:
+            """قيمة مؤشر مصدري صالح (غير معطّل وغير غائب)، أو None."""
+            if code in disabled_codes:
+                return None
+            return indicator_values.get(code)
 
-        derived = {
-            "cs_rate": (cs_count / total_deliveries * 100) if total_deliveries > 0 else 0,
-            "smm_total": indicator_values.get("10", 0),
-            "mat_deaths": indicator_values.get("11", 0),
-            "nd": indicator_values.get("17", 0),
-            "sb": indicator_values.get("7", 0),
-            "preterm": indicator_values.get("6.f", 0),
-            "lbw": indicator_values.get("6.g", 0),
-            "total_births": live_births,
-            "high_risk": indicator_values.get("2.n", 0),
-            "adolescent": indicator_values.get("2.c", 0) + indicator_values.get("2.d", 0),
-        }
+        # المشتقات تُبنى من مصادر صالحة فقط؛ عند غياب/تعطّل المصدر تبقى None
+        # (يُملأ الوسيط مكانها في متجه الميزات) بدل 0 المصطنع الذي كان يُدخل
+        # مستشفيات بلا بيانات كشاذة.
+        total_deliveries = _src("2")
+        cs_count = _src("5")
+        live_births = _src("6")
+
+        derived = {}
+        if total_deliveries is not None and total_deliveries > 0 and cs_count is not None:
+            derived["cs_rate"] = cs_count / total_deliveries * 100
+        for feature, src_code in [
+            ("smm_total", "10"), ("mat_deaths", "11"), ("nd", "17"),
+            ("sb", "7"), ("preterm", "6.f"), ("lbw", "6.g"),
+            ("total_births", "6"), ("high_risk", "2.n"),
+        ]:
+            v = _src(src_code)
+            if v is not None:
+                derived[feature] = v
+        a = _src("2.c")
+        b = _src("2.d")
+        if a is not None or b is not None:
+            derived["adolescent"] = (a or 0) + (b or 0)
+
         indicator_values.update(derived)
+
+        # مستشفى بلا أي قيم صالحة بعد التصفية يُستبعد من التحليل (لا يتسرب بصفر مصطنع)
+        if not indicator_values:
+            continue
 
         all_data[hosp.name] = {
             "hospital_id": hosp.id,
@@ -81,22 +108,27 @@ def run_smart_analytics(session: Session, month: str) -> SmartAnalyticsResult:
 
     enabled = config.get("enabled", 1.0) > 0.5
 
-    anomalies = detect_smart_anomalies(all_data, config, enabled=enabled)
-    clustering = run_clustering(all_data, config, enabled=enabled)
-    correlations = analyze_correlations(all_data, config)
+    # Compute residuals FIRST so they can genuinely feed the anomaly ensemble.
     residuals = analyze_residuals(all_data, config)
-    stratified = run_stratified_analysis(all_data, config)
-    explanations = explain_anomalies(anomalies, all_data, config)
-    geo = aggregate_by_governorate(anomalies, all_data)
-
-    residual_by_hospital = {}
+    residual_scores = {}
     for r in residuals:
         if r.indicator == "cs_rate":
-            residual_by_hospital[r.hospital_name] = abs(r.residual_z_score) / 4.0
+            residual_scores[r.hospital_name] = abs(r.residual_z_score) / 4.0
 
-    for a in anomalies:
-        if a.hospital_name in residual_by_hospital:
-            a.method_scores["residual"] = residual_by_hospital[a.hospital_name]
+    anomalies = detect_smart_anomalies(
+        all_data, config, residual_scores=residual_scores, enabled=enabled
+    )
+    clustering = run_clustering(all_data, config, enabled=enabled)
+    correlations = analyze_correlations(all_data, config)
+    stratified = run_stratified_analysis(all_data, config)
+    # يُمرَّر التحليل الطبقي إلى التفسير لتوليد جملة عربية بقيم المستشفى مقابل متوسط النظير
+    explanations = explain_anomalies(anomalies, all_data, config, stratified=stratified)
+    geo = aggregate_by_governorate(anomalies, all_data)
+    # الأنماط المركبة: توليفات مؤشرات تتكرر معاً (Apriori + Lift)
+    try:
+        patterns = detect_composite_patterns(all_data, config, enabled=enabled)
+    except Exception:
+        patterns = []
 
     critical_count = sum(1 for a in anomalies if a.severity == "critical")
     warning_count = sum(1 for a in anomalies if a.severity == "warning")
@@ -144,5 +176,6 @@ def run_smart_analytics(session: Session, month: str) -> SmartAnalyticsResult:
         explanations=explanations,
         geo=geo,
         kpi=kpi,
+        patterns=patterns,
         xgboost_predictions=xgb_predictions,
     )

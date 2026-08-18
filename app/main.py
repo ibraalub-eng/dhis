@@ -5,19 +5,20 @@ from contextlib import asynccontextmanager  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
-from fastapi.responses import FileResponse  # noqa: E402
+from fastapi.responses import HTMLResponse  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.script import ScriptDirectory  # noqa: E402
 from app.database import init_db, SessionLocal, engine  # noqa: E402
 from app.models import AppConfig, FacilityOwnership, FacilityType  # noqa: E402
 from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
-from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router  # noqa: E402
+from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router, regional as regional_router  # noqa: E402
 from app.tasks import get_task  # noqa: E402
 from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR  # noqa: E402
 from scripts.seed_indicators import seed_indicators  # noqa: E402
 from scripts.seed_rules import seed_rules  # noqa: E402
 import os  # noqa: E402
+import re  # noqa: E402
 import logging  # noqa: E402
 
 setup_structured_logging(logging.INFO)
@@ -244,8 +245,32 @@ app.include_router(facility_types_api.router)
 app.include_router(smart_analytics_router.router)
 app.include_router(comparative_router.router)
 app.include_router(export_router.router)
+app.include_router(regional_router.router)
 
 from fastapi.responses import JSONResponse  # noqa: E402
+from sqlalchemy import text as _sa_text  # noqa: E402
+
+
+@app.get("/health")
+def health():
+    """Liveness + readiness probe for Cloud Run / Cloud Build.
+
+    Returns 200 only when the app can reach the database. Cloud Run startup
+    probe uses this endpoint; Cloud Build CI curls it after deploy.
+    """
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        try:
+            db.execute(_sa_text("SELECT 1"))
+        finally:
+            db.close()
+        return {"status": "ok", "database": "ok", "version": "0.1.0"}
+    except Exception as exc:  # pragma: no cover - defensive for readiness
+        return JSONResponse(
+            status_code=503,
+            content={"status": "error", "database": "unreachable", "detail": str(exc)},
+        )
 
 
 @app.get("/tasks/{task_id}")
@@ -255,18 +280,57 @@ def task_status(task_id: str):
         return JSONResponse(status_code=404, content={"error": "Task not found"})
     return task
 
+class NoCacheStaticFiles(StaticFiles):
+    """Serve static assets with no-store so browsers never serve stale
+    JS/HTML after a refactor or hot edit."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
+
+
 static_dir = os.path.join(BASE_DIR, "static")
 if os.path.isdir(static_dir):
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    app.mount("/static", NoCacheStaticFiles(directory=static_dir), name="static")
+
+# بصمة إصدار تلقائية للملفات الثابتة: أي تعديل على أي ملف JS/CSS/HTML يغيّر
+# الرقم فتُعاد عناوين الأصول في index.html بمعامل ?v= جديد — فيجبر المتصفح
+# على جلب النسخ الحديثة بدل العمل بنسخ قديمة مخزنة (cache-busting نهائي).
+_STATIC_ASSET_RE = re.compile(
+    r'(?P<url>/static/(?:js|css|vendor)/[^"\' ]+\.(?:js|css))(?P<query>\?[^"\' ]*)?'
+)
+
+
+def _static_assets_version() -> str:
+    latest = 0.0
+    try:
+        for root, _, files in os.walk(static_dir):
+            for f in files:
+                if f.endswith((".js", ".css", ".html")):
+                    try:
+                        latest = max(latest, os.path.getmtime(os.path.join(root, f)))
+                    except OSError:
+                        continue
+    except OSError:
+        pass
+    return str(int(latest * 1000))
 
 
 @app.get("/dashboard")
 def dashboard():
-    static_dir = os.path.join(BASE_DIR, "static")
     index_path = os.path.join(static_dir, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"error": "Dashboard not found"}
+    if not os.path.exists(index_path):
+        return {"error": "Dashboard not found"}
+    with open(index_path, encoding="utf-8") as fh:
+        html = fh.read()
+    v = _static_assets_version()
+    html = _STATIC_ASSET_RE.sub(lambda m: m.group("url") + "?v=" + v, html)
+    return HTMLResponse(
+        content=html,
+        media_type="text/html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.get("/metrics")

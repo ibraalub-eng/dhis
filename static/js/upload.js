@@ -124,7 +124,6 @@
             const hospOpts = result.hospitals.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
             const monthOpts = months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
             const monthOptsAll = result.months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-            const hospOptsEsc = result.hospitals.map(h => '<option value="' + esc(h.name) + '">' + esc(h.name) + '</option>').join('');
             const hospOptsTree = result.hospitals.map(h => '<option value="' + h.id + '">' + esc(h.name) + '</option>').join('');
             const monthOptsTree = result.months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
 
@@ -132,10 +131,8 @@
             _setHtml('qualityHospitalFilter', '<option value="all">All Hospitals</option>' + result.hospitals.map(h => '<option value="' + esc(h.name) + '">' + esc(h.name) + '</option>').join(''));
             _setHtml('trendHospitalSelect', hospOpts);
             _setHtml('compareMonthSelect', monthOptsAll);
-            _setHtml('clinicalHospitalSelect', '<option value="">Select Hospital</option>' + hospOpts);
-            _setHtml('clinicalMonthSelect', '<option value="">Select Month</option>' + monthOptsAll);
-            _setHtml('reportMonthSelect', '<option value="">All Months</option>' + monthOptsAll);
-            _setHtml('reportHospitalSelect', '<option value="">All Hospitals</option>' + hospOptsEsc);
+            _setHtml('clinicalHospitalSelect', '<option value="">All Hospitals</option>' + hospOpts);
+            _setHtml('clinicalMonthSelect', '<option value="">All Months</option>' + monthOptsAll);
             _setHtml('treeHospitalSelect', hospOptsTree);
             _setHtml('treeMonthSelect', monthOptsTree);
 
@@ -169,7 +166,9 @@
 
 
         export async function loadQualityReports(skipRestore) {
-            document.getElementById('qualityLoading').classList.remove('hidden');
+            const qLoading = document.getElementById('qualityLoading');
+            if (!qLoading) return; // التبويب لم يُحمَّل
+            qLoading.classList.remove('hidden');
             try {
                 const [data, months] = await Promise.all([
                     apiGet('/reports/'),

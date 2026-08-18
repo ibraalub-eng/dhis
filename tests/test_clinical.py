@@ -3,6 +3,7 @@
 Target: 100% coverage of clinical calculation modules.
 Covers: thresholds, classifications, risk, morbidity, recommendations, summary, orchestrator.
 """
+import json
 import pytest
 from app.engine.clinical import (
     ClinicalClassification,
@@ -481,3 +482,36 @@ class TestClinicalIndicatorRegression:
             f"Rate {rate_code}: expected {expected_classification}, "
             f"got {matching[0].classification} (value={matching[0].value})"
         )
+
+
+# ── تخزين استجابات التوصيات السريرية مؤقتاً (حسب المستشفى والشهر) ──
+
+def test_clinical_ai_cached_per_hospital_month(monkeypatch, db_session):
+    """نفس (مستشفى، شهر) = نفس القيم = مفتاح تخزين واحد → استدعاء AI واحد فقط."""
+    from app.engine.clinical import run_clinical_analysis
+    import app.plugins.ai as ai_module
+
+    calls = {"n": 0}
+    canned = json.dumps([{
+        "category": "Test", "priority": "high", "title": "T1",
+        "description": "d", "rationale": "r",
+        "action_items": ["a1"], "indicators_monitored": ["2"],
+    }])
+
+    def fake_call_api(prompt):
+        calls["n"] += 1
+        return canned
+
+    # generate() تستدعي _call_api المُستورد بقيمة في app.plugins.ai
+    monkeypatch.setattr(ai_module, "_call_api", fake_call_api)
+
+    vals = {"2": 100, "5": 30, "6": 95, "10": 2, "11": 0, "7": 1,
+            "17": 1, "6.f": 8, "6.g": 6, "16": 4}
+    r1 = run_clinical_analysis("H1", "2026-06", vals, session=db_session)
+    r2 = run_clinical_analysis("H1", "2026-06", vals, session=db_session)
+    assert calls["n"] == 1, "الاستدعاء الثاني يجب أن يأتي من التخزين المؤقت لا Gemini"
+    assert len(r2.recommendations) >= 1
+
+    # قيم مختلفة (مستشفى/شهر آخر) → استدعاء جديد
+    run_clinical_analysis("H2", "2026-06", {**vals, "5": 60}, session=db_session)
+    assert calls["n"] == 2

@@ -17,6 +17,9 @@ venv/
 # Uploads
 data/uploads/*
 
+# Trained ML model artifacts (regenerated on data change)
+data/models/*
+
 # IDE
 .vscode/
 .idea/

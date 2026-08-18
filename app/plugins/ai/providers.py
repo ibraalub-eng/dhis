@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 AI_ENABLED = os.getenv("AI_RECOMMENDATIONS_ENABLED", "false").lower() == "true"
 AI_PROVIDER = os.getenv("AI_PROVIDER", "gemini")
 AI_API_KEY = os.getenv("AI_API_KEY", "")
-AI_MODEL = os.getenv("AI_MODEL", "gemini-2.0-flash-lite")
+AI_MODEL = os.getenv("AI_MODEL", "gemini-3.5-flash-lite")
 AI_API_URL = os.getenv("AI_API_URL", "")
 AI_MAX_RECOMMENDATIONS = int(os.getenv("AI_MAX_RECOMMENDATIONS", "8"))
 AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "30"))
@@ -26,7 +26,7 @@ def _try_load_db_config():
             AI_ENABLED = cfg.get("ai_enabled", "true").lower() == "true"
             AI_PROVIDER = cfg.get("ai_provider", "gemini")
             AI_API_KEY = cfg.get("ai_api_key", "")
-            AI_MODEL = cfg.get("ai_model", "gemini-2.0-flash-lite")
+            AI_MODEL = cfg.get("ai_model", "gemini-3.5-flash-lite")
             AI_API_URL = cfg.get("ai_api_url", "")
             try:
                 AI_MAX_RECOMMENDATIONS = int(cfg.get("ai_max_recommendations", "8"))
@@ -58,6 +58,12 @@ class AIRuleDef:
     rationale: str
     action_items: List[str] = field(default_factory=list)
     indicators_monitored: List[str] = field(default_factory=list)
+    # حقول عربية اختيارية — تملؤها التوليد المحلي أو استجابة AI عند توفرها
+    category_ar: str = ""
+    title_ar: str = ""
+    description_ar: str = ""
+    rationale_ar: str = ""
+    action_items_ar: List[str] = field(default_factory=list)
 
 
 def _call_openai_api(prompt: str) -> Optional[str]:
@@ -176,6 +182,11 @@ def _parse_response(text: str) -> List[AIRuleDef]:
             rationale=str(item.get("rationale", "")),
             action_items=[str(a) for a in item.get("action_items", [])],
             indicators_monitored=[str(i) for i in item.get("indicators_monitored", [])],
+            category_ar=str(item.get("category_ar", "")),
+            title_ar=str(item.get("title_ar", "")),
+            description_ar=str(item.get("description_ar", "")),
+            rationale_ar=str(item.get("rationale_ar", "")),
+            action_items_ar=[str(a) for a in item.get("action_items_ar", [])],
         ))
     return recs
 
@@ -376,6 +387,7 @@ def _local_executive_summary_fallback(
 
 
 def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
+    """توصيات عامة ثنائية اللغة (عربي/إنجليزي) عند تعذر المزود الخارجي."""
     recs = []
     rs = report_data.get("overall_quality_score", 0)
     _cs = report_data.get("overall_confidence", "")
@@ -388,14 +400,23 @@ def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
         if critical_failures:
             recs.append(AIRuleDef(
                 category="Data Validation",
+                category_ar="التحقق من البيانات",
                 priority="critical",
                 title="Fix Critical Rule Failures",
+                title_ar="معالجة فشل قواعد التحقق الحرج",
                 description=f"{len(critical_failures)} critical rule failure(s) detected affecting data integrity.",
+                description_ar=f"تم رصد {len(critical_failures)} فشل قاعدة حرج يؤثر على سلامة البيانات.",
                 rationale="Critical validation rules failing means the submitted data does not meet minimum quality standards.",
+                rationale_ar="فشل قواعد التحقق الحرجة يعني أن البيانات المُرسلة لا تستوفي الحد الأدنى لمعايير الجودة.",
                 action_items=[
                     "Review each failed rule and correct the source data",
                     "Train data entry staff on the specific rule requirements",
                     "Implement pre-submission validation checks",
+                ],
+                action_items_ar=[
+                    "راجع كل قاعدة فاشلة وصحّح البيانات المصدرية",
+                    "درّب موظفي الإدخال على متطلبات القواعد المحددة",
+                    "فعّل فحوصات تحقق قبل الإرسال",
                 ],
                 indicators_monitored=[f.get("rule_code", "") for f in critical_failures[:5]],
             ))
@@ -403,14 +424,23 @@ def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
     if rs and rs < 60:
         recs.append(AIRuleDef(
             category="Data Quality",
+            category_ar="جودة البيانات",
             priority="high",
             title="Improve Overall Data Quality Score",
+            title_ar="تحسين درجة جودة البيانات الإجمالية",
             description=f"Quality score is {rs:.1f}/100, below the acceptable threshold of 60.",
+            description_ar=f"درجة الجودة {rs:.1f}/100، وهي دون الحد المقبول 60.",
             rationale="Low quality scores indicate systemic issues with completeness, consistency, or compliance.",
+            rationale_ar="درجات الجودة المنخفضة تشير إلى مشاكل منهجية في الاكتمال أو الاتساق أو الالتزام.",
             action_items=[
                 "Audit data entry workflows for gaps",
                 "Review indicator definitions with clinical staff",
                 "Implement automated completeness checks before submission",
+            ],
+            action_items_ar=[
+                "دقّق سير إدخال البيانات بحثاً عن الثغرات",
+                "راجع تعريفات المؤشرات مع الكادر السريري",
+                "فعّل فحوصات اكتمال آلية قبل الإرسال",
             ],
             indicators_monitored=[],
         ))
@@ -419,14 +449,23 @@ def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
     if low_conf:
         recs.append(AIRuleDef(
             category="Confidence Improvement",
+            category_ar="رفع الثقة",
             priority="high",
             title="Address Low Confidence Indicators",
+            title_ar="معالجة مؤشرات الثقة المنخفضة",
             description=f"{len(low_conf)} indicator(s) have critically low confidence scores.",
+            description_ar=f"يوجد {len(low_conf)} مؤشر بثقة منخفضة بشكل حرج.",
             rationale="Low confidence means the data lacks sufficient signals (historical, cross-hospital, trend) to be trusted.",
+            rationale_ar="الثقة المنخفضة تعني أن البيانات تفتقر إلى الإشارات الكافية (تاريخية، عبر المستشفيات، اتجاه) لتُعتمد.",
             action_items=[
                 "Collect additional historical data for affected indicators",
                 "Cross-reference with peer hospitals for benchmarking",
                 "Review data collection methodology for these indicators",
+            ],
+            action_items_ar=[
+                "اجمع بيانات تاريخية إضافية للمؤشرات المتأثرة",
+                "قارن مع المستشفيات النظيرة للقياس المرجعي",
+                "راجع منهجية جمع البيانات لهذه المؤشرات",
             ],
             indicators_monitored=[g.get("indicator_name", "") for g in low_conf[:5]],
         ))
@@ -435,14 +474,23 @@ def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
     if severe_anomalies:
         recs.append(AIRuleDef(
             category="Outlier Management",
+            category_ar="إدارة الشذوذ",
             priority="high",
             title="Investigate Severe Statistical Anomalies",
+            title_ar="التحقيق في الشذوذ الإحصائي الحاد",
             description=f"{len(severe_anomalies)} indicator(s) show severe outlier patterns (|z| > 2.5).",
+            description_ar=f"يُظهر {len(severe_anomalies)} مؤشر أنماط شذوذ حادة (|z| > 2.5).",
             rationale="Severe anomalies may indicate data entry errors, reporting inconsistencies, or genuine clinical concerns that need investigation.",
+            rationale_ar="الشذوذ الحاد قد يشير إلى أخطاء إدخال أو تناقضات في الإبلاغ أو مخاوف سريرية حقيقية تستدعي التحقيق.",
             action_items=[
                 "Verify the source data for each flagged indicator",
                 "Compare with previous months to identify sudden changes",
                 "Investigate whether clinical practice changes explain the anomaly",
+            ],
+            action_items_ar=[
+                "تحقق من البيانات المصدرية لكل مؤشر معلَّم",
+                "قارن مع الأشهر السابقة لتحديد التغيرات المفاجئة",
+                "حقق فيما إذا كانت تغييرات الممارسة السريرية تفسر الشذوذ",
             ],
             indicators_monitored=[a.get("rate_name", "") for a in severe_anomalies[:5]],
         ))
@@ -450,14 +498,23 @@ def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
     if not recs:
         recs.append(AIRuleDef(
             category="Continuous Improvement",
+            category_ar="التحسين المستمر",
             priority="low",
             title="Maintain Data Quality Standards",
+            title_ar="المحافظة على معايير جودة البيانات",
             description="No critical issues detected. Continue regular monitoring and periodic reviews.",
+            description_ar="لا توجد مشاكل حرجة. استمر في المراقبة الدورية والمراجعات.",
             rationale="Sustained data quality requires ongoing attention even when no immediate issues are present.",
+            rationale_ar="الجودة المستدامة تتطلب متابعة مستمرة حتى عند غياب مشاكل فورية.",
             action_items=[
                 "Continue monthly quality reviews",
                 "Document best practices for data entry",
                 "Schedule quarterly training refreshers",
+            ],
+            action_items_ar=[
+                "استمر في المراجعات الشهرية",
+                "وثّق أفضل الممارسات للإدخال",
+                "نظّم تدريبات تنشيطية ربع سنوية",
             ],
             indicators_monitored=[],
         ))
@@ -466,90 +523,151 @@ def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
 
 
 def _local_root_cause_fallback_enhanced(report_data: dict) -> List[AIRuleDef]:
+    """توصيات ثنائية اللغة مع بيانات تاريخية ومقارنة النظير.
+
+    ملاحظة: مؤشرات FEATURE_KEYS هي معدلات سلبية (ارتفاعها = تدهور)، لذا
+    يُستدل على المشكلة من انحراف المستشفى **فوق** متوسط النظير (gap_pct موجب)
+    لا من كون المئوية منخفضة (الانخفاض أداء جيد)."""
     recs = []
+
+    def _ar_label(factor: str) -> str:
+        from app.engine.root_cause import _rule_arabic_labels, INDICATOR_NAMES
+        if factor.startswith("R"):
+            return _rule_arabic_labels([factor])[0]
+        return INDICATOR_NAMES.get(factor, factor)
 
     trends = report_data.get("historical_trends", {})
     for factor, trend_data in trends.items():
         if trend_data.get("direction") == "declining":
             slope = trend_data.get("slope", 0)
+            ar_label = _ar_label(factor)
             if slope < -2:
                 recs.append(AIRuleDef(
                     category="Historical Decline",
+                    category_ar="الانحدار التاريخي",
                     priority="critical",
                     title=f"{factor} declining rapidly (slope={slope:.1f})",
+                    title_ar=f"{ar_label} في انحدار سريع (الميل={slope:.1f})",
                     description=f"{factor} has been declining at {abs(slope):.1f} points/month over the last 6 months.",
+                    description_ar=f"{ar_label} ينخفض بمعدل {abs(slope):.1f} نقطة شهرياً خلال آخر 6 أشهر.",
                     rationale="Rapid decline indicates systemic issue that will worsen without intervention.",
+                    rationale_ar="الانحدار السريع يشير إلى مشكلة منهجية ستتفاقم دون تدخل.",
                     action_items=[
                         f"Investigate root cause of {factor} decline in the last 3 months",
                         "Compare with peer hospitals to identify unique factors",
                         "Implement corrective action within 2 weeks",
                         "Monitor weekly until trend reverses",
                     ],
+                    action_items_ar=[
+                        f"حقق في سبب انحدار {ar_label} خلال آخر 3 أشهر",
+                        "قارن مع المستشفيات النظيرة لتحديد العوامل الفريدة",
+                        "نفّذ إجراءً تصحيحياً خلال أسبوعين",
+                        "راقب أسبوعياً حتى ينعكس الاتجاه",
+                    ],
                     indicators_monitored=[factor],
                 ))
             elif slope < -1:
                 recs.append(AIRuleDef(
                     category="Historical Decline",
+                    category_ar="الانحدار التاريخي",
                     priority="high",
                     title=f"{factor} showing gradual decline",
+                    title_ar=f"{ar_label} في انحدار تدريجي",
                     description=f"{factor} is declining at {abs(slope):.1f} points/month.",
+                    description_ar=f"{ar_label} ينخفض بمعدل {abs(slope):.1f} نقطة شهرياً.",
                     rationale="Gradual decline may indicate process drift or training gaps.",
+                    rationale_ar="الانحدار التدريجي قد يشير إلى انحراف في العمليات أو ثغرات تدريبية.",
                     action_items=[
                         f"Review {factor} data entry procedures",
                         "Schedule refresher training for data entry staff",
                         "Set up monthly monitoring alerts",
+                    ],
+                    action_items_ar=[
+                        f"راجع إجراءات إدخال بيانات {ar_label}",
+                        "نظّم تدريباً تنشيطياً لموظفي الإدخال",
+                        "أنشئ تنبيهات مراقبة شهرية",
                     ],
                     indicators_monitored=[factor],
                 ))
 
     comparisons = report_data.get("peer_comparisons", {})
     for group, comp_data in comparisons.items():
-        percentile = comp_data.get("hospital_percentile", 100)
+        gap_pct = comp_data.get("gap_pct", 0)
         z_score = comp_data.get("hospital_z_score", 0)
+        ind_name = comp_data.get("indicator_name", comp_data.get("indicator_code", group))
+        ar_name = _ar_label(ind_name)
 
-        if percentile < 25:
+        # معدلات سلبية: الانحراف الموجب فوق النظير هو المشكلة الحقيقية
+        if gap_pct and gap_pct > 20:
             recs.append(AIRuleDef(
                 category="Peer Comparison",
+                category_ar="مقارنة النظير",
                 priority="high",
-                title=f"Bottom {100-percentile:.0f}% compared to {group} peers",
-                description=f"Hospital ranks in bottom {100-percentile:.0f}% compared to {group} peers (percentile={percentile:.0f}).",
-                rationale="Consistently underperforming peers indicates structural issues that need addressing.",
+                title=f"{ind_name} is {gap_pct:.0f}% above peer mean",
+                title_ar=f"{ar_name} أعلى من متوسط النظير بـ {gap_pct:.0f}%",
+                description=f"Hospital value is {gap_pct:.0f}% above the peer mean for {ind_name}.",
+                description_ar=f"قيمة المستشفى أعلى من متوسط النظير بنسبة {gap_pct:.0f}% لمؤشر {ar_name}.",
+                rationale="Being consistently above peers on a negative-rate indicator signals worse outcomes that need investigation.",
+                rationale_ar="الارتفاع المستمر فوق النظير في معدل سلبي يشير إلى نتائج أسوأ تستدعي التحقيق.",
                 action_items=[
-                    "Study best practices from benchmark hospitals",
-                    "Identify process differences with top performers",
-                    "Set improvement targets based on peer benchmarks",
-                    "Schedule site visit to high-performing peer hospital",
+                    "Review the indicator value against source records",
+                    "Compare data entry practices with peer hospitals",
+                    "Investigate clinical causes with the care team",
                 ],
-                indicators_monitored=[],
+                action_items_ar=[
+                    "راجع قيمة المؤشر مقابل السجلات المصدرية",
+                    "قارن ممارسات الإدخال مع المستشفيات النظيرة",
+                    "حقق في الأسباب السريرية مع فريق الرعاية",
+                ],
+                indicators_monitored=[comp_data.get("indicator_code", "")],
             ))
 
         if abs(z_score) > 2:
             direction = "above" if z_score > 0 else "below"
+            direction_ar = "أعلى" if z_score > 0 else "أدنى"
             recs.append(AIRuleDef(
                 category="Peer Comparison",
+                category_ar="مقارنة النظير",
                 priority="medium",
                 title=f"Significant deviation from {group} mean",
+                title_ar=f"انحراف كبير عن متوسط مجموعة {ar_name}",
                 description=f"Hospital is {abs(z_score):.1f} standard deviations {direction} the {group} mean.",
+                description_ar=f"المستشفى يبعد {abs(z_score):.1f} انحراف معياري {direction_ar} متوسط {ar_name}.",
                 rationale="Large deviation from peers suggests unique factors affecting this hospital.",
+                rationale_ar="الانحراف الكبير عن النظير يشير إلى عوامل فريدة تؤثر على هذا المستشفى.",
                 action_items=[
                     "Investigate what makes this hospital different from peers",
                     "Determine if deviation is positive (best practice) or negative (needs improvement)",
                     "Document and share any unique practices",
                 ],
-                indicators_monitored=[],
+                action_items_ar=[
+                    "حقق في ما يجعل هذا المستشفى مختلفاً عن النظير",
+                    "حدد إن كان الانحراف إيجابياً (ممارسة جيدة) أو سلبياً (يحتاج تحسيناً)",
+                    "وثّق وشارك أي ممارسات فريدة",
+                ],
+                indicators_monitored=[comp_data.get("indicator_code", "")],
             ))
 
     if not recs:
         recs.append(AIRuleDef(
             category="Continuous Improvement",
+            category_ar="التحسين المستمر",
             priority="low",
             title="Maintain Data Quality Standards",
+            title_ar="المحافظة على معايير جودة البيانات",
             description="No critical historical or comparative issues detected. Continue regular monitoring.",
+            description_ar="لا توجد مشاكل تاريخية أو مقارنة حرجة. استمر في المراقبة الدورية.",
             rationale="Sustained data quality requires ongoing attention even when no immediate issues are present.",
+            rationale_ar="الجودة المستدامة تتطلب متابعة مستمرة حتى عند غياب مشاكل فورية.",
             action_items=[
                 "Continue monthly quality reviews",
                 "Document best practices for data entry",
                 "Schedule quarterly training refreshers",
+            ],
+            action_items_ar=[
+                "استمر في المراجعات الشهرية",
+                "وثّق أفضل الممارسات للإدخال",
+                "نظّم تدريبات تنشيطية ربع سنوية",
             ],
             indicators_monitored=[],
         ))

@@ -135,6 +135,7 @@ def save_manual_entry(
     cache.invalidate("smart_residuals_")
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
+    cache.invalidate("smart_timeline")
     invalidate_report_cache(db, month)
     return {"message": f"Saved {saved} values for {hospital.name} / {month}", "hospital": hospital.name, "month": month, "values_saved": saved}
 
@@ -178,6 +179,7 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     cache.invalidate("smart_residuals_")
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
+    cache.invalidate("smart_timeline")
     invalidate_report_cache(db)
     return UploadResponse(**result)
 
@@ -222,6 +224,7 @@ async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends
     cache.invalidate("smart_residuals_")
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
+    cache.invalidate("smart_timeline")
     invalidate_report_cache(db)
 
     hospitals = result["hospitals"]

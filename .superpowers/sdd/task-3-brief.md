@@ -1,79 +1,42 @@
-### Task 3: Database Schema + Seed Data
+## Task 3: Update Timeline Chart Container
 
 **Files:**
-- Modify: `app/main.py` (seed section)
+- Modify: `static/tabs/root-cause.html`
 
 **Interfaces:**
-- Consumes: models from Task 1, API from Task 2
-- Produces: facility_ownerships and facility_types tables with seed rows
+- Consumes: None
+- Produces: Updated chart container with proper styling
 
-- [ ] **Step 1: Create DB tables via SQL**
+- [ ] **Step 1: Locate timeline chart container**
 
-Run:
-```python
-cd C:\ibra\HEALTH-ai
-python -c "
-from app.database import engine
-from app.models import FacilityOwnership, FacilityType
-from sqlalchemy import create_engine, text
+Find the timeline chart section in `static/tabs/root-cause.html`:
 
-# Create new tables
-Base.metadata.create_all(bind=engine, tables=[FacilityOwnership.__table__, FacilityType.__table__])
-
-# ALTER TABLE for new columns on hospitals
-with engine.connect() as conn:
-    for col, typ in [('organisation_unit_id', 'VARCHAR(100)'), ('facility_ownership_id', 'INTEGER'), ('facility_type_id', 'INTEGER')]:
-        try:
-            conn.execute(text(f'ALTER TABLE hospitals ADD COLUMN {col} {typ}'))
-            conn.commit()
-        except Exception as e:
-            print(f'Column {col} may already exist: {e}')
-"
-```
-Expected: Tables created, columns added (or already exist)
-
-- [ ] **Step 2: Seed default data**
-
-Add seed rows to the seed section in `app/main.py` (around line 120, after hospital types seed):
-
-```python
-    # Seed facility ownerships
-    if not db.query(FacilityOwnership).first():
-        for name in ["\u062d\u0643\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
-            db.add(FacilityOwnership(name=name))
-
-    # Seed facility types
-    if not db.query(FacilityType).first():
-        db.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
+```html
+<div id="rcTimelineChart" style="width:100%;height:320px;"></div>
 ```
 
-Also add the imports:
-```python
-from app.models import FacilityOwnership, FacilityType
+- [ ] **Step 2: Add canvas element for Chart.js**
+
+Replace the div with a canvas element:
+
+```html
+<!-- Replace this line -->
+<div id="rcTimelineChart" style="width:100%;height:320px;"></div>
+
+<!-- With this canvas element -->
+<canvas id="rcTimelineChart" style="width:100%;height:320px;"></canvas>
 ```
 
-- [ ] **Step 3: Run seed + verify**
+- [ ] **Step 3: Verify container exists**
 
-Run: `python -c "
-from app.database import SessionLocal
-from app.models import FacilityOwnership, FacilityType
-db = SessionLocal()
-print('Ownerships:', [(o.id, o.name) for o in db.query(FacilityOwnership).all()])
-print('Types:', [(t.id, t.name) for t in db.query(FacilityType).all()])
-db.close()
-"`
-Expected: 4 ownership rows, 1 type row
+Add temporary console.log to verify:
+```javascript
+console.log('Chart canvas:', document.getElementById('rcTimelineChart'));
+```
 
-- [ ] **Step 4: Run full test suite to check no regressions**
-
-Run: `python -m pytest --tb=short -q`
-Expected: same count as before (should be 339+11=350 with the new test module)
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit changes**
 
 ```bash
-git add app/main.py
-git commit -m "feat: create facility_ownerships/facility_types tables and seed data"
+git add static/tabs/root-cause.html
+git commit -m "fix: update timeline chart container to use canvas element"
 ```
-
----

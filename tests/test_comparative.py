@@ -39,6 +39,32 @@ def test_generate_comprehensive_report_data_sections(db_session):
     assert "explanations" in data
     assert "geo" in data
     assert "xgboost" in data
+    assert "decision" in data
+    assert "regional" in data
+
+
+def test_comprehensive_report_includes_forecast_section(db_session):
+    """التقرير الشامل يتضمن قسم توقعات الشهر القادم (مؤشرات قيادية صاعدة بأوزانها
+    المكتشفة والنتائج المتوقعة) في النص وفي data."""
+    result = generate_comprehensive_report(db_session, "2026-03", use_cache=False)
+    assert "توقعات الشهر القادم" in result["report"]
+    assert "forecast" in result["data"]
+    fc = result["data"]["forecast"]
+    assert "hospitals" in fc and "discovered" in fc and "total_hospitals" in fc
+    # النص يتضمن مؤشراً قيادياً صاعداً بوزنه أو رسالة غياب صريحة
+    assert ("وزن" in result["report"] or "لا يوجد أي مستشفى" in result["report"])
+
+
+def test_local_report_includes_regional_section(db_session):
+    """التقرير المحلي يتضمن قسم الاستخبارات الإقليمية من بيانات المحافظات الفعلية."""
+    from app.engine.comparative.report_generator import _build_local_report
+    from app.engine.smart import run_smart_analytics
+
+    analytics = run_smart_analytics(db_session, "2026-06")
+    report_ar = _build_local_report(analytics, lang="ar")
+    assert "الاستخبارات الإقليمية" in report_ar
+    report_en = _build_local_report(analytics, lang="en")
+    assert "Regional Health Intelligence" in report_en
 
 
 @patch("app.engine.comparative.report_generator._call_api")
@@ -46,7 +72,9 @@ def test_generate_comprehensive_report_uses_ai(mock_api, db_session):
     mock_api.return_value = "تقرير تجريبي بالعربية"
     result = generate_comprehensive_report(db_session, "2026-06")
     assert mock_api.called
-    assert result["report"] == "تقرير تجريبي بالعربية"
+    # قسم القرارات التنفيذية يُدرج دائماً قبل نص الذكاء الاصطناعي
+    assert "قرارات تنفيذية" in result["report"]
+    assert "تقرير تجريبي بالعربية" in result["report"]
     assert result["report_source"] == "ai"
 
 
@@ -55,8 +83,117 @@ def test_generate_comprehensive_report_handles_ai_failure(mock_api, db_session):
     mock_api.return_value = None
     result = generate_comprehensive_report(db_session, "2026-06")
     assert result["report"] != "خطأ في توليد التقرير"
+    assert "قرارات تنفيذية" in result["report"]
     assert "الملخص التنفيذي" in result["report"]
     assert result["report_source"] == "local"
+
+
+def test_decision_brief_structure(db_session):
+    from app.engine.smart import run_smart_analytics
+    from app.engine.comparative.report_generator import _build_decision_brief
+
+    analytics = run_smart_analytics(db_session, "2026-06")
+    brief = _build_decision_brief(analytics, lang="ar")
+    assert brief["verdict"] in ("critical", "attention", "normal")
+    assert 0 <= brief["risk_score"] <= 100
+    assert isinstance(brief["hotspots"], list)
+    assert isinstance(brief["watchlist"], list)
+    assert isinstance(brief["priorities"], list)
+    assert brief["trend_direction"] in ("improving", "worsening", "stable")
+    assert brief["trend_summary"]
+    # كل إجراء أولوية له هدف وأثر
+    for p in brief["priorities"]:
+        assert p["action"] and p["target"]
+        assert 0 <= p["impact"] <= 100
+
+
+def test_decision_brief_english(db_session):
+    from app.engine.smart import run_smart_analytics
+    from app.engine.comparative.report_generator import _build_decision_brief, _decision_brief_lines
+
+    analytics = run_smart_analytics(db_session, "2026-06")
+    brief = _build_decision_brief(analytics, lang="en")
+    lines = _decision_brief_lines(brief, "en")
+    text = "\n".join(lines)
+    assert "Executive Decisions" in text
+    assert "Verdict" in text
+    assert "risk" in text
+    assert "Monthly trend" in text
+    if brief["priorities"]:
+        assert "Priority actions" in text
+
+
+def test_decision_brief_trend_lower_is_better():
+    """ارتفاع المؤشرات الخطرة (وفيات/مخاطر) = تدهور لا تحسّن."""
+    from app.engine.comparative.report_generator import _build_decision_brief
+
+    class _FakeAnomaly:
+        def __init__(self, name, sev, gov, score):
+            self.hospital_name, self.severity, self.governorate, self.anomaly_score = name, sev, gov, score
+
+    class _FakeKPI:
+        total_anomalies = 1
+        affected_governorates = 1
+
+    class _FakeAnalytics:
+        hospitals_count = 5
+        kpi = _FakeKPI()
+        anomalies = [_FakeAnomaly("H1", "warning", "Gaza", 0.5)]
+        geo = None
+        xgboost_predictions = None
+        stratified = []
+        patterns = []
+
+    # وفيات أمومية ارتفعت من 2 إلى 4 (ارتفاع = تدهور)
+    stats = {"mat_deaths": {"prev_mean": 2.0, "mean": 4.0}}
+    brief = _build_decision_brief(_FakeAnalytics(), indicator_stats=stats, prev_month="2026-05", lang="ar")
+    assert brief["trend_direction"] == "worsening"
+    # الإجمالي (total_births) انخفض بشكل طفيف — لا يؤثر في الاتجاه العام للوفيات
+    stats2 = {"total_births": {"prev_mean": 190.0, "mean": 160.0}}
+    brief2 = _build_decision_brief(_FakeAnalytics(), indicator_stats=stats2, prev_month="2026-05", lang="ar")
+    assert brief2["trend_direction"] == "worsening"
+
+
+def test_decision_brief_watchlist_filters_normal():
+    """المستشفيات غير الشاذة (درجة 0) لا تظهر في قائمة المتابعة."""
+    from app.engine.comparative.report_generator import _build_decision_brief
+
+    class _FakeAnomaly:
+        def __init__(self, name, sev, gov, score):
+            self.hospital_name, self.severity, self.governorate, self.anomaly_score = name, sev, gov, score
+
+    class _FakeKPI:
+        total_anomalies = 0
+        affected_governorates = 0
+
+    class _FakeAnalytics:
+        hospitals_count = 3
+        kpi = _FakeKPI()
+        anomalies = [
+            _FakeAnomaly("Normal A", "normal", "Gaza", 0.0),
+            _FakeAnomaly("Normal B", "normal", "Gaza", 0.0),
+        ]
+        geo = None
+        xgboost_predictions = None
+        stratified = []
+        patterns = []
+
+    brief = _build_decision_brief(_FakeAnalytics(), lang="ar")
+    assert brief["watchlist"] == []
+    assert brief["verdict"] == "normal"
+
+
+def test_decision_brief_priorities_are_derived(db_session):
+    """الإجراءات مشتقة من بيانات حقيقية (شذوذ/محافظات/انحرافات) وليست قوالب فارغة."""
+    from app.engine.smart import run_smart_analytics
+    from app.engine.comparative.report_generator import _build_decision_brief
+
+    analytics = run_smart_analytics(db_session, "2026-06")
+    brief = _build_decision_brief(analytics, lang="ar")
+    # عند وجود شذوذات يجب ألا تكون قائمة الأولويات فارغة
+    if analytics.kpi and analytics.kpi.total_anomalies > 0:
+        assert len(brief["priorities"]) >= 1
+        assert brief["verdict"] in ("critical", "attention")
 
 
 @patch("app.engine.comparative.report_generator._call_api")
@@ -123,7 +260,7 @@ def test_comprehensive_report_endpoint_uses_gemini(mock_api, client):
     response = client.get("/comparative/comprehensive-report/2026-06")
     assert response.status_code == 200
     assert mock_api.called
-    assert response.json()["report"] == "تقرير تجريبي بالعربية"
+    assert "تقرير تجريبي بالعربية" in response.json()["report"]
 
 
 @patch("app.engine.comparative.report_generator.run_smart_analytics")
@@ -728,8 +865,8 @@ def test_generate_report_falls_back_when_ai_raises(client):
 
 
 def test_comparative_html_has_collapsible_sections():
-    """اختبار أن HTML يحتوي على أقسام قابلة للطي"""
-    html_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'tabs', 'comparative.html')
+    """اختبار أن HTML المدمج يحتوي على أقسام قابلة للطي"""
+    html_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'tabs', 'smart-analytics.html')
     with open(html_path, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f.read(), 'html.parser')
 
@@ -738,25 +875,25 @@ def test_comparative_html_has_collapsible_sections():
 
 
 def test_comparative_html_has_kpi_dashboard():
-    """اختبار أن HTML يحتوي على لوحة تحكم"""
-    html_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'tabs', 'comparative.html')
+    """اختبار أن HTML المدمج يحتوي على لوحة تحكم التقرير"""
+    html_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'tabs', 'smart-analytics.html')
     with open(html_path, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f.read(), 'html.parser')
 
-    kpi_grid = soup.find('div', id='kpi-dashboard')
+    kpi_grid = soup.find('div', id='smart-report-kpi-dashboard')
     assert kpi_grid is not None
 
 
 def test_comparative_js_has_toggle_function():
-    """اختبار أن JavaScript يحتوي على دوال التحكم"""
-    js_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'comparative.js')
+    """اختبار أن JavaScript المدمج يحتوي على دوال التحكم"""
+    js_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'smart-analytics.js')
     with open(js_path, 'r', encoding='utf-8') as f:
         content = f.read()
 
     assert 'function toggleSection' in content
-    assert 'function showAlert' in content
-    assert 'function updateKPIDashboard' in content
-    assert 'function renderReportSections' in content
+    assert 'function smartShowAlert' in content
+    assert 'function smartUpdateReportKPIs' in content
+    assert 'function smartRenderReportSections' in content
 
 
 # --- Report Persistence Cache Tests ---
@@ -869,7 +1006,7 @@ def test_use_cache_false_regenerates(mock_api, db_session):
     generate_comprehensive_report(db_session, "2026-06")
     mock_api.return_value = "الثاني"
     result = generate_comprehensive_report(db_session, "2026-06", use_cache=False)
-    assert result["report"] == "الثاني"
+    assert "الثاني" in result["report"]
     assert mock_api.call_count == 2
 
 
@@ -881,12 +1018,12 @@ def test_report_endpoint_force_regenerates(mock_api, client):
     mock_api.return_value = "الأول"
     r1 = client.get("/comparative/comprehensive-report/2026-06")
     assert r1.status_code == 200
-    assert r1.json()["report"] == "الأول"
+    assert "الأول" in r1.json()["report"]
     assert mock_api.call_count == 1
     mock_api.return_value = "الثاني"
     r2 = client.get("/comparative/comprehensive-report/2026-06?force=true")
     assert r2.status_code == 200
-    assert r2.json()["report"] == "الثاني"
+    assert "الثاني" in r2.json()["report"]
     assert mock_api.call_count == 2
 
 
@@ -940,3 +1077,177 @@ def test_upload_excel_invalidates_report_cache(mock_api, client, db_session):
             os.remove(uploaded)
     except OSError:
         pass  # Windows may briefly lock the file; cleanup is best-effort
+
+
+# --- Composite Patterns in Report Tests ---
+
+def _seed_pattern_hospitals(db_session, month="2026-06"):
+    """بذر 8 مستشفيات: نصفها بارتفاع متزامن في القيصرية + الولادات المبكرة + وفيات المولودين."""
+    from app.models import Hospital, IndicatorValue, Indicator
+    code_to_id = {ind.code: ind.id for ind in db_session.query(Indicator).all()}
+    hospitals = [h for h in db_session.query(Hospital).all()]
+    for i in range(8):
+        if i < len(hospitals):
+            h = hospitals[i]
+        else:
+            h = Hospital(name=f"Pattern H{i}", is_active=True)
+            db_session.add(h)
+        h.is_active = True
+        db_session.flush()
+        high = i < 4
+        vals = {"2": 200, "5": 80 if high else 24, "6": 190,
+                "10": 5 if high else 1, "11": 1 if high else 0,
+                "17": 5 if high else 0, "7": 2 if high else 0,
+                "6.f": 40 if high else 8, "6.g": 30 if high else 6,
+                "2.n": 10, "2.c": 3, "2.d": 2}
+        for code, value in vals.items():
+            ind_id = code_to_id.get(code)
+            if ind_id is None:
+                continue
+            db_session.add(IndicatorValue(
+                hospital_id=h.id, indicator_id=ind_id, month=month, value=value
+            ))
+    db_session.commit()
+
+
+def test_local_report_includes_composite_patterns_section(db_session):
+    """التقرير المحلي يعرض قسم الأنماط المركبة مع توليفات المؤشرات بجملة عربية."""
+    from app.engine.comparative.report_generator import generate_comprehensive_report
+    _seed_pattern_hospitals(db_session)
+    with patch("app.engine.comparative.report_generator._call_api", return_value=None):
+        result = generate_comprehensive_report(db_session, "2026-06")
+    assert result["report_source"] == "local"
+    report = result["report"]
+    assert "الأنماط المركبة للمؤشرات" in report
+    assert "نمط متكرر" in report
+    assert "معدل القيصارية" in report
+    assert "Lift" in report
+
+
+@patch("app.engine.comparative.report_generator._call_api")
+def test_prompt_includes_composite_patterns_section(mock_api, db_session):
+    """الـ prompt يتضمن قسم الأنماط المركبة مع التوليفات والأرقام الفعلية."""
+    from app.engine.comparative.report_generator import generate_comprehensive_report
+    _seed_pattern_hospitals(db_session)
+    mock_api.return_value = "تقرير تجريبي"
+    generate_comprehensive_report(db_session, "2026-06")
+    prompt_arg = mock_api.call_args[0][0]
+    assert "الأنماط المركبة للمؤشرات" in prompt_arg
+    assert "نمط متكرر" in prompt_arg
+    assert "Lift" in prompt_arg
+    assert "مستشفى" in prompt_arg
+
+
+def test_report_data_includes_patterns_field(db_session):
+    """استجابة التقرير تتضمن حقل patterns كقائمة قواميس سليمة."""
+    from app.engine.comparative.report_generator import generate_comprehensive_report
+    _seed_pattern_hospitals(db_session)
+    with patch("app.engine.comparative.report_generator._call_api", return_value=None):
+        result = generate_comprehensive_report(db_session, "2026-06")
+    patterns = result["data"]["patterns"]
+    assert isinstance(patterns, list)
+    # بيانات البذر تُنتج أنماطاً فعلاً — لا نجعل الشرط اختيارياً حتى لا ينحدر صامتاً
+    assert len(patterns) >= 1
+    p = patterns[0]
+    assert isinstance(p, dict)
+    assert "indicators" in p and "support" in p and "lift" in p
+    assert p["hospitals_count"] >= 2
+    json.dumps(result, ensure_ascii=False)
+
+
+def test_english_local_report_includes_composite_patterns(db_session):
+    """التقرير المحلي الإنجليزي يعرض قسم الأنماط المركبة."""
+    from app.engine.comparative.report_generator import generate_comprehensive_report
+    _seed_pattern_hospitals(db_session)
+    with patch("app.engine.comparative.report_generator._call_api", return_value=None):
+        result = generate_comprehensive_report(db_session, "2026-06", lang="en")
+    report = result["report"]
+    assert "Composite Indicator Patterns" in report
+    assert "Recurring pattern" in report
+    assert "Lift" in report
+
+
+# --- Enriched Report Tests (real indicator stats + monthly trends) ---
+
+
+def _seed_indicator_values(db_session, month, values_by_hospital):
+    """بذر قيم مؤشرات خام لشهر معين: {hospital_name: {code: value}}"""
+    from app.models import IndicatorValue, Indicator, Hospital
+    code_to_id = {ind.code: ind.id for ind in db_session.query(Indicator).all()}
+    hospitals = {h.name: h for h in db_session.query(Hospital).all()}
+    for name, vals in values_by_hospital.items():
+        if name not in hospitals:
+            continue
+        h = hospitals[name]
+        h.is_active = True
+        for code, value in vals.items():
+            ind_id = code_to_id.get(code)
+            if ind_id is None:
+                continue
+            db_session.add(IndicatorValue(
+                hospital_id=h.id, indicator_id=ind_id, month=month, value=value
+            ))
+    db_session.commit()
+
+
+def test_local_report_includes_real_indicator_stats(db_session):
+    """التقرير المحلي يعرض قيماً فعلية للمؤشرات (متوسط/أدنى/أعلى) بدل الأسماء فقط."""
+    from app.engine.comparative.report_generator import generate_comprehensive_report
+    _seed_indicator_values(db_session, "2026-06", {
+        "General Hospital": {"2": 200, "5": 50, "6": 190},
+        "Central Medical": {"2": 150, "5": 20, "6": 140},
+        "Community Clinic": {"2": 100, "5": 15, "6": 95},
+    })
+    with patch("app.engine.comparative.report_generator._call_api", return_value=None):
+        result = generate_comprehensive_report(db_session, "2026-06")
+    assert result["report_source"] == "local"
+    report = result["report"]
+    assert "القيم الفعلية لشهر التقرير" in report
+    assert "معدل القيصارية" in report
+    assert "المتوسط" in report
+    # cs_rate = (5/2)*100: 25.0% و13.33% و15.0% → المتوسط ≈ 17.78%
+    assert "17.78" in report
+
+
+def test_local_report_includes_monthly_trends(db_session):
+    """التقرير المحلي يعرض مقارنة بالأشهر السابقة عند توفر بيانات."""
+    from app.engine.comparative.report_generator import generate_comprehensive_report
+    _seed_indicator_values(db_session, "2026-05", {
+        "General Hospital": {"2": 200, "5": 40, "6": 190},
+        "Central Medical": {"2": 150, "5": 15, "6": 140},
+        "Community Clinic": {"2": 100, "5": 10, "6": 95},
+    })
+    _seed_indicator_values(db_session, "2026-06", {
+        "General Hospital": {"2": 200, "5": 60, "6": 190},
+        "Central Medical": {"2": 150, "5": 25, "6": 140},
+        "Community Clinic": {"2": 100, "5": 12, "6": 95},
+    })
+    with patch("app.engine.comparative.report_generator._call_api", return_value=None):
+        result = generate_comprehensive_report(db_session, "2026-06")
+    report = result["report"]
+    assert "الاتجاهات الشهرية" in report
+    assert "أسرع مؤشر ارتفاعاً" in report
+    assert "2026-05" in report
+
+
+@patch("app.engine.comparative.report_generator._call_api")
+def test_prompt_includes_indicator_stats(mock_api, db_session):
+    """الـ prompt يتضمن إحصاءات المؤشرات الفعلية والاتجاهات الشهرية."""
+    from app.engine.comparative.report_generator import generate_comprehensive_report
+    _seed_indicator_values(db_session, "2026-05", {
+        "General Hospital": {"2": 200, "5": 40, "6": 190},
+        "Central Medical": {"2": 150, "5": 15, "6": 140},
+        "Community Clinic": {"2": 100, "5": 10, "6": 95},
+    })
+    _seed_indicator_values(db_session, "2026-06", {
+        "General Hospital": {"2": 200, "5": 60, "6": 190},
+        "Central Medical": {"2": 150, "5": 25, "6": 140},
+        "Community Clinic": {"2": 100, "5": 12, "6": 95},
+    })
+    mock_api.return_value = "تقرير تجريبي"
+    generate_comprehensive_report(db_session, "2026-06")
+    prompt_arg = mock_api.call_args[0][0]
+    assert "بيانات المؤشرات الفعلية" in prompt_arg
+    assert "الاتجاهات الشهرية" in prompt_arg
+    assert "معدل القيصارية" in prompt_arg
+    assert "المتوسط" in prompt_arg

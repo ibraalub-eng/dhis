@@ -8,6 +8,18 @@ from scripts.seed_indicators import seed_indicators
 from scripts.seed_rules import seed_rules
 
 
+@pytest.fixture(autouse=True)
+def _redirect_xgb_model_dir(tmp_path_factory, monkeypatch):
+    """منع كتابة نماذج XGBoost في مجلد data/models الحقيقي أثناء الاختبارات.
+
+    كل اختبار يستدعي run_xgboost_predictions قد يحفظ النموذج؛ نُعيد توجيه
+    MODEL_DIR إلى مجلد مؤقت لتبقى الاختبارات معزولة ولا تُلوّث المستودع.
+    """
+    from app.engine.smart import xgboost_predictor
+    model_dir = tmp_path_factory.mktemp("xgb_models")
+    monkeypatch.setattr(xgboost_predictor, "MODEL_DIR", str(model_dir))
+
+
 @pytest.fixture
 def db_session():
     """In-memory SQLite session with schema seeded. Thread-safe for TestClient."""

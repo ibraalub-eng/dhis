@@ -54,6 +54,8 @@ def get_clinical_analysis(
         consistency=qs.consistency if qs else 0,
         rule_compliance=qs.rule_compliance if qs else 0,
         outlier_penalty=qs.outlier_penalty if qs else 0,
+        # الجلسة تُمكّن تخزين استجابات التوصيات المؤقت حسب (مستشفى، شهر)
+        session=db,
     )
 
     return _result_to_schema(result)

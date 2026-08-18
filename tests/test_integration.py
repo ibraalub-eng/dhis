@@ -75,6 +75,30 @@ class TestUploadFlow:
         data = resp.json()
         assert "total_hospitals" in data or "hospitals" in data or isinstance(data, dict)
 
+    def test_dashboard_total_reports_counts_distinct_pairs(self, client, db_session):
+        """Regression: total_reports must count distinct (hospital, month) pairs.
+
+        Previously the query used PostgreSQL-only DISTINCT ON which SQLite
+        silently ignores, so duplicate rows for the same hospital+month were
+        counted multiple times.
+        """
+        from app.models import Hospital, QualityScore
+        from app.cache import cache
+
+        h = db_session.query(Hospital).first()
+        # Two duplicate rows for the same (hospital, month) + one unique month
+        db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=70.0))
+        db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=75.0))
+        db_session.add(QualityScore(hospital_id=h.id, month="2027-02", score=80.0))
+        db_session.commit()
+        cache.invalidate("analysis:months")
+
+        resp = client.get("/dashboard/overview")
+        assert resp.status_code == 200
+        total_reports = resp.json()["total_reports"]
+        # 2 distinct (hospital, month) pairs — not 3 rows
+        assert total_reports == 2
+
 
 class TestAnalysisFlow:
     def test_analyze_saved_empty(self, client):
@@ -102,6 +126,54 @@ class TestAnalysisFlow:
     def test_root_cause(self, client):
         resp = client.get("/root-cause/1/2026-04")
         assert resp.status_code in (200, 404)
+
+
+class TestRootCauseTimeline:
+    """المقارنة الزمنية في Root Cause: خط المستشفى مقابل متوسط النظير مع فاصل الثقة."""
+
+    def test_timeline_returns_series_with_peer_band(self, client, db_session):
+        from app.models import Hospital, HospitalType, Indicator, IndicatorValue
+
+        htype = HospitalType(name="TimelineGov")
+        db_session.add(htype)
+        db_session.flush()
+
+        target = Hospital(name="Timeline Target", hospital_type_id=htype.id, is_active=True)
+        peers = [Hospital(name=f"Timeline Peer {i}", hospital_type_id=htype.id, is_active=True) for i in range(3)]
+        db_session.add_all([target] + peers)
+        db_session.flush()
+
+        ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
+        assert ind is not None, "Indicator '2' must be seeded"
+
+        for m, val in [("2026-01", 100.0), ("2026-02", 120.0), ("2026-03", 90.0)]:
+            db_session.add(IndicatorValue(hospital_id=target.id, indicator_id=ind.id, month=m, value=val))
+            for pi, p in enumerate(peers):
+                db_session.add(IndicatorValue(hospital_id=p.id, indicator_id=ind.id, month=m, value=80.0 + pi * 5))
+        db_session.commit()
+
+        resp = client.get(f"/root-cause/{target.id}/timeline?month=2026-03&months_back=3")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["hospital_id"] == target.id
+        assert len(data["indicators"]) >= 1
+        code2 = next(i for i in data["indicators"] if i["indicator_code"] == "2")
+        assert len(code2["series"]) == 3
+        last = code2["series"][-1]
+        assert last["hospital_value"] == 90.0
+        # متوسط النظير = متوسط (80, 85, 90) = 85
+        assert last["peer_mean"] == 85.0
+        # فاصل الثقة 95% حول متوسط النظير
+        assert last["peer_lower"] is not None
+        assert last["peer_lower"] <= last["peer_mean"] <= last["peer_upper"]
+        assert last["peer_count"] == 3
+        # الترتيب الزمني تصاعدي
+        months = [p["month"] for p in code2["series"]]
+        assert months == sorted(months)
+
+    def test_timeline_404_unknown_hospital(self, client):
+        resp = client.get("/root-cause/999999/timeline?month=2026-03")
+        assert resp.status_code == 404
 
 
 class TestFullPipeline:

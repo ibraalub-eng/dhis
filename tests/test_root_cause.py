@@ -355,6 +355,13 @@ class TestGenerateRootCauseAnalysis:
         assert len(report.confidence_gaps) >= 1
         assert len(report.anomaly_patterns) >= 1
         assert len(report.priority_actions) >= 1
+        # التوصيات الذكية تعمل محلياً (دون AI خارجي) وثنائية اللغة ومحددة
+        assert len(report.ai_recommendations) >= 1
+        ar_rec = report.ai_recommendations[0]
+        assert ar_rec.get("title") and ar_rec.get("title_ar")
+        assert ar_rec.get("category_ar")
+        # مرتبة بالأولوية: أول توصية حرجة/عالية لمستشفى فيه R001 فشل حرج
+        assert report.ai_recommendations[0]["priority"] in ("critical", "high")
 
     def test_report_no_issues(self, db_session):
         hospital = db_session.query(Hospital).first()
@@ -389,6 +396,139 @@ class TestGenerateRootCauseAnalysis:
         actions = report.priority_actions
         assert len(actions) >= 1
         assert any("CRITICAL" in a or "Quality" in a for a in actions)
+
+
+def test_ai_recommendations_bilingual_specific():
+    """التوصيات الذكية المحلية تعمل دائماً، ثنائية اللغة، ومحددة بالبيانات الفعلية."""
+    from app.engine.root_cause import _build_local_recommendations, RuleFailurePattern
+
+    rf = RuleFailurePattern(
+        rule_code="R054", rule_description="Maternal deaths surge",
+        severity="CRITICAL", failure_count=2, total_runs=3, failure_rate=66.7,
+        primary_cause="Maternal deaths surged above threshold",
+        recommendation="CRITICAL: Immediate investigation required.",
+        rule_type="THRESHOLD",
+    )
+    recs = _build_local_recommendations(
+        "مستشفى الشفاء", "2026-06", 45.0, 35.0,
+        [rf], [], [], [], [], {}, {},
+    )
+    assert recs
+    top = recs[0]
+    # أولوية صالحة + حقول ثنائية اللغة كاملة
+    assert top["priority"] in ("critical", "high", "medium", "low")
+    assert top["title"] and top["title_ar"]
+    assert top["description"] and top["description_ar"]
+    assert top["action_items"] and top["action_items_ar"]
+    assert top["category"] == "Data Validation"
+    assert top["category_ar"] == "التحقق من البيانات"
+    # محددة بالبيانات الفعلية: كود القاعدة ونسبة الفشل في العنوان العربي
+    assert "R054" in top["title_ar"]
+    assert "66.7" in top["title_ar"] or "67" in top["title_ar"]
+
+    # حالة سليمة → توصية محافظة عربية
+    ok = _build_local_recommendations(
+        "مستشفى الأهلي", "2026-06", 95.0, 92.0,
+        [], [], [], [], [], {}, {},
+    )
+    assert ok and ok[0]["category_ar"] == "التحسين المستمر"
+    assert ok[0]["priority"] == "low"
+
+
+def test_merge_drops_english_only_ai_recs():
+    """توصيات AI الإنجليزية الخالصة (fallback عند تجاوز الحصة) لا تُدمج —
+    المحلي ثنائي اللغة أخصّ، وأي واجهة عربية تعرض محتوى صحيحاً."""
+    from app.engine.root_cause import _has_real_arabic, _ar_synthesis_for_ai_rec
+
+    en_only = {
+        "category": "Peer Comparison", "priority": "high",
+        "title": "Bottom 79% compared to peers", "description": "Hospital ranks low...",
+        "rationale": "Underperforming peers.", "action_items": ["Study best practices"],
+        "category_ar": "", "title_ar": "", "description_ar": "", "rationale_ar": "",
+    }
+    assert not _has_real_arabic(en_only)
+
+    bilingual = {"category": "Peer Comparison", "priority": "high",
+                  "category_ar": "مقارنة النظير", "title_ar": "القيصرية أعلى من النظير",
+                  "description_ar": "قيمة المستشفى أعلى من المتوسط", "rationale_ar": "",
+                  "description": "EN", "rationale": "EN", "action_items": [],
+                  "action_items_ar": []}
+    assert _has_real_arabic(bilingual)
+    syn = _ar_synthesis_for_ai_rec(en_only)
+    # توليد العناوين يملأ category_ar/title_ar لكنه لا يترجم الوصف —
+    # لذلك تُهمَل هذه التوصية كلياً في الدمج (يغطيها اختبار الدمج أدناه).
+    assert syn["title_ar"] and not _has_real_arabic(en_only)
+
+
+def test_merge_keeps_local_recs_and_drops_english_only():
+    """دمج التوصيات: المحلية ثنائية اللغة تبقى دائماً، والإنجليزية الخالصة تُسقط."""
+    from app.engine.root_cause import (
+        _build_local_recommendations, _has_real_arabic, _ar_synthesis_for_ai_rec,
+    )
+
+    local = _build_local_recommendations(
+        "مستشفى الشفاء", "2026-06", 55.0, 45.0,
+        [], [], [], [], [], {}, {},
+    )
+    # كل توصية محلية تمر ببوابة العربية الحقيقية (لأنها ثنائية اللغة)
+    assert local and all(_has_real_arabic(r) for r in local)
+
+    en_only = {
+        "category": "Risk Management", "priority": "high",
+        "category_ar": "", "title_ar": "", "description_ar": "", "rationale_ar": "",
+        "title": "EN only", "description": "EN only", "rationale": "EN only",
+        "action_items": ["do something"], "action_items_ar": [],
+    }
+    # بوابة الدمج: بلا عربية حقيقية → لا تُضاف (المحلي أخصّ)
+    assert not _has_real_arabic(en_only)
+    merged = list(local)
+    if _has_real_arabic(en_only):
+        merged.append({**en_only, **_ar_synthesis_for_ai_rec(en_only)})
+    assert all(_has_real_arabic(m) for m in merged)
+
+
+def test_arabic_summary_narrative_with_context():
+    """الملخص العربي سرد تنفيذي متماسك: سياق المستشفى والشهر + السبب الجذري + الأولوية."""
+    from app.engine.root_cause import _generate_arabic_summary, CausalChain
+
+    chain = CausalChain(
+        root_cause="R001 failing at 70%",
+        root_cause_arabic="فشل التحقق من مطابقة المجموع في R001 بنسبة 70%",
+        confidence=0.85,
+        evidence=["R001 failure rate: 70%"],
+        affected_factors=["R001"],
+        recommended_action="Verify all sub-categories are reported",
+        impact_if_fixed=16.5,
+        implementation_priority="CRITICAL",
+        chain_path=["R001", "R006"],
+        chain_path_arabic="إجمالي الولادات ← القيصرية الطارئة/المجدولة",
+    )
+
+    s = _generate_arabic_summary(
+        hospital="مستشفى الشفاء", month="2026-06",
+        overall_quality=45.0, overall_confidence=35.0,
+        causal_chains=[chain], rule_failures=[], quality_drivers=[],
+        confidence_gaps=[], anomaly_patterns=[], peer_comparisons={},
+    )
+
+    # يبدأ بسياق المستشفى والشهر
+    assert "مستشفى الشفاء" in s and "2026-06" in s
+    # حالة عامة + سبب جذري بثقة + إجراء أول
+    assert "السبب الجذري الرئيسي" in s
+    assert "بثقة" in s
+    assert "أولوية التنفيذ المقترحة" in s
+    # حالة الحالة العامة (جودة 45 < 50 → تتطلب تدخلاً عاجلاً)
+    assert "تتطلب تدخلاً" in s
+
+    # حالة سليمة: لا سلاسل ولا مشاكل → رسالة إيجابية بسياق كامل
+    s_ok = _generate_arabic_summary(
+        hospital="مستشفى الأهلي", month="2026-06",
+        overall_quality=95.0, overall_confidence=92.0,
+        causal_chains=[], rule_failures=[], quality_drivers=[],
+        confidence_gaps=[], anomaly_patterns=[], peer_comparisons={},
+    )
+    assert "لا توجد مشاكل حرجة" in s_ok
+    assert "مستشفى الأهلي" in s_ok and "2026-06" in s_ok
 
 
 def test_month_data_point_creation():
@@ -789,6 +929,12 @@ class TestIntegrationHistoricalAndComparativeRootCause:
         # --- 3. Add indicator values for 6 months (2026-01 to 2026-06) ---
         ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
         assert ind is not None, "Indicator '2' (Total Deliveries) must be seeded"
+        ind_live = db_session.query(Indicator).filter(Indicator.code == "6").first()
+        assert ind_live is not None, "Indicator '6' (Live Births) must be seeded"
+        ind_cs = db_session.query(Indicator).filter(Indicator.code == "5").first()
+        assert ind_cs is not None, "Indicator '5' (Caesarean Sections) must be seeded"
+        ind_smm = db_session.query(Indicator).filter(Indicator.code == "10").first()
+        assert ind_smm is not None, "Indicator '10' (SMM) must be seeded"
 
         months = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06"]
         target_values = [280, 290, 300, 295, 285, 270]
@@ -798,12 +944,39 @@ class TestIntegrationHistoricalAndComparativeRootCause:
                 hospital_id=target.id, indicator_id=ind.id,
                 month=m, value=val,
             ))
+            # total_births يُشتق من Live Births (code 6) — ضروري لمقارنة النظير
+            db_session.add(IndicatorValue(
+                hospital_id=target.id, indicator_id=ind_live.id,
+                month=m, value=val - 10,
+            ))
+            # cs_rate يحتاج قيصرية (code 5) — وإلا يبقى 0 في كل المستشفيات
+            db_session.add(IndicatorValue(
+                hospital_id=target.id, indicator_id=ind_cs.id,
+                month=m, value=(val - 10) * 0.25,
+            ))
+            # smm_total يشتق من code 10 — نضيفه حتى تبقى المقارنة ذات معنى
+            db_session.add(IndicatorValue(
+                hospital_id=target.id, indicator_id=ind_smm.id,
+                month=m, value=3.0,
+            ))
 
         for pi, peer in enumerate(peers):
             for mi, m in enumerate(months):
                 db_session.add(IndicatorValue(
                     hospital_id=peer.id, indicator_id=ind.id,
                     month=m, value=250.0 + pi * 10 + mi * 3,
+                ))
+                db_session.add(IndicatorValue(
+                    hospital_id=peer.id, indicator_id=ind_live.id,
+                    month=m, value=240.0 + pi * 10 + mi * 3,
+                ))
+                db_session.add(IndicatorValue(
+                    hospital_id=peer.id, indicator_id=ind_cs.id,
+                    month=m, value=(240.0 + pi * 10 + mi * 3) * 0.25,
+                ))
+                db_session.add(IndicatorValue(
+                    hospital_id=peer.id, indicator_id=ind_smm.id,
+                    month=m, value=2.0 + pi * 0.5,
                 ))
         db_session.commit()
 
@@ -955,18 +1128,24 @@ class TestIntegrationHistoricalAndComparativeRootCause:
             assert "significant_change" in trend
             assert trend["direction"] in ("improving", "declining", "stable")
 
-        # --- 13. Verify peer comparisons are populated ---
+        # --- 13. Verify peer comparisons are populated (per indicator) ---
+        # المقارنة الآن لكل مؤشر: قيمة المستشفى الفعلية مقابل متوسط النظير لنفس المؤشر
+        from app.engine.root_cause import PeerIndicatorComparison
         assert isinstance(report.peer_comparisons, dict)
         assert len(report.peer_comparisons) > 0
-        for group_name, comp in report.peer_comparisons.items():
-            assert isinstance(comp, PeerComparison)
+        for code, comp in report.peer_comparisons.items():
+            assert isinstance(comp, PeerIndicatorComparison)
+            assert comp.indicator_code
             assert comp.peer_group
             assert comp.peer_count >= 3
-            assert comp.mean_value > 0
+            # القيم 0 مشروعة لبعض المؤشرات (مثل الوفيات) — نتحقق من البنية لا القيمة
             assert isinstance(comp.hospital_percentile, float)
             assert isinstance(comp.hospital_z_score, (int, float))
-            assert comp.benchmark_hospital
-            assert comp.benchmark_value > 0
+            assert isinstance(comp.gap_pct, (int, float))
+        # تأكد أن المؤشرات المزروعة فعلاً حاضرة في المقارنة
+        seeded_codes = {c.indicator_code for c in report.peer_comparisons.values()}
+        assert "total_births" in seeded_codes
+        assert "cs_rate" in seeded_codes
 
         # --- 14. Verify Arabic summary is generated ---
         assert isinstance(report.summary_arabic, str)

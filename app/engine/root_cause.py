@@ -8,6 +8,22 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from app.engine.smart.anomaly import FEATURE_KEYS  # noqa: E402
+
+# الأسماء العربية للمؤشرات المشتقة (نفس مفاتيح FEATURE_KEYS في محرك الشذوذ الذكي)
+INDICATOR_NAMES = {
+    "cs_rate": "معدل القيصارية",
+    "smm_total": "المضاعفات الخطيرة",
+    "mat_deaths": "الوفيات الأمومية",
+    "nd": "وفيات المولودين",
+    "sb": "الولادات الميتة",
+    "preterm": "الولادات السابقة لأوانها",
+    "lbw": "نقص وزن الولادة",
+    "total_births": "إجمالي المواليد",
+    "high_risk": "حالات الخطر العالي",
+    "adolescent": "الحالات المراهقة",
+}
+
 
 try:
     from app.plugins.ai import generate_root_cause_ai as _generate_rc_ai
@@ -27,6 +43,7 @@ class RuleFailurePattern:
     failure_rate: float
     primary_cause: str
     recommendation: str
+    rule_type: str = "LOGIC"
 
 
 @dataclass
@@ -76,12 +93,25 @@ class RootCauseReport:
     anomaly_patterns: List[AnomalyPattern]
     summary: str
     priority_actions: List[str]
+    priority_action_details: List[PriorityActionDetail] = field(default_factory=list)
     ai_recommendations: List[Dict] = field(default_factory=list)
     causal_tree: List[CausalNode] = field(default_factory=list)
     causal_chains: List[CausalChain] = field(default_factory=list)
     historical_trends: Dict[str, Dict] = field(default_factory=dict)
     peer_comparisons: Dict[str, PeerComparison] = field(default_factory=dict)
     summary_arabic: str = ""
+
+
+@dataclass
+class PriorityActionDetail:
+    """إجراء أولوية مع تقدير كمي: أثر (نقاط جودة قابلة للاسترجاع 0-100)،
+    جهد (1-5)، وعائد = أثر/جهد — مشتق من بيانات الفشل الفعلية."""
+    action: str
+    source: str  # rule | confidence | anomaly | quality | chain
+    severity: str
+    impact: float
+    effort: int
+    roi: float
 
 
 @dataclass
@@ -107,6 +137,21 @@ class PeerComparison:
 
 
 @dataclass
+class PeerIndicatorComparison:
+    """مقارنة قيمة المستشفى الفعلية بمتوسط النظير لنفس المؤشر — لا مقارنة درجة الجودة بقيمة عشوائية."""
+    indicator_code: str
+    indicator_name: str
+    hospital_value: float
+    peer_group: str
+    peer_count: int
+    peer_mean: float
+    peer_std: float
+    hospital_percentile: float
+    hospital_z_score: float
+    gap_pct: float
+
+
+@dataclass
 class CausalNode:
     factor: str
     factor_type: str
@@ -128,6 +173,8 @@ class CausalChain:
     recommended_action: str
     impact_if_fixed: float
     implementation_priority: str
+    chain_path: List[str] = field(default_factory=list)
+    chain_path_arabic: str = ""
 
 
 @dataclass
@@ -143,18 +190,40 @@ class HistoricalComparativeReport:
     priority_actions: List[str]
 
 
+def _month_offset(month: str, months_back: int) -> str:
+    """يعيد أول شهر ضمن نافذة الرجوع، نسبةً لشهر التقرير لا لتاريخ اليوم."""
+    try:
+        year, mon = (int(x) for x in month.split("-"))
+    except (ValueError, AttributeError):
+        return month
+    idx = year * 12 + (mon - 1) - max(0, months_back - 1)
+    y, m = divmod(idx, 12)
+    return f"{y:04d}-{m + 1:02d}"
+
+
 def get_historical_data(
     session: Session,
     hospital_id: int,
     indicator_code: str,
     months_back: int = 6,
+    month: str = "",
 ) -> List[MonthDataPoint]:
     """
     Retrieve historical data for a specific indicator at a hospital.
 
+    نافذة الأشهر تُحسب نسبةً لشهر التقرير (month) وليس تاريخ اليوم،
+    حتى تعمل مع البيانات التاريخية. عند غياب month تُعاد آخر months_back
+    أشهر متاحة في قاعدة البيانات.
     Returns list of MonthDataPoint objects for the last N months.
     """
-    result = session.execute(text("""
+    cutoff = _month_offset(month, months_back) if month else ""
+    params = {"hid": hospital_id, "code": indicator_code}
+    if cutoff:
+        month_cond = " AND iv.month >= :cutoff"
+        params["cutoff"] = cutoff
+    else:
+        month_cond = ""
+    result = session.execute(text(f"""
         SELECT iv.month, iv.value,
                COALESCE(qs.score, 0) as quality_score,
                COALESCE(cs.overall_confidence, 0) as confidence,
@@ -174,9 +243,9 @@ def get_historical_data(
             AND iv.month = cs.month
         WHERE iv.hospital_id = :hid
         AND i.code = :code
-        AND iv.month >= strftime('%Y-%m', 'now', :offset)
+        {month_cond}
         ORDER BY iv.month ASC
-    """), {"hid": hospital_id, "code": indicator_code, "offset": f"-{months_back} months"})
+    """), params)
 
     history = []
     for row in result:
@@ -190,11 +259,95 @@ def get_historical_data(
     return history
 
 
+_SEVERITY_WEIGHT = {"CRITICAL": 1.0, "HIGH": 0.8, "MEDIUM": 0.6, "LOW": 0.4}
+
+# جهد تقديري (1-5) حسب نوع القاعدة: إصلاح الإدخال أرخص من تغيير عملي
+_EFFORT_BY_RULE_TYPE = {
+    "LOGIC": 2,
+    "DATA_QUALITY": 3,
+    "CLINICAL": 3,
+    "THRESHOLD": 3,
+    "BENCHMARK": 4,
+    "STATISTICAL": 4,
+}
+
+
+def _estimate_action_metrics(
+    severity: str = "MEDIUM",
+    failure_rate: float = 0.0,
+    rule_type: str = "",
+    confidence: float = 100.0,
+    z_score: float = 0.0,
+    impact_hint: float = 0.0,
+) -> Dict[str, float]:
+    """تقدير كمي (أثر/جهد/عائد) مشتق من بيانات الفشل الفعلية.
+
+    - impact: نقاط الجودة القابلة للاسترجاع (0-100) = معدل الفشل × وزن الخطورة،
+      أو فجوة الثقة / درجة الشذوذ عند غياب قاعدة.
+    - effort: 1-5 حسب نوع القاعدة (إصلاح إدخال = 2، تغيير عملي = 4).
+    - roi: أثر ÷ جهد.
+    """
+    sev_w = _SEVERITY_WEIGHT.get(str(severity).upper(), 0.6)
+    if failure_rate > 0:
+        impact = min(100.0, failure_rate * sev_w)
+    elif confidence < 100:
+        impact = min(100.0, (100.0 - confidence) * 0.9)
+    elif z_score:
+        impact = min(100.0, abs(z_score) * 25.0)
+    else:
+        impact = max(0.0, min(100.0, impact_hint))
+    effort = int(_EFFORT_BY_RULE_TYPE.get(str(rule_type).upper(), 3))
+    roi = round(impact / effort, 2) if effort else 0.0
+    return {"impact": round(impact, 1), "effort": effort, "roi": roi}
+
+
+def get_rule_failure_history(
+    session: Session,
+    hospital_id: int,
+    rule_code: str,
+    months_back: int = 6,
+    month: str = "",
+) -> List[MonthDataPoint]:
+    """
+    Retrieve per-month failure-rate history for a rule at a hospital.
+
+    أكواد القواعد (R001…) ليست أكواد مؤشرات، لذا يُشتق الاتجاه من نسبة فشل
+    القاعدة عبر الأشهر بدل قيمة مؤشر.
+    """
+    cutoff = _month_offset(month, months_back) if month else ""
+    params = {"hid": hospital_id, "rc": rule_code}
+    month_cond = ""
+    if cutoff:
+        month_cond = " AND vr.month >= :cutoff"
+        params["cutoff"] = cutoff
+    result = session.execute(text(f"""
+        SELECT vr.month,
+               SUM(CASE WHEN vr.status = 'FAIL' THEN 1 ELSE 0 END) * 100.0 /
+                   NULLIF(COUNT(*), 0) as failure_rate
+        FROM validation_results vr
+        WHERE vr.hospital_id = :hid AND vr.rule_code = :rc {month_cond}
+        GROUP BY vr.month
+        ORDER BY vr.month ASC
+    """), params)
+    history = []
+    for row in result:
+        rate = float(row[1] or 0)
+        history.append(MonthDataPoint(
+            month=row[0],
+            value=round(rate, 2),
+            quality_score=0,
+            confidence=0,
+            rule_failure_rate=round(rate, 2),
+        ))
+    return history
+
+
 def get_peer_historical_data(
     session: Session,
     hospital_id: int,
     indicator_code: str,
     months_back: int = 6,
+    month: str = "",
 ) -> Dict[str, List[MonthDataPoint]]:
     """
     Retrieve historical data for peer hospitals (same type).
@@ -217,7 +370,7 @@ def get_peer_historical_data(
 
     peer_data = {}
     for peer in peers:
-        history = get_historical_data(session, peer[0], indicator_code, months_back)
+        history = get_historical_data(session, peer[0], indicator_code, months_back, month=month)
         if history:
             peer_data[peer[1]] = history
 
@@ -263,11 +416,11 @@ def calculate_trend(history: List[MonthDataPoint]) -> Dict:
         direction = "stable"
 
     return {
-        "slope": round(slope, 2),
-        "r_squared": round(r_value ** 2, 3),
-        "volatility": round(volatility, 2),
+        "slope": float(round(slope, 2)),
+        "r_squared": float(round(r_value ** 2, 3)),
+        "volatility": float(round(volatility, 2)),
         "direction": direction,
-        "significant_change": p_value < 0.05,
+        "significant_change": bool(p_value < 0.05),
     }
 
 
@@ -417,6 +570,195 @@ def find_correlated_factors(source: CausalNode, candidates: List[CausalNode]) ->
     return [c for c, _ in sorted(correlated, key=lambda x: x[1], reverse=True)]
 
 
+def _extract_rule_structure(session: Session) -> Dict[str, Dict]:
+    """
+    Build a map of rule_code -> {parent, children} from the rules.params JSON.
+
+    rules.params encodes the indicator hierarchy, e.g. R001 checks that the
+    total indicator "2" is >= the sum of its children ["3", "4", "5"].
+    Returns {} on empty rules table or unparseable params.
+    """
+    try:
+        rows = session.execute(text("SELECT code, params FROM rules")).fetchall()
+    except Exception:
+        return {}
+    structure = {}
+    for code, params_json in rows:
+        try:
+            params = json.loads(params_json) if params_json else {}
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(params, dict):
+            continue
+        parent = params.get("parent")
+        child = params.get("child")
+        children = params.get("children")
+        num = params.get("num_code")
+        den = params.get("den_code")
+        if isinstance(children, list) and children:
+            # شكلان: {parent, children} (R001) أو {child, children} (R024)
+            structure[code] = {
+                "total": parent or child,
+                "parts": list(children),
+            }
+        elif parent and child:
+            # شكل {child, parent}: القاعدة تفحص جزءاً داخل إجمالي
+            structure[code] = {
+                "total": parent,
+                "parts": [child],
+            }
+        elif num:
+            # قواعد المعدلات: تفحص نسبة (بسط/مقام) دون تفكيك — البسط هو المؤشر المقارن
+            structure[code] = {
+                "total": num,
+                "parts": [],
+            }
+        elif parent:
+            structure[code] = {
+                "total": parent,
+                "parts": [],
+            }
+    return structure
+
+
+def _link_rule_causes(
+    failing: List[RuleFailurePattern],
+    structure: Dict[str, Dict],
+) -> Dict[str, List[str]]:
+    """
+    Link failing rules into a cause graph: parent rule <- child rules.
+
+    A rule C is a direct cause of rule P when C's checked indicator
+    (parent / child / num_code) appears inside P's children set. E.g.
+    R001 children include "5", and R006's parent is "5", so R006 is a
+    direct cause of R001. Returns {rule_code: [direct causes...]}.
+    """
+    causes: Dict[str, List[str]] = {f.rule_code: [] for f in failing}
+    for p in failing:
+        p_struct = structure.get(p.rule_code)
+        if not p_struct:
+            continue
+        p_parts = set(p_struct["parts"])
+        for c in failing:
+            if c.rule_code == p.rule_code:
+                continue
+            c_struct = structure.get(c.rule_code)
+            if not c_struct:
+                continue
+            c_total = c_struct.get("total")
+            c_parts = set(c_struct.get("parts", []))
+            # C سبب مباشر لـ P إذا كان مؤشر C الإجمالي ضمن أجزاء P،
+            # أو شارك C نفس الأجزاء الدقيقة التي يفككها P (تعمق أكبر)
+            if (c_total and c_total in p_parts) or (c_parts & p_parts):
+                causes[p.rule_code].append(c.rule_code)
+    # فرز الأسباب حسب معدل الفشل ثم الخطورة (الأكثر احتمالاً أولاً)
+    rate = {f.rule_code: f.failure_rate for f in failing}
+    sev = {f.rule_code: f.severity for f in failing}
+    sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+    for code in causes:
+        causes[code].sort(key=lambda x: (sev_rank.get(str(sev.get(x)).upper(), 9), -rate.get(x, 0)))
+    return causes
+
+
+def _walk_deepest_path(
+    code: str,
+    causes: Dict[str, List[str]],
+    visited: set,
+) -> List[str]:
+    """أعمق سلسلة سببية بدءاً من code (الأب ← الأبناء ← الأحفاد)."""
+    best = []
+    for cause in causes.get(code, []):
+        if cause in visited:
+            continue
+        sub = _walk_deepest_path(cause, causes, visited | {code})
+        if len(sub) + 1 > len(best):
+            best = [cause] + sub
+    return best
+
+
+def build_transitive_causal_chains(
+    session: Session,
+    rule_failures: List[RuleFailurePattern],
+) -> List[CausalChain]:
+    """
+    Build deep causal chains by linking transitive rule failures.
+
+    A rule's params declare which indicators it checks; when a parent rule
+    (e.g. R001 checks total "2" >= sum of ["3","4","5"]) and a child rule
+    (e.g. R006 checks "5" = emergency + planned C-sections) both fail, the
+    child failure is a likely cause of the parent failure. chain_path is
+    ordered [top symptom, ..., deepest cause] — القراءة من الأب إلى الأعمق.
+    Note: ربط قواعد المعدلات (مثل R041) بقواعد المجاميع ارتباطي لا سببي صِرف؛
+    إنه تخمين استدلالي لترتيب أولويات الفحص.
+    """
+    structure = _extract_rule_structure(session)
+    if not structure:
+        return []
+    causes = _link_rule_causes(rule_failures, structure)
+    severity = {f.rule_code: f.severity for f in rule_failures}
+    rate = {f.rule_code: f.failure_rate for f in rule_failures}
+    sev_rank = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
+
+    # المستويات العليا فقط: قواعد ليست سبباً لقاعدة أخرى فاشلة (لتفادي سلاسل مكررة)
+    is_cause = {c for cs in causes.values() for c in cs}
+    top_level = [f for f in rule_failures if f.rule_code not in is_cause]
+
+    chains = []
+    for f in top_level:
+        path = _walk_deepest_path(f.rule_code, causes, set())
+        if len(path) < 1:
+            continue  # لا توجد سلاسل متعدية — تُترك للارتباطات العادية
+        full = [f.rule_code] + path  # الأب ← الأبناء ← الأحفاد
+        arabic_names = _rule_arabic_labels(full)
+        evidence = [
+            f"{code} failure rate: {rate.get(code, 0)}%"
+            for code in full
+        ]
+        # الثقة: كلما تعمقت السلسلة زادت الثقة في السبب الجذري
+        depth_bonus = min(0.25, len(full) * 0.08)
+        confidence = round(min(0.95, 0.5 + depth_bonus), 2)
+        impact = sum(rate.get(code, 0) * (0.6 if str(severity.get(code)).upper() == "CRITICAL" else 0.4) for code in full)
+        chains.append(CausalChain(
+            root_cause=f"{f.rule_code} failing at {rate.get(f.rule_code, 0)}% "
+                        f"(root cause chain: {' -> '.join(full)})",
+            root_cause_arabic=f"فشل {f.rule_code} بنسبة {rate.get(f.rule_code, 0)}% "
+                              f"(السلسلة الكاملة: {' ← '.join(arabic_names)})",
+            confidence=confidence,
+            evidence=evidence,
+            affected_factors=full,
+            recommended_action=_diagnose_rule_failure(path[-1], "")[1]
+            if path else f"Investigate and fix {full[0]} root cause",
+            impact_if_fixed=round(impact, 1),
+            implementation_priority=severity.get(f.rule_code, "HIGH"),
+            chain_path=full,
+            chain_path_arabic=" ← ".join(arabic_names),
+        ))
+
+    chains.sort(key=lambda c: (sev_rank.get(str(c.implementation_priority).upper(), 9), -c.confidence))
+    return chains
+
+
+def _rule_arabic_labels(codes: List[str]) -> List[str]:
+    """تسميات عربية مختصرة لأكواد القواعد في السلسلة."""
+    labels = {
+        "R001": "إجمالي الولادات", "R002": "الولادات الأولى/متعددة",
+        "R003": "الفئات العمرية", "R004": "داخل/خارج المنشأة",
+        "R005": "مخاطر الحمل", "R006": "القيصرية الطارئة/المجدولة",
+        "R007": "القيصرية الأولية/التكرارية", "R008": "القيصرية الطارئة",
+        "R009": "القيصرية المجدولة", "R010": "القيصرية التكرارية",
+        "R011": "أجناس المواليد", "R014": "الولادات المبكرة",
+        "R015": "نقص الوزن", "R016": "الولادات الميتة",
+        "R017": "الإجهاضات", "R021": "نزف ما بعد الولادة",
+        "R024": "نزف الوضع", "R030": "مضاعفات النفاس",
+        "R031": "مضاعفات الأمومة", "R041": "معدل القيصرية",
+        "R042": "الولادات الطبيعية", "R051": "قفزة الولادات",
+        "R052": "انخفاض الولادات", "R054": "الوفيات الأمومية",
+        "R055": "وفيات المواليد", "R058": "نقص إجمالي الولادات",
+        "R059": "نقص المواليد الأحياء",
+    }
+    return [labels.get(c, c) for c in codes]
+
+
 def build_causal_chains(nodes: List[CausalNode]) -> List[CausalChain]:
     """
     Build causal chains by linking related factors.
@@ -472,8 +814,10 @@ def analyze_rule_failures(
 ) -> List[RuleFailurePattern]:
     result = session.execute(text("""
         SELECT vr.rule_code, vr.rule_description, vr.severity,
+               COALESCE(r.rule_type, vr.rule_type, 'LOGIC') as rule_type,
                COUNT(*) as failure_count, vr.details
         FROM validation_results vr
+        LEFT JOIN rules r ON r.code = vr.rule_code
         WHERE vr.hospital_id = :hid AND vr.month = :mth AND vr.status = 'FAIL'
         GROUP BY vr.rule_code
         ORDER BY COUNT(*) DESC
@@ -483,8 +827,9 @@ def analyze_rule_failures(
         rule_code = row[0]
         desc = row[1] or ""
         severity = row[2] or "LOW"
-        failure_count = row[3]
-        details = row[4] or ""
+        rule_type = row[3]
+        failure_count = row[4]
+        details = row[5] or ""
         total_result = session.execute(text("""
             SELECT COUNT(*) FROM validation_results
             WHERE hospital_id = :hid AND month = :mth AND rule_code = :rc
@@ -502,6 +847,7 @@ def analyze_rule_failures(
             failure_rate=failure_rate,
             primary_cause=primary_cause,
             recommendation=recommendation,
+            rule_type=rule_type,
         ))
     patterns.sort(key=lambda p: (p.severity != "CRITICAL", p.severity != "HIGH", -p.failure_rate))
     return patterns[:10]
@@ -550,6 +896,52 @@ def _diagnose_rule_failure(rule_code: str, details: str) -> Tuple[str, str]:
                 "Counts must be integers. Check if value was incorrectly entered.")
     return ("Rule validation check failed",
             "Review the specific indicator values and verify against source records.")
+
+
+def _diagnose_rule_failure_ar(rule_code: str, details: str) -> Tuple[str, str]:
+    """نسخة عربية من _diagnose_rule_failure (السبب + التوصية)."""
+    cause_map = {
+        "R001": ("عدم تطابق مجموع الأجزاء مع الإجمالي",
+                 "تحقق من إبلاغ جميع الفئات الفرعية، وافحص أي مؤشر ناقص أو مشفّر خطأً."),
+        "R002": ("تفصيل الولادات الأولى/المتعددة لا يطابق إجمالي الولادات",
+                 "راجع إدخال الولادات الأولى والمتعددة، وتأكد من ملء الحقلين."),
+        "R004": ("عدم تطابق تفصيل داخل/خارج المنشأة",
+                 "تأكد من صحة تصنيف الولادات داخل المنشأة وخارجها."),
+        "R005": ("عدم تطابق تصنيف المخاطر",
+                 "تحقق من تطبيق معايير تصنيف المخاطر المنخفضة/العالية بشكل ثابت."),
+        "R041": ("معدل القيصرية يتجاوز العتبة الآمنة",
+                 "راجع مؤشرات العمليات القيصرية، وادرس الحد من القيصرية غير الضرورية."),
+        "R042": ("معدل الولادات الطبيعية منخفض جداً",
+                 "تحقق من نقص الإبلاغ عن الولادات الطبيعية أو تصنيفها خطأً كقيصرية."),
+        "R051": ("قفزة في الولادات تتجاوز ضعفي الشهر السابق",
+                 "تحقق من دقة البيانات؛ قد يشير لتكرار في الإبلاغ أو تدفق إحالات حقيقي."),
+        "R052": ("انخفاض الولادات أكثر من 50% عن الشهر السابق",
+                 "افحص اكتمال الإبلاغ؛ قد يشير لفجوة في جمع البيانات."),
+        "R054": ("ارتفاع الوفيات الأمومية فوق العتبة",
+                 "حرج: تحقيق فوري مطلوب، وراجع كل حالة وفاة أمومية."),
+        "R055": ("ارتفاع وفيات المواليد فوق العتبة",
+                 "حرج: تحقيق فوري مطلوب، وراجع بروتوكولات رعاية المواليد."),
+        "R058": ("مؤشر إجمالي الولادات غير مُبلَّغ عنه",
+                 "مؤشر أساسي غير مُبلَّغ؛ قد تكون المنشأة لم ترسل بيانات كاملة."),
+        "R059": ("مؤشر المواليد الأحياء غير مُبلَّغ عنه",
+                 "مؤشر أساسي غير مُبلَّغ؛ مطلوب لحساب معدل وفيات المواليد."),
+    }
+    if rule_code in cause_map:
+        return cause_map[rule_code]
+    if "exceeds" in details.lower() or ">" in details:
+        return ("القيمة تتجاوز العتبة المتوقعة",
+                "راجع القيمة؛ إن كانت دقيقة فحقق في الأسباب الكامنة.")
+    if "missing" in details.lower():
+        return ("قيمة المؤشر المطلوب غير مُبلَّغ عنها",
+                "تأكد من ملء جميع المؤشرات الإلزامية قبل الإرسال.")
+    if "negative" in details.lower():
+        return ("قيمة سالبة لمؤشر عددي",
+                "القيم السالبة مستحيلة؛ راجع الإدخال بحثاً عن أخطاء الإشارة.")
+    if "decimal" in details.lower():
+        return ("قيمة عشرية لحقل عددي",
+                "يجب أن تكون العدّادات أرقاماً صحيحة؛ تحقق من صحة الإدخال.")
+    return ("فشل فحص التحقق من القاعدة",
+            "راجع قيم المؤشرات المحددة وتحقق منها مقابل السجلات المصدرية.")
 
 
 def analyze_quality_drivers(
@@ -659,6 +1051,38 @@ def _diagnose_confidence_gap(signal_factor: str, name: str, level: str) -> Tuple
     )
 
 
+def _diagnose_confidence_gap_ar(signal_factor: str, name: str, level: str) -> Tuple[str, str]:
+    """نسخة عربية من _diagnose_confidence_gap."""
+    diagnoses = {
+        "rule_compliance": (
+            f"المؤشر '{name}' يفشل بانتظام في قواعد التحقق",
+            "راجع فشل القواعد الخاص بهذا المؤشر وتحقق من دقة الإدخال."
+        ),
+        "historical": (
+            f"المؤشر '{name}' يظهر تقلباً عالياً مقارنة بالاتجاه التاريخي",
+            "تحقق من القيم الأخيرة؛ إن كانت دقيقة فافحص ما تغيّر في فترة الإبلاغ."
+        ),
+        "cross_hospital": (
+            f"المؤشر '{name}' ينحرف بشكل كبير عن المستشفيات النظيرة",
+            "راجع إن كان انحرافاً حقيقياً أو خطأ إبلاغ، وقارن مع منشآت مماثلة."
+        ),
+        "trend": (
+            f"المؤشر '{name}' له اتجاه غير مستقر أو مقلق",
+            "حلل اتجاه 3-6 أشهر، وحدد إن كان تغيراً موسمياً أو تحولاً مستمراً."
+        ),
+        "completeness": (
+            f"المؤشر '{name}' ينقصه مكوّنات فرعية أو مؤشرات مرتبطة",
+            "تأكد من ملء جميع المؤشرات الفرعية والحقول ذات الصلة."
+        ),
+    }
+    if signal_factor in diagnoses:
+        return diagnoses[signal_factor]
+    return (
+        f"عوامل متعددة تسهم في انخفاض الثقة في '{name}'",
+        "راجع جميع مصادر البيانات لهذا المؤشر، وفكر في التحقق اليدوي من السجلات المصدرية."
+    )
+
+
 def analyze_anomaly_patterns(
     session: Session,
     hospital_id: int,
@@ -710,6 +1134,239 @@ def analyze_anomaly_patterns(
     return patterns[:10]
 
 
+def _rec_priority_rank(p: str) -> int:
+    """ترتيب الأولوية للفرز: حرج < عالٍ < متوسط < منخفض."""
+    return {"critical": 0, "high": 1, "medium": 2, "low": 3}.get(str(p).lower(), 4)
+
+
+_AR_CATEGORY_NAMES = {
+    "Data Validation": "التحقق من البيانات",
+    "Data Quality": "جودة البيانات",
+    "Confidence Improvement": "رفع الثقة",
+    "Outlier Management": "إدارة الشذوذ",
+    "Peer Comparison": "مقارنة النظير",
+    "Historical Decline": "الانحدار التاريخي",
+    "Causal Chain": "السلاسل السببية",
+    "Continuous Improvement": "التحسين المستمر",
+    "General Monitoring": "المراقبة العامة",
+    "Risk Management": "إدارة المخاطر",
+    "Maternal Mortality": "الوفيات الأمومية",
+    "Maternal Morbidity": "الاعتلال الأمومي",
+    "C-Section Management": "إدارة القيصرية",
+}
+
+
+def _build_local_recommendations(
+    hospital: str,
+    month: str,
+    overall_quality: float,
+    overall_confidence: float,
+    rule_failures: List[RuleFailurePattern],
+    quality_drivers: List[QualityDriver],
+    confidence_gaps: List[ConfidenceGap],
+    anomaly_patterns: List[AnomalyPattern],
+    causal_chains: List[CausalChain],
+    peer_comparisons: Dict[str, PeerIndicatorComparison],
+    historical_trends: Dict[str, Dict],
+) -> List[Dict]:
+    """توصيات محلية محددة وثنائية اللغة (عربي/إنجليزي) مبنية على بيانات التحليل الفعلية.
+
+    تعمل دائماً (حتى دون مزود AI خارجي) وتذكر الأكواد والأرقام والتسميات العربية
+    الحقيقية لكل مشكلة — بدل قوالب عامة.
+    """
+    recs: List[Dict] = []
+
+    def _add(category, category_ar, priority, title, title_ar, description, description_ar,
+             rationale, rationale_ar, action_items, action_items_ar, indicators):
+        recs.append({
+            "category": category, "category_ar": category_ar, "priority": priority,
+            "title": title, "title_ar": title_ar,
+            "description": description, "description_ar": description_ar,
+            "rationale": rationale, "rationale_ar": rationale_ar,
+            "action_items": action_items, "action_items_ar": action_items_ar,
+            "affected_indicators": indicators,
+        })
+
+    # 1) السلاسل السببية — أعلى قيمة: تعالج السبب لا العرض
+    for chain in causal_chains[:2]:
+        prio = str(chain.implementation_priority).lower()
+        # التوصية تستهدف أعمق سبب في السلسلة — نعربها بنفس المنطق
+        deepest = chain.chain_path[-1] if chain.chain_path else (chain.affected_factors[-1] if chain.affected_factors else "")
+        if deepest and deepest.startswith("R"):
+            ar_action = _diagnose_rule_failure_ar(deepest, "")[1]
+        else:
+            ar_action = "حقق في السبب الجذري للمشكلة وطبّق الإجراءات التصحيحية"
+        _add(
+            "Causal Chain", "السلاسل السببية", prio,
+            f"Fix root cause: {chain.root_cause}",
+            chain.root_cause_arabic or f"معالجة السبب: {chain.root_cause}",
+            f"{chain.recommended_action} — expected impact {chain.impact_if_fixed:.1f} quality points.",
+            f"{ar_action} — الأثر المتوقع {chain.impact_if_fixed:.1f} نقطة جودة.",
+            "Linked rule failures point to one common upstream cause — fixing it resolves several issues at once.",
+            "فشل القواعد المترابط يشير إلى سبب منبع واحد مشترك — إصلاحه يحل عدة مشاكل معاً.",
+            [chain.recommended_action],
+            [ar_action],
+            chain.affected_factors,
+        )
+
+    # 2) فشل قواعد التحقق الحرج/العالي
+    for f in [x for x in rule_failures if str(x.severity).upper() in ("CRITICAL", "HIGH")][:2]:
+        ar_label = _rule_arabic_labels([f.rule_code])[0]
+        prio = "critical" if str(f.severity).upper() == "CRITICAL" else "high"
+        ar_cause, ar_rec = _diagnose_rule_failure_ar(f.rule_code, f.primary_cause)
+        _add(
+            "Data Validation", "التحقق من البيانات", prio,
+            f"Fix {f.rule_code}: {f.rule_description[:50]}",
+            f"معالجة فشل {f.rule_code} ({ar_label}) — فشل بنسبة {f.failure_rate:.0f}%",
+            f"{f.primary_cause} Failure rate {f.failure_rate:.0f}%.",
+            f"{ar_cause} — معدل الفشل {f.failure_rate:.0f}%.",
+            "Validation failures directly lower rule compliance and confidence.",
+            "فشل قواعد التحقق يخفض الالتزام بالقواعد والثقة مباشرة.",
+            [f.recommendation], [ar_rec], [f.rule_code],
+        )
+
+    # 3) فجوات الثقة
+    for g in [x for x in confidence_gaps if str(x.level).upper() in ("CRITICAL", "LOW")][:2]:
+        ar_cause, ar_rec = _diagnose_confidence_gap_ar(g.weakest_signal, g.indicator_name, g.level)
+        _add(
+            "Confidence Improvement", "رفع الثقة", "high",
+            f"Improve confidence for {g.indicator_name}",
+            f"رفع الثقة في {g.indicator_name}",
+            f"Confidence {g.confidence:.0f}% — weakest signal: {g.weakest_signal}.",
+            f"الثقة {g.confidence:.0f}% — أضعف إشارة: {g.weakest_signal}.",
+            g.root_cause, ar_cause,
+            [g.recommendation], [ar_rec], [g.indicator_code],
+        )
+
+    # 4) الشذوذ الحاد
+    for a in [x for x in anomaly_patterns if x.pattern_type == "severe"][:2]:
+        ar_desc = f"شذوذ حاد (|z|={a.avg_z_score}) لمؤشر {a.rate_name}"
+        if a.recurrence_count:
+            ar_desc += f" — يتكرر ({a.recurrence_count} أشهر سابقة)"
+        _add(
+            "Outlier Management", "إدارة الشذوذ", "high",
+            f"Investigate severe anomaly: {a.rate_name}",
+            f"التحقيق في شذوذ حاد: {a.rate_name}",
+            f"|z|={a.avg_z_score} — {a.description}",
+            ar_desc,
+            "Severe anomalies may hide data entry errors or a real clinical change.",
+            "الشذوذ الحاد قد يخفي أخطاء إدخال أو تغيراً سريرياً حقيقياً.",
+            ["Verify source data for the flagged indicator", "Compare with previous months", "Investigate the clinical cause"],
+            ["تحقق من البيانات المصدرية للمؤشر", "قارن مع الأشهر السابقة", "حقق في السبب السريري"],
+            [a.indicator_code],
+        )
+
+    # 5) أضعف أبعاد الجودة
+    if quality_drivers:
+        worst = quality_drivers[0]
+        if worst.status != "good":
+            _ar_component = {
+                "Rule Compliance": "الالتزام بالقواعد", "Completeness": "الاكتمال",
+                "Consistency": "الاتساق", "Outlier Penalty": "جزاء الشذوذ",
+            }.get(worst.component, worst.component)
+            ar_rec = (f"{_ar_component} عند {worst.value:.1f}% دون الهدف — راجع الإجراءات ذات الصلة."
+                      if worst.status != "critical"
+                      else f"{_ar_component} عند {worst.value:.1f}% يتطلب انتباهاً عاجلاً — حقق في الأسباب الجذرية.")
+            _add(
+                "Data Quality", "جودة البيانات", "medium",
+                f"Improve {worst.component} ({worst.value:.0f}%)",
+                f"تحسين {_ar_component} ({worst.value:.0f}%)",
+                worst.recommendation, ar_rec,
+                f"Impact gap of {worst.impact:.0f} quality points.",
+                f"فجوة أثر {worst.impact:.0f} نقطة جودة.",
+                [worst.recommendation], [ar_rec], [],
+            )
+
+    # 6) فجوة النظير لكل مؤشر
+    elevated = sorted(
+        [c for c in peer_comparisons.values() if c.gap_pct > 20],
+        key=lambda c: -c.gap_pct,
+    )
+    if elevated:
+        top = elevated[0]
+        _add(
+            "Peer Comparison", "مقارنة النظير", "medium",
+            f"{top.indicator_name} is {top.gap_pct:.0f}% above peer mean",
+            f"{top.indicator_name} أعلى من متوسط النظير بـ {top.gap_pct:.0f}%",
+            f"Hospital value {top.hospital_value} vs peer mean {top.peer_mean} (z={top.hospital_z_score}).",
+            f"قيمة المستشفى {top.hospital_value} مقابل {top.peer_mean} للنظير (z={top.hospital_z_score}).",
+            "Deviation from peers may signal a reporting issue or a genuine care difference.",
+            "الانحراف عن النظير قد يشير إلى مشكلة إبلاغ أو اختلاف رعاية حقيقي.",
+            ["Compare data entry practices with peers", "Review clinical practice differences"],
+            ["قارن ممارسات الإدخال مع النظير", "راجع اختلافات الممارسة السريرية"],
+            [top.indicator_code],
+        )
+
+    # 7) انحدار تاريخي
+    declining = sorted(
+        [(f, t) for f, t in historical_trends.items() if t.get("direction") == "declining"],
+        key=lambda x: x[1].get("slope", 0),
+    )
+    if declining:
+        f, t = declining[0]
+        ar_label = _rule_arabic_labels([f])[0] if f.startswith("R") else INDICATOR_NAMES.get(f, f)
+        _add(
+            "Historical Decline", "الانحدار التاريخي", "high",
+            f"{f} declining at {abs(t['slope']):.1f} points/month",
+            f"{ar_label} في انحدار بمعدل {abs(t['slope']):.1f} شهرياً",
+            f"Slope {t['slope']:.1f}/month, r²={t.get('r_squared', 0):.2f}.",
+            f"الميل {t['slope']:.1f} شهرياً، التفسير {t.get('r_squared', 0):.2f}.",
+            "Sustained decline predicts worsening without intervention.",
+            "الانحدار المستمر يتنبأ بتدهور ما لم يُتدخل.",
+            ["Investigate the last 3 months", "Compare with peer hospitals", "Monitor weekly until reversed"],
+            ["حقق في آخر 3 أشهر", "قارن مع المستشفيات النظيرة", "راقب أسبوعياً حتى ينعكس الاتجاه"],
+            [f],
+        )
+
+    # 8) ختامي عندما لا توجد مشاكل
+    if not recs:
+        _add(
+            "Continuous Improvement", "التحسين المستمر", "low",
+            "Maintain Data Quality Standards",
+            "المحافظة على معايير جودة البيانات",
+            "No critical issues detected. Continue regular monitoring and periodic reviews.",
+            "لا توجد مشاكل حرجة. استمر في المراقبة الدورية والمراجعات.",
+            "Sustained data quality requires ongoing attention even when no immediate issues exist.",
+            "الجودة المستدامة تتطلب متابعة مستمرة حتى عند غياب مشاكل فورية.",
+            ["Continue monthly quality reviews", "Document best practices for data entry", "Schedule quarterly training refreshers"],
+            ["استمر في المراجعات الشهرية", "وثّق أفضل الممارسات للإدخال", "نظّم تدريبات تنشيطية ربع سنوية"],
+            [],
+        )
+
+    return recs[:8]
+
+
+def _has_arabic_script(val) -> bool:
+    """هل يحتوي النص على حروف عربية (النطاق U+0600–U+06FF)؟"""
+    return any("؀" <= ch <= "ۿ" for ch in str(val or ""))
+
+
+def _has_real_arabic(r: Dict) -> bool:
+    """هل تحمل التوصية وصفاً عربياً حقيقياً؟
+
+    يشترط عربية في الوصف تحديداً (لا مجرد الفئة/العنوان): توصية بترجمة جزئية
+    (عنوان عربي + وصف إنجليزي) قد تسرّب الإنجليزية إلى الواجهة العربية،
+    لذا تُهمَل — المحلي ثنائي اللغة أخصّ وأكمل.
+    """
+    return _has_arabic_script(r.get("description_ar"))
+
+
+def _ar_synthesis_for_ai_rec(r: Dict) -> Dict:
+    """توليد حقول عربية لتوصية AI خالصة (عند غيابها من المزود الخارجي).
+
+    لا تنسخ الإنجليزية أبداً إلى الحقول العربية — عند غياب الترجمة تُترك
+    فارغة لتقع الواجهة على الحقل الإنجليزي في الوضع الإنجليزي فقط.
+    """
+    cat_ar = _AR_CATEGORY_NAMES.get(r.get("category", ""), r.get("category", ""))
+    return {
+        "category_ar": r.get("category_ar") or cat_ar,
+        "title_ar": r.get("title_ar") or (f"توصية: {cat_ar}" if cat_ar else ""),
+        "description_ar": r.get("description_ar") or "",
+        "rationale_ar": r.get("rationale_ar") or "",
+        "action_items_ar": r.get("action_items_ar") or [],
+    }
+
+
 def generate_root_cause_analysis(
     session: Session,
     hospital_id: int,
@@ -741,7 +1398,8 @@ def generate_root_cause_analysis(
     for rf in rule_failures:
         history = []
         if include_history:
-            history = get_historical_data(session, hospital_id, rf.rule_code, months_back)
+            # نسبة فشل القاعدة عبر الأشهر (أكواد القواعد ليست أكواد مؤشرات)
+            history = get_rule_failure_history(session, hospital_id, rf.rule_code, months_back, month=month)
 
         causal_nodes.append(CausalNode(
             factor=rf.rule_code,
@@ -766,24 +1424,56 @@ def generate_root_cause_analysis(
             severity="critical" if qd.status == "critical" else "high" if qd.status == "needs_improvement" else "low",
         ))
 
-    causal_chains = build_causal_chains(causal_nodes)
+    # سلاسل متعدية عميقة من فشل القواعد (الأب ← الأبناء ← الأحفاد)
+    transitive_chains = build_transitive_causal_chains(session, rule_failures)
+    if transitive_chains:
+        causal_chains = transitive_chains
+    else:
+        causal_chains = build_causal_chains(causal_nodes)
 
     peer_comparisons = {}
     if compare_peers:
+        # مقارنة لكل مؤشر: قيمة المستشفى مقابل متوسط النظير لنفس المؤشر
         peer_groups = identify_peer_groups(session, hospital_id)
-        for group_name, peer_ids in peer_groups.items():
-            peer_values = []
-            for pid in peer_ids:
-                iv = session.execute(text("""
-                    SELECT value FROM indicator_values
-                    WHERE hospital_id = :pid AND month = :mth
-                    LIMIT 1
-                """), {"pid": pid, "mth": month}).fetchone()
-                if iv:
-                    peer_values.append(float(iv[0]))
-            if peer_values:
-                peer_comparisons[group_name] = calculate_peer_comparison(
-                    overall_quality, peer_values, hospital_name
+        if peer_groups:
+            from app.engine.smart import _load_hospital_data
+            # نعيد استخدام نفس محمل بيانات محرك الشذوذ (يشتق المؤشرات من القيم الخام)
+            month_data = _load_hospital_data(session, month)
+            hospital_map = {}
+            peer_values: Dict[str, List[float]] = {}
+            for name, entry in month_data.items():
+                if entry["hospital_id"] == hospital_id:
+                    hospital_map = entry.get("values", {})
+                else:
+                    for code in FEATURE_KEYS:
+                        v = entry.get("values", {}).get(code)
+                        if v is not None:
+                            peer_values.setdefault(code, []).append(float(v))
+
+            for code in FEATURE_KEYS:
+                if code not in hospital_map or code not in peer_values or len(peer_values[code]) < 2:
+                    continue
+                pvals = peer_values[code]
+                mean = sum(pvals) / len(pvals)
+                hv = hospital_map[code]
+                # مؤشر بلا إشارة (صفر عند الكل) لا يضيف مقارنة ذات معنى
+                if mean == 0 and hv == 0:
+                    continue
+                std = (sum((v - mean) ** 2 for v in pvals) / len(pvals)) ** 0.5
+                percentile = float(sum(1 for v in pvals if v <= hv) / len(pvals) * 100)
+                z = (hv - mean) / std if std > 0 else 0.0
+                gap_pct = ((hv - mean) / mean * 100) if mean != 0 else 0.0
+                peer_comparisons[code] = PeerIndicatorComparison(
+                    indicator_code=code,
+                    indicator_name=INDICATOR_NAMES.get(code, code),
+                    hospital_value=round(hv, 2),
+                    peer_group=", ".join(sorted(peer_groups.keys())),
+                    peer_count=len(pvals),
+                    peer_mean=round(mean, 2),
+                    peer_std=round(std, 2),
+                    hospital_percentile=round(percentile, 1),
+                    hospital_z_score=round(z, 2),
+                    gap_pct=round(gap_pct, 2),
                 )
 
     historical_trends = {}
@@ -813,8 +1503,14 @@ def generate_root_cause_analysis(
         )
     if confidence_gaps:
         worst_gap = confidence_gaps[0]
+        if worst_gap.level == "CRITICAL":
+            gap_phrase = "critically low"
+        elif worst_gap.level == "LOW":
+            gap_phrase = "low"
+        else:
+            gap_phrase = "moderate"
         summary_parts.append(
-            f"Confidence is critically low for {worst_gap.indicator_name} "
+            f"Confidence is {gap_phrase} for {worst_gap.indicator_name} "
             f"({worst_gap.confidence:.1f}%). {worst_gap.root_cause[:80]}."
         )
     if anomaly_patterns:
@@ -831,71 +1527,156 @@ def generate_root_cause_analysis(
     summary = " | ".join(summary_parts)
 
     summary_arabic = _generate_arabic_summary(
+        hospital_name, month, overall_quality, overall_confidence,
         causal_chains, rule_failures, quality_drivers,
-        confidence_gaps, anomaly_patterns, peer_comparisons
+        confidence_gaps, anomaly_patterns, peer_comparisons,
     )
 
     priority_actions = []
+    priority_action_details: List[PriorityActionDetail] = []
+
+    def _add_action(action_text: str, source: str, severity: str, **metrics_kwargs) -> None:
+        if len(priority_actions) >= 8:
+            return
+        priority_actions.append(action_text)
+        m = _estimate_action_metrics(severity=severity, **metrics_kwargs)
+        priority_action_details.append(PriorityActionDetail(
+            action=action_text,
+            source=source,
+            severity=severity,
+            impact=m["impact"],
+            effort=m["effort"],
+            roi=m["roi"],
+        ))
+
     for chain in causal_chains[:3]:
-        priority_actions.append(
-            f"[{chain.implementation_priority.upper()}] "
-            f"{chain.root_cause}: {chain.recommended_action}"
+        # impact_if_fixed يخرج على مقياس صغير (≈4-25) — نُطبعه على مقياس 0-100
+        _add_action(
+            f"[{chain.implementation_priority.upper()}] {chain.root_cause_arabic or chain.root_cause}: {chain.recommended_action}",
+            "chain", chain.implementation_priority.upper(),
+            impact_hint=min(100.0, chain.impact_if_fixed * 4),
         )
     for f in rule_failures[:3]:
-        if f.severity in ("CRITICAL", "HIGH") and len(priority_actions) < 8:
-            priority_actions.append(f"[{f.severity}] {f.rule_code}: {f.recommendation[:100]}")
+        if f.severity in ("CRITICAL", "HIGH"):
+            _add_action(
+                f"[{f.severity}] {f.rule_code}: {f.recommendation[:100]}",
+                "rule", f.severity,
+                failure_rate=f.failure_rate, rule_type=f.rule_type,
+            )
     for g in confidence_gaps[:3]:
-        if g.level in ("CRITICAL", "LOW") and len(priority_actions) < 8:
-            priority_actions.append(f"[{g.level} Confidence] {g.indicator_name}: {g.recommendation[:100]}")
+        if g.level in ("CRITICAL", "LOW"):
+            _add_action(
+                f"[{g.level} Confidence] {g.indicator_name}: {g.recommendation[:100]}",
+                "confidence", g.level,
+                confidence=g.confidence,
+            )
     for a in anomaly_patterns[:2]:
-        if a.pattern_type == "severe" and len(priority_actions) < 8:
-            priority_actions.append(f"[Anomaly] {a.description[:100]}")
-    if quality_drivers and len(priority_actions) < 8:
+        if a.pattern_type == "severe":
+            _add_action(
+                f"[Anomaly] {a.description[:100]}",
+                "anomaly", "HIGH",
+                z_score=a.avg_z_score,
+            )
+    if quality_drivers:
         worst_q = quality_drivers[0]
         if worst_q.status != "good":
-            priority_actions.append(f"[Quality] {worst_q.recommendation[:100]}")
+            _add_action(
+                f"[Quality] {worst_q.recommendation[:100]}",
+                "quality", "MEDIUM",
+                impact_hint=worst_q.impact * 100 if worst_q.impact <= 1 else worst_q.impact,
+            )
 
-    ai_recommendations = []
+    # توصيات محلية محددة ثنائية اللغة — تعمل دائماً حتى دون مزود AI خارجي
+    local_recs = _build_local_recommendations(
+        hospital_name, month, overall_quality, overall_confidence,
+        rule_failures, quality_drivers, confidence_gaps, anomaly_patterns,
+        causal_chains, peer_comparisons, historical_trends,
+    )
+
+    ai_recs = []
     if _HAVE_AI:
         try:
-            report_data_for_ai = {
-                "hospital": hospital_name,
-                "month": month,
-                "overall_quality_score": round(overall_quality, 1),
-                "overall_confidence": round(overall_confidence, 1),
-                "critical_issues_count": critical_count,
-                "top_rule_failures": [
-                    {"rule_code": f.rule_code, "description": f.rule_description,
-                     "severity": f.severity, "failure_rate": f.failure_rate,
-                     "primary_cause": f.primary_cause}
-                    for f in rule_failures
-                ],
-                "quality_drivers": [
-                    {"component": d.component, "value": d.value,
-                     "status": d.status, "impact": d.impact}
-                    for d in quality_drivers
-                ],
-                "confidence_gaps": [
-                    {"indicator_name": g.indicator_name, "level": g.level,
-                     "confidence": g.confidence, "weakest_signal": g.weakest_signal}
-                    for g in confidence_gaps
-                ],
-                "anomaly_patterns": [
-                    {"rate_name": a.rate_name, "avg_z_score": a.avg_z_score,
-                     "pattern_type": a.pattern_type, "description": a.description}
-                    for a in anomaly_patterns
-                ],
-            }
-            rc_ai_results = _generate_rc_ai(report_data_for_ai, session=session)
-            ai_recommendations = [
-                {"category": r.category, "priority": r.priority,
-                 "title": r.title, "description": r.description,
-                 "rationale": r.rationale, "action_items": r.action_items,
-                 "affected_indicators": r.indicators_monitored}
-                for r in rc_ai_results
-            ]
-        except Exception as e:
-            logger.error(f"Failed to generate AI root cause recommendations: {e}")
+            from app.plugins.ai.providers import AI_ENABLED as _AI_ENABLED, AI_API_KEY as _AI_API_KEY
+        except ImportError:
+            _AI_ENABLED, _AI_API_KEY = False, ""
+        # المزود الخارجي يُستدعى عند التفعيل الفعلي بمفتاح فقط — خلاف ذلك
+        # تبقى التوصيات المحلية ثنائية اللغة وحدها (محددة وموثوقة)
+        if _AI_ENABLED and _AI_API_KEY:
+            try:
+                report_data_for_ai = {
+                    "hospital": hospital_name,
+                    "month": month,
+                    "overall_quality_score": round(overall_quality, 1),
+                    "overall_confidence": round(overall_confidence, 1),
+                    "critical_issues_count": critical_count,
+                    "top_rule_failures": [
+                        {"rule_code": f.rule_code, "description": f.rule_description,
+                         "severity": f.severity, "failure_rate": f.failure_rate,
+                         "primary_cause": f.primary_cause}
+                        for f in rule_failures
+                    ],
+                    "quality_drivers": [
+                        {"component": d.component, "value": d.value,
+                         "status": d.status, "impact": d.impact}
+                        for d in quality_drivers
+                    ],
+                    "confidence_gaps": [
+                        {"indicator_name": g.indicator_name, "level": g.level,
+                         "confidence": g.confidence, "weakest_signal": g.weakest_signal}
+                        for g in confidence_gaps
+                    ],
+                    "anomaly_patterns": [
+                        {"rate_name": a.rate_name, "avg_z_score": a.avg_z_score,
+                         "pattern_type": a.pattern_type, "description": a.description}
+                        for a in anomaly_patterns
+                    ],
+                    "historical_trends": historical_trends,
+                    "peer_comparisons": {
+                        k: {
+                            "indicator_code": v.indicator_code,
+                            "indicator_name": v.indicator_name,
+                            "hospital_value": v.hospital_value,
+                            "peer_group": v.peer_group,
+                            "peer_mean": v.peer_mean,
+                            "hospital_percentile": v.hospital_percentile,
+                            "hospital_z_score": v.hospital_z_score,
+                            "gap_pct": v.gap_pct,
+                        }
+                        for k, v in peer_comparisons.items()
+                    },
+                }
+                rc_ai_results = _generate_rc_ai(report_data_for_ai, session=session)
+                ai_recs = [
+                    {
+                        "category": r.category, "category_ar": r.category_ar,
+                        "priority": r.priority,
+                        "title": r.title, "title_ar": r.title_ar,
+                        "description": r.description, "description_ar": r.description_ar,
+                        "rationale": r.rationale, "rationale_ar": r.rationale_ar,
+                        "action_items": r.action_items, "action_items_ar": r.action_items_ar,
+                        "affected_indicators": r.indicators_monitored,
+                    }
+                    for r in rc_ai_results
+                ]
+            except Exception as e:
+                logger.error(f"Failed to generate AI root cause recommendations: {e}")
+
+    # الدمج: المحلية أولاً (محددة وثنائية اللغة)، ثم توصيات AI غير المكررة،
+    # مرتبة بالأولوية ثم مقطوعة عند السقف. البوابة _has_real_arabic تمنع أي
+    # توصية بلا وصف عربي حقيقي (مثل ردود Gemini السابقة المخزنة إنجليزياً أو
+    # مزود تجاهل تعليمات العربية) من التسرب للواجهة العربية — المحلي أخصّ وأفضل.
+    merged = list(local_recs)
+    for r in ai_recs:
+        if len(merged) >= 8:
+            break
+        if not _has_real_arabic(r):
+            continue
+        if any(m["category"] == r["category"] for m in merged):
+            continue
+        ar = _ar_synthesis_for_ai_rec(r)
+        merged.append({**r, **ar})
+    merged.sort(key=lambda r: _rec_priority_rank(r["priority"]))
+    ai_recommendations = merged[:8]
 
     return RootCauseReport(
         hospital=hospital_name,
@@ -910,6 +1691,7 @@ def generate_root_cause_analysis(
         anomaly_patterns=anomaly_patterns,
         summary=summary[:300],
         priority_actions=priority_actions[:8],
+        priority_action_details=priority_action_details[:8],
         ai_recommendations=ai_recommendations,
         causal_tree=causal_nodes,
         causal_chains=causal_chains,
@@ -920,43 +1702,99 @@ def generate_root_cause_analysis(
 
 
 def _generate_arabic_summary(
-    causal_chains, rule_failures, quality_drivers,
-    confidence_gaps, anomaly_patterns, peer_comparisons
+    hospital: str,
+    month: str,
+    overall_quality: float,
+    overall_confidence: float,
+    causal_chains,
+    rule_failures,
+    quality_drivers,
+    confidence_gaps,
+    anomaly_patterns,
+    peer_comparisons,
 ) -> str:
-    """Generate Arabic narrative summary of root cause analysis."""
+    """سرد عربي تنفيذي متماسك لنتائج تحليل السبب الجذري.
+
+    البنية: حالة عامة ← السبب الجذري ← الأدلة ← مقارنة النظير ←
+    أبعاد الجودة والثقة ← الشذوذ ← الإجراء الموصى به أولاً.
+    """
     parts = []
 
+    # 1) افتتاحية الحالة العامة بسياق المستشفى والشهر —
+    #    البوابة تعتمد على الإشارات الحرجة الفعلية لا على وجود السلاسل السببية
+    #    (السلاسل لا تُبنى إلا عند توفر بنية params للقواعد وترابطها)
+    has_critical = (
+        any(str(r.severity).upper() == "CRITICAL" for r in rule_failures)
+        or any(str(g.level).upper() == "CRITICAL" for g in confidence_gaps)
+        or any(a.pattern_type == "severe" for a in anomaly_patterns)
+    )
+    if (overall_quality >= 80 and overall_confidence >= 80 and not has_critical):
+        parts.append(
+            f"تقرير {hospital} لشهر {month}: لا توجد مشاكل حرجة — "
+            f"جودة البيانات ({overall_quality:.0f}%) والثقة ({overall_confidence:.0f}%) ضمن النطاق المقبول."
+        )
+    else:
+        urgent = overall_quality < 50 or overall_confidence < 50 or has_critical
+        status = "تتطلب تدخلاً عاجلاً" if urgent else "تحتاج متابعة"
+        parts.append(
+            f"تقرير {hospital} لشهر {month}: الحالة {status} — "
+            f"جودة البيانات {overall_quality:.0f}% والثقة {overall_confidence:.0f}%."
+        )
+
+    # 2) السبب الجذري الرئيسي
     if causal_chains:
         top = causal_chains[0]
-        parts.append(f"السبب الجذري الرئيسي: {top.root_cause_arabic}")
+        parts.append(f"السبب الجذري الرئيسي: {top.root_cause_arabic} (بثقة {top.confidence:.0%})")
 
-    if peer_comparisons:
-        for group, comp in peer_comparisons.items():
-            if comp.hospital_percentile < 50:
-                parts.append(
-                    f"مقارنة ب {group}: المستشفى في المئوية {comp.hospital_percentile:.0f}"
-                )
-
+    # 3) أدلة قواعد التحقق
     if rule_failures:
         critical = [r for r in rule_failures if r.severity == "CRITICAL"]
+        top = rule_failures[0]
+        label = _rule_arabic_labels([top.rule_code])[0]
         if critical:
-            parts.append(f"يوجد {len(critical)} مشاكل حرجة في قواعد التحقق")
+            parts.append(
+                f"توجد {len(critical)} قواعد تحقق حرجة، أبرزها {top.rule_code} "
+                f"({label}) بنسبة فشل {top.failure_rate:.0f}%"
+            )
+        else:
+            parts.append(f"أبرز فشل تحقق: {top.rule_code} ({label}) بنسبة {top.failure_rate:.0f}%")
 
+    # 4) مقارنة النظير لكل مؤشر
+    if peer_comparisons:
+        elevated = [c for c in peer_comparisons.values() if c.gap_pct > 20]
+        if elevated:
+            top = max(elevated, key=lambda c: c.gap_pct)
+            parts.append(
+                f"مقارنة بالنظراء: {top.indicator_name} أعلى من متوسط النظير بـ {top.gap_pct:.0f}% "
+                f"(قيمة المستشفى {top.hospital_value} مقابل {top.peer_mean} للنظير)"
+            )
+
+    # 5) أضعف أبعاد الجودة
     if quality_drivers:
         worst = quality_drivers[0]
         if worst.status == "critical":
-            parts.append(f"العامل الحرج: {worst.component} بنسبة {worst.value:.1f}%")
+            parts.append(f"الجودة متأثرة بشدة ببعد {worst.component} ({worst.value:.1f}%)")
         elif worst.status == "needs_improvement":
-            parts.append(f"يحتاج تحسين: {worst.component} بنسبة {worst.value:.1f}%")
+            parts.append(f"أضعف أبعاد الجودة: {worst.component} ({worst.value:.1f}%)")
 
+    # 6) فجوات الثقة
     if confidence_gaps:
         critical_gaps = [g for g in confidence_gaps if g.level in ("CRITICAL", "LOW")]
         if critical_gaps:
-            parts.append(f" الثقة منخفضة لـ {len(critical_gaps)} مؤشرات")
+            names = "، ".join(g.indicator_name for g in critical_gaps[:3])
+            parts.append(f"الثقة منخفضة لمؤشرات: {names}")
 
+    # 7) الشذوذ الحاد
     if anomaly_patterns:
         severe = [a for a in anomaly_patterns if a.pattern_type == "severe"]
         if severe:
-            parts.append(f"تم اكتشاف {len(severe)} شذوذ حاد")
+            parts.append(
+                f"رصد {len(severe)} شذوذ حاد، أبرزها {severe[0].rate_name} (z={severe[0].avg_z_score})"
+            )
 
-    return ". ".join(parts) if parts else "لا توجد مشاكل حرجة"
+    # 8) الإجراء الأول الموصى به
+    if causal_chains:
+        parts.append(f"أولوية التنفيذ المقترحة: {causal_chains[0].recommended_action}")
+
+    # الجملة الافتتاحية تُضاف دائماً في كل الفرعين — لا حاجة لبديل احتياطي
+    return ". ".join(parts)

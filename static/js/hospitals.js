@@ -1,4 +1,5 @@
 import { apiGet, apiPut, apiDelete, apiPostJSON } from './api.js';
+import { esc } from './tree.js';
 
 let _hospitals = [];
 let _governorates = [];
@@ -467,7 +468,4 @@ function deleteFacilityType(id) {
 }
 window.deleteFacilityType = deleteFacilityType;
 
-function esc(s) {
-    if (!s) return '';
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
+

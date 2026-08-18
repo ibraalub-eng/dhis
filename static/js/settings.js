@@ -150,10 +150,12 @@
             // Destroy existing chart if any
             if (window._rcTimelineChartInstance) {
                 window._rcTimelineChartInstance.destroy();
+                window._rcTimelineChartInstance = null;
             }
 
             // Create new Chart.js chart
             const ctx = chartEl.getContext('2d');
+            try {
             window._rcTimelineChartInstance = new Chart(ctx, {
                 type: 'line',
                 data: {
@@ -241,6 +243,11 @@
                 },
                 plugins: [ciBandPlugin]
             });
+            } catch (e) {
+                console.error('Chart.js error:', e);
+                if (textEl) textEl.textContent = 'Error rendering chart: ' + e.message;
+                return;
+            }
 
             if (textEl) {
                 const withPeer = ind.series.filter(p => p.peer_count > 0);

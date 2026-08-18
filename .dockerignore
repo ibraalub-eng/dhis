@@ -1,0 +1,28 @@
+# Secrets — NEVER ship .env into the image
+.env
+.env.*
+!.env.example
+
+# Local runtime data (SQLite DB, uploads, trained models) — ephemeral on Cloud Run
+data/
+*.db
+
+# VCS / tooling
+.git
+.gitignore
+.coverage
+.pytest_cache
+.ruff_cache
+.freebuff
+.superpowers
+
+# Tests & docs (not needed at runtime)
+tests/
+docs/
+*.md
+_check.py
+test_reports.json
+
+# Local OS / editor files
+*.ps1
+*.log

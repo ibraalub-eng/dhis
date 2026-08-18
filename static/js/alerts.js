@@ -1,38 +1,19 @@
-        import { API, apiGet } from './api.js';
-        import { __ } from './i18n.js';
+        import { API } from './api.js';
         import { esc } from './tree.js';
 
-        // ── Alerts Tab ────────────────────────────────────────────
-        let _alertData = null;
-        let _alertHospitals = [];
-
+        // ── Alerts Tab (overview only; rule-failures table merged here) ──
         export function loadAlerts() {
             fetch(API() + '/alerts/overview')
                 .then(r => r.json())
                 .then(data => {
-                    _alertData = data;
                     renderAlertOverview(data);
-                    renderAlertTable();
                     updateAlertBadge(data);
                 })
                 .catch(err => {
-                    document.getElementById('alertSummaryBar').innerHTML =
+                    const bar = document.getElementById('alertSummaryBar');
+                    if (bar) bar.innerHTML =
                         '<span style="color:red;">Failed: ' + err.message + '</span>';
                 });
-            Promise.all([
-                fetch(API() + '/hospitals/months').then(r => r.json()).catch(() => []),
-                apiGet('/hospitals/').then(d => d.value || d || []).catch(() => []),
-            ]).then(([months, hospitals]) => {
-                _alertHospitals = hospitals;
-                const mSel = document.getElementById('alertMonthFilter');
-                if (mSel && mSel.options.length <= 1) {
-                    months.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; mSel.appendChild(o); });
-                }
-                const hSel = document.getElementById('alertHospitalFilter');
-                if (hSel && hSel.options.length <= 1) {
-                    hospitals.forEach(h => { const o = document.createElement('option'); o.value = h.id; o.textContent = h.name; hSel.appendChild(o); });
-                }
-            });
         }
 
         export function updateAlertBadge(data) {
@@ -50,7 +31,6 @@
             const sev = data.by_severity;
             const order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
             const colors = { CRITICAL: '#b71c1c', HIGH: '#c62828', MEDIUM: '#e65100', LOW: '#1565c0', OUTLIER: '#7b1fa2', TOTAL: '#333' };
-            const labels = { CRITICAL: __('Critical'), HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low' };
 
             // Summary bar
             let barHtml = '';
@@ -107,48 +87,4 @@
             document.getElementById('alertCriticalList').innerHTML = critHtml;
         }
 
-        export function renderAlertTable() {
-            const hid = document.getElementById('alertHospitalFilter').value;
-            const sev = document.getElementById('alertSeverityFilter').value;
-            const mon = document.getElementById('alertMonthFilter').value;
-            const typ = document.getElementById('alertTypeFilter').value;
-            let url = API() + '/alerts/list?limit=200';
-            if (hid) url += '&hospital_id=' + encodeURIComponent(hid);
-            if (sev) url += '&severity=' + encodeURIComponent(sev);
-            if (mon) url += '&month=' + encodeURIComponent(mon);
-            if (typ) url += '&rule_type=' + encodeURIComponent(typ);
-            const tbody = document.getElementById('alertTbody');
-            document.getElementById('alertTableLoading').classList.remove('hidden');
-            tbody.innerHTML = '';
-            fetch(url)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('alertTableLoading').classList.add('hidden');
-                    document.getElementById('alertCount').textContent = '(' + data.total + ')';
-                    if (!data.items || !data.items.length) {
-                        tbody.innerHTML = '<tr><td colspan="7"><em>No alerts match the current filters.</em></td></tr>';
-                        return;
-                    }
-                    const colors = { CRITICAL: '#b71c1c', HIGH: '#c62828', MEDIUM: '#e65100', LOW: '#1565c0' };
-                    tbody.innerHTML = data.items.map(a => {
-                        const c = colors[a.severity] || '#888';
-                        const rowBg = a.severity === 'CRITICAL' ? '#fff5f5' :
-                            a.severity === 'HIGH' ? '#fff8f0' :
-                            a.severity === 'MEDIUM' ? '#fffbe6' : '#f5f9ff';
-                        return '<tr style="background:' + rowBg + ';">' +
-                            '<td><span class="severity-badge" style="background:' + c + ';">' + a.severity + '</span></td>' +
-                            '<td>' + esc(a.hospital) + '</td>' +
-                            '<td>' + esc(a.month) + '</td>' +
-                            '<td>' + esc(a.rule_code) + '</td>' +
-                            '<td style="max-width:250px;">' + esc(a.rule_description) + '</td>' +
-                            '<td>' + a.rule_type + '</td>' +
-                            '<td style="max-width:200px;font-size:0.75rem;color:#666;">' + esc(a.details) + '</td>' +
-                            '</tr>';
-                    }).join('');
-                })
-                .catch(err => {
-                    document.getElementById('alertTableLoading').classList.add('hidden');
-                    tbody.innerHTML = '<tr><td colspan="7" style="color:red;">Error: ' + err.message + '</td></tr>';
-                });
-        }
 

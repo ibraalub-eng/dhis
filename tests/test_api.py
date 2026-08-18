@@ -40,6 +40,11 @@ def test_root_cause_base_fields(client, db_session):
         assert "confidence_gaps" in data
         assert "anomaly_patterns" in data
         assert "ai_recommendations" in data
+        if data.get("ai_recommendations"):
+            rec = data["ai_recommendations"][0]
+            # التوصيات ثنائية اللغة: حقول عربية وإنجليزية معاً
+            assert rec.get("title") or rec.get("title_ar")
+            assert rec.get("priority") in ("critical", "high", "medium", "low")
 
 
 def test_root_cause_without_history_excludes_extended_fields(client, db_session):

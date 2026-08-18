@@ -28,16 +28,31 @@
             'All': 'الكل',
             'Latest': 'الأحدث',
             'Loading...': 'جاري التحميل...',
+            'Loading hospital details...': 'جاري تحميل تفاصيل المستشفى...',
             'Select Hospital': 'اختر المستشفى',
             'Select Month': 'اختر الشهر',
             'Select a hospital': 'اختر مستشفى',
             'Select a month': 'اختر شهر',
+            'Run Analysis': 'تشغيل التحليل',
             'Analyze': 'تحليل',
             'Load Trends': 'عرض الاتجاهات',
             'Compare Hospitals': 'مقارنة المستشفيات',
             'Generate Report': 'توليد التقرير',
+            'Generate AI Reports': 'توليد تقارير الذكاء الاصطناعي',
+            'Generating AI reports': 'توليد تقارير الذكاء الاصطناعي',
             'Generating...': 'جاري التوليد...',
             'Generating report, please wait...': 'جاري توليد التقرير، الرجاء الانتظار...',
+            'Select a hospital and month for detailed analysis.': 'اختر مستشفى وشهراً محددين للتحليل التفصيلي.',
+            'for all hospitals and all months': 'لكل المستشفيات وكل الأشهر',
+            'for all hospitals': 'لكل المستشفيات',
+            'for all months of the selected hospital': 'لكل أشهر المستشفى المحدد',
+            'May take several minutes on first run; results are cached.': 'قد يستغرق عدة دقائق عند التشغيل الأول؛ النتائج تُخزَّن مؤقتاً.',
+            'items': 'عناصر',
+            'Open Details': 'فتح التفصيل',
+            'Other': 'أخرى',
+            'Failed to load details': 'فشل تحميل التفاصيل',
+            'Select a hospital and month for detailed analysis, or click Generate AI Reports for a batch.': 'اختر مستشفى وشهراً محددين للتحليل التفصيلي، أو انقر «توليد تقارير الذكاء الاصطناعي» لتوليد دفعة تقارير.',
+            'Analyze = detailed classification for one hospital/month · Generate AI Reports = batch AI narrative reports for the selected scope (empty = all).': '«تحليل» = تصنيف تفصيلي لمستشفى/شهر محدد · «توليد تقارير الذكاء الاصطناعي» = تقارير سردية مجمّعة للنطاق المحدد (فارغ = الكل).',
             'Hospitals': 'المستشفيات',
             'Reports': 'التقارير',
             'Avg Quality Score': 'متوسط درجة الجودة',
@@ -116,6 +131,10 @@
             'Increasing': 'متزايد',
             'Decreasing': 'متناقص',
             'Critical': 'حرج',
+            'Attention': 'انتباه',
+            'critical': 'حرجة',
+            'high-priority recommendations': 'توصيات عالية الأولوية',
+            'Critical issues — act first': 'مشاكل حرجة — عالجها أولاً',
             'Trend Outliers': 'القيم الشاذة في الاتجاه',
             'Significant': 'هام',
             'Current Score': 'الدرجة الحالية',
@@ -338,6 +357,11 @@
             'Needs Improvement': 'يحتاج تحسيناً',
             'Poor': 'ضعيف',
             'Moderate': 'متوسط',
+            'High': 'عالٍ',
+            'Low': 'منخفض',
+            'Hospitals by risk': 'المستشفيات حسب مستوى الخطر',
+            'Critical hospitals': 'المستشفيات الحرجة',
+            'High-risk hospitals': 'مستشفيات عالية الخطورة',
             'Data Quality Score': 'درجة جودة البيانات',
             'Overall Confidence': 'الثقة الإجمالية',
             'No data found for the selected criteria.': 'لا توجد بيانات للمعايير المحددة.',
@@ -391,6 +415,8 @@
         }
 
         export function applyLang(fromToggle) {
+            // حافظ على window.currentLang متزامناً مع متغير الوحدة (لقطة app.js لا تتحدث تلقائياً)
+            window.currentLang = currentLang;
             const isAr = currentLang === 'ar';
             document.documentElement.lang = isAr ? 'ar' : 'en';
             document.documentElement.dir = isAr ? 'rtl' : 'ltr';

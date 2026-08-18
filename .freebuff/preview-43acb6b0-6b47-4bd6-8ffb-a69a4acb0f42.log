@@ -1,0 +1,10 @@
+INFO:     Started server process [18800]
+INFO:     Waiting for application startup.
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+C:\ibra\HEALTH-ai\app\engine\smart\lag_analysis.py:171: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  r_t = pearsonr(xs_t, ys_t)[0] if len(xs_t) >= 5 else None
+C:\ibra\HEALTH-ai\app\engine\smart\lag_analysis.py:169: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  r, p = pearsonr(xs, ys)
+C:\ibra\HEALTH-ai\app\engine\smart\lag_analysis.py:170: ConstantInputWarning: An input array is constant; the correlation coefficient is not defined.
+  rho, _ = spearmanr(xs, ys)
