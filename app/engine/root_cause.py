@@ -44,6 +44,7 @@ class RuleFailurePattern:
     primary_cause: str
     recommendation: str
     rule_type: str = "LOGIC"
+    primary_cause_ar: str = ""
 
 
 @dataclass

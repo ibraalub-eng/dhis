@@ -246,6 +246,40 @@ def test_frontend_renders_chain_path():
     assert "سلسلة السبب والنتيجة" in content
 
 
+def test_api_returns_primary_cause_ar(db_session):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_db
+    from app.models import Hospital, ValidationResult
+
+    h = Hospital(name="ARHosp", is_active=True)
+    db_session.add(h)
+    db_session.flush()
+    db_session.add(ValidationResult(
+        hospital_id=h.id, month="2026-06", rule_code="R041",
+        rule_description="C-section rate", status="FAIL",
+        severity="HIGH", rule_type="BENCHMARK",
+    ))
+    db_session.commit()
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        resp = client.get(f"/root-cause/{h.id}?month=2026-06")
+        assert resp.status_code == 200
+        data = resp.json()
+        failures = data["top_rule_failures"]
+        assert len(failures) >= 1
+        assert "primary_cause_ar" in failures[0]
+    finally:
+        app.dependency_overrides.clear()
+
+
 # --- Fix 4: quantified priorities (impact/effort/roi) ---
 
 def test_priority_actions_have_quantified_metrics(db_session):

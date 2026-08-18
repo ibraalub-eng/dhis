@@ -187,6 +187,7 @@ def get_root_cause_analysis(
                 "failure_rate": f.failure_rate,
                 "primary_cause": f.primary_cause,
                 "recommendation": f.recommendation,
+                "primary_cause_ar": f.primary_cause_ar,
             }
             for f in report.top_rule_failures
         ],
