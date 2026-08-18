@@ -854,93 +854,123 @@ def analyze_rule_failures(
     return patterns[:10]
 
 
+_CAUSE_MAP: Dict[str, Tuple[str, str]] = {
+    "R001": ("Parent-child sum mismatch: sub-indicators don't add up to total",
+             "Verify all sub-categories are reported. Check if any sub-indicator is missing or miscoded."),
+    "R002": ("Parity breakdown doesn't match total deliveries",
+             "Review primigravida/multigravida data entry. Ensure both fields are filled."),
+    "R004": ("Facility type breakdown mismatch",
+             "Confirm in-facility vs out-of-facility classification is correct."),
+    "R005": ("Risk classification mismatch",
+             "Verify low-risk/high-risk classification criteria are consistently applied."),
+    "R041": ("C-section rate exceeds safe threshold",
+             "Review indication for C-sections. Consider audit of unnecessary C-sections."),
+    "R042": ("Normal delivery rate too low",
+             "Investigate if NVDs are being under-reported or misclassified as C-sections."),
+    "R051": ("Deliveries spiked >2x compared to previous month",
+             "Verify data accuracy. Could indicate duplicate reporting or a real surge (e.g., referral influx)."),
+    "R052": ("Deliveries dropped >50% from previous month",
+             "Check if data was fully reported. Could indicate data collection gap."),
+    "R054": ("Maternal deaths surged above threshold",
+             "CRITICAL: Immediate investigation required. Review each maternal death case."),
+    "R055": ("Neonatal deaths surged above threshold",
+             "CRITICAL: Immediate investigation required. Review neonatal care protocols."),
+    "R058": ("Total Deliveries indicator is missing",
+             "Core indicator not reported. Facility may not have submitted complete data."),
+    "R059": ("Live Births indicator is missing",
+             "Core indicator not reported. Required for neonatal mortality rate calculation."),
+    "R003": ("Age-group breakdown doesn't sum to total deliveries",
+             "Verify all age-group fields are filled and sum to Total Deliveries."),
+    "R006": ("Emergency + Planned C-sections don't sum to Total C-sections",
+             "Review the emergency/planned C-section split. Both sub-fields must sum to the total."),
+    "R060": ("All key indicators reported as zero — facility may be non-operational or data missing",
+             "CRITICAL: Confirm whether the facility operated this month; if it did, verify submission completeness."),
+}
+
+
 def _diagnose_rule_failure(rule_code: str, details: str) -> Tuple[str, str]:
-    cause_map = {
-        "R001": ("Parent-child sum mismatch: sub-indicators don't add up to total",
-                 "Verify all sub-categories are reported. Check if any sub-indicator is missing or miscoded."),
-        "R002": ("Parity breakdown doesn't match total deliveries",
-                 "Review primigravida/multigravida data entry. Ensure both fields are filled."),
-        "R004": ("Facility type breakdown mismatch",
-                 "Confirm in-facility vs out-of-facility classification is correct."),
-        "R005": ("Risk classification mismatch",
-                 "Verify low-risk/high-risk classification criteria are consistently applied."),
-        "R041": ("C-section rate exceeds safe threshold",
-                 "Review indication for C-sections. Consider audit of unnecessary C-sections."),
-        "R042": ("Normal delivery rate too low",
-                 "Investigate if NVDs are being under-reported or misclassified as C-sections."),
-        "R051": ("Deliveries spiked >2x compared to previous month",
-                 "Verify data accuracy. Could indicate duplicate reporting or a real surge (e.g., referral influx)."),
-        "R052": ("Deliveries dropped >50% from previous month",
-                 "Check if data was fully reported. Could indicate data collection gap."),
-        "R054": ("Maternal deaths surged above threshold",
-                 "CRITICAL: Immediate investigation required. Review each maternal death case."),
-        "R055": ("Neonatal deaths surged above threshold",
-                 "CRITICAL: Immediate investigation required. Review neonatal care protocols."),
-        "R058": ("Total Deliveries indicator is missing",
-                 "Core indicator not reported. Facility may not have submitted complete data."),
-        "R059": ("Live Births indicator is missing",
-                 "Core indicator not reported. Required for neonatal mortality rate calculation."),
-    }
-    if rule_code in cause_map:
-        return cause_map[rule_code]
-    if "exceeds" in details.lower() or ">" in details:
-        return ("Value exceeds expected threshold",
+    if rule_code in _CAUSE_MAP:
+        return _CAUSE_MAP[rule_code]
+    low = details.lower()
+    if "exceeds" in low or ">" in details or "duplicate" in low:
+        return ("Value exceeds expected threshold or is duplicated",
                 "Review the data value. If accurate, investigate underlying causes.")
-    if "missing" in details.lower():
+    if "missing" in low or "not reported" in low:
         return ("Required indicator value not reported",
                 "Ensure all mandatory indicators are filled before submission.")
-    if "negative" in details.lower():
+    if "negative" in low:
         return ("Negative value reported for count indicator",
                 "Negative counts are impossible. Check data entry for sign errors.")
-    if "decimal" in details.lower():
+    if "decimal" in low:
         return ("Decimal value reported for count field",
                 "Counts must be integers. Check if value was incorrectly entered.")
+    if "zero" in low or "all zeros" in low:
+        return ("Zero value reported for an indicator expected to be non-zero",
+                "Verify the facility was operational and data was fully reported.")
+    if "mismatch" in low or "inconsistent" in low:
+        return ("Reported values are inconsistent or mismatched",
+                "Reconcile the reported values against source records.")
     return ("Rule validation check failed",
             "Review the specific indicator values and verify against source records.")
 
 
+_CAUSE_MAP_AR: Dict[str, Tuple[str, str]] = {
+    "R001": ("عدم تطابق مجموع الأجزاء مع الإجمالي",
+             "تحقق من إبلاغ جميع الفئات الفرعية، وافحص أي مؤشر ناقص أو مشفّر خطأً."),
+    "R002": ("تفصيل الولادات الأولى/المتعددة لا يطابق إجمالي الولادات",
+             "راجع إدخال الولادات الأولى والمتعددة، وتأكد من ملء الحقلين."),
+    "R004": ("عدم تطابق تفصيل داخل/خارج المنشأة",
+             "تأكد من صحة تصنيف الولادات داخل المنشأة وخارجها."),
+    "R005": ("عدم تطابق تصنيف المخاطر",
+             "تحقق من تطبيق معايير تصنيف المخاطر المنخفضة/العالية بشكل ثابت."),
+    "R041": ("معدل القيصرية يتجاوز العتبة الآمنة",
+             "راجع مؤشرات العمليات القيصرية، وادرس الحد من القيصرية غير الضرورية."),
+    "R042": ("معدل الولادات الطبيعية منخفض جداً",
+             "تحقق من نقص الإبلاغ عن الولادات الطبيعية أو تصنيفها خطأً كقيصرية."),
+    "R051": ("قفزة في الولادات تتجاوز ضعفي الشهر السابق",
+             "تحقق من دقة البيانات؛ قد يشير لتكرار في الإبلاغ أو تدفق إحالات حقيقي."),
+    "R052": ("انخفاض الولادات أكثر من 50% عن الشهر السابق",
+             "افحص اكتمال الإبلاغ؛ قد يشير لفجوة في جمع البيانات."),
+    "R054": ("ارتفاع الوفيات الأمومية فوق العتبة",
+             "حرج: تحقيق فوري مطلوب، وراجع كل حالة وفاة أمومية."),
+    "R055": ("ارتفاع وفيات المواليد فوق العتبة",
+             "حرج: تحقيق فوري مطلوب، وراجع بروتوكولات رعاية المواليد."),
+    "R058": ("مؤشر إجمالي الولادات غير مُبلَّغ عنه",
+             "مؤشر أساسي غير مُبلَّغ؛ قد تكون المنشأة لم ترسل بيانات كاملة."),
+    "R059": ("مؤشر المواليد الأحياء غير مُبلَّغ عنه",
+             "مؤشر أساسي غير مُبلَّغ؛ مطلوب لحساب معدل وفيات المواليد."),
+    "R003": ("تفصيل الفئات العمرية لا يطابق إجمالي الولادات",
+             "تحقق من ملء جميع حقول الفئات العمرية ومطابقتها لإجمالي الولادات."),
+    "R006": ("مجموع القيصرية الطارئة والمخطط لها لا يطابق إجمالي العمليات القيصرية",
+             "راجع توزيع العمليات القيصرية؛ يجب أن يطابق مجموع الحقلين الإجمالي."),
+    "R060": ("جميع المؤشرات الرئيسية صفر — قد تكون المنشأة غير عاملة أو البيانات مفقودة",
+             "حرج: تحقق إن كانت المنشأة تعمل هذا الشهر؛ وإن كانت تعمل فتأكد من اكتمال الإرسال."),
+}
+
+
 def _diagnose_rule_failure_ar(rule_code: str, details: str) -> Tuple[str, str]:
     """نسخة عربية من _diagnose_rule_failure (السبب + التوصية)."""
-    cause_map = {
-        "R001": ("عدم تطابق مجموع الأجزاء مع الإجمالي",
-                 "تحقق من إبلاغ جميع الفئات الفرعية، وافحص أي مؤشر ناقص أو مشفّر خطأً."),
-        "R002": ("تفصيل الولادات الأولى/المتعددة لا يطابق إجمالي الولادات",
-                 "راجع إدخال الولادات الأولى والمتعددة، وتأكد من ملء الحقلين."),
-        "R004": ("عدم تطابق تفصيل داخل/خارج المنشأة",
-                 "تأكد من صحة تصنيف الولادات داخل المنشأة وخارجها."),
-        "R005": ("عدم تطابق تصنيف المخاطر",
-                 "تحقق من تطبيق معايير تصنيف المخاطر المنخفضة/العالية بشكل ثابت."),
-        "R041": ("معدل القيصرية يتجاوز العتبة الآمنة",
-                 "راجع مؤشرات العمليات القيصرية، وادرس الحد من القيصرية غير الضرورية."),
-        "R042": ("معدل الولادات الطبيعية منخفض جداً",
-                 "تحقق من نقص الإبلاغ عن الولادات الطبيعية أو تصنيفها خطأً كقيصرية."),
-        "R051": ("قفزة في الولادات تتجاوز ضعفي الشهر السابق",
-                 "تحقق من دقة البيانات؛ قد يشير لتكرار في الإبلاغ أو تدفق إحالات حقيقي."),
-        "R052": ("انخفاض الولادات أكثر من 50% عن الشهر السابق",
-                 "افحص اكتمال الإبلاغ؛ قد يشير لفجوة في جمع البيانات."),
-        "R054": ("ارتفاع الوفيات الأمومية فوق العتبة",
-                 "حرج: تحقيق فوري مطلوب، وراجع كل حالة وفاة أمومية."),
-        "R055": ("ارتفاع وفيات المواليد فوق العتبة",
-                 "حرج: تحقيق فوري مطلوب، وراجع بروتوكولات رعاية المواليد."),
-        "R058": ("مؤشر إجمالي الولادات غير مُبلَّغ عنه",
-                 "مؤشر أساسي غير مُبلَّغ؛ قد تكون المنشأة لم ترسل بيانات كاملة."),
-        "R059": ("مؤشر المواليد الأحياء غير مُبلَّغ عنه",
-                 "مؤشر أساسي غير مُبلَّغ؛ مطلوب لحساب معدل وفيات المواليد."),
-    }
-    if rule_code in cause_map:
-        return cause_map[rule_code]
-    if "exceeds" in details.lower() or ">" in details:
-        return ("القيمة تتجاوز العتبة المتوقعة",
+    if rule_code in _CAUSE_MAP_AR:
+        return _CAUSE_MAP_AR[rule_code]
+    low = details.lower()
+    if "exceeds" in low or ">" in details or "duplicate" in low:
+        return ("القيمة تتجاوز العتبة المتوقعة أو مكررة",
                 "راجع القيمة؛ إن كانت دقيقة فحقق في الأسباب الكامنة.")
-    if "missing" in details.lower():
+    if "missing" in low or "not reported" in low:
         return ("قيمة المؤشر المطلوب غير مُبلَّغ عنها",
                 "تأكد من ملء جميع المؤشرات الإلزامية قبل الإرسال.")
-    if "negative" in details.lower():
+    if "negative" in low:
         return ("قيمة سالبة لمؤشر عددي",
                 "القيم السالبة مستحيلة؛ راجع الإدخال بحثاً عن أخطاء الإشارة.")
-    if "decimal" in details.lower():
+    if "decimal" in low:
         return ("قيمة عشرية لحقل عددي",
                 "يجب أن تكون العدّادات أرقاماً صحيحة؛ تحقق من صحة الإدخال.")
+    if "zero" in low or "all zeros" in low:
+        return ("قيمة صفرية لمؤشر يُتوقع أن يكون غير صفري",
+                "تحقق من أن المنشأة كانت تعمل وأن البيانات أُرسلت كاملة.")
+    if "mismatch" in low or "inconsistent" in low:
+        return ("القيم المُبلَّغ عنها غير متسقة أو غير متطابقة",
+                "طابق القيم المُبلَّغ عنها مع السجلات المصدرية.")
     return ("فشل فحص التحقق من القاعدة",
             "راجع قيم المؤشرات المحددة وتحقق منها مقابل السجلات المصدرية.")
 
