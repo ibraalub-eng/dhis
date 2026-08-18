@@ -960,6 +960,16 @@ def _diagnose_rule_failure(rule_code: str, details: str) -> Tuple[str, str]:
             "Review the specific indicator values and verify against source records.")
 
 
+def _diagnose_rule_failure_v2(rule_code: str, params: dict, details: str) -> Tuple[str, str]:
+    """Three-level diagnosis: explicit map -> structural -> details patterns (English)."""
+    if rule_code in _CAUSE_MAP:
+        return _CAUSE_MAP[rule_code]
+    cause, rec = _build_dynamic_diagnosis(rule_code, params, details)
+    if cause:
+        return cause, rec
+    return _diagnose_rule_failure(rule_code, details)
+
+
 _CAUSE_MAP_AR: Dict[str, Tuple[str, str]] = {
     "R001": ("عدم تطابق مجموع الأجزاء مع الإجمالي",
              "تحقق من إبلاغ جميع الفئات الفرعية، وافحص أي مؤشر ناقص أو مشفّر خطأً."),
@@ -1019,6 +1029,28 @@ def _diagnose_rule_failure_ar(rule_code: str, details: str) -> Tuple[str, str]:
                 "طابق القيم المُبلَّغ عنها مع السجلات المصدرية.")
     return ("فشل فحص التحقق من القاعدة",
             "راجع قيم المؤشرات المحددة وتحقق منها مقابل السجلات المصدرية.")
+
+
+_CAUSE_MAP_AR_STRUCT = {
+    "SUM": ("المؤشرات الفرعية لا تجمع للإجمالي. تحقق من نقص أو تكرار الإبلاغ عن مؤشر فرعي.",
+            "تأكد من إبلاغ جميع الفئات الفرعية وأن مجموعها يطابق المؤشر الأصلي."),
+    "PART": ("المكوّن لا يتطابق مع الإجمالي. تحقق من صحة تصنيف المكوّن.",
+             "تأكد من تصنيف القيمة التفصيلية تحت الفئة الصحيحة."),
+    "RATE": ("نسبة المؤشرين خارج الحدود المتوقعة. راجع القيم الخام المغذية للنسبة.",
+             "تحقق من صحة واكتمال قيم البسط والمقام المصدرية."),
+    "EXISTS": ("المؤشر المطلوب غير مُبلّغ. تأكد من اكتمال الإرسال.",
+               "تأكد من ملء جميع المؤشرات الإلزامية قبل الإرسال."),
+}
+
+
+def _diagnose_rule_failure_v2_ar(rule_code: str, params: dict, details: str) -> Tuple[str, str]:
+    """Three-level diagnosis: explicit map -> structural -> details patterns (Arabic)."""
+    if rule_code in _CAUSE_MAP_AR:
+        return _CAUSE_MAP_AR[rule_code]
+    rtype = _extract_rule_type(params)
+    if rtype in _CAUSE_MAP_AR_STRUCT:
+        return _CAUSE_MAP_AR_STRUCT[rtype]
+    return _diagnose_rule_failure_ar(rule_code, details)
 
 
 def analyze_quality_drivers(

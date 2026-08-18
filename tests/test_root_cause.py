@@ -6,6 +6,8 @@ from app.engine.root_cause import (
     analyze_anomaly_patterns,
     generate_root_cause_analysis,
     _diagnose_rule_failure,
+    _diagnose_rule_failure_v2,
+    _diagnose_rule_failure_v2_ar,
     _diagnose_confidence_gap,
     _extract_rule_type,
     _build_dynamic_diagnosis,
@@ -1224,3 +1226,41 @@ class TestBuildDynamicDiagnosis:
     def test_generic_returns_empty(self):
         cause, rec = _build_dynamic_diagnosis("R999", {}, "")
         assert cause == "" and rec == ""
+
+
+class TestDiagnoseRuleFailureV2:
+    def test_level1_map(self):
+        cause, rec = _diagnose_rule_failure_v2("R001", {}, "")
+        assert "sum mismatch" in cause.lower() or "sub-indicator" in cause.lower()
+
+    def test_level2_sum(self):
+        cause, rec = _diagnose_rule_failure_v2("R999", {"parent": "2", "children": ["3", "4", "5"]}, "")
+        assert "sub" in cause.lower() or "sum" in cause.lower()
+
+    def test_level2_exists(self):
+        cause, rec = _diagnose_rule_failure_v2("R999", {"code": "2"}, "")
+        assert "missing" in cause.lower() or "not reported" in cause.lower()
+
+    def test_level3_pattern(self):
+        cause, rec = _diagnose_rule_failure_v2("R999", {}, "value exceeds expected threshold")
+        assert "exceeds" in cause.lower()
+
+    def test_level3_negative(self):
+        cause, rec = _diagnose_rule_failure_v2("R999", {}, "negative value reported")
+        assert "negative" in cause.lower()
+
+    def test_generic_fallback(self):
+        cause, rec = _diagnose_rule_failure_v2("R999", {}, "random detail text")
+        assert cause and rec
+
+    def test_arabic_level1(self):
+        cause, rec = _diagnose_rule_failure_v2_ar("R041", {}, "")
+        assert "قيصر" in cause
+
+    def test_arabic_level2_sum(self):
+        cause, rec = _diagnose_rule_failure_v2_ar("R999", {"parent": "2", "children": ["3", "4", "5"]}, "")
+        assert cause
+
+    def test_arabic_generic_fallback(self):
+        cause, rec = _diagnose_rule_failure_v2_ar("R999", {}, "random detail text")
+        assert cause and rec
