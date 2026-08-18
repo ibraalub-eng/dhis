@@ -888,6 +888,52 @@ _CAUSE_MAP: Dict[str, Tuple[str, str]] = {
 }
 
 
+def _extract_rule_type(params: dict) -> str:
+    """Classify a rule's params shape: SUM / PART / RATE / EXISTS / GENERIC."""
+    if not isinstance(params, dict):
+        return "GENERIC"
+    if isinstance(params.get("children"), list) and params["children"]:
+        return "SUM"
+    if params.get("child") and params.get("parent"):
+        return "PART"
+    if params.get("num_code") and params.get("den_code"):
+        return "RATE"
+    if params.get("code"):
+        return "EXISTS"
+    return "GENERIC"
+
+
+def _build_dynamic_diagnosis(rule_code: str, params: dict, details: str) -> Tuple[str, str]:
+    """Generate (cause, recommendation) from a rule's structure. Returns ("", "") when no structure."""
+    rtype = _extract_rule_type(params)
+    if rtype == "SUM":
+        children = ", ".join(str(x) for x in params["children"][:3])
+        total = params.get("parent") or params.get("child") or "total"
+        return (
+            f"Sub-indicators ({children}) don't sum to total ({total}). Check for missing or duplicate sub-indicator reporting.",
+            "Verify all sub-categories are reported and sum correctly to the parent indicator.",
+        )
+    if rtype == "PART":
+        child, parent = params.get("child"), params.get("parent")
+        return (
+            f"Component ({child}) doesn't reconcile with total ({parent}). Verify the component is correctly classified.",
+            "Confirm the breakdown value is classified under the correct category.",
+        )
+    if rtype == "RATE":
+        num, den = params.get("num_code"), params.get("den_code")
+        return (
+            f"Rate ({num}/{den}) outside expected bounds. Review the raw counts feeding the ratio.",
+            "Verify numerator and denominator source values are accurate and complete.",
+        )
+    if rtype == "EXISTS":
+        code = params.get("code")
+        return (
+            f"Required indicator ({code}) missing or not reported. Confirm submission completeness.",
+            "Ensure all mandatory indicators are filled before submission.",
+        )
+    return ("", "")
+
+
 def _diagnose_rule_failure(rule_code: str, details: str) -> Tuple[str, str]:
     if rule_code in _CAUSE_MAP:
         return _CAUSE_MAP[rule_code]

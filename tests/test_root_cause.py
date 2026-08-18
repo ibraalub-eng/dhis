@@ -7,6 +7,8 @@ from app.engine.root_cause import (
     generate_root_cause_analysis,
     _diagnose_rule_failure,
     _diagnose_confidence_gap,
+    _extract_rule_type,
+    _build_dynamic_diagnosis,
     QualityDriver,
     RootCauseReport,
 )
@@ -1179,3 +1181,46 @@ class TestIntegrationHistoricalAndComparativeRootCause:
         # --- 20. Verify summary is comprehensive ---
         assert report.summary
         assert len(report.summary) > 20
+
+
+class TestExtractRuleType:
+    def test_sum(self):
+        assert _extract_rule_type({"parent": "2", "children": ["3", "4", "5"]}) == "SUM"
+
+    def test_part(self):
+        assert _extract_rule_type({"child": "5.b.1", "parent": "5"}) == "PART"
+
+    def test_rate(self):
+        assert _extract_rule_type({"num_code": "5", "den_code": "2", "threshold": 80.0}) == "RATE"
+
+    def test_exists(self):
+        assert _extract_rule_type({"code": "2"}) == "EXISTS"
+
+    def test_generic(self):
+        assert _extract_rule_type({}) == "GENERIC"
+
+    def test_none_params(self):
+        assert _extract_rule_type(None) == "GENERIC"
+
+
+class TestBuildDynamicDiagnosis:
+    def test_sum_diagnosis(self):
+        cause, rec = _build_dynamic_diagnosis("R999", {"parent": "2", "children": ["3", "4", "5"]}, "")
+        assert "sub" in cause.lower() or "sum" in cause.lower()
+        assert rec
+
+    def test_part_diagnosis(self):
+        cause, rec = _build_dynamic_diagnosis("R999", {"child": "5.b.1", "parent": "5"}, "")
+        assert rec
+
+    def test_rate_diagnosis(self):
+        cause, rec = _build_dynamic_diagnosis("R999", {"num_code": "5", "den_code": "2"}, "")
+        assert rec
+
+    def test_exists_diagnosis(self):
+        cause, rec = _build_dynamic_diagnosis("R999", {"code": "2"}, "")
+        assert "missing" in cause.lower() or "not reported" in cause.lower()
+
+    def test_generic_returns_empty(self):
+        cause, rec = _build_dynamic_diagnosis("R999", {}, "")
+        assert cause == "" and rec == ""
