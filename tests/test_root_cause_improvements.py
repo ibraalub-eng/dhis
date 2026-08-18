@@ -529,4 +529,4 @@ def test_peer_comparison_includes_governorates(db_session):
     for comp in comps.values():
         assert comp.peer_governorates
         assert comp.peer_types
-        assert comp.peer_governorate_counts.get("North", 0) >= 4
+        assert comp.peer_governorate_counts.get("North", 0) == 4
