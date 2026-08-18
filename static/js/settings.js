@@ -570,12 +570,17 @@
                             const gap = c.gap_pct || 0;
                             const over = gap > 0;
                             const color = Math.abs(gap) > 20 ? (over ? '#c62828' : '#1565c0') : '#888';
+                            const govs = (c.peer_governorate_counts || {});
+                            const govParts = Object.entries(govs).sort((a, b) => b[1] - a[1])
+                                .map(g => g[0] + ' (' + g[1] + ')').join('، ');
+                            const types = (c.peer_types || []).join('، ');
                             return '<div style="padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
                                 '<div style="display:flex;justify-content:space-between;align-items:center;">' +
                                     '<span style="font-weight:600;font-size:0.78rem;">' + esc(c.indicator_name || c.indicator_code) + '</span>' +
                                     '<span style="font-size:0.7rem;color:' + color + ';font-weight:700;">' + (over ? '▲ +' : '▼ ') + Math.abs(gap).toFixed(1) + '%</span>' +
                                 '</div>' +
                                 '<div style="font-size:0.68rem;color:#888;">المستشفى ' + c.hospital_value + ' مقابل متوسط النظير ' + c.peer_mean + ' (' + c.peer_count + ' مستشفى) — مئوية ' + c.hospital_percentile + ' | z=' + c.hospital_z_score + '</div>' +
+                                (govParts || types ? '<div style="font-size:0.66rem;color:#aaa;margin-top:0.1rem;">النظير: محافظات: ' + (govParts || '—') + ' | أنواع: ' + (types || '—') + '</div>' : '') +
                             '</div>';
                         }).join('');
                     } else {

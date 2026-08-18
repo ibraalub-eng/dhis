@@ -493,6 +493,15 @@ def test_analyze_rule_failures_dynamic_structure(db_session):
     assert dyn.primary_cause_ar
 
 
+def test_frontend_renders_peer_governorates():
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "peer_governorate_counts" in content
+    assert "peer_types" in content
+    assert "النظير" in content
+
+
 def test_peer_comparison_includes_governorates(db_session):
     from app.models import Hospital, HospitalType, Governorate, Indicator, IndicatorValue
     from app.engine.root_cause import generate_root_cause_analysis
