@@ -270,6 +270,9 @@ def get_root_cause_analysis(
                 "hospital_percentile": v.hospital_percentile,
                 "hospital_z_score": v.hospital_z_score,
                 "gap_pct": v.gap_pct,
+                "peer_governorates": v.peer_governorates,
+                "peer_governorate_counts": v.peer_governorate_counts,
+                "peer_types": v.peer_types,
             }
             for k, v in report.peer_comparisons.items()
         }

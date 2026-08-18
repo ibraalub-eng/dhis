@@ -530,3 +530,53 @@ def test_peer_comparison_includes_governorates(db_session):
         assert comp.peer_governorates
         assert comp.peer_types
         assert comp.peer_governorate_counts.get("North", 0) == 4
+
+
+def test_api_returns_peer_governorates(db_session):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_db
+    from app.models import Hospital, HospitalType, Governorate, Indicator, IndicatorValue
+
+    gov = Governorate(name="South")
+    htype = HospitalType(name="Gov2")
+    db_session.add_all([gov, htype])
+    db_session.flush()
+    target = Hospital(name="ApiTarget", hospital_type_id=htype.id,
+                      governorate_id=gov.id, is_active=True)
+    peers = [
+        Hospital(name=f"ApiPeer{i}", hospital_type_id=htype.id,
+                 governorate_id=gov.id, is_active=True)
+        for i in range(4)
+    ]
+    db_session.add_all([target] + peers)
+    db_session.flush()
+
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in [target] + peers:
+        high = h is target
+        vals = {"2": 200, "5": 80 if high else 40, "6": 190}
+        for code, v in vals.items():
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id[code], month="2026-06", value=v))
+    db_session.commit()
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        resp = client.get(f"/root-cause/{target.id}?month=2026-06&compare_peers=true")
+        assert resp.status_code == 200
+        data = resp.json()
+        comps = data.get("peer_comparisons") or {}
+        assert comps
+        first = next(iter(comps.values()))
+        assert "peer_governorates" in first
+        assert first["peer_governorates"]
+        assert first["peer_types"]
+        assert first["peer_governorate_counts"].get("South", 0) >= 4
+    finally:
+        app.dependency_overrides.clear()
