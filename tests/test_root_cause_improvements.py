@@ -491,3 +491,42 @@ def test_analyze_rule_failures_dynamic_structure(db_session):
     dyn = [p for p in patterns if p.rule_code == "RDYN1"][0]
     assert dyn.primary_cause
     assert dyn.primary_cause_ar
+
+
+def test_peer_comparison_includes_governorates(db_session):
+    from app.models import Hospital, HospitalType, Governorate, Indicator, IndicatorValue
+    from app.engine.root_cause import generate_root_cause_analysis
+
+    gov = Governorate(name="North")
+    htype = HospitalType(name="Gov")
+    db_session.add_all([gov, htype])
+    db_session.flush()
+    target = Hospital(name="Target2", hospital_type_id=htype.id,
+                      governorate_id=gov.id, is_active=True)
+    peers = [
+        Hospital(name=f"P2{i}", hospital_type_id=htype.id,
+                 governorate_id=gov.id, is_active=True)
+        for i in range(4)
+    ]
+    db_session.add_all([target] + peers)
+    db_session.flush()
+
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in [target] + peers:
+        high = h is target
+        vals = {"2": 200, "5": 80 if high else 40, "6": 190}
+        for code, v in vals.items():
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id[code], month="2026-06", value=v))
+    db_session.commit()
+
+    report = generate_root_cause_analysis(
+        db_session, target.id, "2026-06",
+        quality_data={"score": 80}, confidence_data={"overall_confidence": 80},
+        include_history=False, compare_peers=True,
+    )
+    comps = report.peer_comparisons
+    assert comps
+    for comp in comps.values():
+        assert comp.peer_governorates
+        assert comp.peer_types
+        assert comp.peer_governorate_counts.get("North", 0) >= 4

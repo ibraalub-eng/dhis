@@ -150,6 +150,9 @@ class PeerIndicatorComparison:
     hospital_percentile: float
     hospital_z_score: float
     gap_pct: float
+    peer_governorates: List[str] = field(default_factory=list)
+    peer_governorate_counts: Dict[str, int] = field(default_factory=dict)
+    peer_types: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1557,14 +1560,23 @@ def generate_root_cause_analysis(
             month_data = _load_hospital_data(session, month)
             hospital_map = {}
             peer_values: Dict[str, List[float]] = {}
+            peer_governorates: List[str] = []
+            peer_governorate_counts: Dict[str, int] = {}
+            peer_types: List[str] = []
             for name, entry in month_data.items():
                 if entry["hospital_id"] == hospital_id:
                     hospital_map = entry.get("values", {})
-                else:
-                    for code in FEATURE_KEYS:
-                        v = entry.get("values", {}).get(code)
-                        if v is not None:
-                            peer_values.setdefault(code, []).append(float(v))
+                    continue
+                gov = entry.get("governorate") or "unknown"
+                peer_governorates.append(gov)
+                peer_governorate_counts[gov] = peer_governorate_counts.get(gov, 0) + 1
+                htype = entry.get("hospital_type") or "unknown"
+                if htype not in peer_types:
+                    peer_types.append(htype)
+                for code in FEATURE_KEYS:
+                    v = entry.get("values", {}).get(code)
+                    if v is not None:
+                        peer_values.setdefault(code, []).append(float(v))
 
             for code in FEATURE_KEYS:
                 if code not in hospital_map or code not in peer_values or len(peer_values[code]) < 2:
@@ -1590,6 +1602,9 @@ def generate_root_cause_analysis(
                     hospital_percentile=round(percentile, 1),
                     hospital_z_score=round(z, 2),
                     gap_pct=round(gap_pct, 2),
+                    peer_governorates=list(peer_governorates),
+                    peer_governorate_counts=dict(peer_governorate_counts),
+                    peer_types=list(peer_types),
                 )
 
     historical_trends = {}
