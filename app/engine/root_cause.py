@@ -816,7 +816,7 @@ def analyze_rule_failures(
     result = session.execute(text("""
         SELECT vr.rule_code, vr.rule_description, vr.severity,
                COALESCE(r.rule_type, vr.rule_type, 'LOGIC') as rule_type,
-               COUNT(*) as failure_count, vr.details
+               COUNT(*) as failure_count, vr.details, r.params
         FROM validation_results vr
         LEFT JOIN rules r ON r.code = vr.rule_code
         WHERE vr.hospital_id = :hid AND vr.month = :mth AND vr.status = 'FAIL'
@@ -831,6 +831,11 @@ def analyze_rule_failures(
         rule_type = row[3]
         failure_count = row[4]
         details = row[5] or ""
+        params_raw = row[6]
+        try:
+            params = json.loads(params_raw) if params_raw else {}
+        except (ValueError, TypeError):
+            params = {}
         total_result = session.execute(text("""
             SELECT COUNT(*) FROM validation_results
             WHERE hospital_id = :hid AND month = :mth AND rule_code = :rc
@@ -838,7 +843,8 @@ def analyze_rule_failures(
         total = total_result.scalar() or 1
         failure_rate = round((failure_count / total) * 100, 1)
 
-        primary_cause, recommendation = _diagnose_rule_failure(rule_code, details)
+        primary_cause, recommendation = _diagnose_rule_failure_v2(rule_code, params, details)
+        primary_cause_ar, _ = _diagnose_rule_failure_v2_ar(rule_code, params, details)
         patterns.append(RuleFailurePattern(
             rule_code=rule_code,
             rule_description=desc[:80],
@@ -848,6 +854,7 @@ def analyze_rule_failures(
             failure_rate=failure_rate,
             primary_cause=primary_cause,
             recommendation=recommendation,
+            primary_cause_ar=primary_cause_ar,
             rule_type=rule_type,
         ))
     patterns.sort(key=lambda p: (p.severity != "CRITICAL", p.severity != "HIGH", -p.failure_rate))

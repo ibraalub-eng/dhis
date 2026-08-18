@@ -446,3 +446,48 @@ def test_causal_tree_serializes_history(db_session):
             assert isinstance(p, MonthDataPoint)
             assert p.month >= "2026-04"
             assert p.month <= "2026-06"
+
+
+def test_analyze_rule_failures_populates_arabic_cause(db_session):
+    from app.models import Hospital, ValidationResult
+    from app.engine.root_cause import analyze_rule_failures
+
+    h = Hospital(name="ArCauseHosp", is_active=True)
+    db_session.add(h)
+    db_session.flush()
+    db_session.add(ValidationResult(
+        hospital_id=h.id, month="2026-06", rule_code="R041",
+        rule_description="C-section rate", status="FAIL",
+        severity="HIGH", rule_type="BENCHMARK",
+    ))
+    db_session.commit()
+
+    patterns = analyze_rule_failures(db_session, h.id, "2026-06")
+    assert len(patterns) >= 1
+    assert patterns[0].primary_cause_ar
+
+
+def test_analyze_rule_failures_dynamic_structure(db_session):
+    """قاعدة مع params ينتج سبباً عربياً/إنجليزياً محدداً من المستوى الثاني."""
+    from app.models import Hospital, ValidationResult, Rule
+    from app.engine.root_cause import analyze_rule_failures
+
+    h = Hospital(name="DynHosp", is_active=True)
+    db_session.add(h)
+    db_session.flush()
+    rule = Rule(code="RDYN1", name="Dyn", rule_type="LOGIC", severity="HIGH",
+                category="BASIC_LOGIC", expression_type="ge",
+                params='{"parent": "2", "children": ["3", "4", "5"]}',
+                description="Dyn rule")
+    db_session.add(rule)
+    db_session.add(ValidationResult(
+        hospital_id=h.id, month="2026-06", rule_code="RDYN1",
+        rule_description="Dyn rule", status="FAIL", severity="HIGH", rule_type="LOGIC",
+    ))
+    db_session.commit()
+
+    patterns = analyze_rule_failures(db_session, h.id, "2026-06")
+    assert any(p.rule_code == "RDYN1" for p in patterns)
+    dyn = [p for p in patterns if p.rule_code == "RDYN1"][0]
+    assert dyn.primary_cause
+    assert dyn.primary_cause_ar
