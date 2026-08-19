@@ -90,7 +90,18 @@ class TestCanvasElement:
         import re
         m = re.search(r'<canvas\s+id="rcTimelineChart"[^>]*>', content)
         assert m is not None, "rcTimelineChart should be a <canvas> element"
-        assert "width:100%" in m.group() or "width: 100%" in m.group()
+
+    def test_canvas_sized_by_parent_container(self):
+        """Chart.js responsive:true fills its sized parent (width:100% container)."""
+        content = _read("static/tabs/root-cause.html")
+        import re
+        container = re.search(
+            r'<div[^>]*width:100%[^>]*>\s*<canvas\s+id="rcTimelineChart"',
+            content,
+        )
+        assert container is not None, (
+            "rcTimelineChart canvas must be sized by a width:100% parent container"
+        )
 
     def test_no_plotly_div_remain(self):
         """Old Plotly div should not be present."""
