@@ -208,6 +208,34 @@ def get_overview(month: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"خطأ في التحليل: {str(e)}")
 
 
+@router.get("/decision-board/{month}")
+def get_decision_board(month: str, db: Session = Depends(get_db)):
+    """لوحة القرار: حمولة خفيفة سريعة (KPI + أولويات + إنذار مبكر) أعلى الصفحة.
+
+    تُشتق من مذكّرة الشهر المشتركة (_get_smart_data) بلا إعادة حساب؛ يعرض فقط
+    ما يحتاجه القرار الفوري. الشهر الخالي يُرجع empty مع رسالة عربية.
+    """
+    try:
+        envelope = _get_smart_data(db, month)
+        if envelope["hospitals_count"] == 0:
+            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        data = envelope["data"]
+        order = {"critical": 0, "warning": 1, "normal": 2}
+        anomalies = sorted(data["anomalies"], key=lambda a: (order.get(a["severity"], 2), -a["anomaly_score"]))
+        return _sanitize({
+            "month": month,
+            "generated_at": envelope["generated_at"],
+            "hospitals_count": envelope["hospitals_count"],
+            "kpi": data["kpi"],
+            "anomalies": anomalies,
+            "early_warnings": data.get("early_warnings", []),
+            "healthy_hospitals": data.get("healthy_hospitals", []),
+        })
+    except Exception as e:
+        cache.invalidate(f"smart_overview_{month}_")
+        raise HTTPException(status_code=500, detail=f"خطأ في لوحة القرار: {str(e)}")
+
+
 @router.get("/governorate-analysis/{month}")
 def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
     from app.engine.smart.governorate_analysis import analyze_governorate_correlations
