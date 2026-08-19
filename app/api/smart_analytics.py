@@ -505,6 +505,48 @@ def get_anomaly_timeline(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"خطأ في تحليل الخط الزمني: {str(e)}")
 
 
+@router.get("/time-overview")
+def get_time_overview(db: Session = Depends(get_db)):
+    """نظرة زمنية عبر الأشهر: تطور متوسط الدرجة وتوزيع الشدة والمحافظات المتأثرة.
+
+    يُبني من مذكّرات الشهور المخزّنة (نفس مصدر anomaly-timeline) وتُخزَّن
+    النتيجة مؤقتاً كاملة تحت مفتاح معنوَّن بالإصدار.
+    """
+    try:
+        cache_key = f"smart_time_overview_{SMART_CACHE_VERSION}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        from app.models import QualityScore
+        months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
+        if not months:
+            response = {"empty": True, "message": "لا توجد بيانات بعد", "months": []}
+            cache.set(cache_key, response, ttl=300)
+            return response
+
+        series = {
+            "avg_score": [], "critical_count": [], "warning_count": [],
+            "affected_governorates": [],
+        }
+        for m in months:
+            envelope = _get_smart_data(db, m)
+            data = envelope["data"]
+            anomalies = data["anomalies"]
+            avg = round(sum(a["anomaly_score"] for a in anomalies) / len(anomalies), 3) if anomalies else 0.0
+            series["avg_score"].append({"month": m, "value": avg})
+            series["critical_count"].append({"month": m, "value": data["kpi"]["critical_count"]})
+            series["warning_count"].append({"month": m, "value": data["kpi"]["warning_count"]})
+            series["affected_governorates"].append({"month": m, "value": data["kpi"]["affected_governorates"]})
+
+        response = _sanitize({"months": months, "series": series})
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except Exception as e:
+        cache.invalidate("smart_time_overview_")
+        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الزمني: {str(e)}")
+
+
 @router.post("/run/{month}")
 def trigger_analysis(month: str, db: Session = Depends(get_db)):
     data = _get_smart_data(db, month)
