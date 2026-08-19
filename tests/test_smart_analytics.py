@@ -100,7 +100,7 @@ def test_cache_returns_cached_result(client):
     assert response.status_code == 200
     
     # Verify result is cached
-    cache_key = "smart_overview_2026-06"
+    cache_key = "smart_overview_2026-06_v3"
     cached = cache.get(cache_key)
     assert cached is not None
 
@@ -253,7 +253,7 @@ def test_anomaly_timeline_cache_used(client):
     from app.cache import cache
     cache.invalidate("smart_timeline")
     client.get("/smart/anomaly-timeline")
-    assert cache.get("smart_timeline") is not None
+    assert cache.get("smart_timeline_v3") is not None
 
 
 # --- Per-month memoization (_get_smart_data) ---
@@ -330,6 +330,41 @@ def test_trend_memoizes_each_month_once(mock_run, client, db_session):
     # استدعاء لاحق لشهر مُحلَّل مسبقاً لا يعيد التشغيل
     client.get("/smart/overview/2027-01")
     assert mock_run.call_count == 2
+
+
+def test_cache_keys_include_version(client):
+    from app.cache import cache
+    cache.invalidate("smart_overview_")
+    client.get("/smart/overview/2026-06")
+    assert any(k.startswith("smart_overview_") and k.endswith("_v3") for k in cache._cache)
+
+
+@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
+def test_trend_response_cached(mock_run, client, db_session):
+    from app.cache import cache
+    from app.models import Hospital, QualityScore
+    cache.invalidate("smart_trend_")
+    h = db_session.query(Hospital).first()
+    db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=70))
+    db_session.commit()
+    r1 = client.get(f"/smart/trend/{h.id}")
+    r2 = client.get(f"/smart/trend/{h.id}")
+    assert r1.status_code == 200
+    assert r1.json() == r2.json()
+    assert any(k.startswith("smart_trend_") for k in cache._cache)
+
+
+@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
+def test_drilldown_response_cached(mock_run, client, db_session):
+    from app.cache import cache
+    from app.models import Hospital
+    cache.invalidate("smart_drilldown_")
+    h = db_session.query(Hospital).first()
+    r1 = client.get(f"/smart/drilldown/{h.id}/2027-01")
+    r2 = client.get(f"/smart/drilldown/{h.id}/2027-01")
+    assert r1.status_code == 200
+    assert r1.json() == r2.json()
+    assert any(k.startswith("smart_drilldown_") for k in cache._cache)
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))

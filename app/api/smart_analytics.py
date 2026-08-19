@@ -11,6 +11,8 @@ from app.engine.smart.schemas import SmartAnalyticsResult
 
 router = APIRouter(prefix="/smart", tags=["Smart Analytics"])
 
+SMART_CACHE_VERSION = "v3"
+
 
 def _sanitize(obj):
     if isinstance(obj, np.integer):
@@ -179,7 +181,7 @@ def _get_smart_data(db: Session, month: str) -> dict:
     drilldown, timeline) goes through this helper so the 7-engine pipeline
     runs at most once per month instead of once per endpoint/per loop.
     """
-    cache_key = f"smart_overview_{month}"
+    cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -211,7 +213,7 @@ def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
     from app.engine.smart.governorate_analysis import analyze_governorate_correlations
     from app.engine.smart import _load_hospital_data
 
-    cache_key = f"governorate_analysis_{month}"
+    cache_key = f"governorate_analysis_{month}_{SMART_CACHE_VERSION}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -295,64 +297,83 @@ def get_geo(month: str, db: Session = Depends(get_db)):
 
 @router.get("/trend/{hospital_id}")
 def get_trend(hospital_id: int, db: Session = Depends(get_db)):
-    from app.models import Hospital
-
-    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hospital:
-        raise HTTPException(status_code=404, detail="Hospital not found")
-
-    from app.models import QualityScore
-    months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
-
-    trend_data = []
-    for m in months:
-        data = _get_smart_data(db, m)["data"]
-        hospital_anomaly = next(
-            (a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None
-        )
-        if hospital_anomaly:
-            trend_data.append({
-                "month": m,
-                "anomaly_score": hospital_anomaly["anomaly_score"],
-                "severity": hospital_anomaly["severity"],
-                "method_scores": hospital_anomaly["method_scores"],
-            })
-
-    return {"hospital_id": hospital_id, "hospital_name": hospital.name, "trend": trend_data}
+    cache_key = f"smart_trend_{hospital_id}_{SMART_CACHE_VERSION}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        from app.models import Hospital
+        hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+        if not hospital:
+            raise HTTPException(status_code=404, detail="Hospital not found")
+        from app.models import QualityScore
+        months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
+        trend_data = []
+        for m in months:
+            data = _get_smart_data(db, m)["data"]
+            hospital_anomaly = next(
+                (a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None
+            )
+            if hospital_anomaly:
+                trend_data.append({
+                    "month": m,
+                    "anomaly_score": hospital_anomaly["anomaly_score"],
+                    "severity": hospital_anomaly["severity"],
+                    "method_scores": hospital_anomaly["method_scores"],
+                })
+        response = _sanitize({
+            "hospital_id": hospital_id,
+            "hospital_name": hospital.name,
+            "trend": trend_data,
+        })
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        cache.invalidate(f"smart_trend_{hospital_id}_")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الاتجاه: {str(e)}")
 
 
 @router.get("/drilldown/{hospital_id}/{month}")
 def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
-    from app.models import Hospital
-
-    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hospital:
-        raise HTTPException(status_code=404, detail="Hospital not found")
-
-    if month == "all":
-        return _get_drilldown_all_months(db, hospital_id, hospital)
-
-    data = _get_smart_data(db, month)["data"]
-    anomaly = next((a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None)
-    explanation = next((e for e in data["explanations"] if e["hospital_id"] == hospital_id), None)
-    residuals = [r for r in data["residuals"] if r["hospital_id"] == hospital_id]
-    stratified = [s for s in data["stratified"] if s["hospital_id"] == hospital_id]
-
-    # توقعات الشهر القادم: المؤشرات القيادية الصاعدة بأوزانها + النتائج المتوقعة
-    from app.engine.smart.lag_analysis import run_hospital_forecast
-    forecast = run_hospital_forecast(db, hospital_id, month,
-                                     data.get("lag_analysis"))
-
-    return {
-        "hospital_id": hospital_id,
-        "hospital_name": hospital.name,
-        "month": month,
-        "anomaly": anomaly,
-        "explanation": explanation,
-        "residuals": residuals,
-        "stratified": stratified,
-        "forecast": _sanitize(forecast) if forecast else {},
-    }
+    cache_key = f"smart_drilldown_{hospital_id}_{month}_{SMART_CACHE_VERSION}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        from app.models import Hospital
+        hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+        if not hospital:
+            raise HTTPException(status_code=404, detail="Hospital not found")
+        if month == "all":
+            response = _get_drilldown_all_months(db, hospital_id, hospital)
+            cache.set(cache_key, response, ttl=300)
+            return response
+        data = _get_smart_data(db, month)["data"]
+        anomaly = next((a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None)
+        explanation = next((e for e in data["explanations"] if e["hospital_id"] == hospital_id), None)
+        residuals = [r for r in data["residuals"] if r["hospital_id"] == hospital_id]
+        stratified = [s for s in data["stratified"] if s["hospital_id"] == hospital_id]
+        from app.engine.smart.lag_analysis import run_hospital_forecast
+        forecast = run_hospital_forecast(db, hospital_id, month, data.get("lag_analysis"))
+        response = _sanitize({
+            "hospital_id": hospital_id,
+            "hospital_name": hospital.name,
+            "month": month,
+            "anomaly": anomaly,
+            "explanation": explanation,
+            "residuals": residuals,
+            "stratified": stratified,
+            "forecast": _sanitize(forecast) if forecast else {},
+        })
+        cache.set(cache_key, response, ttl=300)
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        cache.invalidate(f"smart_drilldown_{hospital_id}_")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل المستشفى: {str(e)}")
 
 
 def _get_drilldown_all_months(db, hospital_id, hospital):
@@ -388,7 +409,7 @@ def _get_drilldown_all_months(db, hospital_id, hospital):
 def get_anomaly_timeline(db: Session = Depends(get_db)):
     """تطور درجات الشذوذ عبر الأشهر لكل المستشفيات (لرسم متحرك)."""
     try:
-        cache_key = "smart_timeline"
+        cache_key = f"smart_timeline_{SMART_CACHE_VERSION}"
         cached = cache.get(cache_key)
         if cached:
             return cached
