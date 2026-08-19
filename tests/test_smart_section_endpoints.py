@@ -61,3 +61,19 @@ def test_section_endpoints_error_arabic(mock_run, client):
         resp = client.get(path)
         assert resp.status_code == 500, path
         assert msg in resp.json()["detail"], path
+
+
+def test_slice_endpoints_empty_month(client):
+    for path in [
+        "/smart/anomalies/2030-01",
+        "/smart/clusters/2030-01",
+        "/smart/correlations/2030-01",
+        "/smart/residuals/2030-01",
+        "/smart/stratified/2030-01",
+        "/smart/geo/2030-01",
+    ]:
+        resp = client.get(path)
+        assert resp.status_code == 200, path
+        data = resp.json()
+        assert data.get("empty") is True, path
+        assert "لا توجد بيانات" in data.get("message", ""), path

@@ -260,66 +260,79 @@ def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
 @router.get("/anomalies/{month}")
 def get_anomalies(month: str, db: Session = Depends(get_db)):
     try:
-        data = _get_smart_data(db, month)["data"]
+        envelope = _get_smart_data(db, month)
+        if envelope["hospitals_count"] == 0:
+            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        data = envelope["data"]
         response = {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
         return response
     except Exception as e:
-        cache.invalidate(f"smart_overview_{month}")
+        cache.invalidate(f"smart_overview_{month}_")
         raise HTTPException(status_code=500, detail=f"خطأ في تحليل الشذوذ: {str(e)}")
 
 
 @router.get("/clusters/{month}")
 def get_clusters(month: str, db: Session = Depends(get_db)):
     try:
-        data = _get_smart_data(db, month)["data"]
-        response = {"month": month, "clustering": data["clustering"]}
+        envelope = _get_smart_data(db, month)
+        if envelope["hospitals_count"] == 0:
+            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        response = {"month": month, "clustering": envelope["data"]["clustering"]}
         return response
     except Exception as e:
-        cache.invalidate(f"smart_overview_{month}")
+        cache.invalidate(f"smart_overview_{month}_")
         raise HTTPException(status_code=500, detail=f"خطأ في تحليل التجمعات: {str(e)}")
 
 
 @router.get("/correlations/{month}")
 def get_correlations(month: str, db: Session = Depends(get_db)):
     try:
-        data = _get_smart_data(db, month)["data"]
-        response = {"month": month, "correlations": data["correlations"]}
+        envelope = _get_smart_data(db, month)
+        if envelope["hospitals_count"] == 0:
+            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        response = {"month": month, "correlations": envelope["data"]["correlations"]}
         return response
     except Exception as e:
-        cache.invalidate(f"smart_overview_{month}")
+        cache.invalidate(f"smart_overview_{month}_")
         raise HTTPException(status_code=500, detail=f"خطأ في تحليل الارتباطات: {str(e)}")
 
 
 @router.get("/residuals/{month}")
 def get_residuals(month: str, db: Session = Depends(get_db)):
     try:
-        data = _get_smart_data(db, month)["data"]
-        response = {"month": month, "residuals": data["residuals"]}
+        envelope = _get_smart_data(db, month)
+        if envelope["hospitals_count"] == 0:
+            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        response = {"month": month, "residuals": envelope["data"]["residuals"]}
         return response
     except Exception as e:
-        cache.invalidate(f"smart_overview_{month}")
+        cache.invalidate(f"smart_overview_{month}_")
         raise HTTPException(status_code=500, detail=f"خطأ في تحليل البواقي: {str(e)}")
 
 
 @router.get("/stratified/{month}")
 def get_stratified(month: str, db: Session = Depends(get_db)):
     try:
-        data = _get_smart_data(db, month)["data"]
-        response = {"month": month, "stratified": data["stratified"]}
+        envelope = _get_smart_data(db, month)
+        if envelope["hospitals_count"] == 0:
+            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        response = {"month": month, "stratified": envelope["data"]["stratified"]}
         return response
     except Exception as e:
-        cache.invalidate(f"smart_overview_{month}")
+        cache.invalidate(f"smart_overview_{month}_")
         raise HTTPException(status_code=500, detail=f"خطأ في التحليل الطبقى: {str(e)}")
 
 
 @router.get("/geo/{month}")
 def get_geo(month: str, db: Session = Depends(get_db)):
     try:
-        data = _get_smart_data(db, month)["data"]
-        response = {"month": month, "geo": data["geo"]}
+        envelope = _get_smart_data(db, month)
+        if envelope["hospitals_count"] == 0:
+            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        response = {"month": month, "geo": envelope["data"]["geo"]}
         return response
     except Exception as e:
-        cache.invalidate(f"smart_overview_{month}")
+        cache.invalidate(f"smart_overview_{month}_")
         raise HTTPException(status_code=500, detail=f"خطأ في التحليل الجغرافي: {str(e)}")
 
 
