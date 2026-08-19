@@ -323,6 +323,43 @@ def get_geo(month: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"خطأ في التحليل الجغرافي: {str(e)}")
 
 
+@router.get("/patterns/{month}")
+def get_patterns(month: str, db: Session = Depends(get_db)):
+    try:
+        data = _get_smart_data(db, month)["data"]
+        return {"month": month, "patterns": data.get("patterns", [])}
+    except Exception as e:
+        cache.invalidate(f"smart_overview_{month}_")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الأنماط: {str(e)}")
+
+
+@router.get("/lag-analysis/{month}")
+def get_lag_analysis(month: str, db: Session = Depends(get_db)):
+    try:
+        envelope = _get_smart_data(db, month)
+        if envelope["hospitals_count"] == 0:
+            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر",
+                    "month": month, "lag_analysis": {}}
+        return {"month": month, "lag_analysis": envelope["data"].get("lag_analysis", {})}
+    except Exception as e:
+        cache.invalidate(f"smart_overview_{month}_")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل العلاقات المتأخرة: {str(e)}")
+
+
+@router.get("/xgboost/{month}")
+def get_xgboost(month: str, db: Session = Depends(get_db)):
+    try:
+        data = _get_smart_data(db, month)["data"]
+        xgb = data.get("xgboost")
+        if not xgb or not xgb.get("predictions"):
+            return {"month": month, "empty": True,
+                    "message": "لا توجد تنبؤات كافية لهذا الشهر", "xgboost": None}
+        return {"month": month, "xgboost": xgb}
+    except Exception as e:
+        cache.invalidate(f"smart_overview_{month}_")
+        raise HTTPException(status_code=500, detail=f"خطأ في تحليل التنبؤات: {str(e)}")
+
+
 @router.get("/trend/{hospital_id}")
 def get_trend(hospital_id: int, db: Session = Depends(get_db)):
     cache_key = f"smart_trend_{hospital_id}_{SMART_CACHE_VERSION}"
