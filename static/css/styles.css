@@ -467,3 +467,59 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* Quality Trend Plotly metric toggle */
 .qt-metric-btn { transition: background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s; }
 .qt-metric-btn:hover { box-shadow: 0 1px 4px rgba(26,35,126,0.25); }
+
+/* ================================================================
+   Smart Analytics (التحليل الذكي) — production redesign
+   ================================================================ */
+.smart-mode-bar { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+.smart-mode-btn { padding: 0.5rem 1.1rem; border-radius: 8px; border: 1px solid #c7d2fe; background: #fff; color: #4338ca; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.18s; }
+.smart-mode-btn:hover { background: #eef2ff; }
+.smart-mode-btn.active { background: linear-gradient(135deg, #1a237e, #312e81); color: #fff; border-color: #1a237e; }
+
+.smart-context-bar { display: flex; gap: 0.8rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 1rem; padding: 0.8rem 1rem; background: linear-gradient(135deg, #f8fafc, #eef2ff); border-radius: 10px; border: 1px solid #c7d2fe; }
+
+.smart-section-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 10px; margin-bottom: 0.9rem; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+.smart-section-header { background: #f8f9fb; padding: 0.75rem 1rem; cursor: pointer; display: flex; align-items: center; justify-content: space-between; font-weight: 700; color: #1a237e; font-size: 0.92rem; user-select: none; border-bottom: 1px solid #eef0f8; }
+.smart-section-header .smart-toggle-icon { transition: transform 0.2s; }
+.smart-section-card.open .smart-toggle-icon { transform: rotate(180deg); }
+.smart-section-body { padding: 1rem; display: none; }
+.smart-section-card.open .smart-section-body { display: block; }
+
+.smart-kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.smart-kpi-card { text-align: center; padding: 1rem; border-radius: 8px; cursor: pointer; background: #fff; border-top: 3px solid #e0e0e0; box-shadow: 0 1px 4px rgba(0,0,0,0.06); transition: transform 0.15s, box-shadow 0.15s; }
+.smart-kpi-card:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.12); }
+.smart-kpi-value { font-size: 1.9rem; font-weight: 700; }
+.smart-kpi-label { font-size: 0.8rem; color: #444; font-weight: 600; margin: 0.3rem 0; }
+.smart-kpi-sub { font-size: 0.7rem; color: #888; line-height: 1.4; }
+
+.smart-priority-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.smart-priority-item { border-radius: 10px; padding: 0.7rem 0.85rem; display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.smart-priority-critical { border: 1px solid #fecaca; background: #fef2f2; }
+.smart-priority-warning { border: 1px solid #fde68a; background: #fffbeb; }
+.smart-priority-normal { border: 1px solid #bbf7d0; background: #f0fdf4; }
+.smart-priority-name { font-size: 0.85rem; font-weight: 700; }
+.smart-priority-meta { font-size: 0.7rem; color: #6b7280; }
+
+.smart-badge { display: inline-block; padding: 0.12rem 0.5rem; border-radius: 10px; font-size: 0.72rem; font-weight: 700; }
+.smart-badge-critical { background: #dc2626; color: #fff; }
+.smart-badge-warning { background: #f59e0b; color: #fff; }
+.smart-badge-normal { background: #22c55e; color: #fff; }
+
+.smart-loader { display: none; text-align: center; padding: 1.2rem; color: #4338ca; font-size: 0.85rem; font-weight: 600; }
+.smart-loader.active { display: block; }
+.smart-error-banner { display: none; background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c; padding: 0.7rem 1rem; border-radius: 8px; font-size: 0.82rem; margin: 0.6rem 0; }
+.smart-error-banner.active { display: block; }
+.smart-empty-state { background: #f0f9ff; border: 1px solid #bae6fd; color: #0c4a6e; padding: 0.9rem 1rem; border-radius: 8px; font-size: 0.85rem; margin: 0.6rem 0; }
+
+.smart-table-wrap { overflow-x: auto; font-size: 0.8rem; }
+.smart-table-wrap table { width: 100%; border-collapse: collapse; }
+.smart-table-wrap th { background: #f1f5f9; border-bottom: 2px solid #e2e8f0; padding: 0.45rem 0.6rem; }
+.smart-table-wrap td { border-bottom: 1px solid #f0f0f0; padding: 0.4rem 0.6rem; }
+
+.smart-tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.8rem; }
+.smart-tab-btn { padding: 0.4rem 0.9rem; border-radius: 6px; border: 1px solid #c7d2fe; background: #fff; color: #4338ca; font-size: 0.78rem; font-weight: 600; cursor: pointer; }
+.smart-tab-btn.active { background: #4338ca; color: #fff; }
+
+.smart-methodology-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(3px); }
+.smart-methodology-modal.active { display: flex; }
+.smart-modal-box { background: #fff; border-radius: 14px; max-width: 860px; width: 94%; max-height: 86vh; overflow-y: auto; box-shadow: 0 25px 80px rgba(0,0,0,0.3); position: relative; }
