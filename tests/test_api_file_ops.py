@@ -9,8 +9,13 @@ from app.database import get_db
 from app.config import UPLOAD_DIR
 
 
-def _retry_remove(path, attempts=10, delay=0.1):
-    """Remove a file, retrying briefly on Windows file-lock races."""
+def _retry_remove(path, attempts=50, delay=0.1):
+    """Remove a file, retrying briefly on Windows file-lock races.
+
+    The analyze-saved handler reads the upload with openpyxl/pandas, whose
+    handle can be released asynchronously on Windows after the response
+    returns. This is best-effort teardown: never fail the test on cleanup.
+    """
     import time
     for _ in range(attempts):
         try:
@@ -18,8 +23,6 @@ def _retry_remove(path, attempts=10, delay=0.1):
             return
         except PermissionError:
             time.sleep(delay)
-    if os.path.exists(path):
-        os.remove(path)
 
 
 @pytest.fixture
