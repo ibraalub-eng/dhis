@@ -9,6 +9,19 @@ from app.database import get_db
 from app.config import UPLOAD_DIR
 
 
+def _retry_remove(path, attempts=10, delay=0.1):
+    """Remove a file, retrying briefly on Windows file-lock races."""
+    import time
+    for _ in range(attempts):
+        try:
+            os.remove(path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+    if os.path.exists(path):
+        os.remove(path)
+
+
 @pytest.fixture
 def client(db_session):
     def override_get_db():
@@ -121,7 +134,7 @@ class TestAnalyzeSavedFiles:
         assert "rows_imported" in data
 
         if os.path.exists(test_file):
-            os.remove(test_file)
+            _retry_remove(test_file)
 
 
 class TestDeleteSavedFiles:
