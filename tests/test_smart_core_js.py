@@ -115,3 +115,25 @@ def test_report_module_exists():
     assert "window.smartExportData" in js
     assert "smart-comparison-type" in js
     assert "smart-export-scope" in js
+
+
+def test_entry_is_module_and_wires_modules():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "import" in js and "from './smart/" in js
+    for mod in ["core.js", "decision-board.js", "charts.js", "advanced.js",
+                "geo-regional.js", "hospital.js", "report.js"]:
+        assert f"from './smart/{mod}'" in js, mod
+    assert "initSectionObserver" in js
+    assert "trapFocus" in js
+    assert "registerSectionLoaders" in js
+
+
+def test_index_html_loads_module_entry():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "index.html")
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    assert 'type="module"' in html and "js/smart-analytics.js" in html
