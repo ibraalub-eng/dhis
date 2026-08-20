@@ -89,3 +89,16 @@ def test_geo_module_exists():
         assert f"export function {name}" in js or f"export async function {name}" in js, name
     assert "/smart/geo/" in js
     assert "smart-geo-map" in js
+
+
+def test_hospital_module_exists():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "hospital.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    for name in ["initHospitalSelect", "loadHospitalMode", "renderTrend", "renderHospitalForecast"]:
+        assert f"export function {name}" in js or f"export async function {name}" in js, name
+    assert "window.smartDrilldown" in js
+    assert "window.smartGoRootCause" in js
+    assert "/smart/drilldown/" in js
+    assert "/smart/trend/" in js
