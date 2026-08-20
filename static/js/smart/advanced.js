@@ -129,7 +129,6 @@ export function renderResidualPlot(residuals) {
     x: residuals.map(r => r.hospital_id), y: residuals.map(r => r.residual),
     type: 'bar', marker: { color: residuals.map(r => r.residual > 0 ? '#ef4444' : '#3b82f6') },
   }], { title: _t('Residuals by hospital'), xaxis: { title: _t('Hospital ID') } });
-  const _ = c; // container kept for no-op guards
 }
 
 export function renderCompositePatterns(patterns) {
@@ -237,7 +236,6 @@ export function renderFeatureImportance(explanations) {
   makeBarChart('smart-feature-importance', sorted.map(x => x[0]), sorted.map(x => x[1]), {
     title: _t('Feature importance (SHAP)'), colors: '#8b5cf6',
   });
-  const _ = c;
 }
 
 function _riskLevel(score) {
