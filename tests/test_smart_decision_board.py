@@ -47,7 +47,9 @@ def _seed_smart_data(db_session, month="2026-06"):
 
 
 def test_decision_board_returns_subset(client, db_session):
+    from app.cache import cache
     _seed_smart_data(db_session)
+    cache.invalidate("smart_overview_")
     resp = client.get("/smart/decision-board/2026-06")
     assert resp.status_code == 200
     data = resp.json()
