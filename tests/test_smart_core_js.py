@@ -78,3 +78,14 @@ def test_advanced_uses_section_endpoints():
     for path_part in ["/smart/clusters/", "/smart/correlations/", "/smart/patterns/",
                       "/smart/lag-analysis/", "/smart/xgboost/"]:
         assert path_part in js, path_part
+
+
+def test_geo_module_exists():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "geo-regional.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    for name in ["loadGeoSection", "renderGeoMap", "renderGovernorates", "renderRegionalAnalysis"]:
+        assert f"export function {name}" in js or f"export async function {name}" in js, name
+    assert "/smart/geo/" in js
+    assert "smart-geo-map" in js
