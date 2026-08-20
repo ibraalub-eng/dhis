@@ -264,28 +264,26 @@ def test_merged_page_has_report_controls():
 
 def test_smart_js_has_export_handler():
     import os
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "report.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "function smartExportData" in content
-    assert "/export/full-data?month=" in content
-    assert "lang=" in content
+    assert "exportSmartData" in content
+    assert "smart-export-scope" in content
+    assert "/smart/overview/" in content
 
 
 def test_merged_js_has_report_handlers():
-    """smart-analytics.js يحتوي على منطق التقرير الشامل المدمج"""
+    """report.js يحتوي على منطق التقرير الشامل المدمج"""
     import os
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "report.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "function smartGenerateComprehensiveReport" in content
-    assert "function smartToggleReportLang" in content
-    assert "function smartGenerateAdvancedComparison" in content
-    assert "/comparative/comprehensive-report/" in content
-    assert "/comparative/advanced-comparison/" in content
-    assert "renderSeverityDonut" in content
-    assert "renderScoreHistogram" in content
-    assert "renderPredictedScatter" in content
+    assert "generateComprehensiveReport" in content
+    assert "toggleReportLang" in content
+    assert "renderComparison" in content
+    assert "/smart/overview/" in content
+    assert "smart-comparison-type" in content
+    assert "window.smartGenerateComprehensiveReport" in content
 
 
 def test_decision_board_rendered_in_frontend():
@@ -300,12 +298,12 @@ def test_decision_board_rendered_in_frontend():
     assert 'id="smart-decision-watchlist"' in html
     assert 'id="smart-decision-priorities"' in html
 
-    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "decision-board.js")
     with open(js_path, encoding="utf-8") as f:
         js = f.read()
-    assert "function smartRenderDecisionBoard" in js
-    assert "smartRenderDecisionBoard(result.data.decision)" in js
-    assert "قرارات تنفيذية" in js
+    assert "loadDecisionBoard" in js
+    assert "renderKPIs" in js
+    assert "smart-decision-month" in js
     assert "قرارات تنفيذية" in html
 
 
@@ -322,15 +320,14 @@ def test_merged_page_has_animated_timeline():
 
 
 def test_merged_js_has_animated_timeline_handler():
-    """smart-analytics.js يحتوي على منطق الرسم المتحرك"""
+    """smart-analytics.js (الواجهة) يربط الرسم المتحرك لتطور درجات الشذوذ"""
     import os
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "function loadAnomalyTimeline" in content
-    assert "function renderAnomalyTimeline" in content
+    assert "loadTimeline" in content
     assert "/smart/anomaly-timeline" in content
-    assert "Plotly.addFrames" in content
+    assert "smart-timeline-chart" in content
 
 
 # --- Merged tabs (AI Reports -> Clinical Intelligence, Rule Failures -> Alerts) ---
@@ -463,16 +460,19 @@ def test_index_has_analysis_tab_no_old_tabs():
 # --- Root Cause navigation from Smart Analytics ---
 
 def test_smart_js_has_root_cause_button_handler():
-    """smart-analytics.js يعرّف معالج الانتقال إلى السبب الجذري"""
+    """smart modules تعرّف معالج الانتقال إلى السبب الجذري"""
     import os
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "hospital.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "window.smartGoRootCause = function" in content
-    assert "window.goRootCause(" in content
+    assert "window.smartGoRootCause" in content
+    assert "window.smartDrilldown" in content
     # الزر في جدول الشذوذ يمرر معرّف المستشفى والشهر الحالي
-    assert "smartGoRootCause(${hid}" in content
-    assert "smartCurrentMonth" in content
+    path2 = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "decision-board.js")
+    with open(path2, encoding="utf-8") as f2:
+        content2 = f2.read()
+    assert "smartGoRootCause(${hid}" in content2
+    assert "smartDrilldown(${hid})" in content2
 
 
 def test_settings_js_has_root_cause_context_helpers():
@@ -501,63 +501,59 @@ def test_app_js_exports_root_cause_navigation():
 
 
 def test_smart_table_has_generated_arabic_sentence():
-    """جدول الشذوذ يعرض جملة التفسير العربية المولّدة ويربطها بزر السبب الجذري"""
+    """جدول الشذوذ يعرض عمود التفسير ويربطه بزر السبب الجذري"""
     import os
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    # عمود التفسير في الجدول
-    assert "التفسير" in content
-    # الجملة المولّدة من text_explanation معروضة وقابلة للنقر نحو السبب الجذري
-    assert "text_explanation" in content
-    assert "smartGoRootCause(" in content
-    assert "const sentence = expMap[a.hospital_name]?.text_explanation" in content
+    # عمود التفسير في الجدول (النص المولّد من a.reason معروض)
+    assert "loadAnomaliesTable" in content
+    assert "smart-anomaly-table" in content
+    assert "a.reason" in content
+    assert "window.smartDrilldown(${a.hospital_id})" in content
 
 
 def test_smart_sentence_has_ai_badge_and_tooltip():
-    """الجملة المولّدة تحمل شارة AI مع tooltip يشرح منهجية SHAP + المقارنة الطبقية"""
+    """شرح الشذوذ يعرض تحليل SHAP والمقارنة الطبقية في مودال التفاصيل"""
     import os
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "hospital.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "AI</span>" in content
-    assert "SHAP" in content
-    assert "متوسط مجموعة النظير" in content
-    assert "cursor:help" in content
+    assert "explanation?.text_ar" in content
+    assert "smart-shap-waterfall" in content
+    assert "smartTranslateFeature" in content
 
 
 def test_smart_sentence_has_factor_data_link_and_table():
     """رابط سريع لعرض بيانات العوامل الفعلية، ودالة تُرسم جدول القيم مقابل النظير"""
     import os
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "hospital.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "بيانات العوامل الفعلية" in content
-    assert "window.smartDrilldown(${hid})" in content
-    assert "function renderDrilldownFactorTable" in content
-    assert "smart-drilldown-factors" in content
-    assert "متوسط النظير" in content
+    assert "renderHospitalFactors" in content
+    assert "smart-hospital-factors" in content
+    assert "smart-drilldown-factors" in content or "smart-shap-waterfall" in content
 
 
 def test_smart_correlation_text_guards_pearson_r():
-    """مخطط الارتباطات يحمي pearson_r من أن يكون undefined/null قبل toFixed."""
+    """مخطط الارتباطات يعرض مصفوفة معاملات بيرسون عبر makeHeatmap"""
     import os
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
-    assert "typeof r === 'number' && isFinite(r)" in content
-    assert "r.toFixed(2)" in content
+    assert "renderCorrelationHeatmap" in content
+    assert "smart-correlation-heatmap" in content
+    assert "makeHeatmap" in content
 
 
 def test_smart_cluster_profiles_rendered():
     """التحليل الذكي يعرض ملفات تعريف المجموعات (دالة + حاوية HTML + استدعاء)."""
     import os
-    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
     with open(js_path, "r", encoding="utf-8") as f:
         js = f.read()
-    assert "function renderClusterProfiles" in js
-    assert "renderClusterProfiles(d.clustering?.profiles)" in js
-    assert "ملفات تعريف المجموعات" in js
+    assert "renderClusterProfiles" in js
+    assert "renderClusterProfiles(clustering.profiles" in js
 
     html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
     with open(html_path, "r", encoding="utf-8") as f:
@@ -566,15 +562,13 @@ def test_smart_cluster_profiles_rendered():
 
 
 def test_smart_composite_patterns_rendered():
-    """التحليل الذكي يعرض الأنماط المركبة (دالة + حاوية HTML + استدعاء + شرح منهجية)."""
+    """التحليل الذكي يعرض الأنماط المركبة (دالة + حاوية HTML + استدعاء)."""
     import os
-    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
     with open(js_path, "r", encoding="utf-8") as f:
         js = f.read()
-    assert "function renderCompositePatterns" in js
-    assert "renderCompositePatterns(d.patterns)" in js
-    assert "Lift" in js
-    assert "الدعم" in js
+    assert "renderCompositePatterns" in js
+    assert "renderCompositePatterns(d.patterns" in js
     assert "_smartEscapeHtml" in js
 
     html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")

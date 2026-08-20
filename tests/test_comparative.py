@@ -885,15 +885,20 @@ def test_comparative_html_has_kpi_dashboard():
 
 
 def test_comparative_js_has_toggle_function():
-    """اختبار أن JavaScript المدمج يحتوي على دوال التحكم"""
-    js_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'smart-analytics.js')
-    with open(js_path, 'r', encoding='utf-8') as f:
-        content = f.read()
+    """اختبار أن وحدات smart تحتوي على دوال التحكم والمقارنة"""
+    import os
+    core_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'smart', 'core.js')
+    with open(core_path, 'r', encoding='utf-8') as f:
+        core = f.read()
+    assert 'toggleSmartSection' in core
+    assert 'setSmartMode' in core
 
-    assert 'function toggleSection' in content
-    assert 'function smartShowAlert' in content
-    assert 'function smartUpdateReportKPIs' in content
-    assert 'function smartRenderReportSections' in content
+    report_path = os.path.join(os.path.dirname(__file__), '..', 'static', 'js', 'smart', 'report.js')
+    with open(report_path, 'r', encoding='utf-8') as f:
+        report = f.read()
+    assert 'renderComparison' in report
+    assert 'smart-comparison-type' in report
+    assert 'window.smartGenerateComprehensiveReport' in report
 
 
 # --- Report Persistence Cache Tests ---
