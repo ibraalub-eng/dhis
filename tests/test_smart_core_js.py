@@ -27,3 +27,23 @@ def test_core_has_mode_names():
     assert "monthly" in js
     assert "time" in js
     assert "hospital" in js
+
+
+def test_decision_board_module_exists():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "decision-board.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    for name in ["loadDecisionBoard", "renderKPIs", "renderCriticalList",
+                 "renderEarlyWarnings", "renderHealthyHospitals"]:
+        assert f"export function {name}" in js or f"export async function {name}" in js, name
+    assert "smart-decision-month" in js
+    assert "smart-critical-list" in js
+
+
+def test_decision_board_uses_decision_endpoint():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "decision-board.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "/smart/decision-board/" in js
