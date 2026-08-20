@@ -78,7 +78,7 @@ def test_residuals_error_message_arabic(mock_run, client):
 def test_stratified_error_message_arabic(mock_run, client):
     response = client.get("/smart/stratified/2026-06")
     assert response.status_code == 500
-    assert "خطأ في التحليل الطبقى" in response.json()["detail"]
+    assert "خطأ في التحليل الطبقي" in response.json()["detail"]
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))

@@ -152,3 +152,14 @@ def test_i18n_covers_smart_keys():
     assert keys, "no data-i18n keys found"
     for key in keys:
         assert key in i18n, key
+
+
+def test_single_escape_helper_across_modules():
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..", "static", "js")
+    total = 0
+    for fname in os.listdir(os.path.join(root, "smart")):
+        if fname.endswith(".js"):
+            with open(os.path.join(root, "smart", fname), encoding="utf-8") as f:
+                total += f.read().count("function _smartEscapeHtml")
+    assert total == 1

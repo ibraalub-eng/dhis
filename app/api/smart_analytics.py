@@ -320,7 +320,7 @@ def get_stratified(month: str, db: Session = Depends(get_db)):
         return response
     except Exception as e:
         cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الطبقى: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الطبقي: {str(e)}")
 
 
 @router.get("/geo/{month}")
