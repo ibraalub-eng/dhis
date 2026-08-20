@@ -62,7 +62,7 @@ registerSectionLoaders({
   xgboost: { load: () => loadXGBoostTab(smartState.month) },
   timeline: { load: () => loadTimeline() },
   'time-overview': { load: () => loadTimeOverview() },
-  hospital: { load: () => loadHospitalMode(getSelectedHospital(), null) },
+  hospital: { load: () => { const v = getSelectedHospital(); return v ? loadHospitalMode(v, null) : Promise.resolve(); } },
 });
 
 async function loadAnomaliesTable(month) {
@@ -172,9 +172,13 @@ function wireScreen() {
     const v = e.target.value;
     if (v) loadHospitalMode(v, null);
   });
-  document.getElementById('smart-hospital-context-select')?.addEventListener('change', e => loadHospitalMode(e.target.value, null));
+  document.getElementById('smart-hospital-context-select')?.addEventListener('change', e => {
+    const v = e.target.value;
+    if (v) loadHospitalMode(v, null);
+  });
   document.getElementById('smart-hospital-context-all')?.addEventListener('click', () => {
-    loadHospitalMode(getSelectedHospital(), 'all');
+    const v = getSelectedHospital();
+    if (v) loadHospitalMode(v, 'all');
   });
   document.getElementById('smart-refresh')?.addEventListener('click', () => {
     cacheBust();
@@ -192,7 +196,7 @@ const _retryLoaders = {
   xgboost: () => loadXGBoostTab(smartState.month),
   timeline: () => loadTimeline(),
   'time-overview': () => loadTimeOverview(),
-  hospital: () => loadHospitalMode(getSelectedHospital(), null),
+  hospital: () => { const v = getSelectedHospital(); return v ? loadHospitalMode(v, null) : Promise.resolve(); },
 };
 document.addEventListener('click', e => {
   const banner = e.target.closest('.smart-error-banner.active');

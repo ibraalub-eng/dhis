@@ -199,6 +199,27 @@ def _get_smart_data(db: Session, month: str) -> dict:
     return response
 
 
+@router.get("/months")
+def smart_months(db: Session = Depends(get_db)):
+    """قائمة الأشهر المتاحة للتحليل الذكي (نفس مصدر analysis/months)."""
+    from app.api.analysis import list_months_with_data
+    try:
+        return list_months_with_data(db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ في قائمة الأشهر: {str(e)}")
+
+
+@router.get("/hospitals")
+def smart_hospitals(db: Session = Depends(get_db)):
+    """قائمة المستشفيات النشطة بصيغة {id, name} لاختيار وضع المستشفى."""
+    from app.models import Hospital
+    try:
+        rows = db.query(Hospital).filter(Hospital.is_active == True).order_by(Hospital.name).all()  # noqa: E712
+        return [{"id": h.id, "name": h.name} for h in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ في قائمة المستشفيات: {str(e)}")
+
+
 @router.get("/overview/{month}")
 def get_overview(month: str, db: Session = Depends(get_db)):
     try:

@@ -77,3 +77,19 @@ def test_slice_endpoints_empty_month(client):
         data = resp.json()
         assert data.get("empty") is True, path
         assert "لا توجد بيانات" in data.get("message", ""), path
+
+
+def test_months_endpoint_returns_list(client):
+    resp = client.get("/smart/months")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+
+
+def test_hospitals_endpoint_returns_id_name_list(client):
+    resp = client.get("/smart/hospitals")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data, list)
+    if data:
+        assert set(data[0].keys()) == {"id", "name"}
