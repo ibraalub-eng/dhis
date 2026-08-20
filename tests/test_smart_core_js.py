@@ -102,3 +102,16 @@ def test_hospital_module_exists():
     assert "window.smartGoRootCause" in js
     assert "/smart/drilldown/" in js
     assert "/smart/trend/" in js
+
+
+def test_report_module_exists():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "report.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    for name in ["generateComprehensiveReport", "toggleReportLang", "exportSmartData", "renderComparison"]:
+        assert f"export function {name}" in js or f"export async function {name}" in js, name
+    assert "window.smartGenerateComprehensiveReport" in js
+    assert "window.smartExportData" in js
+    assert "smart-comparison-type" in js
+    assert "smart-export-scope" in js
