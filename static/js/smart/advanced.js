@@ -161,12 +161,66 @@ export function renderXGBoost(xgb) {
   const pred = xgb.predictions || [];
   const c = document.getElementById('smart-xgboost-predictions');
   if (!c) return;
+  renderWalkForward(xgb);
+  renderPredictedScatter(xgb);
   if (!pred.length) { c.innerHTML = `<div class="smart-empty-state">${_t('Not enough predictions for this month')}</div>`; return; }
   c.innerHTML = `<div class="smart-table-wrap"><table><thead><tr>
     <th>${_t('Hospital')}</th><th>${_t('Predicted score')}</th><th>${_t('Risk')}</th></tr></thead><tbody>` +
     pred.map(p => `<tr><td>${_smartEscapeHtml(p.hospital_name)}</td>
-      <td>${_fmtNum(p.prediction, 3)}</td>
-      <td>${_riskLevel(p.prediction)}</td></tr>`).join('') + `</tbody></table></div>`;
+      <td>${_fmtNum(p.prediction ?? p.predicted_next_score, 3)}</td>
+      <td>${_riskLevel(p.prediction ?? p.predicted_next_score)}</td></tr>`).join('') + `</tbody></table></div>`;
+}
+
+export function renderWalkForward(xgb) {
+  const c = document.getElementById('smart-walk-forward');
+  if (!c) return;
+  const folds = xgb.walk_forward || [];
+  if (!folds.length) { c.innerHTML = `<div class="smart-empty-state">${_t('No walk-forward validation yet')}</div>`; return; }
+  const meanR2 = folds.reduce((s, f) => s + (f.r2 || 0), 0) / folds.length;
+  const meanMae = folds.reduce((s, f) => s + (f.mae || 0), 0) / folds.length;
+  renderPlot('smart-walk-forward', [{
+    type: 'bar',
+    x: folds.map(f => `↖ ${f.train_through}`),
+    y: folds.map(f => f.r2 || 0),
+    marker: { color: folds.map(f => (f.r2 || 0) >= 0 ? '#f97316' : '#ef4444') },
+    text: folds.map(f => (f.r2 || 0).toFixed(3)),
+    textposition: 'outside', cliponaxis: false,
+  }], { margin: { t: 25, b: 45, l: 45, r: 15 }, height: 220,
+    xaxis: { title: { text: `${_t('Fold')} (${_t('trained through')})`, font: { size: 9 } }, tickfont: { size: 9 } },
+    yaxis: { title: { text: 'R²', font: { size: 9 } }, gridcolor: '#f0f0f0', zeroline: true } });
+  c.insertAdjacentHTML('beforeend', `<div class="smart-empty-state" style="margin-top:0.4rem;">${_t('Walk-forward')}: ${folds.length} ${_t('folds')} — ${_t('Avg')} R²=${meanR2.toFixed(3)} · MAE=${meanMae.toFixed(3)}</div>`);
+}
+
+export function renderPredictedScatter(xgb) {
+  const el = document.getElementById('smart-predicted-scatter');
+  if (!el) return;
+  const preds = xgb.predictions || [];
+  if (!preds.length) {
+    if (window.Plotly) Plotly.purge('smart-predicted-scatter');
+    return;
+  }
+  const pred = preds.map(p => ({ ...p, prediction: p.prediction ?? p.predicted_next_score }));
+  const data = [{
+    type: 'scatter', mode: 'markers',
+    x: pred.map(p => p.current_score),
+    y: pred.map(p => p.prediction),
+    marker: {
+      size: pred.map(p => 10 + (p.confidence || 0.5) * 14),
+      color: pred.map(p => p.predicted_severity === 'critical' ? '#ef4444' : p.predicted_severity === 'warning' ? '#f59e0b' : '#22c55e'),
+      line: { color: '#fff', width: 1 },
+    },
+    text: pred.map(p => `${p.hospital_name}<br>${_t('Current')}: ${(p.current_score || 0).toFixed(2)}<br>${_t('Predicted')}: ${p.prediction.toFixed(2)}`),
+    hovertemplate: '%{text}<extra></extra>',
+  }];
+  renderPlot('smart-predicted-scatter', data, {
+    margin: { t: 20, b: 40, l: 50, r: 20 },
+    xaxis: { title: _t('Current anomaly score'), range: [0, 1] },
+    yaxis: { title: _t('Predicted score'), range: [0, 1] },
+    showlegend: false,
+    shapes: [
+      { type: 'line', x0: 0, x1: 1, y0: 0, y1: 1, xref: 'x', yref: 'y', line: { color: '#999', width: 1.5, dash: 'dot' } },
+    ],
+  });
 }
 
 export function renderFeatureImportance(explanations) {

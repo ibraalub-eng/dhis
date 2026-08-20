@@ -11,7 +11,6 @@ export const SMART_COLORS = {
 export const smartState = {
   month: null,
   data: null,
-  monthChartsRendered: false,
   reportGenerating: false,
   mode: 'monthly',
   lang: 'ar',
@@ -147,12 +146,40 @@ export function setSmartMode(mode) {
 
 // Registry: key -> { load: () => Promise, containerId }
 const _sectionRegistry = {};
+const _loadedKeys = new Set();
+let _sectionObserver = null;
+let _reopenListenerWired = false;
+
 export function registerSectionLoaders(registry) {
   Object.assign(_sectionRegistry, registry);
 }
 
+function runSectionLoader(key) {
+  const entryItem = _sectionRegistry[key];
+  if (!entryItem || typeof entryItem.load !== 'function') return;
+  _loadedKeys.add(key);
+  setSmartLoader(key, true);
+  entryItem.load().catch(() => {}).finally(() => setSmartLoader(key, false));
+}
+
+// Reload sections whose data is tied to the current month (CRIT-1: month change
+// must refresh anomaly/geo/advanced/forecast/timeline content), and re-arm the
+// IntersectionObserver so not-yet-loaded sections pick up the new month lazily.
+export function reloadSmartSections() {
+  _loadedKeys.forEach(key => runSectionLoader(key));
+  if (_sectionObserver) {
+    document.querySelectorAll('[data-smart-loader]').forEach(el => {
+      const key = el.getAttribute('data-smart-loader');
+      if (key && !_loadedKeys.has(key)) _sectionObserver.observe(el);
+    });
+  }
+}
+
 // IntersectionObserver: lazily load each registered section when visible.
+// IMP-1: when a collapsible section is re-opened after being collapsed (and its
+// Plotly charts purged), re-run that section's loaders.
 export function initSectionObserver() {
+  if (_sectionObserver) _sectionObserver.disconnect();
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
       if (!entry.isIntersecting) return;
@@ -160,14 +187,22 @@ export function initSectionObserver() {
       const key = el.getAttribute('data-smart-loader');
       if (!key) return;
       observer.unobserve(el);
-      const entryItem = _sectionRegistry[key];
-      if (entryItem && typeof entryItem.load === 'function') {
-        setSmartLoader(key, true);
-        entryItem.load().catch(() => {}).finally(() => setSmartLoader(key, false));
-      }
+      runSectionLoader(key);
     });
   }, { rootMargin: '200px' });
   document.querySelectorAll('[data-smart-loader]').forEach(el => observer.observe(el));
+  _sectionObserver = observer;
+  if (!_reopenListenerWired) {
+    _reopenListenerWired = true;
+    document.addEventListener('smart-section-opened', (evt) => {
+      const target = evt.detail && evt.detail.id ? document.getElementById(evt.detail.id) : null;
+      if (!target) return;
+      target.querySelectorAll('[data-smart-loader]').forEach(el => {
+        const key = el.getAttribute('data-smart-loader');
+        if (key) runSectionLoader(key);
+      });
+    });
+  }
   return observer;
 }
 

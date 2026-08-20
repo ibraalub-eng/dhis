@@ -3,7 +3,8 @@ import { smartState, apiSmartGet, smartShowLoading, smartHideLoading,
          setSmartLoader, showSmartSectionError, showSmartSectionEmpty,
          clearSmartSectionState, _smartEscapeHtml, _t, _fmtNum, _riskBadge,
          smartTranslateFeature, toggleSmartSection, setSmartMode,
-         registerSectionLoaders, initSectionObserver, trapFocus } from './smart/core.js';
+         registerSectionLoaders, initSectionObserver, reloadSmartSections,
+         trapFocus } from './smart/core.js';
 import { loadDecisionBoard, renderKPIs, renderCriticalList, renderEarlyWarnings, renderHealthyHospitals } from './smart/decision-board.js';
 import { initAdvancedTabs, loadAdvancedSection, loadClustersTab, loadCorrelationsTab,
          loadPatternsTab, loadXGBoostTab, loadFeatureImportanceTab } from './smart/advanced.js';
@@ -47,11 +48,11 @@ async function loadHospitals() {
 
 async function onMonthChange(month) {
   smartState.month = month;
-  smartState.monthChartsRendered = false;
   document.getElementById('smart-critical-list').innerHTML = '';
   document.getElementById('smart-kpi-container').innerHTML = '';
   document.getElementById('smart-anomaly-table').innerHTML = '';
   await loadDecisionBoard(month);
+  reloadSmartSections();
 }
 
 // ---- section loaders registry ----
@@ -86,21 +87,60 @@ async function loadAnomaliesTable(month) {
 async function loadTimeline() {
   try {
     const d = await apiSmartGet('/smart/anomaly-timeline');
-    const t = d.timeline || [];
-    const months = t.map(x => x.month);
-    const avg = t.map(x => x.avg_anomaly_score);
-    const critical = t.map(x => x.critical_count);
-    renderPlot('smart-timeline-chart', [
-      { x: months, y: avg, name: _t('Avg score'), type: 'scatter', mode: 'lines+markers' },
-      { x: months, y: critical, name: _t('Critical count'), type: 'bar', yaxis: 'y2' },
-    ], { yaxis: { range: [0, 1] }, yaxis2: { overlaying: 'y', side: 'right' } });
-    const last = t[t.length - 1];
-    if (last && last.status) {
-      const badge = document.getElementById('smart-timeline-badge');
-      if (badge) badge.textContent = last.status;
-      const text = document.getElementById('smart-timeline-text');
-      if (text) text.textContent = d.summary_ar || d.summary || '';
+    const months = d.months || [];
+    const hospitals = d.hospitals || [];
+    const badge = document.getElementById('smart-timeline-badge');
+    if (badge) badge.textContent = months.length ? `${months.length} ${_t('months')} | ${hospitals.length} ${_t('hospitals')}` : '';
+    const text = document.getElementById('smart-timeline-text');
+    if (!months.length || !hospitals.length) {
+      if (text) text.textContent = _t('No data');
+      renderPlot('smart-timeline-chart', []);
+      return;
     }
+    const names = hospitals.map(h => h.hospital_name);
+    const makeTrace = (m) => ({
+      type: 'bar',
+      x: names,
+      y: hospitals.map(h => (h.scores && h.scores[m] != null ? h.scores[m] : null)),
+      marker: { color: hospitals.map(h => {
+        const sev = h.severities && h.severities[m];
+        return sev === 'critical' ? '#ef4444' : sev === 'warning' ? '#f59e0b' : '#22c55e';
+      }), line: { width: 1, color: '#fff' } },
+    });
+    const layout = {
+      title: { text: _t('Anomaly scores over time'), font: { size: 13, color: '#1a237e' } },
+      xaxis: { tickangle: -45, tickfont: { size: 9 }, categoryorder: 'array', categoryarray: names },
+      yaxis: { title: _t('Score'), range: [0, 1] },
+      shapes: [
+        { type: 'line', x0: -0.5, x1: hospitals.length - 0.5, y0: 0.3, y1: 0.3, xref: 'x', yref: 'y', line: { color: '#f59e0b', width: 1.5, dash: 'dash' } },
+        { type: 'line', x0: -0.5, x1: hospitals.length - 0.5, y0: 0.6, y1: 0.6, xref: 'x', yref: 'y', line: { color: '#ef4444', width: 1.5, dash: 'dash' } },
+      ],
+      updatemenus: [{
+        type: 'buttons', showactive: false, x: 0.02, y: 1.15, xanchor: 'left', yanchor: 'top',
+        buttons: [
+          { label: _t('Play'), method: 'animate', args: [null, { mode: 'next', frame: { duration: 500, redraw: true }, transition: { duration: 200 } }] },
+          { label: _t('Pause'), method: 'animate', args: [[null], { mode: 'immediate', transition: { duration: 0 } }] },
+        ],
+      }],
+      sliders: [{
+        active: 0,
+        steps: months.map(m => ({ label: m, method: 'animate', args: [[m], { mode: 'immediate', frame: { duration: 400, redraw: true }, transition: { duration: 150 } }] })),
+        pad: { t: 40 }, currentvalue: { prefix: `${_t('Month')}: `, font: { size: 12, color: '#1a237e' } },
+      }],
+      margin: { t: 60, b: 100, l: 50, r: 20 },
+      height: 460, paper_bgcolor: 'white', plot_bgcolor: 'white', hovermode: 'closest',
+    };
+    if (window.Plotly && window.Plotly.addFrames) {
+      Plotly.newPlot('smart-timeline-chart', [makeTrace(months[0])], layout).then(gd => {
+        Plotly.addFrames(gd, months.map(m => ({ name: m, data: [makeTrace(m)] })));
+      });
+    } else {
+      renderPlot('smart-timeline-chart', [makeTrace(months[months.length - 1])], layout);
+    }
+    const last = months[months.length - 1];
+    const critical = hospitals.filter(h => h.severities && h.severities[last] === 'critical').length;
+    const warning = hospitals.filter(h => h.severities && h.severities[last] === 'warning').length;
+    if (text) text.textContent = `${months[0]} → ${last}: ${critical} ${_t('critical')}, ${warning} ${_t('warning')} (${hospitals.length} ${_t('hospitals')})`;
   } catch (e) {
     showSmartSectionError('timeline', e.message);
   }
@@ -214,9 +254,12 @@ function cacheBust() {
 }
 
 // ---- startup ----
+let _smartInitDone = false;
 function initSmartAnalytics() {
   if (!document.getElementById('smart-kpi-container')) return;
   wireScreen();
+  if (_smartInitDone) return; // IMP-3: idempotent — lang toggle re-runs init, avoid double observers/fetches
+  _smartInitDone = true;
   initSectionObserver();
   loadHospitals();
   loadMonths();

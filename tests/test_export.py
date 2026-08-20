@@ -269,7 +269,7 @@ def test_smart_js_has_export_handler():
         content = f.read()
     assert "exportSmartData" in content
     assert "smart-export-scope" in content
-    assert "/smart/overview/" in content
+    assert "/export/full-data" in content
 
 
 def test_merged_js_has_report_handlers():
@@ -281,7 +281,8 @@ def test_merged_js_has_report_handlers():
     assert "generateComprehensiveReport" in content
     assert "toggleReportLang" in content
     assert "renderComparison" in content
-    assert "/smart/overview/" in content
+    assert "/comparative/comprehensive-report/" in content
+    assert "/comparative/advanced-comparison/" in content
     assert "smart-comparison-type" in content
     assert "window.smartGenerateComprehensiveReport" in content
 

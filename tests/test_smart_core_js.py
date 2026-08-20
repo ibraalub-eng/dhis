@@ -129,6 +129,103 @@ def test_entry_is_module_and_wires_modules():
     assert "initSectionObserver" in js
     assert "trapFocus" in js
     assert "registerSectionLoaders" in js
+    assert "reloadSmartSections" in js
+
+
+def test_entry_reloads_sections_on_month_change():
+    """CRIT-1: month change re-runs registered section loaders."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "await loadDecisionBoard(month);" in js
+    assert "reloadSmartSections()" in js
+
+
+def test_entry_init_is_idempotent():
+    """IMP-3: initSmartAnalytics must guard against duplicate observer/fetch on lang toggle."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "_smartInitDone" in js
+    assert "if (_smartInitDone) return;" in js
+
+
+def test_core_reloads_sections_and_reruns_reopened():
+    """CRIT-1/IMP-1: core exposes reloadSmartSections and re-runs loaders on reopen."""
+    js = _read_core()
+    assert "export function reloadSmartSections" in js
+    assert "_loadedKeys" in js
+    assert "smart-section-opened" in js
+    assert "runSectionLoader" in js
+
+
+def test_timeline_consumes_months_hospitals_shape():
+    """CRIT-3: loadTimeline reads {months, hospitals} from the backend, not d.timeline."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "const months = d.months || [];" in js
+    assert "const hospitals = d.hospitals || [];" in js
+    assert "h.scores" in js
+    assert "h.severities" in js
+
+
+def test_decision_board_sets_smart_state_data():
+    """CRIT-2: loadDecisionBoard populates smartState.data so KPI modals work."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "decision-board.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "smartState.data = data;" in js
+    assert "smartState.data = data" in js
+
+
+def test_kpi_modals_lazy_fetch_missing_data():
+    """CRIT-2: governorates/factors modals fetch geo/anomalies lazily from section endpoints."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "decision-board.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "apiSmartGet(`/smart/geo/${month}`)" in js
+    assert "apiSmartGet(`/smart/anomalies/${month}`)" in js
+
+
+def test_drilldown_renders_factors_into_modal():
+    """IMP-4: openDrilldown renders the factor table into the modal container."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "hospital.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "renderHospitalFactors(d.anomaly, d.explanation, 'smart-drilldown-factors');" in js
+    assert "containerId || 'smart-hospital-factors'" in js
+
+
+def test_xgboost_renders_walk_forward_and_scatter():
+    """IMP-4: dead elements smart-walk-forward / smart-predicted-scatter are now rendered."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "export function renderWalkForward" in js
+    assert "export function renderPredictedScatter" in js
+    assert "renderWalkForward(xgb);" in js
+    assert "renderPredictedScatter(xgb);" in js
+    assert "smart-walk-forward" in js
+    assert "smart-predicted-scatter" in js
+
+
+def test_report_uses_server_endpoints():
+    """IMP-2: report/export/comparison flow through server-side endpoints."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "report.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "/comparative/comprehensive-report/" in js
+    assert "/export/full-data" in js
+    assert "/comparative/advanced-comparison/" in js
 
 
 def test_index_html_loads_module_entry():

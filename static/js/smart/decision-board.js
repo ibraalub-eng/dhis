@@ -36,6 +36,7 @@ function openSmartModal(title, bodyHtml) {
 export async function loadDecisionBoard(month) {
   const data = await apiSmartGet(`/smart/decision-board/${month}`);
   smartState.month = month;
+  smartState.data = data; // CRIT-2: KPI modals must be able to read the board payload
   if (data.empty) {
     const status = document.getElementById('smart-status');
     if (status) status.textContent = data.message || _t('No data for this month');
@@ -180,9 +181,14 @@ window._smartKPIAnomalies = function() {
   openSmartModal('🔍 ' + _t('Anomaly details'), `<div class="smart-table-wrap"><table><thead><tr><th>#</th><th>${_t('Hospital')}</th><th>${_t('Governorate')}</th><th>${_t('Score')}</th></tr></thead><tbody>${rows}</tbody></table></div>`);
 };
 
-window._smartKPIGovernorates = function() {
-  if (!smartState.data) return;
-  const geo = smartState.data.geo || {};
+window._smartKPIGovernorates = async function() {
+  const month = smartState.month || '';
+  let geo = smartState.data && smartState.data.geo;
+  if (!geo) {
+    // decision-board payload omits geo — fetch it lazily from the section endpoint (CRIT-2)
+    const d = await apiSmartGet(`/smart/geo/${month}`);
+    geo = d.geo || {};
+  }
   const govs = (geo.governorates || []).slice().sort((a, b) => b.avg_anomaly_score - a.avg_anomaly_score);
   const rows = govs.map(g => `<tr>
     <td style="padding:0.4rem 0.6rem;text-align:right;font-weight:600;font-size:0.82rem;">${_smartEscapeHtml(g.governorate)}</td>
@@ -193,9 +199,14 @@ window._smartKPIGovernorates = function() {
   openSmartModal('🗺️ ' + _t('Governorates'), `<div class="smart-table-wrap"><table><thead><tr><th>${_t('Governorate')}</th><th>${_t('Hospitals')}</th><th>${_t('Avg score')}</th><th>${_t('Outliers')}</th></tr></thead><tbody>${rows}</tbody></table></div>`);
 };
 
-window._smartKPIFactors = function() {
-  if (!smartState.data) return;
-  const exps = smartState.data.explanations || [];
+window._smartKPIFactors = async function() {
+  const month = smartState.month || '';
+  let exps = smartState.data && smartState.data.explanations;
+  if (!exps) {
+    // decision-board payload omits explanations — fetch lazily (CRIT-2)
+    const d = await apiSmartGet(`/smart/anomalies/${month}`);
+    exps = d.explanations || [];
+  }
   const factors = {};
   exps.forEach(e => (e.top_factors || []).forEach(f => {
     factors[f.arabic_label || f.feature] = (factors[f.arabic_label || f.feature] || 0) + Math.abs(f.shap_value || 0);

@@ -65,8 +65,8 @@ export function renderHospitalForecast(forecast) {
     `</tbody></table></div>`;
 }
 
-export function renderHospitalFactors(anomaly, explanation) {
-  const c = document.getElementById('smart-hospital-factors');
+export function renderHospitalFactors(anomaly, explanation, containerId) {
+  const c = document.getElementById(containerId || 'smart-hospital-factors');
   if (!c) return;
   const factors = explanation?.top_factors || [];
   c.innerHTML = `<div class="smart-table-wrap"><table><thead><tr>
@@ -95,7 +95,7 @@ export function openDrilldown(hospitalId) {
       x: residuals.map(r => r.month), y: residuals.map(r => r.residual),
       type: 'bar', marker: { color: residuals.map(r => r.residual > 0 ? '#ef4444' : '#3b82f6') },
     }], { title: _t('Monthly residuals') });
-    renderHospitalFactors(d.anomaly, d.explanation);
+    renderHospitalFactors(d.anomaly, d.explanation, 'smart-drilldown-factors');
   }).catch(e => {
     document.getElementById('smart-drilldown-text').textContent = e.message;
   });
