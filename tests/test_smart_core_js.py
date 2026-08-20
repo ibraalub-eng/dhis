@@ -58,3 +58,23 @@ def test_charts_module_exists():
                  "makeScatter", "makeHeatmap", "makeDonut", "renderWaterfall"]:
         assert f"export function {name}" in js or f"export const {name}" in js, name
     assert "Plotly" in js
+
+
+def test_advanced_module_exists():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    for name in ["initAdvancedTabs", "loadAdvancedSection", "loadClustersTab",
+                 "loadCorrelationsTab", "loadPatternsTab", "loadXGBoostTab"]:
+        assert f"export function {name}" in js, name
+
+
+def test_advanced_uses_section_endpoints():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    for path_part in ["/smart/clusters/", "/smart/correlations/", "/smart/patterns/",
+                      "/smart/lag-analysis/", "/smart/xgboost/"]:
+        assert path_part in js, path_part
