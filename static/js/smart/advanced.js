@@ -73,10 +73,12 @@ export function loadXGBoostTab(month) {
 }
 
 export function loadFeatureImportanceTab(month) {
-  // Derived from the anomaly explanations already fetched by the decision board.
-  const data = smartState.data;
-  if (!data) return Promise.resolve();
-  renderFeatureImportance((data.explanations || []));
+  // Derived from the anomaly explanations — fetched lazily since the decision-board
+  // payload (smartState.data) does not include explanations (CRIT-2).
+  return fetchSection(`/smart/anomalies/${month}`, 'advanced').then(d => {
+    if (!d || d.empty) return;
+    renderFeatureImportance(d.explanations || []);
+  });
 }
 
 export function loadAdvancedSection(month) {

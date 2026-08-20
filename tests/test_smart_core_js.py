@@ -217,6 +217,17 @@ def test_xgboost_renders_walk_forward_and_scatter():
     assert "smart-predicted-scatter" in js
 
 
+def test_feature_importance_fetches_explanations_lazily():
+    """CRIT-2: feature importance tab fetches /smart/anomalies since the
+    decision-board payload (smartState.data) no longer carries explanations."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "apiSmartGet(`/smart/anomalies/${month}`)" in js or "fetchSection(`/smart/anomalies/${month}`" in js
+    assert "renderFeatureImportance(d.explanations || [])" in js
+
+
 def test_report_uses_server_endpoints():
     """IMP-2: report/export/comparison flow through server-side endpoints."""
     import os
