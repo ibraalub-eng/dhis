@@ -137,3 +137,18 @@ def test_index_html_loads_module_entry():
     with open(path, encoding="utf-8") as f:
         html = f.read()
     assert 'type="module"' in html and "js/smart-analytics.js" in html
+
+
+def test_i18n_covers_smart_keys():
+    import os
+    import re
+    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    i18n_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js")
+    with open(html_path, encoding="utf-8") as f:
+        html = f.read()
+    with open(i18n_path, encoding="utf-8") as f:
+        i18n = f.read()
+    keys = re.findall(r'data-i18n="([^"]+)"', html)
+    assert keys, "no data-i18n keys found"
+    for key in keys:
+        assert key in i18n, key
