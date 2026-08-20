@@ -306,7 +306,7 @@ def test_decision_board_rendered_in_frontend():
     assert "function smartRenderDecisionBoard" in js
     assert "smartRenderDecisionBoard(result.data.decision)" in js
     assert "قرارات تنفيذية" in js
-    assert "لوحة القرارات التنفيذية" in html
+    assert "قرارات تنفيذية" in html
 
 
 def test_merged_page_has_animated_timeline():
@@ -581,8 +581,8 @@ def test_smart_composite_patterns_rendered():
     with open(html_path, "r", encoding="utf-8") as f:
         html = f.read()
     assert "smart-composite-patterns" in html
-    assert "الأنماط المركبة للمؤشرات" in html
-    assert "Apriori + Lift" in html
+    assert "أنماط وقيادة" in html
+    assert "smart-lag-analysis" in html
 
 
 def test_smart_drilldown_modal_has_factor_container():
@@ -653,3 +653,34 @@ def test_styles_have_quality_trend_toggle_css():
         content = f.read()
     assert ".qt-metric-btn" in content
     assert ".qt-metric-btn:hover" in content
+
+
+def test_smart_redesign_structure():
+    """الشاشة الجديدة: شريط أوضاع + لوحة قرار + أقسام قابلة للطي + مودال منهجية."""
+    import os
+    from bs4 import BeautifulSoup
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    with open(path, encoding="utf-8") as f:
+        soup = BeautifulSoup(f.read(), "html.parser")
+    # شريط الأوضاع الثلاثة
+    assert soup.find(id="smart-mode-monthly") is not None
+    assert soup.find(id="smart-mode-time") is not None
+    assert soup.find(id="smart-mode-hospital") is not None
+    # لوحة القرار أعلى الصفحة
+    assert soup.find(id="smart-decision-board") is not None
+    assert soup.find(id="smart-kpi-container") is not None
+    assert soup.find(id="smart-critical-list") is not None
+    # أقسام قابلة للطي
+    assert len(soup.find_all(class_="smart-section-card")) >= 4
+    # مودال المنهجية الموصول
+    assert soup.find(id="smart-methodology-modal") is not None
+    assert soup.find(id="smart-methodology-btn") is not None
+    # أقسام الأوضاع الثلاثة
+    assert soup.find(id="smart-monthly-panel") is not None
+    assert soup.find(id="smart-time-panel") is not None
+    assert soup.find(id="smart-hospital-panel") is not None
+    # إمكانية الوصول للمودالات
+    drill = soup.find(id="smart-drilldown-modal")
+    assert drill is not None
+    assert drill.get("role") == "dialog"
+    assert drill.get("aria-modal") == "true"

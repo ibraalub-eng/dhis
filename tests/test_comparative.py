@@ -870,7 +870,7 @@ def test_comparative_html_has_collapsible_sections():
     with open(html_path, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f.read(), 'html.parser')
 
-    sections = soup.find_all('div', class_='collapsible-section')
+    sections = soup.find_all('div', class_='smart-section-card')
     assert len(sections) >= 5
 
 
