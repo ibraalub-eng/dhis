@@ -47,3 +47,14 @@ def test_decision_board_uses_decision_endpoint():
     with open(path, encoding="utf-8") as f:
         js = f.read()
     assert "/smart/decision-board/" in js
+
+
+def test_charts_module_exists():
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "charts.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    for name in ["smartChartTheme", "renderPlot", "makeLineChart", "makeBarChart",
+                 "makeScatter", "makeHeatmap", "makeDonut", "renderWaterfall"]:
+        assert f"export function {name}" in js or f"export const {name}" in js, name
+    assert "Plotly" in js
