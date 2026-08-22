@@ -1,5 +1,5 @@
 # ── Health AI — SRMNH Data Quality System ──
-# Build image for Google Cloud Run.
+# Build image for Google Cloud Run / Render.com / any Docker host.
 # Uses a stable Python release with prebuilt wheels for scipy/xgboost/shap/sklearn.
 
 FROM python:3.12-slim
@@ -28,7 +28,7 @@ COPY app/ app/
 COPY scripts/ scripts/
 COPY static/ static/
 
-# Runtime: Cloud Run injects $PORT and expects the app to listen on it.
+# Runtime: Cloud Run / Render inject $PORT and expect the app to listen on it.
 # The app lifespan already runs alembic migrations + seeding on boot.
 EXPOSE 8080
 
