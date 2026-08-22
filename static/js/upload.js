@@ -70,27 +70,61 @@
             progress.classList.remove('hidden');
             const fill = document.getElementById('uploadProgressFill');
             const txt = document.getElementById('uploadProgressText');
-            fill.style.width = '30%';
+            fill.style.width = '10%';
             txt.textContent = __('Processing file...');
             showLoader('Analyzing data...');
             fetch(API() + '/analysis/process-preview?filename=' + encodeURIComponent(previewFileName), { method: 'POST' })
                 .then(r => { if (!r.ok) return r.text().then(t => { throw new Error(t); }); return r.json(); })
-                .then(result => {
-                hideLoader();
-                fill.style.width = '100%';
-                txt.textContent = __('Analysis complete.');
-                setTimeout(() => { progress.classList.add('hidden'); fill.style.width = '0%'; }, 2000);
-                uploadedData = result;
-                updateStep(4);
-                setStatus('ok', result.message + ' ' + __('View results in Dashboard tab.'));
-                displayResults(result);
-                document.getElementById('previewArea').style.display = 'none';
-                previewFilePath = null;
-                previewFiles = null;
-                previewFileName = null;
-                refreshSavedFiles();
-                _tabInited.delete('dashboard');
-                switchTab('dashboard');
+                .then(resp => {
+                // Server returns {task_id, status} — poll until done
+                if (!resp.task_id) throw new Error('No task_id returned');
+                const taskId = resp.task_id;
+                const pollInterval = 2000;
+                const maxPolls = 300; // 10 minutes max
+                let polls = 0;
+                const poll = () => {
+                    fetch(API() + '/tasks/' + taskId)
+                        .then(r => r.json())
+                        .then(task => {
+                            if (task.status === 'done') {
+                                const result = task.result;
+                                hideLoader();
+                                fill.style.width = '100%';
+                                txt.textContent = __('Analysis complete.');
+                                setTimeout(() => { progress.classList.add('hidden'); fill.style.width = '0%'; }, 2000);
+                                uploadedData = result;
+                                updateStep(4);
+                                setStatus('ok', result.message + ' ' + __('View results in Dashboard tab.'));
+                                displayResults(result);
+                                document.getElementById('previewArea').style.display = 'none';
+                                previewFilePath = null;
+                                previewFiles = null;
+                                previewFileName = null;
+                                refreshSavedFiles();
+                                _tabInited.delete('dashboard');
+                                switchTab('dashboard');
+                            } else if (task.status === 'error') {
+                                throw new Error(task.error || 'Analysis failed');
+                            } else {
+                                // Still running — update progress bar
+                                polls++;
+                                if (polls > maxPolls) throw new Error('Analysis timed out');
+                                const pct = task.progress || Math.min(10 + polls * 3, 90);
+                                fill.style.width = pct + '%';
+                                txt.textContent = __('Processing file...') + ' (' + pct + '%)';
+                                setTimeout(poll, pollInterval);
+                            }
+                        })
+                        .catch(err => {
+                            hideLoader();
+                            fill.style.width = '0%';
+                            progress.classList.add('hidden');
+                            let detail = err.message;
+                            try { const m = detail.match(/"detail"\s*:\s*"([^"]+)"/); if (m) detail = m[1]; } catch {}
+                            setStatus('err', 'Import failed: ' + detail);
+                        });
+                };
+                poll();
             }).catch(e => {
                 hideLoader();
                 fill.style.width = '0%';

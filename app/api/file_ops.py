@@ -252,17 +252,31 @@ async def upload_multiple_and_analyze(
 
 
 @router.post("/process-preview")
-def process_preview_file(filename: str = Query(...), db: Session = Depends(get_db)):
+def process_preview_file(filename: str = Query(...)):
+    """Start processing in background — returns task_id immediately.
+
+    Frontend polls GET /tasks/{task_id} until status is "done".
+    """
     upload_dir = UPLOAD_DIR
     file_path = os.path.join(upload_dir, filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
-    total_rows = 0
-    all_months = set()
-    all_hospital_ids = set()
+    task_id = create_task(f"process-preview:{filename}")
+    t = threading.Thread(target=run_task, args=(task_id, _process_preview_worker, file_path), daemon=True)
+    t.start()
+    return {"task_id": task_id, "status": "pending"}
 
+
+def _process_preview_worker(file_path: str) -> dict:
+    """Heavy analysis work — runs inside run_task() which handles
+    status/result/error automatically."""
+    db = SessionLocal()
     try:
+        total_rows = 0
+        all_months = set()
+        all_hospital_ids = set()
+
         result = process_excel_upload(file_path, db)
         total_rows += result.get("rows_imported", 0)
         if result.get("months"):
@@ -270,29 +284,28 @@ def process_preview_file(filename: str = Query(...), db: Session = Depends(get_d
         if result.get("hospitals"):
             for h in result["hospitals"]:
                 all_hospital_ids.add(h["id"])
-    except Exception as e:
-        logger.error(f"Error processing {filename}: {e}")
-        raise HTTPException(status_code=422, detail=str(e))
 
-    hospitals_list = _get_hospitals_from_ids(db, all_hospital_ids)
-    hospital_months = _get_hospital_months_map(db, hospitals_list)
+        hospitals_list = _get_hospitals_from_ids(db, all_hospital_ids)
+        hospital_months = _get_hospital_months_map(db, hospitals_list)
 
-    quality_reports = _run_quality_reports(db, hospitals_list, hospital_months)
-    trend_analyses = _run_trend_analyses(db, hospitals_list, hospital_months)
-    comparisons_dict = _run_hospital_comparisons(db, hospitals_list, all_months)
-    clinical_analyses = _run_clinical_analyses(db, hospitals_list, hospital_months)
+        quality_reports = _run_quality_reports(db, hospitals_list, hospital_months)
+        trend_analyses = _run_trend_analyses(db, hospitals_list, hospital_months)
+        comparisons_dict = _run_hospital_comparisons(db, hospitals_list, all_months)
+        clinical_analyses = _run_clinical_analyses(db, hospitals_list, hospital_months)
 
-    return {
-        "files_processed": 1,
-        "hospitals": [{"id": h.id, "name": h.name} for h in hospitals_list],
-        "months": sorted(all_months),
-        "rows_imported": total_rows,
-        "quality_reports": quality_reports,
-        "trend_analyses": trend_analyses,
-        "hospital_comparisons": comparisons_dict,
-        "clinical_analyses": clinical_analyses,
-        "message": f"Processed file: {total_rows} indicator values for {len(hospitals_list)} hospitals across {len(all_months)} months",
-    }
+        return {
+            "files_processed": 1,
+            "hospitals": [{"id": h.id, "name": h.name} for h in hospitals_list],
+            "months": sorted(all_months),
+            "rows_imported": total_rows,
+            "quality_reports": quality_reports,
+            "trend_analyses": trend_analyses,
+            "hospital_comparisons": comparisons_dict,
+            "clinical_analyses": clinical_analyses,
+            "message": f"Processed file: {total_rows} indicator values for {len(hospitals_list)} hospitals across {len(all_months)} months",
+        }
+    finally:
+        db.close()
 
 
 # ?? Shared helpers ?????????????????????????
