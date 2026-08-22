@@ -51,7 +51,10 @@ async function onMonthChange(month) {
   document.getElementById('smart-critical-list').innerHTML = '';
   document.getElementById('smart-kpi-container').innerHTML = '';
   document.getElementById('smart-anomaly-table').innerHTML = '';
-  await loadDecisionBoard(month);
+  // Fire decision board + section loaders in parallel instead of awaiting
+  // the decision board first — the 7-engine pipeline runs on the first
+  // request for a month; sections can start fetching immediately.
+  loadDecisionBoard(month).catch(() => {});
   reloadSmartSections();
 }
 
