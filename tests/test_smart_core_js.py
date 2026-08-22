@@ -228,6 +228,38 @@ def test_feature_importance_fetches_explanations_lazily():
     assert "renderFeatureImportance(d.explanations || [])" in js
 
 
+def test_composite_patterns_uses_correct_schema_fields():
+    """renderCompositePatterns must use summary_ar and arabic_names/indicators
+    — NOT name/description which do not exist on CompositePattern."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "summary_ar" in js
+    assert "arabic_names" in js
+    assert "p.name" not in js, "p.name is not a CompositePattern field"
+
+
+def test_patterns_tab_loads_stratified_analysis():
+    """Stratified analysis must be loaded alongside patterns and lag analysis."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "/smart/stratified/${month}" in js
+    assert "renderStratifiedAnalysis" in js
+
+
+def test_stratified_chart_container_exists():
+    """HTML must contain the stratified chart container."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    assert 'id="smart-stratified-chart"' in html
+    assert 'id="smart-strat-indicator"' in html
+
+
 def test_report_uses_server_endpoints():
     """IMP-2: report/export/comparison flow through server-side endpoints."""
     import os

@@ -58,10 +58,16 @@ export function loadPatternsTab(month) {
   return fetchSection(`/smart/patterns/${month}`, 'advanced').then(d => {
     if (!d || d.empty) return;
     renderCompositePatterns(d.patterns || []);
-    return fetchSection(`/smart/lag-analysis/${month}`, 'advanced').then(ld => {
-      if (!ld || ld.empty) return;
-      renderLagAnalysis(ld.lag_analysis || {});
-    });
+    return Promise.all([
+      fetchSection(`/smart/lag-analysis/${month}`, 'advanced').then(ld => {
+        if (!ld || ld.empty) return;
+        renderLagAnalysis(ld.lag_analysis || {});
+      }),
+      fetchSection(`/smart/stratified/${month}`, 'advanced').then(sd => {
+        if (!sd || sd.empty) return;
+        renderStratifiedAnalysis(sd.stratified || [], month);
+      }),
+    ]);
   });
 }
 
@@ -137,11 +143,16 @@ export function renderCompositePatterns(patterns) {
   if (!patterns.length) { c.innerHTML = `<div class="smart-empty-state">${_t('No composite patterns')}</div>`; return; }
   c.innerHTML = `<div class="smart-table-wrap"><table><thead><tr>
     <th>${_t('Pattern')}</th><th>${_t('Hospitals')}</th><th>${_t('Description')}</th>
-  </tr></thead><tbody>` + patterns.map(p => `<tr>
-    <td style="font-weight:600;">${_smartEscapeHtml(p.name)}</td>
-    <td>${_smartEscapeHtml((p.hospitals || []).join('، '))}</td>
-    <td style="font-size:0.78rem;">${_smartEscapeHtml(p.description_ar || p.description || '')}</td>
-  </tr>`).join('') + `</tbody></table></div>`;
+  </tr></thead><tbody>` + patterns.map(p => {
+    const name = (p.arabic_names || p.indicators || []).join(' + ');
+    const desc = p.summary_ar || '';
+    const count = p.hospitals_count || (p.hospitals || []).length;
+    return `<tr>
+      <td style="font-weight:600;">${_smartEscapeHtml(name)}</td>
+      <td>${_smartEscapeHtml(count)} ${_t('hospitals')}</td>
+      <td style="font-size:0.78rem;">${_smartEscapeHtml(desc)}</td>
+    </tr>`;
+  }).join('') + `</tbody></table></div>`;
 }
 
 export function renderLagAnalysis(lag) {
@@ -156,6 +167,39 @@ export function renderLagAnalysis(lag) {
   </tr>`).join('') + `</tbody></table></div>`;
   const note = lag.note_ar || lag.note_en || '';
   c.innerHTML = (note ? `<div class="smart-empty-state">${_smartEscapeHtml(note)}</div>` : '') + html;
+}
+
+let _stratifiedData = [];
+export function renderStratifiedAnalysis(stratified, month) {
+  _stratifiedData = stratified;
+  const sel = document.getElementById('smart-strat-indicator');
+  if (!sel) return;
+  const indicators = [...new Set(stratified.map(s => s.indicator))];
+  if (!indicators.length) return;
+  sel.innerHTML = indicators.map(i => `<option value="${i}">${smartTranslateFeature(i)}</option>`).join('');
+  sel.onchange = () => _renderStratifiedChart(sel.value);
+  _renderStratifiedChart(indicators[0]);
+}
+
+function _renderStratifiedChart(indicator) {
+  const filtered = _stratifiedData.filter(s => s.indicator === indicator);
+  const chartEl = document.getElementById('smart-stratified-chart');
+  const textEl = document.getElementById('smart-strat-text');
+  if (!chartEl) return;
+  if (!filtered.length) {
+    if (window.Plotly) Plotly.purge('smart-stratified-chart');
+    if (textEl) textEl.textContent = '';
+    return;
+  }
+  const sorted = [...filtered].sort((a, b) => Math.abs(b.deviation_pct) - Math.abs(a.deviation_pct)).slice(0, 15);
+  const xLabels = sorted.map(s => s.hospital_name.length > 22 ? s.hospital_name.substring(0, 20) + '…' : s.hospital_name);
+  const barColors = sorted.map(s => Math.abs(s.deviation_pct) > 30 ? '#ef4444' : Math.abs(s.deviation_pct) > 15 ? '#f59e0b' : '#22c55e');
+  renderPlot('smart-stratified-chart', [
+    { type: 'bar', name: _t('Hospital value'), x: xLabels, y: sorted.map(s => s.hospital_value), marker: { color: barColors } },
+    { type: 'bar', name: _t('Peer average'), x: xLabels, y: sorted.map(s => s.peer_group_mean), marker: { color: '#94a3b8' } },
+  ], { barmode: 'group', xaxis: { tickangle: -45, tickfont: { size: 10 } }, yaxis: { title: indicator }, height: 300, margin: { t: 15, b: 80 } });
+  const significant = filtered.filter(s => Math.abs(s.deviation_pct) > 15).length;
+  if (textEl) textEl.textContent = `${significant} ${_t('of')} ${filtered.length} ${_t('hospitals deviate >15% from peer average')}`;
 }
 
 export function renderXGBoost(xgb) {
