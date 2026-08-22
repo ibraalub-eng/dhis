@@ -103,13 +103,13 @@ function renderDecisionBoard(decision, k) {
     hotspotsEl.innerHTML = (decision.hotspots && decision.hotspots.length)
       ? decision.hotspots.map(h => {
           const col = h.risk_pct >= 50 ? '#dc2626' : h.risk_pct >= 25 ? '#f59e0b' : '#22c55e';
-          return `<div style="margin-bottom:0.4rem;">
-            <div style="display:flex;justify-content:space-between;font-size:0.78rem;">
-              <span style="font-weight:600;">${_smartEscapeHtml(h.governorate)}</span>
-              <span style="color:${col};font-weight:700;">${h.outliers} ${k('outliers')} · ${h.risk_pct}%</span>
+          return `<div class="smart-report-row">
+            <div class="smart-report-row-header">
+              <span class="smart-report-row-label">${_smartEscapeHtml(h.governorate)}</span>
+              <span class="smart-report-row-value" style="color:${col};">${h.outliers} ${k('outliers')} · ${h.risk_pct}%</span>
             </div>
-            <div style="height:4px;background:#e2e8f0;border-radius:2px;overflow:hidden;">
-              <div style="width:${Math.min(100, h.risk_pct)}%;height:100%;background:${col};"></div>
+            <div class="smart-report-bar-track">
+              <div class="smart-report-bar-fill" style="width:${Math.min(100, h.risk_pct)}%;background:${col};"></div>
             </div>
           </div>`;
         }).join('')
@@ -120,10 +120,10 @@ function renderDecisionBoard(decision, k) {
     watchEl.innerHTML = (decision.watchlist && decision.watchlist.length)
       ? decision.watchlist.map(w => {
           const col = w.severity === 'critical' ? '#dc2626' : w.severity === 'warning' ? '#f59e0b' : '#f9a825';
-          return `<div style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0;border-bottom:1px dashed #e2e8f0;">
-            <span style="width:8px;height:8px;border-radius:50%;background:${col};flex-shrink:0;"></span>
-            <span style="font-weight:600;font-size:0.8rem;">${_smartEscapeHtml(w.hospital)}</span>
-            <span style="font-size:0.72rem;color:#888;">${_smartEscapeHtml(w.governorate || '')} · ${w.score}</span>
+          return `<div class="smart-watchlist-item">
+            <span class="smart-watchlist-dot" style="background:${col};"></span>
+            <span class="smart-watchlist-name">${_smartEscapeHtml(w.hospital)}</span>
+            <span class="smart-watchlist-meta">${_smartEscapeHtml(w.governorate || '')} · ${w.score}</span>
           </div>`;
         }).join('')
       : `<div class="smart-empty-state">${k('No hospitals to watch')}</div>`;
@@ -134,13 +134,13 @@ function renderDecisionBoard(decision, k) {
     prioEl.innerHTML = (decision.priorities && decision.priorities.length)
       ? decision.priorities.map((p, i) => {
           const col = prioColors[p.priority] || '#888';
-          return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.4rem;margin-bottom:0.3rem;background:${col}0a;border-radius:6px;border-left:3px solid ${col};">
-            <span style="font-size:0.7rem;font-weight:700;color:${col};min-width:1.1rem;">${i + 1}</span>
+          return `<div class="smart-priority-ranked" style="background:${col}0a;border-left-color:${col};">
+            <span class="smart-priority-rank" style="color:${col};">${i + 1}</span>
             <span style="flex:1;">
-              <span style="font-weight:600;font-size:0.8rem;">${_smartEscapeHtml(p.action)}</span>
-              <span style="font-size:0.72rem;color:#666;display:block;">← ${_smartEscapeHtml(p.target)}</span>
+              <span class="smart-priority-action">${_smartEscapeHtml(p.action)}</span>
+              <span class="smart-priority-target">← ${_smartEscapeHtml(p.target)}</span>
             </span>
-            <span style="font-size:0.7rem;font-weight:700;color:${col};">${k('Impact')} ${Math.round(p.impact || 0)}%</span>
+            <span class="smart-priority-impact" style="color:${col};">${k('Impact')} ${Math.round(p.impact || 0)}%</span>
           </div>`;
         }).join('')
       : `<div class="smart-empty-state">${k('No priorities')}</div>`;

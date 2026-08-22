@@ -81,7 +81,7 @@ export function renderKPIs(kpi, hospitalsCount) {
       <div class="smart-kpi-label">${_t('Top contributing factor')}</div>
       <div class="smart-kpi-sub">${_t('SHAP analysis of drivers')}</div>
     </div>
-    <div class="smart-kpi-card" style="border-left:4px solid ${statusColor};" onclick="window._smartKPIStatus()">
+    <div class="smart-kpi-card" style="border-top-color:${statusColor};" onclick="window._smartKPIStatus()">
       <div class="smart-kpi-value" style="font-size:1.2rem;">${statusIcon} ${_smartEscapeHtml(statusText)}</div>
       <div class="smart-kpi-label">${_t('Month status')}</div>
       <div class="smart-kpi-sub">${hospitalsCount} ${_t('hospitals')} — ${normalCount} ${_t('normal')}, ${kpi.warning_count} ${_t('warning')}, ${kpi.critical_count} ${_t('critical')}</div>
@@ -173,10 +173,10 @@ window._smartKPIAnomalies = function() {
   const total = smartState.data.hospitals_count || anomalies.length;
   const sorted = [...anomalies].sort((a, b) => b.anomaly_score - a.anomaly_score);
   const rows = sorted.map((a, i) => `<tr>
-    <td style="padding:0.4rem 0.6rem;text-align:center;color:#999;font-size:0.8rem;">${i + 1}</td>
-    <td style="padding:0.4rem 0.6rem;text-align:right;font-weight:600;font-size:0.82rem;">${_smartEscapeHtml(a.hospital_name)}</td>
-    <td style="padding:0.4rem 0.6rem;text-align:center;font-size:0.75rem;">${_smartEscapeHtml(a.governorate || '-')}</td>
-    <td style="padding:0.4rem 0.6rem;text-align:center;">${_riskBadge(a.anomaly_score.toFixed(3), a.severity)}</td>
+    <td class="smart-table-cell-rank">${i + 1}</td>
+    <td class="smart-table-cell-name">${_smartEscapeHtml(a.hospital_name)}</td>
+    <td class="smart-table-cell-value">${_smartEscapeHtml(a.governorate || '-')}</td>
+    <td class="smart-table-cell-center">${_riskBadge(a.anomaly_score.toFixed(3), a.severity)}</td>
   </tr>`).join('');
   openSmartModal('🔍 ' + _t('Anomaly details'), `<div class="smart-table-wrap"><table><thead><tr><th>#</th><th>${_t('Hospital')}</th><th>${_t('Governorate')}</th><th>${_t('Score')}</th></tr></thead><tbody>${rows}</tbody></table></div>`);
 };
@@ -191,10 +191,10 @@ window._smartKPIGovernorates = async function() {
   }
   const govs = (geo.governorates || []).slice().sort((a, b) => b.avg_anomaly_score - a.avg_anomaly_score);
   const rows = govs.map(g => `<tr>
-    <td style="padding:0.4rem 0.6rem;text-align:right;font-weight:600;font-size:0.82rem;">${_smartEscapeHtml(g.governorate)}</td>
-    <td style="padding:0.4rem 0.6rem;text-align:center;font-size:0.78rem;">${g.hospital_count}</td>
-    <td style="padding:0.4rem 0.6rem;text-align:center;">${_riskBadge(_fmtNum(g.avg_anomaly_score, 3), g.avg_anomaly_score >= 0.6 ? 'critical' : g.avg_anomaly_score >= 0.3 ? 'warning' : 'normal')}</td>
-    <td style="padding:0.4rem 0.6rem;text-align:center;font-size:0.78rem;">${g.outlier_count}</td>
+    <td class="smart-table-cell-name">${_smartEscapeHtml(g.governorate)}</td>
+    <td class="smart-table-cell-value">${g.hospital_count}</td>
+    <td class="smart-table-cell-center">${_riskBadge(_fmtNum(g.avg_anomaly_score, 3), g.avg_anomaly_score >= 0.6 ? 'critical' : g.avg_anomaly_score >= 0.3 ? 'warning' : 'normal')}</td>
+    <td class="smart-table-cell-value">${g.outlier_count}</td>
   </tr>`).join('');
   openSmartModal('🗺️ ' + _t('Governorates'), `<div class="smart-table-wrap"><table><thead><tr><th>${_t('Governorate')}</th><th>${_t('Hospitals')}</th><th>${_t('Avg score')}</th><th>${_t('Outliers')}</th></tr></thead><tbody>${rows}</tbody></table></div>`);
 };
@@ -213,9 +213,9 @@ window._smartKPIFactors = async function() {
   }));
   const sorted = Object.entries(factors).sort((a, b) => b[1] - a[1]);
   const rows = sorted.map(([name, value], i) => `<tr>
-    <td style="padding:0.4rem 0.6rem;text-align:center;color:#999;font-size:0.8rem;">${i + 1}</td>
-    <td style="padding:0.4rem 0.6rem;text-align:right;font-weight:600;font-size:0.82rem;">${_smartEscapeHtml(name)}</td>
-    <td style="padding:0.4rem 0.6rem;text-align:center;font-size:0.78rem;">${_fmtNum(value, 3)}</td>
+    <td class="smart-table-cell-rank">${i + 1}</td>
+    <td class="smart-table-cell-name">${_smartEscapeHtml(name)}</td>
+    <td class="smart-table-cell-value">${_fmtNum(value, 3)}</td>
   </tr>`).join('');
   openSmartModal('🧠 ' + _t('Top contributing factors'), `<div class="smart-table-wrap"><table><thead><tr><th>#</th><th>${_t('Factor')}</th><th>${_t('Impact')}</th></tr></thead><tbody>${rows}</tbody></table></div>`);
 };
