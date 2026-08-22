@@ -246,7 +246,7 @@ app.include_router(comparative_router.router)
 app.include_router(export_router.router)
 app.include_router(regional_router.router)
 
-from fastapi.responses import JSONResponse  # noqa: E402
+from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from sqlalchemy import text as _sa_text  # noqa: E402
 
 
@@ -349,19 +349,7 @@ def metrics():
 
 @app.get("/")
 def root():
-    return {
-        "name": "Health AI - SRMNH Data Quality System",
-        "version": "0.1.0",
-        "endpoints": {
-            "upload": "/upload/",
-            "hospitals": "/hospitals/",
-            "reports": "/reports/",
-            "analysis": "/analysis/",
-            "clinical": "/clinical/",
-            "confidence": "/confidence/",
-            "docs": "/docs",
-        },
-    }
+    return RedirectResponse(url="/dashboard")
 
 
 @app.get("/favicon.ico")
