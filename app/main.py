@@ -279,19 +279,28 @@ def task_status(task_id: str):
         return JSONResponse(status_code=404, content={"error": "Task not found"})
     return task
 
-class NoCacheStaticFiles(StaticFiles):
-    """Serve static assets with no-store so browsers never serve stale
-    JS/HTML after a refactor or hot edit."""
+class CachedStaticFiles(StaticFiles):
+    """Serve static assets with long-lived Cache-Control headers.
+
+    Cache-busting is handled by ?v=<timestamp> query params rewritten
+    into asset URLs by the /dashboard route. When any file changes the
+    timestamp changes, forcing the browser to re-fetch.
+    """
 
     async def get_response(self, path, scope):
         response = await super().get_response(path, scope)
-        response.headers["Cache-Control"] = "no-store, max-age=0"
+        # HTML should never be cached (served via /dashboard route anyway)
+        if path.endswith(".html"):
+            response.headers["Cache-Control"] = "no-store"
+        else:
+            # JS, CSS, images, fonts — cache for 1 year (invalidated by ?v=)
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
 
 static_dir = os.path.join(BASE_DIR, "static")
 if os.path.isdir(static_dir):
-    app.mount("/static", NoCacheStaticFiles(directory=static_dir), name="static")
+    app.mount("/static", CachedStaticFiles(directory=static_dir), name="static")
 
 # بصمة إصدار تلقائية للملفات الثابتة: أي تعديل على أي ملف JS/CSS/HTML يغيّر
 # الرقم فتُعاد عناوين الأصول في index.html بمعامل ?v= جديد — فيجبر المتصفح
