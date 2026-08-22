@@ -1,5 +1,5 @@
         import { API, apiGet } from './api.js';
-        import { __ } from './i18n.js';
+        import { __, currentLang, translations, translateDOM } from './i18n.js';
         import { _restoreUIState } from './main.js';
 
         // ── Indicator Tree ────────────────────────────────────────
