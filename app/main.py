@@ -145,18 +145,17 @@ def run_alembic_upgrade():
     script = ScriptDirectory.from_config(alembic_cfg)
     _head_revision = script.get_current_head()
 
-    from sqlalchemy import inspect, text
+    from sqlalchemy import inspect
     inspector = inspect(engine)
     tables_exist = len(inspector.get_table_names()) > 0
 
     has_version_table = "alembic_version" in inspector.get_table_names()
 
     if tables_exist and not has_version_table:
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='hospitals'"))
-            if result.scalar() > 0:
-                command.stamp(alembic_cfg, "head")
-                return
+        # Dialect-aware: works on both SQLite and PostgreSQL
+        if "hospitals" in inspector.get_table_names():
+            command.stamp(alembic_cfg, "head")
+            return
 
     command.upgrade(alembic_cfg, "head")
 
