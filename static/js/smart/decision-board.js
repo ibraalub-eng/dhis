@@ -126,25 +126,38 @@ export function renderEarlyWarnings(ew) {
   const container = document.getElementById('smart-early-warnings');
   if (!container) return;
   const warnings = ew?.warnings || [];
+  const summary = ew?.summary_ar || '';
   if (!warnings.length) { container.innerHTML = ''; return; }
-  const rows = warnings.slice(0, 6).map(w => {
+  const rows = warnings.map(w => {
     const badge = w.severity === 'critical' ? '<span class="smart-badge smart-badge-critical">' + _t('critical') + '</span>'
       : w.severity === 'warning' ? '<span class="smart-badge smart-badge-warning">' + _t('warning') + '</span>'
       : '<span class="smart-badge smart-badge-normal">' + _t('info') + '</span>';
+    const metrics = (w.contributing || []).map(l => l.metric_ar || l.metric).join(', ');
+    const prob = w.probability != null ? (Math.round(w.probability * 100) + '%') : '';
+    const confLabel = w.confidence_label_ar || w.confidence || '';
     return `<div class="smart-priority-item smart-priority-${w.severity === 'critical' ? 'critical' : 'warning'}">
       <div>
         <div class="smart-priority-name">${_smartEscapeHtml(w.hospital_name || '')}</div>
-        <div class="smart-priority-meta">${_smartEscapeHtml(w.hospital_governorate || '')} — ${_smartEscapeHtml((w.leading_rising || []).map(l => l.metric_ar || l.metric).join(', '))}</div>
+        <div class="smart-priority-meta">${_smartEscapeHtml(w.governorate || '')} · ${_smartEscapeHtml(metrics)}</div>
+        <div class="smart-priority-meta" style="font-size:0.72rem;color:#6b7280;">
+          ${prob ? _t('Probability') + ': ' + prob : ''}
+          ${confLabel ? ' · ' + _smartEscapeHtml(confLabel) : ''}
+          ${w.outcome_rising ? ' · ⚠️ ' + _t('outcome rising') : ''}
+        </div>
       </div>
-      <div>${badge} <span style="font-size:0.72rem;color:#6b7280;">${_fmtNum(w.probability, 2)}</span></div>
+      <div>${badge}</div>
     </div>`;
   }).join('');
   container.innerHTML = `<div class="smart-section-card">
     <div class="smart-section-header" data-smart-collapsible="smart-early-warnings-body">
       <span>⚠️ ${_t('Early Warning System')}</span><span class="smart-toggle-icon">▾</span>
     </div>
-    <div id="smart-early-warnings-body" class="smart-section-body"><div class="smart-priority-list">${rows}</div></div>
+    <div id="smart-early-warnings-body" class="smart-section-body">
+      ${summary ? `<div class="smart-empty-state" style="margin-bottom:0.5rem;">${_smartEscapeHtml(summary)}</div>` : ''}
+      <div class="smart-priority-list">${rows}</div>
+    </div>
   </div>`;
+  _bindDynamicCollapsibles(container);
 }
 
 export function renderHealthyHospitals(healthy) {
@@ -164,6 +177,27 @@ export function renderHealthyHospitals(healthy) {
     </div>
     <div id="smart-healthy-body" class="smart-section-body"><div class="smart-priority-list">${rows}</div></div>
   </div>`;
+  _bindDynamicCollapsibles(container);
+}
+
+// Bind collapsible click handlers on dynamically-created section headers.
+// The static headers are bound at init time, but dynamically rendered sections
+// (early warnings, healthy hospitals) need their own binding.
+function _bindDynamicCollapsibles(root) {
+  if (!root) return;
+  root.querySelectorAll('[data-smart-collapsible]').forEach(header => {
+    header.addEventListener('click', () => {
+      const card = header.closest('.smart-section-card');
+      if (!card) return;
+      const isOpen = card.classList.contains('open');
+      card.classList.toggle('open', !isOpen);
+      const targetId = header.getAttribute('data-smart-collapsible');
+      const target = targetId ? document.getElementById(targetId) : null;
+      if (isOpen && target && window.Plotly) {
+        target.querySelectorAll('.js-plotly-plot').forEach(el => Plotly.purge(el));
+      }
+    });
+  });
 }
 
 // KPI modal openers (kept on window for inline onclick compatibility).
