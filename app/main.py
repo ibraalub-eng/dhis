@@ -14,7 +14,7 @@ from app.models import AppConfig, FacilityOwnership, FacilityType  # noqa: E402
 from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
 from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router, regional as regional_router  # noqa: E402
 from app.tasks import get_task  # noqa: E402
-from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR  # noqa: E402
+from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR, DATA_DIR  # noqa: E402
 from scripts.seed_indicators import seed_indicators  # noqa: E402
 from scripts.seed_rules import seed_rules  # noqa: E402
 import os  # noqa: E402
@@ -160,6 +160,48 @@ def run_alembic_upgrade():
     command.upgrade(alembic_cfg, "head")
 
 
+def _acquire_migration_lock():
+    """File lock so only one gunicorn worker runs migrations + seeding.
+
+    With --workers 2, each worker runs the lifespan independently.
+    SQLite cannot handle concurrent DDL, so we serialize startup with a
+    lock file.  The second worker waits up to 60 s, then proceeds (the
+    first worker will have finished by then).
+    """
+    import time, fcntl
+    lock_path = os.path.join(DATA_DIR, ".startup.lock")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+    try:
+        # Wait up to 60 s for the lock (first worker holds it during migrations)
+        deadline = time.monotonic() + 60
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return fd  # caller owns the lock
+            except OSError:
+                if time.monotonic() >= deadline:
+                    return None  # timed out — proceed without lock
+                time.sleep(0.5)
+    except Exception:
+        os.close(fd)
+        return None
+
+
+def _release_migration_lock(fd):
+    import fcntl
+    if fd is None:
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        os.close(fd)
+    except Exception:
+        pass
+
+
 def seed_app_config(session):
     for key, value, category, label in APP_CONFIG_DEFAULTS:
         existing = session.query(AppConfig).filter(AppConfig.key == key).first()
@@ -171,31 +213,35 @@ def seed_app_config(session):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    run_alembic_upgrade()
-    session = SessionLocal()
+    lock_fd = _acquire_migration_lock()
     try:
-        seed_app_config(session)
-        seed_indicators(session)
-        seed_rules(session)
+        run_alembic_upgrade()
+        session = SessionLocal()
+        try:
+            seed_app_config(session)
+            seed_indicators(session)
+            seed_rules(session)
 
-        # Seed facility ownerships
-        if not session.query(FacilityOwnership).first():
-            for name in ["\u062d\u0643\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
-                session.add(FacilityOwnership(name=name))
+            # Seed facility ownerships
+            if not session.query(FacilityOwnership).first():
+                for name in ["\u062d\u0643\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
+                    session.add(FacilityOwnership(name=name))
 
-        # Seed facility types
-        if not session.query(FacilityType).first():
-            session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
+            # Seed facility types
+            if not session.query(FacilityType).first():
+                session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
 
-        session.commit()
+            session.commit()
 
-        # Load logging setting
-        from app.models import SystemSetting
-        from app.monitoring import set_logging_enabled
-        log_row = session.query(SystemSetting).filter(SystemSetting.key == "structured_logging_enabled").first()
-        set_logging_enabled(log_row.value == "true" if log_row else True)
+            # Load logging setting
+            from app.models import SystemSetting
+            from app.monitoring import set_logging_enabled
+            log_row = session.query(SystemSetting).filter(SystemSetting.key == "structured_logging_enabled").first()
+            set_logging_enabled(log_row.value == "true" if log_row else True)
+        finally:
+            session.close()
     finally:
-        session.close()
+        _release_migration_lock(lock_fd)
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     yield
 

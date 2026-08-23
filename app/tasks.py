@@ -7,7 +7,7 @@ _task_store: dict[str, dict] = {}
 _lock = threading.Lock()
 
 
-def create_task(name: str, fn: Callable, *args, **kwargs) -> str:
+def create_task(name: str, fn: Callable = None, *args, **kwargs) -> str:
     task_id = uuid.uuid4().hex[:12]
     with _lock:
         _task_store[task_id] = {
