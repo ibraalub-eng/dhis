@@ -52,7 +52,8 @@ def preview_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported extension: {ext}")
-    upload_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "uploads")
+    from app.config import UPLOAD_DIR
+    upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
     with open(file_path, "wb") as f:
@@ -148,10 +149,8 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
             status_code=400,
             detail=f"File extension '{ext}' not supported. Accepted: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
         )
-    upload_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "data", "uploads"
-    )
+    from app.config import UPLOAD_DIR
+    upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
     with open(file_path, "wb") as f:
@@ -192,10 +191,8 @@ async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends
             status_code=400,
             detail=f"File extension '{ext}' not supported. Accepted: {', '.join(sorted(ALLOWED_EXTENSIONS))}"
         )
-    upload_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "data", "uploads"
-    )
+    from app.config import UPLOAD_DIR
+    upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
     with open(file_path, "wb") as f:
