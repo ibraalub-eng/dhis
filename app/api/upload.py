@@ -35,20 +35,37 @@ def _precompute_smart_bg(db_session, months: list):
     from app.database import SessionLocal
 
     def _run():
+        import time
         db = SessionLocal()
         try:
             for month in months:
-                try:
-                    cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
-                    if cache.get(cache_key) is not None:
-                        continue  # already cached
-                    logger.info(f"[precompute] Running smart analytics for {month}...")
-                    _get_smart_data(db, month)
-                    logger.info(f"[precompute] Cached smart analytics for {month}")
-                except Exception as e:
-                    logger.warning(f"[precompute] Failed for {month}: {e}")
+                for attempt in range(3):
+                    try:
+                        cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
+                        if cache.get(cache_key) is not None:
+                            break  # already cached
+                        logger.info(f"[precompute] Running smart analytics for {month}...")
+                        _get_smart_data(db, month)
+                        logger.info(f"[precompute] Cached smart analytics for {month}")
+                        break
+                    except Exception as e:
+                        if "locked" in str(e).lower() and attempt < 2:
+                            logger.info(f"[precompute] DB locked for {month}, retrying in 5s...")
+                            time.sleep(5)
+                            # Re-create session on locked DB
+                            try:
+                                db.close()
+                            except Exception:
+                                pass
+                            db = SessionLocal()
+                        else:
+                            logger.warning(f"[precompute] Failed for {month}: {e}")
+                            break
         finally:
-            db.close()
+            try:
+                db.close()
+            except Exception:
+                pass
 
     threading.Thread(target=_run, daemon=True).start()
 
