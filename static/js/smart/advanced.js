@@ -141,32 +141,87 @@ export function renderCompositePatterns(patterns) {
   const c = document.getElementById('smart-composite-patterns');
   if (!c) return;
   if (!patterns.length) { c.innerHTML = `<div class="smart-empty-state">${_t('No composite patterns')}</div>`; return; }
-  c.innerHTML = `<div class="smart-table-wrap"><table><thead><tr>
-    <th>${_t('Pattern')}</th><th>${_t('Hospitals')}</th><th>${_t('Description')}</th>
-  </tr></thead><tbody>` + patterns.map(p => {
-    const name = (p.arabic_names || p.indicators || []).join(' + ');
+  c.innerHTML = patterns.map(p => {
+    const indicators = p.arabic_names || p.indicators || [];
+    const name = indicators.join(' + ');
     const desc = p.summary_ar || '';
-    const count = p.hospitals_count || (p.hospitals || []).length;
-    return `<tr>
-      <td style="font-weight:600;">${_smartEscapeHtml(name)}</td>
-      <td>${_smartEscapeHtml(count)} ${_t('hospitals')}</td>
-      <td style="font-size:0.78rem;">${_smartEscapeHtml(desc)}</td>
-    </tr>`;
-  }).join('') + `</tbody></table></div>`;
+    const hospitals = p.hospitals || [];
+    const count = p.hospitals_count || hospitals.length;
+    const liftBadge = p.lift > 2 ? 'smart-badge-critical' : p.lift > 1.5 ? 'smart-badge-warning' : 'smart-badge-normal';
+    const statuses = p.statuses || [];
+    // Pair each indicator with its status (elevated/lowered)
+    const indicatorStatuses = indicators.map((ind, i) => {
+      const st = statuses[i] || '';
+      const stLabel = st === 'elevated' ? '↑' : st === 'lowered' ? '↓' : '';
+      const stColor = st === 'elevated' ? '#ef4444' : st === 'lowered' ? '#22c55e' : '#94a3b8';
+      return `<span style="color:${stColor};">${_smartEscapeHtml(ind)} ${stLabel}</span>`;
+    }).join(' + ');
+    const hospList = hospitals.length
+      ? `<div style="margin-top:0.35rem;font-size:0.75rem;color:#64748b;">${hospitals.map(h => _smartEscapeHtml(h)).join(', ')}</div>`
+      : `<div style="margin-top:0.35rem;font-size:0.75rem;color:#94a3b8;">${count} ${_t('hospitals')}</div>`;
+    return `<div class="smart-priority-item smart-priority-normal" style="border-left:3px solid ${p.lift > 2 ? '#ef4444' : p.lift > 1.5 ? '#f59e0b' : '#3b82f6'};">
+      <div>
+        <div class="smart-priority-name" style="font-weight:600;">${indicatorStatuses}</div>
+        <div class="smart-priority-meta">
+          <span class="${liftBadge}" style="margin-right:0.3rem;">${_t('Lift')}: ${_fmtNum(p.lift, 2)}</span>
+          <span>${_t('Support')}: ${_fmtNum((p.support || 0) * 100, 1)}%</span>
+          <span style="margin-left:0.3rem;">${count} ${_t('hospitals')}</span>
+        </div>
+        <div style="font-size:0.78rem;margin-top:0.2rem;">${_smartEscapeHtml(desc)}</div>
+        ${hospList}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 export function renderLagAnalysis(lag) {
   const c = document.getElementById('smart-lag-analysis');
   if (!c) return;
-  const matrix = lag.matrix || [];
-  const html = `<div class="smart-table-wrap"><table><thead><tr><th></th>${
-    matrix.map(m => `<th>${_smartEscapeHtml(smartTranslateFeature(m.feature))}</th>`).join('')}
-  </tr></thead><tbody>` + matrix.map(row => `<tr>
-    <td style="font-weight:600;">${_smartEscapeHtml(smartTranslateFeature(row.feature))}</td>
-    ${matrix.map(m => `<td style="text-align:center;">${m.feature === row.feature ? '—' : _fmtNum(row.values[m.feature], 2)}</td>`).join('')}
-  </tr>`).join('') + `</tbody></table></div>`;
+  const m = lag.matrix || {};
+  const metrics = m.metrics || [];
+  const namesAr = m.names_ar || [];
+  const values = m.values || [];
+  const significant = m.significant || [];
+  const bestLags = m.lags || [];
+  const n = metrics.length;
+  if (!n) { c.innerHTML = ''; return; }
+
+  // Build readable lag + correlation table
+  const ths = namesAr.map((name, i) => `<th title="${_smartEscapeHtml(metrics[i])}">${_smartEscapeHtml(smartTranslateFeature(metrics[i]))}</th>`).join('');
+  const rows = namesAr.map((rowName, i) => {
+    const cells = namesAr.map((colName, j) => {
+      if (i === j) return '<td style="text-align:center;">—</td>';
+      const v = values[i] && values[i][j];
+      const sig = significant[i] && significant[i][j];
+      const lagVal = bestLags[i] && bestLags[i][j];
+      if (v === null || v === undefined) return '<td style="text-align:center;color:#94a3b8;">—</td>';
+      const bg = sig ? (Math.abs(v) >= 0.6 ? 'background:#fef2f2;' : 'background:#fffbeb;') : '';
+      const lagBadge = lagVal ? `<span style="font-size:0.65rem;color:#64748b;">${lagVal}${_t('m')}</span> ` : '';
+      return `<td style="text-align:center;${bg}">${lagBadge}${_fmtNum(v, 2)}</td>`;
+    }).join('');
+    return `<tr><td style="font-weight:600;white-space:nowrap;">${_smartEscapeHtml(smartTranslateFeature(metrics[i]))}</td>${cells}</tr>`;
+  }).join('');
+
+  const html = `<div class="smart-table-wrap"><table><thead><tr><th></th>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
+
+  // Lag findings list
+  const lags = lag.lags || [];
+  let findingsHtml = '';
+  if (lags.length) {
+    findingsHtml = '<div style="margin-top:0.8rem;">' + lags.map(f => {
+      const strengthCls = f.strength === 'strong' ? 'smart-badge-critical' : f.strength === 'moderate' ? 'smart-badge-warning' : 'smart-badge-normal';
+      return `<div class="smart-priority-item smart-priority-normal" style="border-left:3px solid ${f.direction === 'positive' ? '#3b82f6' : '#ef4444'};">
+        <div><div class="smart-priority-name">${_smartEscapeHtml(f.summary_ar || f.summary_en || '')}</div>
+        <div class="smart-priority-meta">${_smartEscapeHtml(f.prediction_ar || f.prediction_en || '')}
+        <span class="${strengthCls}" style="margin-left:0.3rem;">${_t(f.strength)}</span>
+        ${f.granger_pass ? '<span class="smart-badge-normal" style="margin-left:0.3rem;">Granger ✓</span>' : ''}
+        ${f.is_lead ? '<span class="smart-badge-warning" style="margin-left:0.3rem;">' + _t('lead') + '</span>' : ''}
+        </div></div></div>`;
+    }).join('') + '</div>';
+  }
+
   const note = lag.note_ar || lag.note_en || '';
-  c.innerHTML = (note ? `<div class="smart-empty-state">${_smartEscapeHtml(note)}</div>` : '') + html;
+  c.innerHTML = (note ? `<div class="smart-empty-state">${_smartEscapeHtml(note)}</div>` : '') + html + findingsHtml;
 }
 
 let _stratifiedData = [];
