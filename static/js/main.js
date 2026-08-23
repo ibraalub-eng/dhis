@@ -79,6 +79,8 @@
                     targetContent.innerHTML = html + targetContent.innerHTML;
                     targetContent.dataset.loaded = 'true';
                     _initTab(name);
+                    // Re-apply translations to newly loaded content
+                    if (typeof window.applyLang === 'function') window.applyLang();
                 }).catch(() => {
                     // لا نُهيّئ التبويب إذا فشل تحميل محتواه — عناصره غير موجودة
                     targetContent.innerHTML = '<div style="padding:2rem;text-align:center;color:#b91c1c;font-size:0.9rem;">' +

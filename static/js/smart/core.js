@@ -91,18 +91,52 @@ export function _riskBadge(label, level) {
   return `<span class="${cls}">${_smartEscapeHtml(label)}</span>`;
 }
 
-// Translate feature keys (reuses the global SMART_ARABIC dict registered by charts.js)
+// English equivalents for feature keys
+const _FEATURE_EN = {
+  cs_rate: 'C-Section Rate', smm_total: 'Severe Maternal Morbidity', mat_deaths: 'Maternal Deaths',
+  nd: 'Neonatal Deaths', sb: 'Stillbirths', preterm: 'Preterm Births',
+  lbw: 'Low Birth Weight', total_births: 'Total Births', high_risk: 'High-Risk Deliveries',
+  adolescent: 'Adolescent Cases', governorate: 'Governorate', hospital_type: 'Hospital Type',
+  cs_per_birth: 'C-Section per Birth', smm_per_1000: 'SMM per 1000 Births',
+  mat_mortality_rate: 'Maternal Mortality Rate', stillbirth_rate: 'Stillbirth Rate',
+  preterm_rate: 'Preterm Rate', lbw_rate: 'Low Birth Weight Rate',
+  high_risk_rate: 'High-Risk Rate', adolescent_rate: 'Adolescent Rate',
+  cs_x_highrisk: 'C-Section x High Risk', preterm_x_lbw: 'Preterm x LBW',
+  smm_x_matdeaths: 'SMM x Maternal Deaths', nd_x_sb: 'Neonatal Deaths x Stillbirths',
+  cs_rate_delta: 'C-Section Rate Change', smm_delta: 'SMM Change',
+  mat_deaths_delta: 'Maternal Deaths Change', total_births_delta: 'Total Births Change',
+};
+// Auto-generate lag/delta English keys
+['cs_rate', 'smm_total', 'mat_deaths', 'total_births', 'nd', 'sb'].forEach(k => {
+  _FEATURE_EN['lag1_' + k] = (_FEATURE_EN[k] || k) + ' (Previous Month)';
+  _FEATURE_EN['lag2_' + k] = (_FEATURE_EN[k] || k) + ' (2 Months Ago)';
+});
+['cs_rate', 'smm_total', 'mat_deaths', 'nd', 'sb', 'preterm', 'lbw', 'total_births', 'high_risk', 'adolescent'].forEach(k => {
+  _FEATURE_EN['delta_' + k] = 'Monthly Change in ' + (_FEATURE_EN[k] || k);
+});
+
+// Translate feature keys based on current language
 export function smartTranslateFeature(name) {
-  const ar = window.SMART_ARABIC || {};
   if (!name) return '-';
-  if (ar[name]) return ar[name];
+  const lang = smartState.lang || 'en';
+  // Try i18n first
+  const translated = _t(name);
+  if (translated !== name) return translated;
+  // Try language-specific dict
+  if (lang === 'en') {
+    if (_FEATURE_EN[name]) return _FEATURE_EN[name];
+  } else {
+    const ar = window.SMART_ARABIC || {};
+    if (ar[name]) return ar[name];
+  }
+  // Governorate/type prefix handling
   if (name.startsWith('governorate_')) {
     const val = name.substring('governorate_'.length);
-    return val.startsWith('محافظة') ? val : 'محافظة ' + val;
+    return lang === 'ar' ? (val.startsWith('محافظة') ? val : 'محافظة ' + val) : val;
   }
   if (name.startsWith('hospital_type_')) {
     const val = name.substring('hospital_type_'.length);
-    return val.startsWith('نوع') ? val : 'نوع: ' + val;
+    return lang === 'ar' ? (val.startsWith('نوع') ? val : 'نوع: ' + val) : val;
   }
   return name;
 }
