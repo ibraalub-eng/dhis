@@ -105,6 +105,52 @@ def toggle_hospital_active(hospital_id: int, db: Session = Depends(get_db)):
     return {"id": hospital.id, "name": hospital.name, "is_active": hospital.is_active}
 
 
+@router.get("/data-status")
+def hospital_data_status(db: Session = Depends(get_db)):
+    """Show data status for every hospital — helps diagnose missing results.
+
+    Returns each hospital with indicator_values_count, quality_score_count,
+    months with data, and whether it's active.
+    """
+    from sqlalchemy import func
+    from app.models import IndicatorValue, QualityScore
+
+    rows = (
+        db.query(
+            Hospital.id,
+            Hospital.name,
+            Hospital.is_active,
+            func.coalesce(func.count(func.distinct(IndicatorValue.id)), 0).label("iv_count"),
+            func.coalesce(func.count(func.distinct(QualityScore.id)), 0).label("qs_count"),
+        )
+        .outerjoin(IndicatorValue, IndicatorValue.hospital_id == Hospital.id)
+        .outerjoin(QualityScore, QualityScore.hospital_id == Hospital.id)
+        .group_by(Hospital.id, Hospital.name, Hospital.is_active)
+        .order_by(Hospital.name)
+        .all()
+    )
+
+    result = []
+    for r in rows:
+        # Get months with data
+        months = (
+            db.query(IndicatorValue.month)
+            .filter(IndicatorValue.hospital_id == r.id)
+            .distinct()
+            .order_by(IndicatorValue.month)
+            .all()
+        )
+        result.append({
+            "id": r.id,
+            "name": r.name,
+            "is_active": r.is_active,
+            "indicator_values": r.iv_count,
+            "quality_scores": r.qs_count,
+            "months": [m[0] for m in months],
+        })
+    return result
+
+
 @router.get("/indicators", response_model=List[IndicatorOut])
 def list_all_indicators(db: Session = Depends(get_db)):
     cache_key = "hospitals:indicators"

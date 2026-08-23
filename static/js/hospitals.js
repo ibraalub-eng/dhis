@@ -56,6 +56,18 @@ function renderHospitals() {
         container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">No hospitals found.</div>';
         return;
     }
+    // Fetch data status to show indicator/score counts
+    apiGet('/hospitals/data-status').then(statuses => {
+        const statusMap = {};
+        (statuses || []).forEach(s => { statusMap[s.id] = s; });
+        renderHospitalsTable(filtered, statusMap);
+    }).catch(() => {
+        renderHospitalsTable(filtered, {});
+    });
+}
+
+function renderHospitalsTable(filtered, statusMap) {
+    const container = document.getElementById('hospList');
     let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:#e8eaf6;">' +
         '<th style="text-align:left;padding:0.4rem;">Name</th>' +
         '<th style="text-align:left;padding:0.4rem;">OrgUnit ID</th>' +
@@ -63,11 +75,23 @@ function renderHospitals() {
         '<th style="text-align:left;padding:0.4rem;">Facility Type</th>' +
         '<th style="text-align:left;padding:0.4rem;">Governorate</th>' +
         '<th style="text-align:left;padding:0.4rem;">Type</th>' +
+        '<th style="text-align:center;padding:0.4rem;">Data</th>' +
         '<th style="text-align:center;padding:0.4rem;">Status</th>' +
         '<th style="text-align:center;padding:0.4rem;">Actions</th></tr></thead><tbody>';
     filtered.forEach(h => {
         const govName = h.governorate_name || '';
         const typeName = h.hospital_type_name || '';
+        const st = statusMap[h.id];
+        const ivCount = st ? st.indicator_values : 0;
+        const qsCount = st ? st.quality_scores : 0;
+        const monthCount = st ? st.months.length : 0;
+        let dataHtml;
+        if (ivCount === 0) {
+            dataHtml = '<span style="color:#c62828;font-weight:600;">No Data</span>';
+        } else {
+            dataHtml = '<span style="color:#2e7d32;">' + ivCount + ' values</span>' +
+                '<br><span style="font-size:0.72rem;color:#888;">' + monthCount + ' months, ' + qsCount + ' scores</span>';
+        }
         const statusHtml = '<input type="checkbox" ' + (h.is_active ? 'checked' : '') + ' onchange="toggleHospitalActive(' + h.id + ', this.checked)"> ' + (h.is_active ? 'Active' : 'Inactive');
         html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
             '<td style="padding:0.4rem;font-weight:600;">' + esc(h.name) + (h.address ? '<br><span style="font-size:0.72rem;color:#999;">' + esc(h.address) + '</span>' : '') + '</td>' +
@@ -76,6 +100,7 @@ function renderHospitals() {
             '<td style="padding:0.4rem;color:#555;">' + esc(h.facility_type_name || '') + '</td>' +
             '<td style="padding:0.4rem;color:#555;">' + esc(govName) + '</td>' +
             '<td style="padding:0.4rem;color:#555;">' + esc(typeName) + '</td>' +
+            '<td style="text-align:center;padding:0.4rem;">' + dataHtml + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' + statusHtml + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="editHospital(' + h.id + ')" style="margin-right:0.3rem;">Edit</button>' +
