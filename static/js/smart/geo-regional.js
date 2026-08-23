@@ -18,15 +18,13 @@ export async function loadGeoSection(month) {
 export function renderGeoMap(geo) {
   const mapDiv = document.getElementById('smart-geo-map');
   if (!mapDiv) return;
-  const regions = geo.regions || [];
-  renderPlot('smart-geo-map', [{
-    type: 'choropleth', locationmode: 'ISO-3',
-    locations: regions.map(r => r.iso3), z: regions.map(r => r.avg_anomaly_score),
-    text: regions.map(r => r.governorate),
-    colorscale: [[0, '#22c55e'], [0.5, '#f59e0b'], [1, '#ef4444']],
-    zmin: 0, zmax: 1,
-    marker: { line: { color: '#fff', width: 1 } },
-  }], { title: _t('Geographic distribution'), geo: { showframe: false, showcoastlines: false } });
+  const govs = geo.governorates || [];
+  if (!govs.length) { mapDiv.innerHTML = `<div class="smart-empty-state">${_t('No geographic data')}</div>`; return; }
+  // Gaza governorates don't have ISO-3 codes — render as a bar chart instead
+  makeBarChart('smart-geo-map', govs.map(g => g.governorate), govs.map(g => g.avg_anomaly_score), {
+    title: _t('Average anomaly score by governorate'),
+    colors: govs.map(g => g.avg_anomaly_score >= 0.6 ? '#ef4444' : g.avg_anomaly_score >= 0.3 ? '#f59e0b' : '#22c55e'),
+  });
 }
 
 export function renderGovernorates(geo) {
@@ -42,18 +40,14 @@ export function renderGovernorates(geo) {
       <td style="text-align:center;">${_riskBadge(_fmtNum(g.avg_anomaly_score, 3), g.avg_anomaly_score >= 0.6 ? 'critical' : g.avg_anomaly_score >= 0.3 ? 'warning' : 'normal')}</td>
       <td style="text-align:center;">${g.outlier_count}</td>
     </tr>`).join('') + `</tbody></table></div>`;
-}
-
-export function renderRegionalAnalysis(geo) {
+}export function renderRegionalAnalysis(geo) {
   const c = document.getElementById('smart-regional-content');
   if (!c) return;
-  const regions = geo.regions || [];
-  if (!regions.length) { c.innerHTML = ''; return; }
-  makeBarChart('smart-regional-content-chart', regions.map(r => r.governorate),
-    regions.map(r => r.avg_anomaly_score),
-    { title: _t('Regional average anomaly score') });
-  // makeBarChart renders into a div id; reuse a hidden chart host injected here.
+  const govs = geo.governorates || [];
+  if (!govs.length) { c.innerHTML = ''; return; }
   c.innerHTML = '<div id="smart-regional-content-chart" style="height:240px;"></div>';
-  makeBarChart('smart-regional-content-chart', regions.map(r => r.governorate),
-    regions.map(r => r.avg_anomaly_score), { title: _t('Regional average anomaly score') });
+  makeBarChart('smart-regional-content-chart', govs.map(g => g.governorate),
+    govs.map(g => g.avg_anomaly_score),
+    { title: _t('Regional average anomaly score'),
+      colors: govs.map(g => g.avg_anomaly_score >= 0.6 ? '#ef4444' : g.avg_anomaly_score >= 0.3 ? '#f59e0b' : '#22c55e') });
 }
