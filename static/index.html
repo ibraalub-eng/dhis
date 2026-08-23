@@ -10,6 +10,31 @@
     <link rel="stylesheet" href="/static/css/styles.css">
 </head>
 <body>
+    <!-- Login Page (hidden by default) -->
+    <div id="login-page" style="display:none; min-height:100vh; align-items:center; justify-content:center; background:linear-gradient(135deg,#f8fafc,#eef2ff);">
+      <div id="login-card" style="background:white;border-radius:14px;padding:2rem;box-shadow:0 8px 32px rgba(0,0,0,0.12);width:380px;max-width:94%;">
+        <div style="text-align:center;margin-bottom:1.5rem;">
+          <h1 style="color:#1a237e;font-size:1.3rem;margin:0;">&#x1F6E1;&#xFE0F; <span data-i18n="Smart Analytics">التحليل الذكي</span></h1>
+          <p style="color:#6b7280;font-size:0.82rem;margin:0.4rem 0 0;" data-i18n="Login to access the dashboard">سجّل الدخول للوصول إلى لوحة التحكم</p>
+        </div>
+        <form id="login-form" onsubmit="return handleLogin(event)">
+          <div style="margin-bottom:1rem;">
+            <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;" data-i18n="Username">اسم المستخدم</label>
+            <input id="login-username" type="text" required style="width:100%;padding:0.5rem;border:1px solid #c7d2fe;border-radius:8px;font-size:0.9rem;box-sizing:border-box;" autocomplete="username">
+          </div>
+          <div style="margin-bottom:1rem;">
+            <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;" data-i18n="Password">كلمة المرور</label>
+            <input id="login-password" type="password" required style="width:100%;padding:0.5rem;border:1px solid #c7d2fe;border-radius:8px;font-size:0.9rem;box-sizing:border-box;" autocomplete="current-password">
+          </div>
+          <div id="login-error" style="display:none;color:#dc2626;font-size:0.82rem;margin-bottom:0.8rem;"></div>
+          <button type="submit" id="login-submit" style="width:100%;padding:0.6rem;background:linear-gradient(135deg,#1a237e,#312e81);color:white;border:none;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;" data-i18n="Login">تسجيل الدخول</button>
+        </form>
+        <div style="text-align:center;margin-top:1rem;">
+          <button id="login-lang-toggle" onclick="toggleLoginLang()" style="background:none;border:1px solid #c7d2fe;border-radius:6px;padding:0.3rem 0.8rem;font-size:0.78rem;color:#4338ca;cursor:pointer;">&#x1F1EC;&#x1F1E7; English</button>
+        </div>
+      </div>
+    </div>
+
     <a href="#main-content" class="skip-link" data-i18n="Skip to main content">تخطي إلى المحتوى الرئيسي</a>
     <div class="header" role="banner">
         <div>
@@ -17,6 +42,8 @@
             <div class="subtitle" id="headerSubtitle" data-i18n="تحليل مؤشرات صحة الأم والوليد">تحليل مؤشرات صحة الأم والوليد</div>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;">
+            <span id="user-info" style="font-size:0.8rem;color:#333;font-weight:600;"></span>
+            <button id="logout-btn" onclick="handleLogout()" style="display:none;background:none;border:1px solid #dc2626;color:#dc2626;border-radius:6px;padding:0.3rem 0.7rem;font-size:0.78rem;cursor:pointer;" data-i18n="Logout">تسجيل الخروج</button>
             <span style="font-size:0.8rem;opacity:0.7;">API:</span>
             <input id="apiBase" value="" style="width:180px;color:#333;" placeholder="API Base URL">
             <button class="lang-btn" id="langToggle" onclick="toggleLang()">English</button>
@@ -216,6 +243,7 @@
         <div class="spinner spinner-lg"></div>
         <div class="loader-text" id="loaderText">Loading...</div>
     </div>
+    <script type="module" src="/static/js/auth.js"></script>
     <script type="module" src="/static/js/smart-analytics.js"></script>
     <script type="module" src="/static/js/app.js"></script>
 </body>

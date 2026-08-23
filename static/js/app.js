@@ -114,7 +114,13 @@ window.downloadAuditCSV = downloadAuditCSV;
 window.loadHospitalsTab = loadHospitalsTab;
 
 // Bootstrap
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Auth guard — must run before any data loading
+    if (typeof checkAuth === 'function') {
+        const authenticated = await checkAuth();
+        if (!authenticated) return; // login page shown, stop init
+    }
+
     refreshSavedFiles();
     fetch(API() + '/reports/').then(r => r.json()).then(reports => {
         if (reports && reports.length > 0) {
