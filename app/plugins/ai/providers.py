@@ -46,7 +46,12 @@ def reload_ai_config():
     _try_load_db_config()
 
 
-_try_load_db_config()
+# Defer DB config load to avoid querying system_settings before migrations.
+# On first deploy, the table doesn't exist yet — will reload on first request.
+try:
+    _try_load_db_config()
+except Exception:
+    pass
 
 
 @dataclass
