@@ -90,34 +90,35 @@
             const el = document.getElementById('dbStatus');
             if (!el) return;
             el.innerHTML = 'Checking database connection...';
-            apiGet('/config/ai/settings').then(() => {
-                // If AI settings load, DB is working
-                fetch('/hospitals/data-status').then(r => r.json()).then(data => {
-                    const totalHospitals = data.length;
-                    const withData = data.filter(h => h.indicator_values > 0).length;
-                    const withoutData = totalHospitals - withData;
+            fetch('/config/database-status').then(r => r.json()).then(data => {
+                if (data.connected) {
                     el.innerHTML = `
                         <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.8rem;">
                             <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#22c55e;"></span>
-                            <strong>Connected</strong> to PostgreSQL
+                            <strong>Connected</strong> to ${data.engine || 'PostgreSQL'}
                         </div>
                         <div style="line-height:2;">
-                            <div>🏥 <strong>${totalHospitals}</strong> hospitals total</div>
-                            <div>✅ <strong>${withData}</strong> hospitals with data</div>
-                            ${withoutData > 0 ? `<div style="color:#d97706;">⚠️ <strong>${withoutData}</strong> hospitals without data</div>` : ''}
+                            <div>🏥 <strong>${data.total_hospitals}</strong> hospitals total (${data.active_hospitals} active)</div>
+                            <div>📊 <strong>${data.total_indicator_values.toLocaleString()}</strong> indicator values</div>
+                            <div>⭐ <strong>${data.total_quality_scores.toLocaleString()}</strong> quality scores</div>
+                            <div>📋 <strong>${data.total_indicators}</strong> indicators configured</div>
+                            <div>📐 <strong>${data.total_rules}</strong> validation rules</div>
                         </div>
-                        <div style="margin-top:1rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.8rem;color:#666;">
+                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.78rem;color:#666;">
+                            <strong>Tables:</strong> ${(data.tables || []).length} tables created
+                        </div>
+                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.8rem;color:#666;">
                             <strong>To change database:</strong>
                             <ol style="margin:0.3rem 0 0 1.2rem;">
                                 <li>Edit <code>.env</code> file → change <code>DATABASE_URL</code></li>
                                 <li>Restart the server</li>
                             </ol>
                         </div>`;
-                }).catch(() => {
-                    el.innerHTML = '<span style="color:#22c55e;">✅ Connected</span> — PostgreSQL is working.';
-                });
+                } else {
+                    el.innerHTML = `<span style="color:#dc2626;">❌ Not connected</span><br><span style="font-size:0.8rem;color:#888;">${data.error || 'DATABASE_URL not set or unreachable'}</span>`;
+                }
             }).catch(err => {
-                el.innerHTML = `<span style="color:#dc2626;">❌ Not connected</span><br><span style="font-size:0.8rem;color:#888;">${err.message || 'DATABASE_URL not set or unreachable'}</span>`;
+                el.innerHTML = `<span style="color:#dc2626;">❌ Not connected</span><br><span style="font-size:0.8rem;color:#888;">${err.message || 'Failed to check database status'}</span>`;
             });
         }
 

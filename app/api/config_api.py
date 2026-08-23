@@ -11,6 +11,36 @@ LOGGING_KEY = "structured_logging_enabled"
 MONTH_SETTINGS_PREFIX = "month_enabled_"
 
 
+@router.get("/database-status")
+def get_database_status(db: Session = Depends(get_db)):
+    """Check database connection and return stats."""
+    from sqlalchemy import text, func
+    from app.models import Hospital, IndicatorValue, QualityScore, Indicator, ValidationRule, AppConfig, SystemSetting
+    try:
+        db.execute(text("SELECT 1"))
+        total_hospitals = db.query(func.count(Hospital.id)).scalar() or 0
+        active_hospitals = db.query(func.count(Hospital.id)).filter(Hospital.is_active.is_(True)).scalar() or 0
+        total_indicator_values = db.query(func.count(IndicatorValue.id)).scalar() or 0
+        total_quality_scores = db.query(func.count(QualityScore.id)).scalar() or 0
+        total_indicators = db.query(func.count(Indicator.id)).scalar() or 0
+        total_rules = db.query(func.count(ValidationRule.id)).scalar() or 0
+        # Check key tables exist
+        tables = [t[0] for t in db.execute(text("SELECT tablename FROM pg_tables WHERE schemaname='public'")).fetchall()]
+        return {
+            "connected": True,
+            "engine": "PostgreSQL",
+            "total_hospitals": total_hospitals,
+            "active_hospitals": active_hospitals,
+            "total_indicator_values": total_indicator_values,
+            "total_quality_scores": total_quality_scores,
+            "total_indicators": total_indicators,
+            "total_rules": total_rules,
+            "tables": tables,
+        }
+    except Exception as e:
+        return {"connected": False, "error": str(e)}
+
+
 @router.get("/control/settings")
 def get_control_settings(db: Session = Depends(get_db)):
     row = db.query(SystemSetting).filter(SystemSetting.key == CONTROL_KEY).first()
