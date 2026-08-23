@@ -160,46 +160,28 @@ def run_alembic_upgrade():
     command.upgrade(alembic_cfg, "head")
 
 
-def _acquire_migration_lock():
-    """File lock so only one gunicorn worker runs migrations + seeding.
+_startup_done = False
 
-    With --workers 2, each worker runs the lifespan independently.
-    SQLite cannot handle concurrent DDL, so we serialize startup with a
-    lock file.  The second worker waits up to 60 s, then proceeds (the
-    first worker will have finished by then).
+
+def _db_already_initialized(session):
+    """Check if migrations + seeding have already run (idempotent startup).
+
+    Returns True when:
+    1. alembic_version table exists AND has the head revision, AND
+    2. at least one AppConfig row exists (seeding has run).
     """
-    import time, fcntl
-    lock_path = os.path.join(DATA_DIR, ".startup.lock")
-    os.makedirs(DATA_DIR, exist_ok=True)
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+    from sqlalchemy import inspect as sa_inspect
     try:
-        # Wait up to 60 s for the lock (first worker holds it during migrations)
-        deadline = time.monotonic() + 60
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return fd  # caller owns the lock
-            except OSError:
-                if time.monotonic() >= deadline:
-                    return None  # timed out — proceed without lock
-                time.sleep(0.5)
+        inspector = sa_inspect(session.get_bind())
+        tables = inspector.get_table_names()
+        if "alembic_version" not in tables:
+            return False
+        if "app_config" not in tables:
+            return False
+        row = session.execute(text("SELECT 1 FROM app_config LIMIT 1")).fetchone()
+        return row is not None
     except Exception:
-        os.close(fd)
-        return None
-
-
-def _release_migration_lock(fd):
-    import fcntl
-    if fd is None:
-        return
-    try:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        os.close(fd)
-    except Exception:
-        pass
+        return False
 
 
 def seed_app_config(session):
@@ -212,36 +194,42 @@ def seed_app_config(session):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _startup_done
     init_db()
-    lock_fd = _acquire_migration_lock()
-    try:
-        run_alembic_upgrade()
+    if not _startup_done:
         session = SessionLocal()
         try:
-            seed_app_config(session)
-            seed_indicators(session)
-            seed_rules(session)
+            already_init = _db_already_initialized(session)
+            if not already_init:
+                run_alembic_upgrade()
+                seed_app_config(session)
+                seed_indicators(session)
+                seed_rules(session)
 
-            # Seed facility ownerships
-            if not session.query(FacilityOwnership).first():
-                for name in ["\u062d\u0643\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
-                    session.add(FacilityOwnership(name=name))
+                # Seed facility ownerships
+                if not session.query(FacilityOwnership).first():
+                    for name in ["\u062d\u0643\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
+                        session.add(FacilityOwnership(name=name))
 
-            # Seed facility types
-            if not session.query(FacilityType).first():
-                session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
+                # Seed facility types
+                if not session.query(FacilityType).first():
+                    session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
 
-            session.commit()
+                session.commit()
+            else:
+                session.commit()  # ensure clean state
 
             # Load logging setting
             from app.models import SystemSetting
             from app.monitoring import set_logging_enabled
-            log_row = session.query(SystemSetting).filter(SystemSetting.key == "structured_logging_enabled").first()
-            set_logging_enabled(log_row.value == "true" if log_row else True)
+            try:
+                log_row = session.query(SystemSetting).filter(SystemSetting.key == "structured_logging_enabled").first()
+                set_logging_enabled(log_row.value == "true" if log_row else True)
+            except Exception:
+                set_logging_enabled(True)
         finally:
             session.close()
-    finally:
-        _release_migration_lock(lock_fd)
+        _startup_done = True
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     yield
 

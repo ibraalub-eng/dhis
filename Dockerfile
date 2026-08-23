@@ -36,4 +36,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:${PORT:-8080}/health || exit 1
 
-CMD ["sh", "-c", "gunicorn app.main:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --worker-class uvicorn.workers.UvicornWorker --timeout 120 --access-logfile -"]
+CMD ["sh", "-c", "gunicorn app.main:app --bind 0.0.0.0:${PORT:-8080} --workers 2 --worker-class uvicorn.workers.UvicornWorker --preload --timeout 120 --access-logfile -"]
