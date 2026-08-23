@@ -18,7 +18,9 @@ export const smartChartTheme = {
 export function renderPlot(divId, data, layout, options) {
   const el = document.getElementById(divId);
   if (!el) return;
+  if (!data || !data.length) { Plotly.purge(el); return; }
   Plotly.react(el, data, Object.assign({}, smartChartTheme, layout || {}), Object.assign({ responsive: true, displaylogo: false }, options || {}));
+  el.__plotly = true;
 }
 
 export function makeLineChart(divId, x, y, name, opts = {}) {

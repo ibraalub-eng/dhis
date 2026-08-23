@@ -51,6 +51,8 @@ async function onMonthChange(month) {
   document.getElementById('smart-critical-list').innerHTML = '';
   document.getElementById('smart-kpi-container').innerHTML = '';
   document.getElementById('smart-anomaly-table').innerHTML = '';
+  // Clear stale empty/error banners from the previous month
+  ['anomalies', 'geo', 'advanced', 'xgboost', 'timeline', 'time-overview', 'hospital'].forEach(clearSmartSectionState);
   // Fire decision board + section loaders in parallel instead of awaiting
   // the decision board first — the 7-engine pipeline runs on the first
   // request for a month; sections can start fetching immediately.

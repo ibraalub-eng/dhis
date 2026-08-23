@@ -1,6 +1,7 @@
 // advanced.js — heavy analytical sections (clusters, correlations, patterns, forecasts).
 import { smartState, apiSmartGet, setSmartLoader, showSmartSectionError,
-         showSmartSectionEmpty, _smartEscapeHtml, _t, _fmtNum, smartTranslateFeature } from './core.js';
+         showSmartSectionEmpty, clearSmartSectionState,
+         _smartEscapeHtml, _t, _fmtNum, smartTranslateFeature } from './core.js';
 import { renderPlot, makeScatter, makeHeatmap, makeBarChart, makeLineChart } from './charts.js';
 
 export function initAdvancedTabs() {
@@ -28,6 +29,9 @@ async function fetchSection(path, key) {
   const res = await apiSmartGet(path);
   if (res && res.empty) {
     showSmartSectionEmpty(key, res.message || _t('No data'));
+  } else {
+    // Clear any stale empty/error state when data IS available
+    clearSmartSectionState(key);
   }
   return res;
 }

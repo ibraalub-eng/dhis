@@ -117,7 +117,7 @@ export function toggleSmartSection(header) {
   if (isOpen && target && window.Plotly) {
     // collapsing: purge Plotly charts inside to free memory (spec 3.4)
     target.querySelectorAll('[id]').forEach(el => {
-      if (el.__plotly) Plotly.purge(el.id);
+      if (el._fullLayout || el.__plotly) Plotly.purge(el);
     });
   }
   if (target && !isOpen) {
