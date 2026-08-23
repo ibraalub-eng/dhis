@@ -238,6 +238,41 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     print(f"[startup] Migration error (non-fatal): {e}")
                     import traceback; traceback.print_exc()
+                # Ensure auth tables exist even if migration partially failed
+                try:
+                    from app.models import User, Role, Permission, RefreshToken
+                    from sqlalchemy import inspect as sa_inspect
+                    insp = sa_inspect(session.get_bind())
+                    existing = set(insp.get_table_names())
+                    needed = {'users', 'roles', 'permissions', 'refresh_tokens', 'user_roles', 'role_permissions'}
+                    missing = needed - existing
+                    if missing:
+                        print(f"[startup] Creating missing auth tables: {missing}")
+                        from app.database import Base
+                        Base.metadata.create_all(bind=session.get_bind(), tables=[
+                            t for t in Base.metadata.sorted_tables if t.name in missing
+                        ])
+                        print("[startup] Auth tables created.")
+                except Exception as e:
+                    print(f"[startup] Auth table creation error: {e}")
+                # Seed default admin user if users table is empty
+                try:
+                    from app.models import User
+                    if session.query(User).count() == 0:
+                        from app.core.security import hash_password
+                        import os as _os
+                        admin_pw = _os.getenv("ADMIN_PASSWORD", "admin123")
+                        admin = User(
+                            username="admin", email="admin@health.local",
+                            full_name="System Administrator",
+                            password_hash=hash_password(admin_pw),
+                            is_active=True, is_superuser=True,
+                        )
+                        session.add(admin)
+                        session.commit()
+                        print("[startup] Default admin user created.")
+                except Exception as e:
+                    print(f"[startup] Admin seed error: {e}")
                 # Fresh session after DDL changes
                 session.close()
                 session = SessionLocal()
