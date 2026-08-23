@@ -1486,6 +1486,62 @@ def _ar_synthesis_for_ai_rec(r: Dict) -> Dict:
     }
 
 
+def _build_peer_comparisons(session, hospital_id, month, peer_comparisons):
+    """Build peer indicator comparisons for a hospital."""
+    peer_groups = identify_peer_groups(session, hospital_id)
+    if not peer_groups:
+        return
+    from app.engine.smart import _load_hospital_data
+    month_data = _load_hospital_data(session, month)
+    hospital_map = {}
+    peer_values: Dict[str, List[float]] = {}
+    peer_governorates: List[str] = []
+    peer_governorate_counts: Dict[str, int] = {}
+    peer_types: List[str] = []
+    for name, entry in month_data.items():
+        if entry["hospital_id"] == hospital_id:
+            hospital_map = entry.get("values", {})
+            continue
+        gov = entry.get("governorate") or "unknown"
+        peer_governorates.append(gov)
+        peer_governorate_counts[gov] = peer_governorate_counts.get(gov, 0) + 1
+        htype = entry.get("hospital_type") or "unknown"
+        if htype not in peer_types:
+            peer_types.append(htype)
+        for code in FEATURE_KEYS:
+            v = entry.get("values", {}).get(code)
+            if v is not None:
+                peer_values.setdefault(code, []).append(float(v))
+
+    for code in FEATURE_KEYS:
+        if code not in hospital_map or code not in peer_values or len(peer_values[code]) < 2:
+            continue
+        pvals = peer_values[code]
+        mean = sum(pvals) / len(pvals)
+        hv = hospital_map[code]
+        if mean == 0 and hv == 0:
+            continue
+        std = (sum((v - mean) ** 2 for v in pvals) / len(pvals)) ** 0.5
+        percentile = float(sum(1 for v in pvals if v <= hv) / len(pvals) * 100)
+        z = (hv - mean) / std if std > 0 else 0.0
+        gap_pct = ((hv - mean) / mean * 100) if mean != 0 else 0.0
+        peer_comparisons[code] = PeerIndicatorComparison(
+            indicator_code=code,
+            indicator_name=INDICATOR_NAMES.get(code, code),
+            hospital_value=round(hv, 2),
+            peer_group=", ".join(sorted(peer_groups.keys())),
+            peer_count=len(pvals),
+            peer_mean=round(mean, 2),
+            peer_std=round(std, 2),
+            hospital_percentile=round(percentile, 1),
+            hospital_z_score=round(z, 2),
+            gap_pct=round(gap_pct, 2),
+            peer_governorates=list(peer_governorates),
+            peer_governorate_counts=dict(peer_governorate_counts),
+            peer_types=list(peer_types),
+        )
+
+
 def generate_root_cause_analysis(
     session: Session,
     hospital_id: int,
@@ -1502,10 +1558,22 @@ def generate_root_cause_analysis(
     ).fetchone()
     hospital_name = hospital[0] if hospital else f"Hospital {hospital_id}"
 
-    rule_failures = analyze_rule_failures(session, hospital_id, month)
-    quality_drivers = analyze_quality_drivers(quality_data)
-    confidence_gaps = analyze_confidence_gaps(session, hospital_id, month)
-    anomaly_patterns = analyze_anomaly_patterns(session, hospital_id, month)
+    try:
+        rule_failures = analyze_rule_failures(session, hospital_id, month)
+    except Exception:
+        rule_failures = []
+    try:
+        quality_drivers = analyze_quality_drivers(quality_data)
+    except Exception:
+        quality_drivers = []
+    try:
+        confidence_gaps = analyze_confidence_gaps(session, hospital_id, month)
+    except Exception:
+        confidence_gaps = []
+    try:
+        anomaly_patterns = analyze_anomaly_patterns(session, hospital_id, month)
+    except Exception:
+        anomaly_patterns = []
 
     overall_quality = quality_data.get("score", 0) if quality_data else 0
     overall_confidence = confidence_data.get("overall_confidence", 0) if confidence_data else 0
@@ -1517,8 +1585,10 @@ def generate_root_cause_analysis(
     for rf in rule_failures:
         history = []
         if include_history:
-            # نسبة فشل القاعدة عبر الأشهر (أكواد القواعد ليست أكواد مؤشرات)
-            history = get_rule_failure_history(session, hospital_id, rf.rule_code, months_back, month=month)
+            try:
+                history = get_rule_failure_history(session, hospital_id, rf.rule_code, months_back, month=month)
+            except Exception:
+                history = []
 
         causal_nodes.append(CausalNode(
             factor=rf.rule_code,
@@ -1552,60 +1622,10 @@ def generate_root_cause_analysis(
 
     peer_comparisons = {}
     if compare_peers:
-        # مقارنة لكل مؤشر: قيمة المستشفى مقابل متوسط النظير لنفس المؤشر
-        peer_groups = identify_peer_groups(session, hospital_id)
-        if peer_groups:
-            from app.engine.smart import _load_hospital_data
-            # نعيد استخدام نفس محمل بيانات محرك الشذوذ (يشتق المؤشرات من القيم الخام)
-            month_data = _load_hospital_data(session, month)
-            hospital_map = {}
-            peer_values: Dict[str, List[float]] = {}
-            peer_governorates: List[str] = []
-            peer_governorate_counts: Dict[str, int] = {}
-            peer_types: List[str] = []
-            for name, entry in month_data.items():
-                if entry["hospital_id"] == hospital_id:
-                    hospital_map = entry.get("values", {})
-                    continue
-                gov = entry.get("governorate") or "unknown"
-                peer_governorates.append(gov)
-                peer_governorate_counts[gov] = peer_governorate_counts.get(gov, 0) + 1
-                htype = entry.get("hospital_type") or "unknown"
-                if htype not in peer_types:
-                    peer_types.append(htype)
-                for code in FEATURE_KEYS:
-                    v = entry.get("values", {}).get(code)
-                    if v is not None:
-                        peer_values.setdefault(code, []).append(float(v))
-
-            for code in FEATURE_KEYS:
-                if code not in hospital_map or code not in peer_values or len(peer_values[code]) < 2:
-                    continue
-                pvals = peer_values[code]
-                mean = sum(pvals) / len(pvals)
-                hv = hospital_map[code]
-                # مؤشر بلا إشارة (صفر عند الكل) لا يضيف مقارنة ذات معنى
-                if mean == 0 and hv == 0:
-                    continue
-                std = (sum((v - mean) ** 2 for v in pvals) / len(pvals)) ** 0.5
-                percentile = float(sum(1 for v in pvals if v <= hv) / len(pvals) * 100)
-                z = (hv - mean) / std if std > 0 else 0.0
-                gap_pct = ((hv - mean) / mean * 100) if mean != 0 else 0.0
-                peer_comparisons[code] = PeerIndicatorComparison(
-                    indicator_code=code,
-                    indicator_name=INDICATOR_NAMES.get(code, code),
-                    hospital_value=round(hv, 2),
-                    peer_group=", ".join(sorted(peer_groups.keys())),
-                    peer_count=len(pvals),
-                    peer_mean=round(mean, 2),
-                    peer_std=round(std, 2),
-                    hospital_percentile=round(percentile, 1),
-                    hospital_z_score=round(z, 2),
-                    gap_pct=round(gap_pct, 2),
-                    peer_governorates=list(peer_governorates),
-                    peer_governorate_counts=dict(peer_governorate_counts),
-                    peer_types=list(peer_types),
-                )
+        try:
+            _build_peer_comparisons(session, hospital_id, month, peer_comparisons)
+        except Exception as e:
+            logger.warning(f"Peer comparison failed: {e}")
 
     historical_trends = {}
     if include_history:
