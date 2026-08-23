@@ -144,29 +144,47 @@ def _healthy_hospitals(db: Session, month: str, anomalies: list) -> list:
     }
     anomaly_map = {a["hospital_id"]: a for a in anomalies}
 
+    # If no hospitals have quality/confidence scores for this month,
+    # fall back to listing all non-critical hospitals from anomalies
+    has_scores = bool(quality or confidence)
+
     rows = []
     for hid, a in anomaly_map.items():
         # فقط المستشفيات السليمة (غير شاذة) تدخل القائمة
-        if a.get("anomaly_score", 1.0) >= 0.3 or a.get("severity") != "normal":
+        score = a.get("anomaly_score")
+        sev = a.get("severity", "normal")
+        if score is None or score >= 0.6 or sev == "critical":
             continue
         qs = quality.get(hid)
         cs = confidence.get(hid)
-        if qs is None or cs is None:
-            continue
-        q = float(qs.score or 0)
-        c = float(cs.overall_confidence or 0)
-        anom = float(a.get("anomaly_score") or 0)
-        composite = round(0.5 * q + 0.3 * c + 0.2 * (100 - anom * 100), 1)
+        if has_scores:
+            # With scores: require at least quality score
+            if qs is None:
+                continue
+            q = float(qs.score or 0)
+            c_val = float(cs.overall_confidence or 0) if cs else 50.0
+            completeness = float(qs.completeness or 0)
+            consistency = float(qs.consistency or 0)
+            compliance = float(qs.rule_compliance or 0)
+        else:
+            # No scores available: use anomaly-based ranking
+            q = round((1 - score) * 100, 1)
+            c_val = 50.0
+            completeness = 0.0
+            consistency = 0.0
+            compliance = 0.0
+        anom = float(score or 0)
+        composite = round(0.5 * q + 0.3 * c_val + 0.2 * (100 - anom * 100), 1)
         rows.append({
             "hospital_id": hid,
             "hospital_name": a.get("hospital_name", ""),
             "governorate": a.get("governorate", ""),
             "hospital_type": a.get("hospital_type", ""),
             "quality_score": round(q, 1),
-            "completeness": round(float(qs.completeness or 0), 1),
-            "consistency": round(float(qs.consistency or 0), 1),
-            "rule_compliance": round(float(qs.rule_compliance or 0), 1),
-            "confidence": round(c, 1),
+            "completeness": round(completeness, 1),
+            "consistency": round(consistency, 1),
+            "rule_compliance": round(compliance, 1),
+            "confidence": round(c_val, 1),
             "anomaly_score": round(anom, 3),
             "composite_score": composite,
         })

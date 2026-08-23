@@ -190,8 +190,8 @@ def test_healthy_hospitals_ranks_and_excludes(db_session):
     assert abs(result[0]["composite_score"] - 95.3) < 0.1
 
 
-def test_healthy_hospitals_empty_without_scores(db_session):
-    """بدون درجات جودة/ثقة لا تظهر أي مستشفيات سليمة"""
+def test_healthy_hospitals_fallback_without_scores(db_session):
+    """بدون درجات جودة/ثقة تظهر المستشفيات بناءً على درجة الشذوذ فقط"""
     from app.api.smart_analytics import _healthy_hospitals
     from app.models import Hospital
 
@@ -199,6 +199,22 @@ def test_healthy_hospitals_empty_without_scores(db_session):
     anomalies = [
         {"hospital_id": h.id, "hospital_name": h.name, "governorate": "غزة",
          "hospital_type": "عام", "anomaly_score": 0.05, "severity": "normal"},
+    ]
+    result = _healthy_hospitals(db_session, "2027-09", anomalies)
+    assert len(result) == 1
+    assert result[0]["hospital_id"] == h.id
+    assert result[0]["anomaly_score"] == 0.05
+
+
+def test_healthy_hospitals_excludes_critical(db_session):
+    """المستشفيات الحرجة لا تظهر في القائمة"""
+    from app.api.smart_analytics import _healthy_hospitals
+    from app.models import Hospital
+
+    h = db_session.query(Hospital).first()
+    anomalies = [
+        {"hospital_id": h.id, "hospital_name": h.name, "governorate": "غزة",
+         "hospital_type": "عام", "anomaly_score": 0.7, "severity": "critical"},
     ]
     result = _healthy_hospitals(db_session, "2027-09", anomalies)
     assert result == []

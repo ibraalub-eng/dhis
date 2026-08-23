@@ -164,18 +164,30 @@ export function renderHealthyHospitals(healthy) {
   const container = document.getElementById('smart-healthy-hospitals');
   if (!container) return;
   const list = healthy || [];
-  if (!list.length) { container.innerHTML = ''; return; }
-  const rows = list.map(h => `<div class="smart-priority-item smart-priority-normal">
-    <div>
-      <div class="smart-priority-name">${_smartEscapeHtml(h.hospital_name)}</div>
-      <div class="smart-priority-meta">${_smartEscapeHtml(h.governorate || '')} · ${_t('composite')}: ${_fmtNum(h.composite_score, 1)}</div>
-    </div>
-  </div>`).join('');
+  const rows = list.map(h => {
+    const metrics = [];
+    if (h.quality_score != null) metrics.push(_t('Quality') + ': ' + _fmtNum(h.quality_score, 1));
+    if (h.confidence != null) metrics.push(_t('Confidence') + ': ' + _fmtNum(h.confidence, 1));
+    return `<div class="smart-priority-item smart-priority-normal">
+      <div>
+        <div class="smart-priority-name">${_smartEscapeHtml(h.hospital_name)}</div>
+        <div class="smart-priority-meta">${_smartEscapeHtml(h.governorate || '')}${h.hospital_type ? ' · ' + _smartEscapeHtml(h.hospital_type) : ''}</div>
+        <div class="smart-priority-meta" style="font-size:0.72rem;color:#6b7280;">
+          ${metrics.join(' · ')} · ${_t('composite')}: ${_fmtNum(h.composite_score, 1)}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  const bodyContent = list.length
+    ? `<div class="smart-priority-list">${rows}</div>`
+    : `<div class="smart-empty-state">${_t('No hospitals meet the healthy criteria this month. Upload more data or check hospitals with low anomaly scores.')}</div>`;
   container.innerHTML = `<div class="smart-section-card">
     <div class="smart-section-header" data-smart-collapsible="smart-healthy-body">
-      <span>🏆 ${_t('Healthy hospitals (models to follow)')}</span><span class="smart-toggle-icon">▾</span>
+      <span>🏆 ${_t('Healthy hospitals (models to follow)')}</span>
+      <span style="font-size:0.72rem;color:#6b7280;">${list.length} ${_t('hospitals')}</span>
+      <span class="smart-toggle-icon">▾</span>
     </div>
-    <div id="smart-healthy-body" class="smart-section-body"><div class="smart-priority-list">${rows}</div></div>
+    <div id="smart-healthy-body" class="smart-section-body">${bodyContent}</div>
   </div>`;
   _bindDynamicCollapsibles(container);
 }
