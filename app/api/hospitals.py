@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
@@ -149,6 +149,87 @@ def hospital_data_status(db: Session = Depends(get_db)):
             "months": [m[0] for m in months],
         })
     return result
+
+
+@router.post("/bulk-metadata")
+def bulk_update_metadata(
+    updates: list = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Bulk-update hospital metadata by name (fuzzy match).
+
+    Each item: {name, governorate, hospital_type, facility_ownership,
+                facility_type, organisation_unit_id, address}
+    """
+    from sqlalchemy import func as sqlfunc
+
+    gov_map = {g.name.lower(): g.id for g in db.query(Governorate).all()}
+    type_map = {t.name.lower(): t.id for t in db.query(HospitalType).all()}
+    own_map = {o.name.lower(): o.id for o in db.query(FacilityOwnership).all()}
+    ft_map = {f.name.lower(): f.id for f in db.query(FacilityType).all()}
+
+    # Build fuzzy hospital lookup: normalized name → hospital
+    hosp_lookup = {}
+    for h in db.query(Hospital).all():
+        normalized = h.name.strip().lower()
+        hosp_lookup[normalized] = h
+        # Also try without spaces
+        hosp_lookup[normalized.replace(" ", "")] = h
+
+    updated = 0
+    for entry in updates:
+        name = entry.get("name", "").strip()
+        if not name:
+            continue
+
+        # Try exact match, then normalized match
+        hosp = hosp_lookup.get(name.lower()) or hosp_lookup.get(name.lower().replace(" ", ""))
+        if not hosp:
+            # Try partial match
+            for key, h in hosp_lookup.items():
+                if name.lower() in key or key in name.lower():
+                    hosp = h
+                    break
+        if not hosp:
+            continue
+
+        changed = False
+        gov_name = entry.get("governorate", "")
+        if gov_name and not hosp.governorate_id and gov_name.lower() in gov_map:
+            hosp.governorate_id = gov_map[gov_name.lower()]
+            changed = True
+
+        ht_name = entry.get("hospital_type", "")
+        if ht_name and not hosp.hospital_type_id and ht_name.lower() in type_map:
+            hosp.hospital_type_id = type_map[ht_name.lower()]
+            changed = True
+
+        own_name = entry.get("facility_ownership", "")
+        if own_name and not hosp.facility_ownership_id and own_name.lower() in own_map:
+            hosp.facility_ownership_id = own_map[own_name.lower()]
+            changed = True
+
+        ft_name = entry.get("facility_type", "")
+        if ft_name and not hosp.facility_type_id and ft_name.lower() in ft_map:
+            hosp.facility_type_id = ft_map[ft_name.lower()]
+            changed = True
+
+        org_id = entry.get("organisation_unit_id", "")
+        if org_id and not hosp.organisation_unit_id:
+            hosp.organisation_unit_id = org_id
+            changed = True
+
+        address = entry.get("address", "")
+        if address and not hosp.address:
+            hosp.address = address
+            changed = True
+
+        if changed:
+            updated += 1
+
+    db.commit()
+    cache.invalidate()
+    return {"updated": updated, "total": len(updates)}
 
 
 @router.get("/indicators", response_model=List[IndicatorOut])

@@ -1,6 +1,6 @@
 """Seed hospital metadata from scripts/hospital_metadata.json.
 
-Runs on startup: matches hospitals by name and sets governorate_id,
+Runs on startup: matches hospitals by name (fuzzy) and sets governorate_id,
 hospital_type_id, facility_ownership_id, facility_type_id, and
 organisation_unit_id for any hospitals that are missing this data.
 
@@ -41,6 +41,22 @@ def _load_metadata() -> Optional[dict]:
         return None
 
 
+def _fuzzy_match(name: str, lookup: dict) -> Optional[int]:
+    """Match a name against a lookup dict using exact, normalized, and partial match."""
+    norm = name.strip().lower()
+    # Exact
+    if norm in lookup:
+        return lookup[norm]
+    # No spaces
+    if norm.replace(" ", "") in lookup:
+        return lookup[norm.replace(" ", "")]
+    # Partial: query name contains the key
+    for key, val in lookup.items():
+        if norm in key or key in norm:
+            return val
+    return None
+
+
 def seed_hospital_metadata(session: Session) -> int:
     """Apply hospital metadata from JSON seed file.
 
@@ -55,50 +71,73 @@ def seed_hospital_metadata(session: Session) -> int:
         return 0
 
     # Build name→id lookup for reference tables
-    gov_map = {g.name: g.id for g in session.query(Governorate).all()}
-    type_map = {t.name: t.id for t in session.query(HospitalType).all()}
-    own_map = {o.name: o.id for o in session.query(FacilityOwnership).all()}
-    ft_map = {f.name: f.id for f in session.query(FacilityType).all()}
+    gov_map = {g.name.lower(): g.id for g in session.query(Governorate).all()}
+    type_map = {t.name.lower(): t.id for t in session.query(HospitalType).all()}
+    own_map = {o.name.lower(): o.id for o in session.query(FacilityOwnership).all()}
+    ft_map = {f.name.lower(): f.id for f in session.query(FacilityType).all()}
 
-    # Build name→hospital lookup (case-insensitive)
-    hosp_map = {}
+    # Build hospital lookup with normalized names
+    hosp_lookup = {}
     for h in session.query(Hospital).all():
-        hosp_map[h.name.strip().lower()] = h
+        norm = h.name.strip().lower()
+        hosp_lookup[norm] = h
+        hosp_lookup[norm.replace(" ", "")] = h
 
     updated = 0
+    matched = 0
+    unmatched = []
+
     for entry in hospitals_data:
         name = entry.get("name", "").strip()
         if not name:
             continue
-        hosp = hosp_map.get(name.lower())
+
+        hosp = hosp_lookup.get(name.lower()) or hosp_lookup.get(name.lower().replace(" ", ""))
         if not hosp:
+            # Try partial match
+            for key, h in hosp_lookup.items():
+                if name.lower() in key or key in name.lower():
+                    hosp = h
+                    break
+
+        if not hosp:
+            unmatched.append(name)
             continue
 
+        matched += 1
         changed = False
 
         # Set governorate
         gov_name = entry.get("governorate", "")
-        if gov_name and not hosp.governorate_id and gov_name in gov_map:
-            hosp.governorate_id = gov_map[gov_name]
-            changed = True
+        if gov_name and not hosp.governorate_id:
+            gov_id = _fuzzy_match(gov_name, gov_map)
+            if gov_id:
+                hosp.governorate_id = gov_id
+                changed = True
 
         # Set hospital type
         ht_name = entry.get("hospital_type", "")
-        if ht_name and not hosp.hospital_type_id and ht_name in type_map:
-            hosp.hospital_type_id = type_map[ht_name]
-            changed = True
+        if ht_name and not hosp.hospital_type_id:
+            ht_id = _fuzzy_match(ht_name, type_map)
+            if ht_id:
+                hosp.hospital_type_id = ht_id
+                changed = True
 
         # Set facility ownership
         own_name = entry.get("facility_ownership", "")
-        if own_name and not hosp.facility_ownership_id and own_name in own_map:
-            hosp.facility_ownership_id = own_map[own_name]
-            changed = True
+        if own_name and not hosp.facility_ownership_id:
+            own_id = _fuzzy_match(own_name, own_map)
+            if own_id:
+                hosp.facility_ownership_id = own_id
+                changed = True
 
         # Set facility type
         ft_name = entry.get("facility_type", "")
-        if ft_name and not hosp.facility_type_id and ft_name in ft_map:
-            hosp.facility_type_id = ft_map[ft_name]
-            changed = True
+        if ft_name and not hosp.facility_type_id:
+            ft_id = _fuzzy_match(ft_name, ft_map)
+            if ft_id:
+                hosp.facility_type_id = ft_id
+                changed = True
 
         # Set organisation unit ID
         org_id = entry.get("organisation_unit_id", "")
@@ -118,5 +157,8 @@ def seed_hospital_metadata(session: Session) -> int:
     if updated:
         session.commit()
         logger.info(f"[hospital-metadata] Updated {updated} hospitals with metadata")
+
+    if unmatched:
+        logger.info(f"[hospital-metadata] {len(unmatched)} hospitals not found in JSON: {', '.join(unmatched[:10])}")
 
     return updated
