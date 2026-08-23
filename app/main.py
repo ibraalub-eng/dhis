@@ -184,6 +184,15 @@ def _db_already_initialized(session):
         return False
 
 
+def _log_db_info():
+    """Log which database is being used at startup."""
+    db_type = "PostgreSQL" if DATABASE_URL.startswith("postgresql") else "SQLite"
+    print(f"[startup] Database: {db_type}")
+    if db_type == "SQLite":
+        print(f"[startup] WARNING: SQLite is ephemeral on Render — data is lost on restart")
+        print(f"[startup] Set DATABASE_URL to a PostgreSQL connection string for persistent data")
+
+
 def seed_app_config(session):
     for key, value, category, label in APP_CONFIG_DEFAULTS:
         existing = session.query(AppConfig).filter(AppConfig.key == key).first()
@@ -196,11 +205,13 @@ def seed_app_config(session):
 async def lifespan(app: FastAPI):
     global _startup_done
     init_db()
+    _log_db_info()
     if not _startup_done:
         session = SessionLocal()
         try:
             already_init = _db_already_initialized(session)
             if not already_init:
+                print("[startup] Running migrations and seeding...")
                 run_alembic_upgrade()
                 seed_app_config(session)
                 seed_indicators(session)
@@ -216,7 +227,9 @@ async def lifespan(app: FastAPI):
                     session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
 
                 session.commit()
+                print("[startup] Migrations and seeding complete.")
             else:
+                print("[startup] Database already initialized — skipping migrations.")
                 session.commit()  # ensure clean state
 
             # Load logging setting
