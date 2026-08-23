@@ -1,8 +1,11 @@
 import math
+import logging
 from datetime import datetime
 import numpy as np
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.cache import cache
 from app.database import get_db
@@ -205,14 +208,30 @@ def _get_smart_data(db: Session, month: str) -> dict:
         return cached
     result = run_smart_analytics(db, month)
     response = _envelope(result)
-    response["data"]["healthy_hospitals"] = _healthy_hospitals(
-        db, month, response["data"]["anomalies"]
-    )
+
+    try:
+        response["data"]["healthy_hospitals"] = _healthy_hospitals(
+            db, month, response["data"]["anomalies"]
+        )
+    except Exception as e:
+        logger.warning(f"healthy_hospitals failed for {month}: {e}")
+        response["data"]["healthy_hospitals"] = []
+
     from app.engine.smart.lag_analysis import run_lag_analysis, run_early_warnings
-    # تُحسب العلاقات مرة واحدة وتُشارك: الإنذار المبكر يبني قائمته القيادية منها
-    lag_results = run_lag_analysis(db, month)
-    response["data"]["lag_analysis"] = _sanitize(lag_results)
-    response["data"]["early_warnings"] = _sanitize(run_early_warnings(db, month, lag_results))
+    try:
+        lag_results = run_lag_analysis(db, month)
+        response["data"]["lag_analysis"] = _sanitize(lag_results)
+    except Exception as e:
+        logger.warning(f"lag_analysis failed for {month}: {e}")
+        response["data"]["lag_analysis"] = {}
+        lag_results = {}
+
+    try:
+        response["data"]["early_warnings"] = _sanitize(run_early_warnings(db, month, lag_results))
+    except Exception as e:
+        logger.warning(f"early_warnings failed for {month}: {e}")
+        response["data"]["early_warnings"] = []
+
     cache.set(cache_key, response, ttl=300)
     return response
 
