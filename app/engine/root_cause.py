@@ -817,9 +817,10 @@ def analyze_rule_failures(
     month: str,
 ) -> List[RuleFailurePattern]:
     result = session.execute(text("""
-        SELECT vr.rule_code, vr.rule_description, vr.severity,
-               COALESCE(r.rule_type, vr.rule_type, 'LOGIC') as rule_type,
-               COUNT(*) as failure_count, vr.details, r.params
+        SELECT vr.rule_code, MIN(vr.rule_description) as rule_description,
+               MIN(vr.severity) as severity,
+               COALESCE(MIN(r.rule_type), MIN(vr.rule_type), 'LOGIC') as rule_type,
+               COUNT(*) as failure_count, MIN(vr.details) as details, MIN(r.params) as params
         FROM validation_results vr
         LEFT JOIN rules r ON r.code = vr.rule_code
         WHERE vr.hospital_id = :hid AND vr.month = :mth AND vr.status = 'FAIL'
@@ -1208,7 +1209,7 @@ def analyze_anomaly_patterns(
     month: str,
 ) -> List[AnomalyPattern]:
     result = session.execute(text("""
-        SELECT indicator_code, rate_name, COUNT(*) as hosp_count,
+        SELECT indicator_code, MIN(rate_name) as rate_name, COUNT(*) as hosp_count,
                AVG(ABS(z_score)) as avg_z
         FROM anomaly_results
         WHERE hospital_id = :hid AND month = :mth AND is_outlier = 1
