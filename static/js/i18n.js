@@ -1,7 +1,7 @@
         import { _tabInited, switchTab } from './main.js';
 
         // ── Translation System (EN ↔ AR) ─────────────────────────
-        export let currentLang = localStorage.getItem('lang') || 'ar';
+        export let currentLang = localStorage.getItem('lang') || 'en';
 
         export const translations = {
             // General UI

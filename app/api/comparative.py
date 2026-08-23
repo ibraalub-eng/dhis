@@ -10,8 +10,8 @@ router = APIRouter(prefix="/comparative", tags=["Comparative Analysis"])
 @router.get("/comprehensive-report/{month}")
 def get_comprehensive_report(
     month: str,
-    lang: str = Query("ar", description="لغة التقرير (ar/en)"),
-    force: bool = Query(False, description="إعادة توليد التقرير وتجاوز التخزين"),
+    lang: str = Query("en", description="Report language (ar/en)"),
+    force: bool = Query(False, description="Force regenerate report"),
     db: Session = Depends(get_db)
 ):
     """توليد تقرير ذكي شامل"""
@@ -28,7 +28,7 @@ def get_advanced_comparison(
     month: str,
     hospital_id: str = Query(None, description="معرف المستشفى (اختياري)"),
     comparison_type: str = Query("all", description="نوع المقارنة (all/governorate/type)"),
-    lang: str = Query("ar", description="لغة النتائج (ar/en)"),
+    lang: str = Query("en", description="Results language (ar/en)"),
     db: Session = Depends(get_db)
 ):
     """مقارنة متقدمة للمستشفيات"""

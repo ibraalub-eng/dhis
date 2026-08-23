@@ -4,7 +4,7 @@ import { smartState, apiSmartGet, _smartEscapeHtml, _t, _fmtNum, _riskBadge, sma
 import { renderPlot } from './charts.js';
 
 function reportLang() {
-  return smartState.lang || 'ar';
+  return smartState.lang || 'en';
 }
 
 export function toggleReportLang() {

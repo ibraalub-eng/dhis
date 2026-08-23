@@ -17,7 +17,7 @@ router = APIRouter(prefix="/export", tags=["Export"])
 @router.get("/full-data")
 def export_full_data(
     month: str = Query(..., description="الشهر (YYYY-MM) أو all"),
-    lang: str = Query("ar", description="لغة التقرير (ar/en)", pattern="^(ar|en)$"),
+    lang: str = Query("en", description="Report language (ar/en)", pattern="^(ar|en)$"),
     db: Session = Depends(get_db),
 ):
     """تصدير البيانات الكاملة كملف JSON"""

@@ -13,7 +13,7 @@ export const smartState = {
   data: null,
   reportGenerating: false,
   mode: 'monthly',
-  lang: 'ar',
+  lang: 'en',
 };
 
 // i18n helper: use the global __ from app.js when available, else passthrough.
