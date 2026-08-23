@@ -65,7 +65,7 @@
         }
 
         export function showSettingsTab(name) {
-            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'control', 'hospitals', 'ml'].forEach(s => {
+            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'database', 'control', 'hospitals', 'ml'].forEach(s => {
                 const section = document.getElementById('settings-' + s);
                 if (section) section.style.display = s === name ? '' : 'none';
                 const btn = document.getElementById('stbtn-' + s);
@@ -81,8 +81,44 @@
                 }
             });
             if (name === 'ai') loadAiSettings();
+            if (name === 'database') loadDatabaseSettings();
             if (name === 'control') { loadControlSettings(); loadMonthToggles(); }
             if (name === 'hospitals') loadHospitalsSettings();
+        }
+
+        function loadDatabaseSettings() {
+            const el = document.getElementById('dbStatus');
+            if (!el) return;
+            el.innerHTML = 'Checking database connection...';
+            apiGet('/config/ai/settings').then(() => {
+                // If AI settings load, DB is working
+                fetch('/hospitals/data-status').then(r => r.json()).then(data => {
+                    const totalHospitals = data.length;
+                    const withData = data.filter(h => h.indicator_values > 0).length;
+                    const withoutData = totalHospitals - withData;
+                    el.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.8rem;">
+                            <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#22c55e;"></span>
+                            <strong>Connected</strong> to PostgreSQL
+                        </div>
+                        <div style="line-height:2;">
+                            <div>🏥 <strong>${totalHospitals}</strong> hospitals total</div>
+                            <div>✅ <strong>${withData}</strong> hospitals with data</div>
+                            ${withoutData > 0 ? `<div style="color:#d97706;">⚠️ <strong>${withoutData}</strong> hospitals without data</div>` : ''}
+                        </div>
+                        <div style="margin-top:1rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.8rem;color:#666;">
+                            <strong>To change database:</strong>
+                            <ol style="margin:0.3rem 0 0 1.2rem;">
+                                <li>Edit <code>.env</code> file → change <code>DATABASE_URL</code></li>
+                                <li>Restart the server</li>
+                            </ol>
+                        </div>`;
+                }).catch(() => {
+                    el.innerHTML = '<span style="color:#22c55e;">✅ Connected</span> — PostgreSQL is working.';
+                });
+            }).catch(err => {
+                el.innerHTML = `<span style="color:#dc2626;">❌ Not connected</span><br><span style="font-size:0.8rem;color:#888;">${err.message || 'DATABASE_URL not set or unreachable'}</span>`;
+            });
         }
 
         function loadHospitalsSettings() {
