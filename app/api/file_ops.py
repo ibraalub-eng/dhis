@@ -293,6 +293,13 @@ def _process_preview_worker(file_path: str) -> dict:
         comparisons_dict = _run_hospital_comparisons(db, hospitals_list, all_months)
         clinical_analyses = _run_clinical_analyses(db, hospitals_list, hospital_months)
 
+        # Pre-compute smart analytics in background so the dashboard loads instantly
+        try:
+            from app.api.upload import _precompute_smart_bg
+            _precompute_smart_bg(db, sorted(all_months))
+        except Exception:
+            pass
+
         return {
             "files_processed": 1,
             "hospitals": [{"id": h.id, "name": h.name} for h in hospitals_list],

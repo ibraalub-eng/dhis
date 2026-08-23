@@ -23,6 +23,36 @@ router = APIRouter(prefix="/upload", tags=["upload"])
 ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".xlsm", ".xlsb"}
 
 
+def _precompute_smart_bg(db_session, months: list):
+    """Pre-compute smart analytics for all months in a background thread.
+
+    After upload, the smart analytics pipeline (9 engines) is heavy.
+    Running it in background and caching the result means the dashboard
+    loads instantly on first visit.
+    """
+    import threading
+    from app.api.smart_analytics import _get_smart_data, SMART_CACHE_VERSION
+    from app.database import SessionLocal
+
+    def _run():
+        db = SessionLocal()
+        try:
+            for month in months:
+                try:
+                    cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
+                    if cache.get(cache_key) is not None:
+                        continue  # already cached
+                    logger.info(f"[precompute] Running smart analytics for {month}...")
+                    _get_smart_data(db, month)
+                    logger.info(f"[precompute] Cached smart analytics for {month}")
+                except Exception as e:
+                    logger.warning(f"[precompute] Failed for {month}: {e}")
+        finally:
+            db.close()
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
 @router.get("/template")
 def download_template():
     import openpyxl
@@ -180,6 +210,8 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     cache.invalidate("smart_geo_")
     cache.invalidate("smart_timeline")
     invalidate_report_cache(db)
+    # Pre-compute smart analytics in background so the dashboard loads instantly
+    _precompute_smart_bg(db, result.get("months", []))
     return UploadResponse(**result)
 
 
@@ -235,6 +267,8 @@ async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends
             except Exception as e:
                 logger.warning(f"Could not analyze {hosp['name']} / {month}: {e}")
 
+    # Pre-compute smart analytics in background
+    _precompute_smart_bg(db, months)
     return AutoReportResponse(
         filename=result["filename"],
         hospitals=hospitals,
