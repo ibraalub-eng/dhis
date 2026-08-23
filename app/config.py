@@ -14,15 +14,14 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 # PostgreSQL required in production; tests use in-memory SQLite via conftest.py
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 if not DATABASE_URL:
-    # Allow import without DATABASE_URL (tests set it via conftest.py)
+    # Allow import without DATABASE_URL (tests set it via conftest)
     if "pytest" in sys.modules or os.environ.get("TESTING"):
         DATABASE_URL = "sqlite://"  # in-memory, overridden by conftest
     else:
-        print("[FATAL] DATABASE_URL environment variable is not set.", file=sys.stderr)
-        print("[FATAL] Set it to a PostgreSQL connection string, e.g.:", file=sys.stderr)
-        print('  export DATABASE_URL="postgresql://user:pass@host:5432/health_ai"', file=sys.stderr)
-        sys.exit(1)
+        # Log warning but don't exit — let the app start and show an error page
+        print("[WARN] DATABASE_URL not set — app will show setup instructions", file=sys.stderr)
+        DATABASE_URL = ""
 
 # Normalize Render's DATABASE_URL (some Render plans use postgres:// instead of postgresql://)
-if DATABASE_URL.startswith("postgres://"):
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)

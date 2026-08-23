@@ -202,6 +202,12 @@ def seed_app_config(session):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _startup_done
+    from app.database import _db_ready
+    if not _db_ready:
+        print("[startup] DATABASE_URL not configured — showing setup page")
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        yield
+        return
     init_db()
     _log_db_info()
     if not _startup_done:
@@ -325,6 +331,36 @@ def health():
         )
 
 
+@app.get("/setup")
+def setup_page():
+    """Show setup instructions when DATABASE_URL is not configured."""
+    from app.database import _db_ready
+    if _db_ready:
+        return RedirectResponse(url="/dashboard")
+    setup_html = """
+    <!DOCTYPE html>
+    <html dir="rtl"><head><meta charset="utf-8">
+    <title>Health AI — إعداد قاعدة البيانات</title>
+    <style>
+      body { font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; background: #f8fafc; color: #1e293b; }
+      h1 { color: #1a237e; } .step { background: white; border-radius: 10px; padding: 1.2rem; margin: 1rem 0; border: 1px solid #e2e8f0; }
+      code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9rem; }
+      .cmd { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; font-family: monospace; direction: ltr; text-align: left; margin: 0.5rem 0; }
+    </style></head><body>
+    <h1>🗄️ إعداد قاعدة البيانات</h1>
+    <p>يجب تعيين <code>DATABASE_URL</code> للاتصال بقاعدة بيانات PostgreSQL.</p>
+    <div class="step"><h3>الخطوة 1: إنشاء قاعدة بيانات على Render</h3>
+    <p>اذهب إلى <a href="https://dashboard.render.com">Render Dashboard</a> → New → PostgreSQL</p></div>
+    <div class="step"><h3>الخطوة 2: تعيين DATABASE_URL</h3>
+    <p>في Render: Environment → أضف متغير:</p>
+    <div class="cmd">Key: DATABASE_URL<br>Value: postgresql://user:pass@host:5432/dbname</div></div>
+    <div class="step"><h3>الخطوة 3: إعادة النشر</h3>
+    <p>بعد تعيين DATABASE_URL، أعد نشر الخدمة. سيتم تشغيل الهجرات تلقائياً.</p></div>
+    </body></html>
+    """
+    return HTMLResponse(content=setup_html)
+
+
 @app.get("/tasks/{task_id}")
 def task_status(task_id: str):
     task = get_task(task_id)
@@ -402,6 +438,9 @@ def metrics():
 
 @app.get("/")
 def root():
+    from app.database import _db_ready
+    if not _db_ready:
+        return RedirectResponse(url="/setup")
     return RedirectResponse(url="/dashboard")
 
 
