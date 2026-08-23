@@ -369,7 +369,7 @@ def get_peer_historical_data(
         SELECT id, name FROM hospitals
         WHERE hospital_type_id = :htid
         AND id != :hid
-        AND is_active = 1
+        AND is_active = TRUE
     """), {"htid": hospital[0], "hid": hospital_id})
 
     peer_data = {}
@@ -457,7 +457,7 @@ def identify_peer_groups(session: Session, hospital_id: int) -> Dict[str, List[i
             SELECT id FROM hospitals
             WHERE hospital_type_id = :htid
             AND id != :hid
-            AND is_active = 1
+            AND is_active = TRUE
         """), {"htid": hospital[0], "hid": hospital_id})
         peer_ids = [p[0] for p in peers]
         if len(peer_ids) >= MIN_PEER_SIZE:
@@ -469,8 +469,8 @@ def identify_peer_groups(session: Session, hospital_id: int) -> Dict[str, List[i
             SELECT id FROM hospitals
             WHERE facility_ownership_id = :foid
             AND id != :hid
-            AND is_active = 1
-        """), {"foid": hospital[1], "hid": hospital_id})
+        AND is_active = TRUE
+    """), {"foid": hospital[1], "hid": hospital_id})
         peer_ids = [p[0] for p in peers]
         if len(peer_ids) >= MIN_PEER_SIZE:
             result["ownership"] = peer_ids
@@ -481,8 +481,8 @@ def identify_peer_groups(session: Session, hospital_id: int) -> Dict[str, List[i
             SELECT id FROM hospitals
             WHERE governorate_id = :gid
             AND id != :hid
-            AND is_active = 1
-        """), {"gid": hospital[2], "hid": hospital_id})
+        AND is_active = TRUE
+    """), {"gid": hospital[2], "hid": hospital_id})
         peer_ids = [p[0] for p in peers]
         if len(peer_ids) >= MIN_PEER_SIZE:
             result["regional"] = peer_ids
