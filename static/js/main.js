@@ -102,6 +102,7 @@
             if (name === 'rules-manager') window.loadRulesManager();
             if (name === 'audit') window.initAudit();
             if (name === 'smart-analytics') window.initSmartAnalytics();
+            if (name === 'admin' && typeof window.loadAdminPanel === 'function') window.loadAdminPanel();
         }
 
         document.querySelectorAll('.tab').forEach(tab => {
