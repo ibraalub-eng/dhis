@@ -7,6 +7,32 @@ function reportLang() {
   return smartState.lang || 'en';
 }
 
+// Language-agnostic label-to-severity mapping
+const _LABEL_LEVELS = {
+  // Arabic labels
+  'متفوق': 'normal',   // Excellent
+  'متوسط': 'normal',    // Average
+  'يحتاج تحسين': 'warning',  // Needs improvement
+  'حرج': 'critical',            // Critical
+  'طبيعي': 'normal',    // Normal
+  // English labels
+  'Excellent': 'normal',
+  'Average': 'normal',
+  'Needs improvement': 'warning',
+  'Needs Improvement': 'warning',
+  'Critical': 'critical',
+  'Normal': 'normal',
+};
+
+function _labelToLevel(label) {
+  return _LABEL_LEVELS[label] || 'normal';
+}
+
+function _labelColor(label) {
+  const level = _labelToLevel(label);
+  return level === 'critical' ? '#ef4444' : level === 'warning' ? '#f59e0b' : '#22c55e';
+}
+
 export function toggleReportLang() {
   smartState.lang = smartState.lang === 'ar' ? 'en' : 'ar';
   const btn = document.getElementById('smart-report-lang-toggle');
@@ -202,10 +228,7 @@ export async function renderComparison(scope) {
     const peers = (data.comparison_data && data.comparison_data.peer_comparison) || [];
     const chart = document.getElementById('smart-comparison-chart');
     if (chart && peers.length) {
-      const colors = peers.map(p => p.comparison_label === 'ممتاز' || p.comparison_label === 'متفوق' || p.comparison_label === 'Excellent' ? '#22c55e'
-        : p.comparison_label === 'حرج' || p.comparison_label === 'Critical' ? '#ef4444'
-        : p.comparison_label === 'يحتاج تحسين' || p.comparison_label === 'Needs improvement' ? '#f59e0b'
-        : '#6366f1');
+      const colors = peers.map(p => _labelColor(p.comparison_label));
       renderPlot('smart-comparison-chart', [{
         x: peers.map(p => p.hospital_name),
         y: peers.map(p => p.percentile),
@@ -222,7 +245,7 @@ export async function renderComparison(scope) {
         peers.map(p => `<tr><td style="text-align:center;font-weight:600;">${p.rank}</td>
           <td>${_smartEscapeHtml(p.hospital_name)}</td>
           <td style="text-align:center;">${p.percentile.toFixed(1)}%</td>
-          <td>${_riskBadge(p.comparison_label, p.comparison_label === 'حرج' || p.comparison_label === 'Critical' ? 'critical' : p.comparison_label === 'يحتاج تحسين' || p.comparison_label === 'Needs improvement' ? 'warning' : 'normal')}</td></tr>`).join('') +
+          <td>${_riskBadge(p.comparison_label, _labelToLevel(p.comparison_label))}</td></tr>`).join('') +
         `</tbody></table></div>`;
     }
   } catch (e) { /* ignored */ }
