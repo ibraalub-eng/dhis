@@ -10,7 +10,7 @@ from alembic.config import Config  # noqa: E402
 from alembic import command  # noqa: E402
 from alembic.script import ScriptDirectory  # noqa: E402
 from app.database import init_db, SessionLocal, engine  # noqa: E402
-from app.models import AppConfig, FacilityOwnership, FacilityType  # noqa: E402
+from app.models import AppConfig, FacilityOwnership, FacilityType, Governorate, HospitalType  # noqa: E402
 from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
 from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router, regional as regional_router  # noqa: E402
 from app.tasks import get_task  # noqa: E402
@@ -215,7 +215,15 @@ async def lifespan(app: FastAPI):
                 run_alembic_upgrade()
                 seed_app_config(session)
                 seed_indicators(session)
-                seed_rules(session)
+                seed_rules(session)                # Seed governorates (Palestine - Gaza Strip)
+                if not session.query(Governorate).first():
+                    for name in ["\u063a\u0632\u0629", "\u062e\u0627\u0646\u064a\u0648\u0646\u0633", "\u062f\u064a\u0631 \u0627\u0644\u0628\u0644\u062d", "\u062c\u0646\u0648\u0628 \u063a\u0632\u0629", "\u0634\u0645\u0627\u0644 \u063a\u0632\u0629", "\u0631\u0641\u062d"]:
+                        session.add(Governorate(name=name))
+
+                # Seed hospital types
+                if not session.query(HospitalType).first():
+                    for name in ["\u0639\u0627\u0645", "\u062a\u062e\u0635\u0635\u064a", "\u0645\u064a\u062f\u0627\u0646\u064a", "\u0645\u0631\u0636\u0636 \u0627\u0644\u0637\u0641\u0644"]:
+                        session.add(HospitalType(name=name))
 
                 # Seed facility ownerships
                 if not session.query(FacilityOwnership).first():
