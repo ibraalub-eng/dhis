@@ -39,46 +39,50 @@ def get_root_cause_timeline(
     if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail="Hospital not found")
 
-    indicators = []
-    for code, ar_name in _TIMELINE_INDICATORS:
-        hist = get_historical_data(db, hospital_id, code, months_back, month=month)
-        if len(hist) < 2:
-            continue  # لا مقارنة زمنية بشهر واحد
-        peers = get_peer_historical_data(db, hospital_id, code, months_back, month=month)
+    try:
+        indicators = []
+        for code, ar_name in _TIMELINE_INDICATORS:
+            hist = get_historical_data(db, hospital_id, code, months_back, month=month)
+            if len(hist) < 2:
+                continue
+            peers = get_peer_historical_data(db, hospital_id, code, months_back, month=month)
 
-        # تجميع قيم النظير لكل شهر
-        month_peers = {}
-        for pts in peers.values():
-            for p in pts:
-                month_peers.setdefault(p.month, []).append(p.value)
+            month_peers = {}
+            for pts in peers.values():
+                for p in pts:
+                    month_peers.setdefault(p.month, []).append(p.value)
 
-        series = []
-        for p in hist:
-            pvals = month_peers.get(p.month)
-            if pvals:
-                n = len(pvals)
-                mean = sum(pvals) / n
-                std = (sum((v - mean) ** 2 for v in pvals) / (n - 1)) ** 0.5 if n > 1 else 0.0
-                margin = 1.96 * std / (n ** 0.5) if n > 1 else 0.0  # فاصل ثقة 95%
-                series.append({
-                    "month": p.month,
-                    "hospital_value": round(p.value, 2),
-                    "peer_mean": round(mean, 2),
-                    "peer_lower": round(max(0.0, mean - margin), 2),
-                    "peer_upper": round(mean + margin, 2),
-                    "peer_count": n,
-                })
-            else:
-                series.append({
-                    "month": p.month,
-                    "hospital_value": round(p.value, 2),
-                    "peer_mean": None, "peer_lower": None, "peer_upper": None, "peer_count": 0,
-                })
-        indicators.append({
-            "indicator_code": code,
-            "indicator_name": ar_name,
-            "series": series,
-        })
+            series = []
+            for p in hist:
+                pvals = month_peers.get(p.month)
+                if pvals:
+                    n = len(pvals)
+                    mean = sum(pvals) / n
+                    std = (sum((v - mean) ** 2 for v in pvals) / (n - 1)) ** 0.5 if n > 1 else 0.0
+                    margin = 1.96 * std / (n ** 0.5) if n > 1 else 0.0
+                    series.append({
+                        "month": p.month,
+                        "hospital_value": round(p.value, 2),
+                        "peer_mean": round(mean, 2),
+                        "peer_lower": round(max(0.0, mean - margin), 2),
+                        "peer_upper": round(mean + margin, 2),
+                        "peer_count": n,
+                    })
+                else:
+                    series.append({
+                        "month": p.month,
+                        "hospital_value": round(p.value, 2),
+                        "peer_mean": None, "peer_lower": None, "peer_upper": None, "peer_count": 0,
+                    })
+            indicators.append({
+                "indicator_code": code,
+                "indicator_name": ar_name,
+                "series": series,
+            })
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Timeline analysis failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الزمني: {str(e)}")
 
     return {
         "hospital": hospital.name,
@@ -150,14 +154,19 @@ def get_root_cause_analysis(
         except Exception:
             pass
 
-    report = generate_root_cause_analysis(
-        db, hospital_id, month,
-        quality_data=quality_data,
-        confidence_data=confidence_data,
-        include_history=include_history,
-        compare_peers=compare_peers,
-        months_back=months_back,
-    )
+    try:
+        report = generate_root_cause_analysis(
+            db, hospital_id, month,
+            quality_data=quality_data,
+            confidence_data=confidence_data,
+            include_history=include_history,
+            compare_peers=compare_peers,
+            months_back=months_back,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Root cause analysis failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الجذري: {str(e)}")
 
     response = {
         "hospital": report.hospital,
