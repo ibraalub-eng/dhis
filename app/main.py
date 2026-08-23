@@ -179,7 +179,8 @@ def _db_already_initialized(session):
             return False
         if "app_config" not in tables:
             return False
-        row = session.execute(text("SELECT 1 FROM app_config LIMIT 1")).fetchone()
+        from sqlalchemy import text as _sa_text
+        row = session.execute(_sa_text("SELECT 1 FROM app_config LIMIT 1")).fetchone()
         return row is not None
     except Exception:
         return False
@@ -200,6 +201,21 @@ def seed_app_config(session):
     session.commit()
 
 
+def _seed_reference_data(session):
+    """Seed governorates, hospital types, ownerships, facility types."""
+    if not session.query(Governorate).first():
+        for name in ["\u063a\u0632\u0629", "\u062e\u0627\u0646\u064a\u0648\u0646\u0633", "\u062f\u064a\u0631 \u0627\u0644\u0628\u0644\u062d", "\u062c\u0646\u0648\u0628 \u063a\u0632\u0629", "\u0634\u0645\u0627\u0644 \u063a\u0632\u0629", "\u0631\u0641\u062d"]:
+            session.add(Governorate(name=name))
+    if not session.query(HospitalType).first():
+        for name in ["\u0639\u0627\u0645", "\u062a\u062e\u0635\u0635\u064a", "\u0645\u064a\u062f\u0627\u0646\u064a", "\u0645\u0631\u0636\u0636 \u0627\u0644\u0637\u0641\u0644"]:
+            session.add(HospitalType(name=name))
+    if not session.query(FacilityOwnership).first():
+        for name in ["\u062d\u0639\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
+            session.add(FacilityOwnership(name=name))
+    if not session.query(FacilityType).first():
+        session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _startup_done
@@ -217,33 +233,31 @@ async def lifespan(app: FastAPI):
             already_init = _db_already_initialized(session)
             if not already_init:
                 print("[startup] Running migrations and seeding...")
-                run_alembic_upgrade()
-                seed_app_config(session)
-                seed_indicators(session)
-                seed_rules(session)                # Seed governorates (Palestine - Gaza Strip)
-                if not session.query(Governorate).first():
-                    for name in ["\u063a\u0632\u0629", "\u062e\u0627\u0646\u064a\u0648\u0646\u0633", "\u062f\u064a\u0631 \u0627\u0644\u0628\u0644\u062d", "\u062c\u0646\u0648\u0628 \u063a\u0632\u0629", "\u0634\u0645\u0627\u0644 \u063a\u0632\u0629", "\u0631\u0641\u062d"]:
-                        session.add(Governorate(name=name))
-
-                # Seed hospital types
-                if not session.query(HospitalType).first():
-                    for name in ["\u0639\u0627\u0645", "\u062a\u062e\u0635\u0635\u064a", "\u0645\u064a\u062f\u0627\u0646\u064a", "\u0645\u0631\u0636\u0636 \u0627\u0644\u0637\u0641\u0644"]:
-                        session.add(HospitalType(name=name))
-
-                # Seed facility ownerships
-                if not session.query(FacilityOwnership).first():
-                    for name in ["\u062d\u0643\u0648\u0645\u064a", "NGOs", "INGOs", "\u062e\u0627\u0635"]:
-                        session.add(FacilityOwnership(name=name))
-
-                # Seed facility types
-                if not session.query(FacilityType).first():
-                    session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
-
-                session.commit()
-                print("[startup] Migrations and seeding complete.")
+                try:
+                    run_alembic_upgrade()
+                    print("[startup] Migrations complete.")
+                except Exception as e:
+                    print(f"[startup] Migration error (non-fatal): {e}")
+                    import traceback; traceback.print_exc()
+                # Fresh session after DDL changes
+                session.close()
+                session = SessionLocal()
+                for label, fn in [("config", seed_app_config), ("indicators", seed_indicators), ("rules", seed_rules)]:
+                    try:
+                        fn(session)
+                        print(f"[startup] {label.capitalize()} seeded.")
+                    except Exception as e:
+                        print(f"[startup] {label} seed error: {e}")
+                try:
+                    _seed_reference_data(session)
+                    session.commit()
+                    print("[startup] Migrations and seeding complete.")
+                except Exception as e:
+                    print(f"[startup] Reference data error (non-fatal): {e}")
+                    import traceback; traceback.print_exc()
 
             # Apply hospital metadata (OrgUnit ID, Ownership, Governorate, Type)
-            # from scripts/hospital_metadata.json — safe to run every startup.
+            # from scripts/hospital_metadata.json - safe to run every startup.
             try:
                 updated = seed_hospital_metadata(session)
                 if updated:
