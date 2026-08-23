@@ -66,7 +66,8 @@ def perform_advanced_comparison(
     session: Session,
     month: str,
     hospital_id: Optional[str] = None,
-    comparison_type: str = "all"
+    comparison_type: str = "all",
+    lang: str = "ar",
 ) -> AdvancedComparisonResult:
     """إجراء مقارنة متقدمة"""
 
@@ -74,7 +75,7 @@ def perform_advanced_comparison(
 
     trends = analyze_trends(historical_data, hospital_id)
 
-    peer_comparisons = compare_peers(session, month, comparison_type)
+    peer_comparisons = compare_peers(session, month, comparison_type, lang=lang)
 
     current_analytics = run_smart_analytics(session, month)
     predictions = current_analytics.xgboost_predictions.__dict__ if current_analytics.xgboost_predictions else {}
@@ -124,11 +125,17 @@ def analyze_trends(historical_data: Dict[str, Any], hospital_id: Optional[str] =
     return trends
 
 
-def compare_peers(session: Session, month: str, comparison_type: str) -> List[PeerComparison]:
+def compare_peers(session: Session, month: str, comparison_type: str, lang: str = "ar") -> List[PeerComparison]:
     """مقارنة المستشفيات ببعضها"""
     from app.models import Hospital, IndicatorValue
 
-    hospitals = session.query(Hospital).all()
+    _labels = {
+        "ar": {"top": "متفوق", "mid": "متوسط", "low": "يحتاج تحسين", "crit": "حرج"},
+        "en": {"top": "Excellent", "mid": "Average", "low": "Needs improvement", "crit": "Critical"},
+    }
+    labels = _labels.get(lang, _labels["ar"])
+
+    hospitals = session.query(Hospital).filter(Hospital.is_active.is_(True)).all()
 
     if len(hospitals) < 2:
         return []
@@ -159,13 +166,13 @@ def compare_peers(session: Session, month: str, comparison_type: str) -> List[Pe
         percentile = (rank / total) * 100
 
         if percentile <= 25:
-            label = "متفوق"
+            label = labels["top"]
         elif percentile <= 50:
-            label = "متوسط"
+            label = labels["mid"]
         elif percentile <= 75:
-            label = "يحتاج تحسين"
+            label = labels["low"]
         else:
-            label = "حرج"
+            label = labels["crit"]
 
         comparisons.append(PeerComparison(
             hospital_id=str(hosp_id),

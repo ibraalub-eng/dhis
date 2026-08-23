@@ -28,11 +28,12 @@ def get_advanced_comparison(
     month: str,
     hospital_id: str = Query(None, description="معرف المستشفى (اختياري)"),
     comparison_type: str = Query("all", description="نوع المقارنة (all/governorate/type)"),
+    lang: str = Query("ar", description="لغة النتائج (ar/en)"),
     db: Session = Depends(get_db)
 ):
     """مقارنة متقدمة للمستشفيات"""
     try:
-        result = perform_advanced_comparison(db, month, hospital_id, comparison_type)
+        result = perform_advanced_comparison(db, month, hospital_id, comparison_type, lang=lang)
         return {
             "month": result.month,
             "comparison_data": {

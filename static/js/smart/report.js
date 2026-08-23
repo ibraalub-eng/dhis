@@ -196,12 +196,13 @@ export async function renderComparison(scope) {
     const params = new URLSearchParams();
     if (hospitalId) params.append('hospital_id', hospitalId);
     if (scope) params.append('comparison_type', scope);
+    params.append('lang', reportLang());
     const qs = params.toString();
     const data = await apiSmartGet(`/comparative/advanced-comparison/${month}${qs ? '?' + qs : ''}`);
     const peers = (data.comparison_data && data.comparison_data.peer_comparison) || [];
     const chart = document.getElementById('smart-comparison-chart');
     if (chart && peers.length) {
-      const colors = peers.map(p => p.comparison_label === 'ممتاز' || p.comparison_label === 'Excellent' ? '#22c55e'
+      const colors = peers.map(p => p.comparison_label === 'ممتاز' || p.comparison_label === 'متفوق' || p.comparison_label === 'Excellent' ? '#22c55e'
         : p.comparison_label === 'حرج' || p.comparison_label === 'Critical' ? '#ef4444'
         : p.comparison_label === 'يحتاج تحسين' || p.comparison_label === 'Needs improvement' ? '#f59e0b'
         : '#6366f1');
