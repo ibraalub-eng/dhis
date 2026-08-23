@@ -268,12 +268,17 @@ async def lifespan(app: FastAPI):
 
             # Load logging setting
             from app.models import SystemSetting
-            from app.monitoring import set_logging_enabled
+            from app.monitoring import set_logging_enabled, set_slow_query_logging
             try:
                 log_row = session.query(SystemSetting).filter(SystemSetting.key == "structured_logging_enabled").first()
                 set_logging_enabled(log_row.value == "true" if log_row else True)
             except Exception:
                 set_logging_enabled(True)
+            try:
+                sq_row = session.query(SystemSetting).filter(SystemSetting.key == "slow_query_logging_enabled").first()
+                set_slow_query_logging(sq_row.value == "true" if sq_row else True)
+            except Exception:
+                set_slow_query_logging(True)
         finally:
             session.close()
         _startup_done = True

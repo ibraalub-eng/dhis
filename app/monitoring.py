@@ -40,11 +40,49 @@ sql_queries_total = Counter(
 
 sql_count_var: ContextVar[int] = ContextVar("sql_count", default=0)
 
-# ── SQL Query Counting ──────────────────────────────────────────────────────
+# ── SQL Query Counting + Slow Query Detection ─────────────────────────────
+
+SLOW_QUERY_THRESHOLD = 1.0  # seconds
+_slow_query_logging = True
+
+def set_slow_query_logging(enabled: bool):
+    global _slow_query_logging
+    _slow_query_logging = enabled
+
+def is_slow_query_logging_enabled() -> bool:
+    return _slow_query_logging
+
+# Per-connection timing storage: (cursor_id, statement) -> start_time
+_query_start_times = {}
 
 @event.listens_for(engine, "before_cursor_execute")
-def _count_sql(conn, cursor, statement, parameters, context, executemany):
+def _before_execute(conn, cursor, statement, parameters, context, executemany):
     sql_count_var.set(sql_count_var.get() + 1)
+    if _slow_query_logging:
+        _query_start_times[id(cursor)] = time.time()
+
+@event.listens_for(engine, "after_cursor_execute")
+def _after_execute(conn, cursor, statement, parameters, context, executemany):
+    start = _query_start_times.pop(id(cursor), None)
+    if start is None or not _slow_query_logging:
+        return
+    duration = time.time() - start
+    if duration >= SLOW_QUERY_THRESHOLD:
+        # Truncate long statements for readability
+        stmt_preview = statement[:300] + ("..." if len(statement) > 300 else "")
+        logger.warning(
+            "Slow query detected (%.2fs)",
+            duration,
+            extra={
+                "method": "SQL",
+                "path": f"slow_query ({duration:.2f}s)",
+                "status": "slow",
+                "duration_ms": round(duration * 1000, 1),
+                "sql_count": 0,
+                "query": stmt_preview,
+                "params": str(parameters)[:200] if parameters else None,
+            },
+        )
 
 # ── Structured JSON Logging ────────────────────────────────────────────────
 

@@ -9,6 +9,7 @@ router = APIRouter(prefix="/config", tags=["config"], dependencies=[Depends(requ
 
 CONTROL_KEY = "auto_disable_null_indicators"
 LOGGING_KEY = "structured_logging_enabled"
+SLOW_QUERY_KEY = "slow_query_logging_enabled"
 MONTH_SETTINGS_PREFIX = "month_enabled_"
 
 
@@ -46,16 +47,18 @@ def get_database_status(db: Session = Depends(get_db)):
 def get_control_settings(db: Session = Depends(get_db)):
     row = db.query(SystemSetting).filter(SystemSetting.key == CONTROL_KEY).first()
     log_row = db.query(SystemSetting).filter(SystemSetting.key == LOGGING_KEY).first()
+    slow_row = db.query(SystemSetting).filter(SystemSetting.key == SLOW_QUERY_KEY).first()
     return {
         "auto_disable_null_indicators": (row.value == "true") if row else False,
         "structured_logging_enabled": (log_row.value == "true") if log_row else True,
+        "slow_query_logging_enabled": (slow_row.value == "true") if slow_row else True,
     }
 
 
 @router.put("/control/settings")
 def update_control_settings(updates: dict = Body(...), db: Session = Depends(get_db)):
     updated = {}
-    for key in (CONTROL_KEY, LOGGING_KEY):
+    for key in (CONTROL_KEY, LOGGING_KEY, SLOW_QUERY_KEY):
         if key in updates:
             val = str(updates[key]).lower()
             row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
@@ -65,10 +68,13 @@ def update_control_settings(updates: dict = Body(...), db: Session = Depends(get
                 db.add(SystemSetting(key=key, value=val))
             updated[key] = val == "true"
     db.commit()
-    # Update runtime logging flag immediately
+    # Update runtime flags immediately
     if LOGGING_KEY in updated:
         from app.monitoring import set_logging_enabled
         set_logging_enabled(updated[LOGGING_KEY])
+    if SLOW_QUERY_KEY in updated:
+        from app.monitoring import set_slow_query_logging
+        set_slow_query_logging(updated[SLOW_QUERY_KEY])
     return {"status": "ok", **updated}
 
 

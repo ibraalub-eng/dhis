@@ -1789,6 +1789,8 @@
                 if (cb) cb.checked = !!data.auto_disable_null_indicators;
                 const logCb = document.getElementById('cfg_structured_logging');
                 if (logCb) logCb.checked = data.structured_logging_enabled !== false;
+                const sqCb = document.getElementById('cfg_slow_query_logging');
+                if (sqCb) sqCb.checked = data.slow_query_logging_enabled !== false;
             }).catch(() => {});
             initDevHints();
         }
@@ -1796,13 +1798,16 @@
         export function saveControlSettings() {
             const cb = document.getElementById('cfg_auto_disable_null');
             const logCb = document.getElementById('cfg_structured_logging');
+            const sqCb = document.getElementById('cfg_slow_query_logging');
             const val = cb ? cb.checked : false;
             const logVal = logCb ? logCb.checked : true;
+            const sqVal = sqCb ? sqCb.checked : true;
             const status = document.getElementById('controlSaveStatus');
             if (status) { status.textContent = 'Saving...'; status.style.color = '#1565c0'; }
             apiPut('/config/control/settings', {
                 auto_disable_null_indicators: val ? 'true' : 'false',
                 structured_logging_enabled: logVal ? 'true' : 'false',
+                slow_query_logging_enabled: sqVal ? 'true' : 'false',
             }).then(() => {
                 if (status) { status.textContent = '\u2713 Saved'; status.style.color = '#2e7d32'; }
             }).catch(e => {
