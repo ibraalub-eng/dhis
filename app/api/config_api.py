@@ -118,55 +118,28 @@ def update_config(updates: dict, db: Session = Depends(get_db)):
 
 @router.get("/ai/settings")
 def get_ai_settings(db: Session = Depends(get_db)):
-    return get_ai_config(db)
+    try:
+        return get_ai_config(db)
+    except Exception:
+        # Table may not exist yet (first deploy before migrations)
+        return {k: v for k, v in AI_CONFIG_KEYS.items()}
 
 
 @router.put("/ai/settings")
 def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
-    for key, val in updates.items():
-        if key not in AI_CONFIG_KEYS:
-            continue
-        row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-        if row:
-            row.value = str(val)
-        else:
-            db.add(SystemSetting(key=key, value=str(val)))
-    db.commit()
-    from app.plugins.ai import reload_ai_config
-    reload_ai_config()
-    return {"status": "ok", "updated": len(updates)}
-
-
-@router.get("/")
-def get_all_config(db: Session = Depends(get_db)):
-    rows = db.query(AppConfig).all()
-    result = {}
-    for r in rows:
-        if r.category not in result:
-            result[r.category] = {}
-        result[r.category][r.key] = {
-            "value": r.value,
-            "label": r.label,
-        }
-    return result
-
-
-@router.get("/{category}")
-def get_config_by_category(category: str, db: Session = Depends(get_db)):
-    rows = db.query(AppConfig).filter(AppConfig.category == category).all()
-    return {r.key: {"value": r.value, "label": r.label} for r in rows}
-
-
-@router.put("/")
-def update_config(updates: dict, db: Session = Depends(get_db)):
-    updated = 0
-    for key, val in updates.items():
-        row = db.query(AppConfig).filter(AppConfig.key == key).first()
-        if row:
-            try:
-                row.value = float(val)
-                updated += 1
-            except (TypeError, ValueError):
-                raise HTTPException(status_code=422, detail=f"Invalid numeric value for '{key}': {val}")
-    db.commit()
-    return {"status": "ok", "updated": updated}
+    try:
+        for key, val in updates.items():
+            if key not in AI_CONFIG_KEYS:
+                continue
+            row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+            if row:
+                row.value = str(val)
+            else:
+                db.add(SystemSetting(key=key, value=str(val)))
+        db.commit()
+        from app.plugins.ai import reload_ai_config
+        reload_ai_config()
+        return {"status": "ok", "updated": len(updates)}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error saving AI settings: {str(e)}")
