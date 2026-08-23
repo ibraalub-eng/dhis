@@ -1,0 +1,69 @@
+{
+  "_comment": "Hospital metadata auto-applied on startup. Matched by hospital name.",
+  "_instructions": "Add/edit entries below. Only NULL fields are updated — safe to run every startup.",
+  "hospitals": [
+    {
+      "name": "مستشفى ناصر",
+      "governorate": "خان يونس",
+      "hospital_type": "عام",
+      "facility_ownership": "حكومة",
+      "facility_type": "مستشفيات"
+    },
+    {
+      "name": "مستشفى الشفاء",
+      "governorate": "غزة",
+      "hospital_type": "عام",
+      "facility_ownership": "حكومة",
+      "facility_type": "مستشفيات"
+    },
+    {
+      "name": "مستشفى العرينة",
+      "governorate": "رفح",
+      "hospital_type": "عام",
+      "facility_ownership": "حكومة",
+      "facility_type": "مستشفيات"
+    },
+    {
+      "name": "مستشفى النصر",
+      "governorate": "شمال غزة",
+      "hospital_type": "عام",
+      "facility_ownership": "حكومة",
+      "facility_type": "مستشفيات"
+    },
+    {
+      "name": "مستشفى بيت حانون",
+      "governorate": "شمال غزة",
+      "hospital_type": "عام",
+      "facility_ownership": "حكومة",
+      "facility_type": "مستشفيات"
+    },
+    {
+      "name": "مستشفى محمد الدرة",
+      "governorate": "شمال غزة",
+      "hospital_type": "عام",
+      "facility_ownership": "حكومة",
+      "facility_type": "مستشفيات"
+    },
+    {
+      "name": "مستشفى الأكاديمية البحرية",
+      "governorate": "غزة",
+      "hospital_type": "تخصصي",
+      "facility_ownership": "حكومي",
+      "facility_type": "مستشفيات"
+    },
+    {
+      "name": "مستشفى كويкопا",
+      "governorate": "جنوب غزة",
+      "hospital_type": "عام",
+      "facility_ownership": "INGOs",
+      "facility_type": "مستشفيات"
+    },
+    {
+      "name": "مستشفى الأمل",
+      "governorate": "خان يونس",
+      "hospital_type": "عام",
+      "facility_ownership": "INGOs",
+      "facility_type": "مستشفيات"
+    }
+  ]
+}

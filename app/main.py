@@ -17,6 +17,7 @@ from app.tasks import get_task  # noqa: E402
 from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR, DATA_DIR  # noqa: E402
 from scripts.seed_indicators import seed_indicators  # noqa: E402
 from scripts.seed_rules import seed_rules  # noqa: E402
+from scripts.seed_hospital_metadata import seed_hospital_metadata  # noqa: E402
 import os  # noqa: E402
 import re  # noqa: E402
 import logging  # noqa: E402
@@ -240,9 +241,17 @@ async def lifespan(app: FastAPI):
 
                 session.commit()
                 print("[startup] Migrations and seeding complete.")
-            else:
-                print("[startup] Database already initialized — skipping migrations.")
-                session.commit()  # ensure clean state
+
+            # Apply hospital metadata (OrgUnit ID, Ownership, Governorate, Type)
+            # from scripts/hospital_metadata.json — safe to run every startup.
+            try:
+                updated = seed_hospital_metadata(session)
+                if updated:
+                    print(f"[startup] Applied metadata to {updated} hospitals")
+            except Exception as e:
+                print(f"[startup] Hospital metadata seeding skipped: {e}")
+
+            session.commit()  # ensure clean state
 
             # Load logging setting
             from app.models import SystemSetting
