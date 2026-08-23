@@ -1212,7 +1212,7 @@ def analyze_anomaly_patterns(
         SELECT indicator_code, MIN(rate_name) as rate_name, COUNT(*) as hosp_count,
                AVG(ABS(z_score)) as avg_z
         FROM anomaly_results
-        WHERE hospital_id = :hid AND month = :mth AND is_outlier = 1
+        WHERE hospital_id = :hid AND month = :mth AND is_outlier = TRUE
         GROUP BY indicator_code
         ORDER BY AVG(ABS(z_score)) DESC
     """), {"hid": hospital_id, "mth": month})
@@ -1227,7 +1227,7 @@ def analyze_anomaly_patterns(
             JOIN (SELECT DISTINCT month FROM indicator_values
                   WHERE hospital_id = :hid AND month < :mth) prev
             WHERE ar.hospital_id = :hid AND ar.indicator_code = :ic
-            AND ar.is_outlier = 1 AND ar.month = prev.month
+            AND ar.is_outlier = TRUE AND ar.month = prev.month
         """), {"hid": hospital_id, "mth": month, "ic": code})
         recurrence = prev_result.scalar() or 0
         if abs(avg_z) > 3:
