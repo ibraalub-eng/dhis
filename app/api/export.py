@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 
 from app.database import get_db
 from app.engine.export import build_full_export, NoDataError
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/export", tags=["Export"])
+router = APIRouter(prefix="/export", tags=["Export"], dependencies=[Depends(require_permission("data.export"))])
 
 
 @router.get("/full-data")

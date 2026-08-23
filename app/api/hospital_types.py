@@ -5,8 +5,9 @@ from app.database import get_db
 from app.cache import cache
 from app.models import HospitalType, Hospital
 from app.schemas import HospitalTypeOut, HospitalTypeCreate
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/hospital-types", tags=["hospital_types"])
+router = APIRouter(prefix="/hospital-types", tags=["hospital_types"], dependencies=[Depends(require_permission("analysis.read"))])
 
 
 @router.get("/", response_model=List[HospitalTypeOut])

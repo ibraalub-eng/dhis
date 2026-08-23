@@ -14,8 +14,9 @@ from sqlalchemy.orm import Session
 from app.cache import cache
 from app.database import get_db
 from app.engine.smart.regional import run_regional_analysis
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/regional", tags=["Regional Intelligence"])
+router = APIRouter(prefix="/regional", tags=["Regional Intelligence"], dependencies=[Depends(require_permission("smart_analytics.read"))])
 
 
 def _sanitize(obj):

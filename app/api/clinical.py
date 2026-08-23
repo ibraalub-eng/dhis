@@ -6,8 +6,9 @@ from app.models import Hospital, QualityScore, ValidationResult
 from app.engine.pipeline import get_enabled_values_for_hospital_month
 from app.engine.clinical import run_clinical_analysis
 from app.schemas import ClinicalAnalysisOut, ClinicalRiskProfileOut, ClinicalMorbidityProfileOut
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/clinical", tags=["clinical"])
+router = APIRouter(prefix="/clinical", tags=["clinical"], dependencies=[Depends(require_permission("clinical.read"))])
 
 
 @router.get("/{hospital_id}", response_model=ClinicalAnalysisOut)

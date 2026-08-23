@@ -13,6 +13,7 @@ from app.indicators import INDICATOR_FLAT_LIST
 from app.models import IndicatorValue, Indicator, Hospital
 from app.cache import cache
 from app.engine.comparative.report_cache import invalidate_report_cache
+from app.core.deps import require_permission
 from datetime import datetime
 import logging
 
@@ -95,7 +96,7 @@ def download_template():
 
 
 @router.post("/preview")
-def preview_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def preview_excel(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported extension: {ext}")
@@ -146,6 +147,7 @@ def save_manual_entry(
     month: str = Query(..., description="YYYY-MM"),
     data: str = Query(..., description='JSON dict of indicator_code: value, e.g. {"2":450,"3":300}'),
     db: Session = Depends(get_db),
+    user=Depends(require_permission("data.upload")),
 ):
     try:
         values = json.loads(data)
@@ -189,7 +191,7 @@ def save_manual_entry(
 
 
 @router.post("/", response_model=UploadResponse)
-async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -233,7 +235,7 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
 
 
 @router.post("/analyze", response_model=AutoReportResponse)
-async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(

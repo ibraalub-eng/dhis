@@ -2,10 +2,52 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.database import Base
+from app.database import Base, get_db
+from app.core.deps import get_current_user
 from app.models import Hospital
 from scripts.seed_indicators import seed_indicators
 from scripts.seed_rules import seed_rules
+
+
+class _FakeSuperAdmin:
+    """Minimal superadmin stub for test auth bypass."""
+    id = 99999
+    username = "testadmin"
+    email = "test@test.local"
+    full_name = "Test Admin"
+    is_active = True
+    is_superuser = True
+    roles = []
+
+
+@pytest.fixture(autouse=True)
+def _bypass_auth(app, db_session):
+    """Override get_current_user so all existing tests pass without JWT tokens.
+
+    Auth-specific tests in test_auth.py use their own client fixture
+    that does NOT override get_current_user, so they test real auth.
+    """
+    def override_get_user():
+        return _FakeSuperAdmin()
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+
+    app.dependency_overrides[get_current_user] = override_get_user
+    app.dependency_overrides[get_db] = override_get_db
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
+    app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.fixture
+def app():
+    """Provide the FastAPI app instance for dependency override tests."""
+    from app.main import app as _app
+    return _app
 
 
 @pytest.fixture(autouse=True)

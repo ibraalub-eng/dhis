@@ -12,6 +12,7 @@ from app.utils.excel_parser import process_excel_upload
 from datetime import datetime
 from app.config import UPLOAD_DIR
 from app.schemas import MultiFileUploadResponse
+from app.core.deps import require_permission
 import os
 import shutil
 import json
@@ -19,7 +20,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/analysis", tags=["analysis"])
+router = APIRouter(prefix="/analysis", tags=["analysis"], dependencies=[Depends(require_permission("data.upload"))])
 
 ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".xlsm", ".xlsb"}
 

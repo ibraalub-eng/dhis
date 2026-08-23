@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.engine.comparative import generate_comprehensive_report, perform_advanced_comparison
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/comparative", tags=["Comparative Analysis"])
+router = APIRouter(prefix="/comparative", tags=["Comparative Analysis"], dependencies=[Depends(require_permission("smart_analytics.read"))])
 
 
 @router.get("/comprehensive-report/{month}")

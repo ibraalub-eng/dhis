@@ -24,12 +24,13 @@ from pydantic import BaseModel
 from app.schemas import (
     HistoricalAnalysisOut, HospitalComparisonOut,
 )
+from app.core.deps import require_permission
 import json
 import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/analysis", tags=["analysis"])
+router = APIRouter(prefix="/analysis", tags=["analysis"], dependencies=[Depends(require_permission("analysis.read"))])
 
 
 class QualityTrendPoint(BaseModel):

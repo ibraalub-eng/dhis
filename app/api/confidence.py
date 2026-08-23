@@ -16,11 +16,12 @@ from app.engine.confidence import (
 )
 from app.indicators import PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME
 from app.schemas import HospitalConfidenceOut, ConfidenceComparisonOut
+from app.core.deps import require_permission
 import logging
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/confidence", tags=["confidence"])
+router = APIRouter(prefix="/confidence", tags=["confidence"], dependencies=[Depends(require_permission("analysis.read"))])
 
 KEY_INDICATOR_CODES = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "16", "17", "18", "26"]
 

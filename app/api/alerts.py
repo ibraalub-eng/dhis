@@ -4,8 +4,9 @@ from sqlalchemy import func, case
 from typing import Optional
 from app.database import get_db
 from app.models import Hospital, ValidationResult, AnomalyResult
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/alerts", tags=["alerts"])
+router = APIRouter(prefix="/alerts", tags=["alerts"], dependencies=[Depends(require_permission("alerts.read"))])
 
 SEVERITY_ORDER = case(
     (ValidationResult.severity == "CRITICAL", 0),

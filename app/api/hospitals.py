@@ -6,8 +6,9 @@ from app.cache import cache
 from app.models import Hospital, Indicator
 from app.schemas import HospitalOut, IndicatorOut, HospitalCreate
 from app.engine.pipeline import run_full_analysis
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/hospitals", tags=["hospitals"])
+router = APIRouter(prefix="/hospitals", tags=["hospitals"], dependencies=[Depends(require_permission("hospitals.read"))])
 
 
 @router.get("/", response_model=List[HospitalOut])

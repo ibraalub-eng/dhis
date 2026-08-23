@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
+from app.core.deps import get_current_user
 from app.main import app
 from app.core.security import (
     hash_password, verify_password,
@@ -119,13 +120,14 @@ def test_refresh_token_model(db_session):
 
 @pytest.fixture
 def client(db_session):
-    """Override get_db to use the test db_session."""
+    """Override get_db to use the test db_session. Remove auth bypass so real auth is tested."""
     def override_get_db():
         try:
             yield db_session
         finally:
             pass
     app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides.pop(get_current_user, None)
     yield TestClient(app)
     app.dependency_overrides.clear()
 

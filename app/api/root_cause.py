@@ -4,9 +4,10 @@ from app.database import get_db
 from app.models import Hospital, QualityScore, ConfidenceScore
 from app.engine.root_cause import generate_root_cause_analysis, get_historical_data, get_peer_historical_data
 from app.engine.pipeline import run_full_analysis
+from app.core.deps import require_permission
 import json
 
-router = APIRouter(prefix="/root-cause", tags=["root-cause"])
+router = APIRouter(prefix="/root-cause", tags=["root-cause"], dependencies=[Depends(require_permission("root_cause.read"))])
 
 # المؤشرات المصدرية الأساسية للمقارنة الزمنية (أكواد مخزنة) مع أسمائها العربية
 _TIMELINE_INDICATORS = [

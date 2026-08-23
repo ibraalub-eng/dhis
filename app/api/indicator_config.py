@@ -7,8 +7,9 @@ from app.schemas import (
     HospitalIndicatorConfigOut, ConfigToggleOut,
     IndicatorUpdate, IndicatorOut, IndicatorBase,
 )
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/hospitals", tags=["hospitals"])
+router = APIRouter(prefix="/hospitals", tags=["hospitals"], dependencies=[Depends(require_permission("settings.read"))])
 
 
 def _get_or_create_config(db: Session, hospital_id: int, indicator_id: int) -> HospitalIndicatorConfig:

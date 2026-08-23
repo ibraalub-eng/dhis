@@ -11,8 +11,9 @@ from app.cache import cache
 from app.database import get_db
 from app.engine.smart import run_smart_analytics
 from app.engine.smart.schemas import SmartAnalyticsResult
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/smart", tags=["Smart Analytics"])
+router = APIRouter(prefix="/smart", tags=["Smart Analytics"], dependencies=[Depends(require_permission("smart_analytics.read"))])
 
 SMART_CACHE_VERSION = "v3"
 

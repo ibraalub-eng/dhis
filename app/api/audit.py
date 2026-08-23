@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Hospital
 from app.engine.audit import get_calculation_steps, get_benchmark, get_data_audit, generate_audit_report
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/audit", tags=["audit"])
+router = APIRouter(prefix="/audit", tags=["audit"], dependencies=[Depends(require_permission("audit.read"))])
 
 
 @router.get("/calculation-steps/{hospital_id}")

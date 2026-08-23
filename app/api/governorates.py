@@ -5,8 +5,9 @@ from app.database import get_db
 from app.cache import cache
 from app.models import Governorate, Hospital
 from app.schemas import GovernorateOut, GovernorateCreate
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/governorates", tags=["governorates"])
+router = APIRouter(prefix="/governorates", tags=["governorates"], dependencies=[Depends(require_permission("analysis.read"))])
 
 
 @router.get("/", response_model=List[GovernorateOut])

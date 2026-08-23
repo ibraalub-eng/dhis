@@ -4,8 +4,9 @@ from typing import List
 from app.database import get_db
 from app.models import Rule
 from app.schemas import RuleOut, RuleCreate, RuleUpdate
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/rules", tags=["rules"])
+router = APIRouter(prefix="/rules", tags=["rules"], dependencies=[Depends(require_permission("rules.read"))])
 
 
 @router.get("/", response_model=List[RuleOut])
