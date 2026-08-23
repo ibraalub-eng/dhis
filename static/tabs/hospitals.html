@@ -12,6 +12,7 @@
     <div id="hospSub-hospitals" class="hosp-subtab-content">
         <div style="display:flex;gap:0.5rem;margin-bottom:0.8rem;flex-wrap:wrap;align-items:center;">
             <button class="btn" onclick="showHospitalModal()" style="background:#1a237e;color:white;">+ Add Hospital</button>
+            <button class="btn" onclick="exportHospitalsCSV()" style="background:#2e7d32;color:white;">📥 Export CSV</button>
             <input type="text" id="hospSearch" placeholder="Search by name..." oninput="filterHospitals()" style="padding:0.3rem 0.5rem;border:1px solid #ccc;border-radius:4px;width:200px;">
             <select id="hospFilterGov" onchange="filterHospitals()" style="padding:0.3rem 0.5rem;border:1px solid #ccc;border-radius:4px;">
                 <option value="">All Governorates</option>

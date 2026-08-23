@@ -493,4 +493,33 @@ function deleteFacilityType(id) {
 }
 window.deleteFacilityType = deleteFacilityType;
 
+// ── Export CSV ─────────────────────────────────────────────────
+
+function exportHospitalsCSV() {
+    if (!_hospitals.length) {
+        alert('No hospitals to export.');
+        return;
+    }
+    const headers = ['ID', 'Name', 'OrgUnit ID', 'Ownership', 'Facility Type', 'Governorate', 'Type', 'Address', 'Status'];
+    const rows = _hospitals.map(h => [
+        h.id,
+        '"' + (h.name || '').replace(/"/g, '""') + '"',
+        h.organisation_unit_id || '',
+        '"' + (h.facility_ownership_name || '') + '"',
+        '"' + (h.facility_type_name || '') + '"',
+        '"' + (h.governorate_name || '') + '"',
+        '"' + (h.hospital_type_name || '') + '"',
+        '"' + (h.address || '').replace(/"/g, '""') + '"',
+        h.is_active ? 'Active' : 'Inactive'
+    ]);
+    const csv = '\ufeff' + headers.join(',') + '\n' + rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'hospitals_export_' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
+window.exportHospitalsCSV = exportHospitalsCSV;
+
 
