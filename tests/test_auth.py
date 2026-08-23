@@ -132,19 +132,32 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
-def _seed_user(db_session, username="testuser", password="test123", role_name="viewer"):
+def _seed_user(db_session, username="testuser", password="test123", role_name="viewer", is_superuser=False):
     """Seed a test user into the DB. Returns user object."""
-    p = Permission(codename="dashboard.read")
-    role = Role(name=role_name, permissions=[p])
+    role = db_session.query(Role).filter(Role.name == role_name).first()
+    if not role:
+        p = Permission(codename="dashboard.read")
+        role = Role(name=role_name, permissions=[p])
+        db_session.add(role)
+        db_session.flush()
     user = User(
         username=username, email=f"{username}@test.com",
         full_name=username.title(),
         password_hash=hash_password(password),
+        is_superuser=is_superuser,
         roles=[role],
     )
     db_session.add(user)
     db_session.commit()
     return user
+
+
+def _auth_header(client, db_session, username="admin", password="admin123"):
+    """Seed a superadmin, login, return Authorization header."""
+    _seed_user(db_session, username=username, password=password, is_superuser=True)
+    resp = client.post("/auth/login", json={"username": username, "password": password})
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
 
 
 def test_login_success(client, db_session):
@@ -206,3 +219,56 @@ def test_me_endpoint(client, db_session):
 def test_me_unauthenticated(client):
     resp = client.get("/auth/me")
     assert resp.status_code == 401
+
+
+# --- Admin API tests ---
+
+def test_admin_list_users(client, db_session):
+    headers = _auth_header(client, db_session)
+    resp = client.get("/admin/users", headers=headers)
+    assert resp.status_code == 200
+    assert "users" in resp.json()
+
+
+def test_admin_create_user(client, db_session):
+    headers = _auth_header(client, db_session)
+    resp = client.post("/admin/users", headers=headers, json={
+        "username": "newdoc", "email": "doc@test.com", "full_name": "Dr. Test",
+        "password": "pass123", "role_ids": [],
+    })
+    assert resp.status_code == 201
+    assert resp.json()["username"] == "newdoc"
+
+
+def test_admin_create_duplicate_user(client, db_session):
+    _seed_user(db_session, username="dup")
+    headers = _auth_header(client, db_session)
+    resp = client.post("/admin/users", headers=headers, json={
+        "username": "dup", "email": "dup@test.com", "full_name": "Dup", "password": "p",
+    })
+    assert resp.status_code == 400
+
+
+def test_admin_update_user(client, db_session):
+    user = _seed_user(db_session)
+    headers = _auth_header(client, db_session)
+    resp = client.put(f"/admin/users/{user.id}", headers=headers, json={"full_name": "Updated"})
+    assert resp.status_code == 200
+    assert resp.json()["full_name"] == "Updated"
+
+
+def test_admin_deactivate_user(client, db_session):
+    user = _seed_user(db_session)
+    headers = _auth_header(client, db_session)
+    resp = client.delete(f"/admin/users/{user.id}", headers=headers)
+    assert resp.status_code == 200
+    db_session.refresh(user)
+    assert user.is_active is False
+
+
+def test_admin_unauthorized(client, db_session):
+    _seed_user(db_session, username="normal", role_name="viewer")
+    resp = client.post("/auth/login", json={"username": "normal", "password": "test123"})
+    token = resp.json()["access_token"]
+    resp = client.get("/admin/users", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 403
