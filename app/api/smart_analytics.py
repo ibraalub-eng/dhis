@@ -232,7 +232,7 @@ def _get_smart_data(db: Session, month: str) -> dict:
         logger.warning(f"early_warnings failed for {month}: {e}")
         response["data"]["early_warnings"] = []
 
-    cache.set(cache_key, response, ttl=300)
+    cache.set(cache_key, response, ttl=1800)
     return response
 
 
@@ -446,23 +446,27 @@ def get_trend(hospital_id: int, db: Session = Depends(get_db)):
         months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
         trend_data = []
         for m in months:
-            data = _get_smart_data(db, m)["data"]
-            hospital_anomaly = next(
-                (a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None
-            )
-            if hospital_anomaly:
-                trend_data.append({
-                    "month": m,
-                    "anomaly_score": hospital_anomaly["anomaly_score"],
-                    "severity": hospital_anomaly["severity"],
-                    "method_scores": hospital_anomaly["method_scores"],
-                })
+            try:
+                data = _get_smart_data(db, m)["data"]
+                hospital_anomaly = next(
+                    (a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None
+                )
+                if hospital_anomaly:
+                    trend_data.append({
+                        "month": m,
+                        "anomaly_score": hospital_anomaly["anomaly_score"],
+                        "severity": hospital_anomaly["severity"],
+                        "method_scores": hospital_anomaly["method_scores"],
+                    })
+            except Exception:
+                logger.warning(f"Failed to load trend data for month {m}")
+                continue
         response = _sanitize({
             "hospital_id": hospital_id,
             "hospital_name": hospital.name,
             "trend": trend_data,
         })
-        cache.set(cache_key, response, ttl=300)
+        cache.set(cache_key, response, ttl=1800)
         return response
     except HTTPException:
         raise
@@ -484,7 +488,7 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
             raise HTTPException(status_code=404, detail="Hospital not found")
         if month == "all":
             response = _get_drilldown_all_months(db, hospital_id, hospital)
-            cache.set(cache_key, response, ttl=300)
+            cache.set(cache_key, response, ttl=1800)
             return response
         data = _get_smart_data(db, month)["data"]
         anomaly = next((a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None)
@@ -503,7 +507,7 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
             "stratified": stratified,
             "forecast": _sanitize(forecast) if forecast else {},
         })
-        cache.set(cache_key, response, ttl=300)
+        cache.set(cache_key, response, ttl=1800)
         return response
     except HTTPException:
         raise
@@ -569,7 +573,7 @@ def get_anomaly_timeline(db: Session = Depends(get_db)):
 
         hospitals = sorted(hospital_map.values(), key=lambda h: h["hospital_name"])
         response = _sanitize({"months": months, "hospitals": hospitals})
-        cache.set(cache_key, response, ttl=300)
+        cache.set(cache_key, response, ttl=1800)
         return response
     except Exception as e:
         cache.invalidate("smart_timeline")
@@ -593,7 +597,7 @@ def get_time_overview(db: Session = Depends(get_db)):
         months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
         if not months:
             response = {"empty": True, "message": "لا توجد بيانات بعد", "months": []}
-            cache.set(cache_key, response, ttl=300)
+            cache.set(cache_key, response, ttl=1800)
             return response
 
         series = {
@@ -611,7 +615,7 @@ def get_time_overview(db: Session = Depends(get_db)):
             series["affected_governorates"].append({"month": m, "value": data["kpi"]["affected_governorates"]})
 
         response = _sanitize({"months": months, "series": series})
-        cache.set(cache_key, response, ttl=300)
+        cache.set(cache_key, response, ttl=1800)
         return response
     except Exception as e:
         cache.invalidate("smart_time_overview_")
