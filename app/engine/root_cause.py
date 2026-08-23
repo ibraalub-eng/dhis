@@ -2,7 +2,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import text, func
+from app.models import Hospital, Indicator, IndicatorValue, ValidationResult, QualityScore, ConfidenceScore, AnomalyResult, Rule
 import json
 import logging
 
@@ -221,44 +222,59 @@ def get_historical_data(
     Returns list of MonthDataPoint objects for the last N months.
     """
     cutoff = _month_offset(month, months_back) if month else ""
-    params = {"hid": hospital_id, "code": indicator_code}
+    indicator = session.query(Indicator).filter(Indicator.code == indicator_code).first()
+    if not indicator:
+        return []
+
+    # Main query: indicator values with quality + confidence scores
+    q = (
+        session.query(
+            IndicatorValue.month,
+            IndicatorValue.value,
+            func.coalesce(QualityScore.score, 0).label("quality_score"),
+            func.coalesce(ConfidenceScore.overall_confidence, 0).label("confidence"),
+        )
+        .join(Indicator, IndicatorValue.indicator_id == Indicator.id)
+        .outerjoin(QualityScore, (IndicatorValue.hospital_id == QualityScore.hospital_id) & (IndicatorValue.month == QualityScore.month))
+        .outerjoin(ConfidenceScore, (IndicatorValue.hospital_id == ConfidenceScore.hospital_id) & (IndicatorValue.month == ConfidenceScore.month))
+        .filter(IndicatorValue.hospital_id == hospital_id, Indicator.id == indicator.id)
+        .order_by(IndicatorValue.month.asc())
+    )
     if cutoff:
-        month_cond = " AND iv.month >= :cutoff"
-        params["cutoff"] = cutoff
-    else:
-        month_cond = ""
-    result = session.execute(text(f"""
-        SELECT iv.month, iv.value,
-               COALESCE(qs.score, 0) as quality_score,
-               COALESCE(cs.overall_confidence, 0) as confidence,
-               COALESCE(
-                   (SELECT COUNT(*) FROM validation_results vr
-                    WHERE vr.hospital_id = iv.hospital_id
-                    AND vr.month = iv.month AND vr.status = 'FAIL') * 100.0 /
-                   NULLIF((SELECT COUNT(*) FROM validation_results vr2
-                           WHERE vr2.hospital_id = iv.hospital_id
-                           AND vr2.month = iv.month), 0),
-                   0) as rule_failure_rate
-        FROM indicator_values iv
-        JOIN indicators i ON iv.indicator_id = i.id
-        LEFT JOIN quality_scores qs ON iv.hospital_id = qs.hospital_id
-            AND iv.month = qs.month
-        LEFT JOIN confidence_scores cs ON iv.hospital_id = cs.hospital_id
-            AND iv.month = cs.month
-        WHERE iv.hospital_id = :hid
-        AND i.code = :code
-        {month_cond}
-        ORDER BY iv.month ASC
-    """), params)
+        q = q.filter(IndicatorValue.month >= cutoff)
+
+    rows = q.all()
+
+    # Pre-fetch rule failure rates per month for this hospital
+    fail_counts = {}
+    total_counts = {}
+    for fc_row in (
+        session.query(ValidationResult.month, func.count(ValidationResult.id))
+        .filter(ValidationResult.hospital_id == hospital_id, ValidationResult.status == "FAIL")
+        .group_by(ValidationResult.month)
+        .all()
+    ):
+        fail_counts[fc_row[0]] = fc_row[1]
+    for tc_row in (
+        session.query(ValidationResult.month, func.count(ValidationResult.id))
+        .filter(ValidationResult.hospital_id == hospital_id)
+        .group_by(ValidationResult.month)
+        .all()
+    ):
+        total_counts[tc_row[0]] = tc_row[1]
 
     history = []
-    for row in result:
+    for row in rows:
+        m = row[0]
+        fails = fail_counts.get(m, 0)
+        total = total_counts.get(m, 0)
+        rate = round((fails * 100.0 / total), 2) if total > 0 else 0.0
         history.append(MonthDataPoint(
-            month=row[0],
+            month=m,
             value=float(row[1] or 0),
             quality_score=float(row[2] or 0),
             confidence=float(row[3] or 0),
-            rule_failure_rate=float(row[4] or 0),
+            rule_failure_rate=rate,
         ))
     return history
 
@@ -319,23 +335,24 @@ def get_rule_failure_history(
     القاعدة عبر الأشهر بدل قيمة مؤشر.
     """
     cutoff = _month_offset(month, months_back) if month else ""
-    params = {"hid": hospital_id, "rc": rule_code}
-    month_cond = ""
+    q = (
+        session.query(
+            ValidationResult.month,
+            func.sum(func.case((ValidationResult.status == "FAIL", 1), else_=0)).label("fails"),
+            func.count(ValidationResult.id).label("total"),
+        )
+        .filter(ValidationResult.hospital_id == hospital_id, ValidationResult.rule_code == rule_code)
+        .group_by(ValidationResult.month)
+        .order_by(ValidationResult.month.asc())
+    )
     if cutoff:
-        month_cond = " AND vr.month >= :cutoff"
-        params["cutoff"] = cutoff
-    result = session.execute(text(f"""
-        SELECT vr.month,
-               SUM(CASE WHEN vr.status = 'FAIL' THEN 1 ELSE 0 END) * 100.0 /
-                   NULLIF(COUNT(*), 0) as failure_rate
-        FROM validation_results vr
-        WHERE vr.hospital_id = :hid AND vr.rule_code = :rc {month_cond}
-        GROUP BY vr.month
-        ORDER BY vr.month ASC
-    """), params)
+        q = q.filter(ValidationResult.month >= cutoff)
+    rows = q.all()
     history = []
-    for row in result:
-        rate = float(row[1] or 0)
+    for row in rows:
+        fails = row[1] or 0
+        total = row[2] or 0
+        rate = round((fails * 100.0 / total), 2) if total > 0 else 0.0
         history.append(MonthDataPoint(
             month=row[0],
             value=round(rate, 2),
@@ -358,19 +375,15 @@ def get_peer_historical_data(
 
     Returns dict of {hospital_name: [MonthDataPoint, ...]}
     """
-    hospital = session.execute(text("""
-        SELECT hospital_type_id FROM hospitals WHERE id = :hid
-    """), {"hid": hospital_id}).fetchone()
-
-    if not hospital or not hospital[0]:
+    hosp = session.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hosp or not hosp.hospital_type_id:
         return {}
 
-    peers = session.execute(text("""
-        SELECT id, name FROM hospitals
-        WHERE hospital_type_id = :htid
-        AND id != :hid
-        AND is_active = TRUE
-    """), {"htid": hospital[0], "hid": hospital_id})
+    peers = session.query(Hospital.id, Hospital.name).filter(
+        Hospital.hospital_type_id == hosp.hospital_type_id,
+        Hospital.id != hospital_id,
+        Hospital.is_active.is_(True),
+    )
 
     peer_data = {}
     for peer in peers:
@@ -441,49 +454,39 @@ def identify_peer_groups(session: Session, hospital_id: int) -> Dict[str, List[i
     Returns: {peer_group_name: [hospital_ids]}
     If a peer group has fewer than MIN_PEER_SIZE members, it is excluded.
     """
-    hospital = session.execute(text("""
-        SELECT hospital_type_id, facility_ownership_id, governorate_id
-        FROM hospitals WHERE id = :hid
-    """), {"hid": hospital_id}).fetchone()
-
-    if not hospital:
+    hosp = session.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hosp:
         return {}
 
     result = {}
 
     # Peers by type
-    if hospital[0]:
-        peers = session.execute(text("""
-            SELECT id FROM hospitals
-            WHERE hospital_type_id = :htid
-            AND id != :hid
-            AND is_active = TRUE
-        """), {"htid": hospital[0], "hid": hospital_id})
-        peer_ids = [p[0] for p in peers]
+    if hosp.hospital_type_id:
+        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            Hospital.hospital_type_id == hosp.hospital_type_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        ).all()]
         if len(peer_ids) >= MIN_PEER_SIZE:
             result["hospital_type"] = peer_ids
 
     # Peers by ownership
-    if hospital[1]:
-        peers = session.execute(text("""
-            SELECT id FROM hospitals
-            WHERE facility_ownership_id = :foid
-            AND id != :hid
-        AND is_active = TRUE
-    """), {"foid": hospital[1], "hid": hospital_id})
-        peer_ids = [p[0] for p in peers]
+    if hosp.facility_ownership_id:
+        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            Hospital.facility_ownership_id == hosp.facility_ownership_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        ).all()]
         if len(peer_ids) >= MIN_PEER_SIZE:
             result["ownership"] = peer_ids
 
     # Peers by region
-    if hospital[2]:
-        peers = session.execute(text("""
-            SELECT id FROM hospitals
-            WHERE governorate_id = :gid
-            AND id != :hid
-        AND is_active = TRUE
-    """), {"gid": hospital[2], "hid": hospital_id})
-        peer_ids = [p[0] for p in peers]
+    if hosp.governorate_id:
+        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            Hospital.governorate_id == hosp.governorate_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        ).all()]
         if len(peer_ids) >= MIN_PEER_SIZE:
             result["regional"] = peer_ids
 
@@ -583,7 +586,7 @@ def _extract_rule_structure(session: Session) -> Dict[str, Dict]:
     Returns {} on empty rules table or unparseable params.
     """
     try:
-        rows = session.execute(text("SELECT code, params FROM rules")).fetchall()
+        rows = session.query(Rule.code, Rule.params).all()
     except Exception:
         return {}
     structure = {}
@@ -816,19 +819,24 @@ def analyze_rule_failures(
     hospital_id: int,
     month: str,
 ) -> List[RuleFailurePattern]:
-    result = session.execute(text("""
-        SELECT vr.rule_code, MIN(vr.rule_description) as rule_description,
-               MIN(vr.severity) as severity,
-               COALESCE(MIN(r.rule_type), MIN(vr.rule_type), 'LOGIC') as rule_type,
-               COUNT(*) as failure_count, MIN(vr.details) as details, MIN(r.params) as params
-        FROM validation_results vr
-        LEFT JOIN rules r ON r.code = vr.rule_code
-        WHERE vr.hospital_id = :hid AND vr.month = :mth AND vr.status = 'FAIL'
-        GROUP BY vr.rule_code
-        ORDER BY COUNT(*) DESC
-    """), {"hid": hospital_id, "mth": month})
+    rows = (
+        session.query(
+            ValidationResult.rule_code,
+            func.min(ValidationResult.rule_description).label("rule_description"),
+            func.min(ValidationResult.severity).label("severity"),
+            func.coalesce(func.min(Rule.rule_type), func.min(ValidationResult.rule_type), "LOGIC").label("rule_type"),
+            func.count(ValidationResult.id).label("failure_count"),
+            func.min(ValidationResult.details).label("details"),
+            func.min(Rule.params).label("params"),
+        )
+        .outerjoin(Rule, Rule.code == ValidationResult.rule_code)
+        .filter(ValidationResult.hospital_id == hospital_id, ValidationResult.month == month, ValidationResult.status == "FAIL")
+        .group_by(ValidationResult.rule_code)
+        .order_by(func.count(ValidationResult.id).desc())
+        .all()
+    )
     patterns = []
-    for row in result:
+    for row in rows:
         rule_code = row[0]
         desc = row[1] or ""
         severity = row[2] or "LOW"
@@ -840,11 +848,9 @@ def analyze_rule_failures(
             params = json.loads(params_raw) if params_raw else {}
         except (ValueError, TypeError):
             params = {}
-        total_result = session.execute(text("""
-            SELECT COUNT(*) FROM validation_results
-            WHERE hospital_id = :hid AND month = :mth AND rule_code = :rc
-        """), {"hid": hospital_id, "mth": month, "rc": rule_code})
-        total = total_result.scalar() or 1
+        total = session.query(func.count(ValidationResult.id)).filter(
+            ValidationResult.hospital_id == hospital_id, ValidationResult.month == month, ValidationResult.rule_code == rule_code
+        ).scalar() or 1
         failure_rate = round((failure_count / total) * 100, 1)
 
         primary_cause, recommendation = _diagnose_rule_failure_v2(rule_code, params, details)
@@ -1106,15 +1112,14 @@ def analyze_confidence_gaps(
     hospital_id: int,
     month: str,
 ) -> List[ConfidenceGap]:
-    result = session.execute(text("""
-        SELECT indicators_data FROM confidence_scores
-        WHERE hospital_id = :hid AND month = :mth
-    """), {"hid": hospital_id, "mth": month})
-    row = result.fetchone()
-    if not row or not row[0]:
+    cs = session.query(ConfidenceScore.indicators_data).filter(
+        ConfidenceScore.hospital_id == hospital_id,
+        ConfidenceScore.month == month,
+    ).first()
+    if not cs or not cs[0]:
         return []
     try:
-        indicators = json.loads(row[0])
+        indicators = json.loads(cs[0])
     except (json.JSONDecodeError, TypeError):
         return []
     gaps = []
@@ -1208,28 +1213,36 @@ def analyze_anomaly_patterns(
     hospital_id: int,
     month: str,
 ) -> List[AnomalyPattern]:
-    result = session.execute(text("""
-        SELECT indicator_code, MIN(rate_name) as rate_name, COUNT(*) as hosp_count,
-               AVG(ABS(z_score)) as avg_z
-        FROM anomaly_results
-        WHERE hospital_id = :hid AND month = :mth AND is_outlier = TRUE
-        GROUP BY indicator_code
-        ORDER BY AVG(ABS(z_score)) DESC
-    """), {"hid": hospital_id, "mth": month})
+    rows = (
+        session.query(
+            AnomalyResult.indicator_code,
+            func.min(AnomalyResult.rate_name).label("rate_name"),
+            func.count(AnomalyResult.id).label("hosp_count"),
+            func.avg(func.abs(AnomalyResult.z_score)).label("avg_z"),
+        )
+        .filter(AnomalyResult.hospital_id == hospital_id, AnomalyResult.month == month, AnomalyResult.is_outlier.is_(True))
+        .group_by(AnomalyResult.indicator_code)
+        .order_by(func.avg(func.abs(AnomalyResult.z_score)).desc())
+        .all()
+    )
+    # Pre-fetch previous months for recurrence check
+    prev_months = [r[0] for r in session.query(IndicatorValue.month).filter(
+        IndicatorValue.hospital_id == hospital_id, IndicatorValue.month < month
+    ).distinct().all()]
     patterns = []
-    for row in result:
+    for row in rows:
         code = row[0] or ""
         rate_name = row[1] or ""
         hosp_count = row[2] or 0
         avg_z = round(float(row[3] or 0), 2)
-        prev_result = session.execute(text("""
-            SELECT COUNT(*) FROM anomaly_results ar
-            JOIN (SELECT DISTINCT month FROM indicator_values
-                  WHERE hospital_id = :hid AND month < :mth) prev
-            WHERE ar.hospital_id = :hid AND ar.indicator_code = :ic
-            AND ar.is_outlier = TRUE AND ar.month = prev.month
-        """), {"hid": hospital_id, "mth": month, "ic": code})
-        recurrence = prev_result.scalar() or 0
+        recurrence = 0
+        if prev_months:
+            recurrence = session.query(func.count(AnomalyResult.id)).filter(
+                AnomalyResult.hospital_id == hospital_id,
+                AnomalyResult.indicator_code == code,
+                AnomalyResult.is_outlier.is_(True),
+                AnomalyResult.month.in_(prev_months),
+            ).scalar() or 0
         if abs(avg_z) > 3:
             ptype = "severe"
             desc = f"Extreme outlier (|z|={avg_z}) for {rate_name}"

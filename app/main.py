@@ -179,8 +179,7 @@ def _db_already_initialized(session):
             return False
         if "app_config" not in tables:
             return False
-        from sqlalchemy import text as _sa_text
-        row = session.execute(_sa_text("SELECT 1 FROM app_config LIMIT 1")).fetchone()
+        row = session.query(AppConfig).first()
         return row is not None
     except Exception:
         return False
@@ -330,7 +329,7 @@ app.include_router(regional_router.router)
 app.include_router(auth_router.router)
 
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
-from sqlalchemy import text as _sa_text  # noqa: E402
+from sqlalchemy import func as _sa_func  # noqa: E402
 
 
 @app.get("/health")
@@ -344,7 +343,7 @@ def health():
         from app.database import SessionLocal
         db = SessionLocal()
         try:
-            db.execute(_sa_text("SELECT 1"))
+            db.execute(_sa_func.now())
         finally:
             db.close()
         return {"status": "ok", "database": "ok", "version": "0.1.0"}

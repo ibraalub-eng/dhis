@@ -6,8 +6,9 @@ from app.database import get_db
 from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult
 from sqlalchemy import func, text
 from app.engine.pipeline import get_enabled_values_for_hospital_month
+from app.core.deps import require_permission
 
-router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(require_permission("dashboard.read"))])
 
 # المعدلات السريرية الرئيسية المعروضة في لوحة المستشفى وعمود متوسط المعدل السريري
 _MAIN_CLINICAL_RATES = {
@@ -45,31 +46,19 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
         ValidationResult.status == "FAIL"
     ).count()
 
-    trend_params = {}
-    trend_conditions = []
+    trend_q = db.query(
+        QualityScore.month,
+        func.avg(QualityScore.score).label("score"),
+    )
     if hospital_id:
-        trend_conditions.append("qs.hospital_id = :hid")
-        trend_params["hid"] = hospital_id
+        trend_q = trend_q.filter(QualityScore.hospital_id == hospital_id)
     if year:
         if not re.match(r"^\d{4}$", str(year)):
             return {"error": "Invalid year format"}
-        trend_conditions.append("qs.month LIKE :year_pattern")
-        trend_params["year_pattern"] = f"{year}-%"
+        trend_q = trend_q.filter(QualityScore.month.like(f"{year}-%"))
     if enabled_months:
-        placeholders = ", ".join([f":m{i}" for i in range(len(enabled_months))])
-        trend_conditions.append(f"qs.month IN ({placeholders})")
-        for i, m in enumerate(enabled_months):
-            trend_params[f"m{i}"] = m
-    where_clause = " AND ".join(trend_conditions) if trend_conditions else "1=1"
-
-    # quality trend (last 12 months, optionally filtered by year)
-    trend_sql = f"""
-        SELECT qs.month, AVG(qs.score) as score
-        FROM quality_scores qs
-        WHERE {where_clause}
-        GROUP BY qs.month ORDER BY qs.month DESC LIMIT 12
-    """
-    trend_rows = db.execute(text(trend_sql), trend_params).fetchall()
+        trend_q = trend_q.filter(QualityScore.month.in_(enabled_months))
+    trend_rows = trend_q.group_by(QualityScore.month).order_by(QualityScore.month.desc()).limit(12).all()
     trend_data = sorted(
         [{"month": t[0], "score": round(float(t[1]), 1)} for t in trend_rows],
         key=lambda x: x["month"],
