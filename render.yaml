@@ -24,8 +24,6 @@ services:
     dockerContext: .
     healthCheckPath: /health
     envVars:
-      - key: DATA_DIR
-        value: /tmp/health-ai-data
       - key: AI_RECOMMENDATIONS_ENABLED
         value: "false"
       - key: DATABASE_URL

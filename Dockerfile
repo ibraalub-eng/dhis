@@ -11,9 +11,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# Install system deps required by some wheels (shap/scikit-learn/xgboost)
+# Install system deps: libgomp (xgboost), libpq (psycopg2), curl (healthcheck)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 \
+        libpq-dev \
         curl \
     && rm -rf /var/lib/apt/lists/*
 

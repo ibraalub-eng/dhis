@@ -185,12 +185,10 @@ def _db_already_initialized(session):
 
 
 def _log_db_info():
-    """Log which database is being used at startup."""
-    db_type = "PostgreSQL" if DATABASE_URL.startswith("postgresql") else "SQLite"
-    print(f"[startup] Database: {db_type}")
-    if db_type == "SQLite":
-        print(f"[startup] WARNING: SQLite is ephemeral on Render — data is lost on restart")
-        print(f"[startup] Set DATABASE_URL to a PostgreSQL connection string for persistent data")
+    """Log database connection at startup."""
+    # Mask password in URL for logging
+    safe_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+    print(f"[startup] Database: PostgreSQL ({safe_url})")
 
 
 def seed_app_config(session):
