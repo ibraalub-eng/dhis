@@ -113,10 +113,10 @@ def upgrade() -> None:
         op.execute(f"INSERT INTO permissions (codename, description) VALUES ('{codename}', '{desc}')")
 
     # Seed roles
-    op.execute("INSERT INTO roles (name, description, is_system) VALUES ('superadmin', 'Super administrator', 1)")
-    op.execute("INSERT INTO roles (name, description, is_system) VALUES ('admin', 'Administrator', 1)")
-    op.execute("INSERT INTO roles (name, description, is_system) VALUES ('doctor', 'Doctor', 1)")
-    op.execute("INSERT INTO roles (name, description, is_system) VALUES ('viewer', 'Viewer (read-only)', 1)")
+    op.execute("INSERT INTO roles (name, description, is_system) VALUES ('superadmin', 'Super administrator', TRUE)")
+    op.execute("INSERT INTO roles (name, description, is_system) VALUES ('admin', 'Administrator', TRUE)")
+    op.execute("INSERT INTO roles (name, description, is_system) VALUES ('doctor', 'Doctor', TRUE)")
+    op.execute("INSERT INTO roles (name, description, is_system) VALUES ('viewer', 'Viewer (read-only)', TRUE)")
 
     # Assign permissions to roles
     # admin: all except system.manage_users
@@ -149,7 +149,7 @@ def upgrade() -> None:
     hashed_escaped = hashed.replace("'", "''")
     op.execute(f"""
         INSERT INTO users (username, email, full_name, password_hash, is_active, is_superuser)
-        VALUES ('admin', 'admin@health.local', 'System Administrator', '{hashed_escaped}', 1, 1)
+        VALUES ('admin', 'admin@health.local', 'System Administrator', '{hashed_escaped}', TRUE, TRUE)
     """)
 
 

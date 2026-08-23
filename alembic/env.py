@@ -9,11 +9,20 @@ from alembic import context
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Load .env before anything else reads DATABASE_URL
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 from app.database import Base
 from app.models import *  # noqa: F401, F403
 
 config = context.config
 target_metadata = Base.metadata
+
+# Override sqlalchemy.url from DATABASE_URL env var if set
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
