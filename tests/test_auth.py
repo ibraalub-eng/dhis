@@ -1,10 +1,12 @@
 """Tests for auth security utilities, models, and dependencies."""
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.database import Base
+from app.database import Base, get_db
+from app.main import app
 from app.core.security import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token,
@@ -111,3 +113,94 @@ def test_refresh_token_model(db_session):
     db_session.add(rt)
     db_session.commit()
     assert db_session.query(RefreshToken).filter_by(token_jti="abc123").count() == 1
+
+
+# --- API tests ---
+
+@pytest.fixture
+def client(db_session):
+    """Override get_db to use the test db_session."""
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    yield TestClient(app)
+    app.dependency_overrides.clear()
+
+
+def _seed_user(db_session, username="testuser", password="test123", role_name="viewer"):
+    """Seed a test user into the DB. Returns user object."""
+    p = Permission(codename="dashboard.read")
+    role = Role(name=role_name, permissions=[p])
+    user = User(
+        username=username, email=f"{username}@test.com",
+        full_name=username.title(),
+        password_hash=hash_password(password),
+        roles=[role],
+    )
+    db_session.add(user)
+    db_session.commit()
+    return user
+
+
+def test_login_success(client, db_session):
+    _seed_user(db_session)
+    resp = client.post("/auth/login", json={"username": "testuser", "password": "test123"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "access_token" in data
+    assert "refresh_token" in data
+    assert data["user"]["username"] == "testuser"
+
+
+def test_login_wrong_password(client, db_session):
+    _seed_user(db_session)
+    resp = client.post("/auth/login", json={"username": "testuser", "password": "wrong"})
+    assert resp.status_code == 401
+
+
+def test_login_nonexistent_user(client):
+    resp = client.post("/auth/login", json={"username": "nobody", "password": "x"})
+    assert resp.status_code == 401
+
+
+def test_login_inactive_user(client, db_session):
+    user = _seed_user(db_session)
+    user.is_active = False
+    db_session.commit()
+    resp = client.post("/auth/login", json={"username": "testuser", "password": "test123"})
+    assert resp.status_code == 401
+
+
+def test_refresh_token(client, db_session):
+    _seed_user(db_session)
+    login_resp = client.post("/auth/login", json={"username": "testuser", "password": "test123"})
+    refresh = login_resp.json()["refresh_token"]
+    resp = client.post("/auth/refresh", json={"refresh_token": refresh})
+    assert resp.status_code == 200
+    assert "access_token" in resp.json()
+
+
+def test_refresh_revoked_token(client, db_session):
+    _seed_user(db_session)
+    login_resp = client.post("/auth/login", json={"username": "testuser", "password": "test123"})
+    refresh = login_resp.json()["refresh_token"]
+    client.post("/auth/logout", json={"refresh_token": refresh})
+    resp = client.post("/auth/refresh", json={"refresh_token": refresh})
+    assert resp.status_code == 401
+
+
+def test_me_endpoint(client, db_session):
+    _seed_user(db_session)
+    login_resp = client.post("/auth/login", json={"username": "testuser", "password": "test123"})
+    token = login_resp.json()["access_token"]
+    resp = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["username"] == "testuser"
+
+
+def test_me_unauthenticated(client):
+    resp = client.get("/auth/me")
+    assert resp.status_code == 401
