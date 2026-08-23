@@ -66,11 +66,15 @@ class TestListSavedFiles:
         data = resp.json()
         assert isinstance(data, list)
 
-    def test_with_files(self, client, sample_excel_bytes):
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        test_file = os.path.join(UPLOAD_DIR, "test_list.xlsx")
-        with open(test_file, "wb") as f:
-            f.write(sample_excel_bytes().getvalue())
+    def test_with_files(self, client, sample_excel_bytes, db_session):
+        """saved-files now reads from DB source_file, not filesystem."""
+        from app.models import IndicatorValue, Hospital
+        h = db_session.query(Hospital).first()
+        db_session.add(IndicatorValue(
+            hospital_id=h.id, indicator_id=1, month="2026-01",
+            value=10.0, source_file="test_list.xlsx",
+        ))
+        db_session.commit()
 
         resp = client.get("/analysis/saved-files")
         assert resp.status_code == 200
@@ -79,27 +83,23 @@ class TestListSavedFiles:
         filenames = [f["filename"] for f in data]
         assert "test_list.xlsx" in filenames
 
-        if os.path.exists(test_file):
-            os.remove(test_file)
-
-    def test_file_has_required_fields(self, client, sample_excel_bytes):
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        test_file = os.path.join(UPLOAD_DIR, "test_fields.xlsx")
-        with open(test_file, "wb") as f:
-            f.write(sample_excel_bytes().getvalue())
+    def test_file_has_required_fields(self, client, sample_excel_bytes, db_session):
+        from app.models import IndicatorValue, Hospital
+        h = db_session.query(Hospital).first()
+        db_session.add(IndicatorValue(
+            hospital_id=h.id, indicator_id=1, month="2026-02",
+            value=20.0, source_file="test_fields.xlsx",
+        ))
+        db_session.commit()
 
         resp = client.get("/analysis/saved-files")
         data = resp.json()
         matching = [f for f in data if f["filename"] == "test_fields.xlsx"]
-        if matching:
-            f = matching[0]
-            assert "filename" in f
-            assert "size_kb" in f
-            assert "last_modified" in f
-            assert "records_in_db" in f
-
-        if os.path.exists(test_file):
-            os.remove(test_file)
+        assert matching
+        f = matching[0]
+        assert "filename" in f
+        assert "records_in_db" in f
+        assert f["records_in_db"] >= 1
 
     def test_excludes_non_excel(self, client):
         os.makedirs(UPLOAD_DIR, exist_ok=True)
@@ -141,17 +141,20 @@ class TestAnalyzeSavedFiles:
 
 
 class TestDeleteSavedFiles:
-    def test_delete_existing(self, client):
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        test_file = os.path.join(UPLOAD_DIR, "to_delete.xlsx")
-        with open(test_file, "wb") as f:
-            f.write(b"dummy")
+    def test_delete_existing(self, client, db_session):
+        """Delete removes IndicatorValue rows by source_file."""
+        from app.models import IndicatorValue, Hospital
+        h = db_session.query(Hospital).first()
+        db_session.add(IndicatorValue(
+            hospital_id=h.id, indicator_id=1, month="2026-03",
+            value=30.0, source_file="to_delete.xlsx",
+        ))
+        db_session.commit()
 
         resp = client.request("DELETE", "/analysis/saved-files", content=json.dumps({"filenames": ["to_delete.xlsx"]}), headers={"Content-Type": "application/json"})
         assert resp.status_code == 200
         data = resp.json()
-        assert data["deleted"] == 1
-        assert not os.path.exists(test_file)
+        assert data["deleted"] >= 1
 
     def test_delete_nonexistent(self, client):
         resp = client.request("DELETE", "/analysis/saved-files", content=json.dumps({"filenames": ["does_not_exist.xlsx"]}), headers={"Content-Type": "application/json"})
@@ -159,21 +162,22 @@ class TestDeleteSavedFiles:
         data = resp.json()
         assert data["deleted"] == 0
 
-    def test_delete_mixed(self, client):
-        os.makedirs(UPLOAD_DIR, exist_ok=True)
-        test_file = os.path.join(UPLOAD_DIR, "mixed_delete.xlsx")
-        with open(test_file, "wb") as f:
-            f.write(b"dummy")
+    def test_delete_mixed(self, client, db_session):
+        """Deleting a mix of existing source_file and nonexistent one."""
+        from app.models import IndicatorValue, Hospital
+        h = db_session.query(Hospital).first()
+        db_session.add(IndicatorValue(
+            hospital_id=h.id, indicator_id=1, month="2026-04",
+            value=40.0, source_file="mixed_delete.xlsx",
+        ))
+        db_session.commit()
 
         resp = client.request("DELETE", "/analysis/saved-files", content=json.dumps({
             "filenames": ["mixed_delete.xlsx", "does_not_exist.xlsx"]
         }), headers={"Content-Type": "application/json"})
         assert resp.status_code == 200
         data = resp.json()
-        assert data["deleted"] == 1
-
-        if os.path.exists(test_file):
-            os.remove(test_file)
+        assert data["deleted"] >= 1
 
 
 class TestUploadMultiple:

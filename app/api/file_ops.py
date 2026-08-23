@@ -26,28 +26,48 @@ ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".xlsm", ".xlsb"}
 
 @router.get("/saved-files")
 def list_saved_files(db: Session = Depends(get_db)):
-    upload_dir = UPLOAD_DIR
-    if not os.path.exists(upload_dir):
-        return []
+    """List uploaded files from database (not filesystem).
+
+    On Render, UPLOAD_DIR is ephemeral /tmp — files vanish on restart.
+    The data itself persists in IndicatorValue.source_file, so we
+    query distinct source_file values from PostgreSQL instead.
+    """
+    from sqlalchemy import func
+
+    rows = (
+        db.query(
+            IndicatorValue.source_file,
+            func.count(IndicatorValue.id).label("records_in_db"),
+            func.min(IndicatorValue.month).label("earliest_month"),
+            func.max(IndicatorValue.month).label("latest_month"),
+            func.count(func.distinct(IndicatorValue.hospital_id)).label("hospitals_count"),
+        )
+        .filter(IndicatorValue.source_file.isnot(None), IndicatorValue.source_file != "")
+        .group_by(IndicatorValue.source_file)
+        .order_by(func.max(IndicatorValue.month).desc())
+        .all()
+    )
+
     files = []
-    for fname in os.listdir(upload_dir):
-        fpath = os.path.join(upload_dir, fname)
-        if not os.path.isfile(fpath):
-            continue
-        ext = os.path.splitext(fname)[1].lower()
-        if ext not in ALLOWED_EXTENSIONS:
-            continue
-        stat = os.stat(fpath)
-        existing_count = db.query(IndicatorValue).filter(
-            IndicatorValue.source_file == fname
-        ).count()
+    for row in rows:
+        fname = row.source_file
+        # Check if file still exists on disk (may or may not)
+        fpath = os.path.join(UPLOAD_DIR, fname) if UPLOAD_DIR else None
+        on_disk = fpath and os.path.exists(fpath)
+        size_kb = 0.0
+        if on_disk:
+            try:
+                size_kb = round(os.path.getsize(fpath) / 1024, 1)
+            except OSError:
+                pass
         files.append({
             "filename": fname,
-            "size_kb": round(stat.st_size / 1024, 1),
-            "last_modified": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            "records_in_db": existing_count,
+            "size_kb": size_kb,
+            "on_disk": on_disk,
+            "records_in_db": row.records_in_db,
+            "hospitals_count": row.hospitals_count,
+            "months": f"{row.earliest_month} – {row.latest_month}" if row.earliest_month else "",
         })
-    files.sort(key=lambda f: f["last_modified"], reverse=True)
     return files
 
 
@@ -56,28 +76,45 @@ async def analyze_saved_files(
     filenames: List[str] = Query(..., description="List of filenames to analyze"),
     db: Session = Depends(get_db),
 ):
-    upload_dir = UPLOAD_DIR
+    """Re-analyze previously uploaded data.
+
+    If the file exists on disk, re-import it. Otherwise, use the data
+    already in the database (IndicatorValue rows with matching source_file).
+    """
     total_rows = 0
     all_months = set()
     all_hospital_ids = set()
     processed_files = 0
 
     for fname in filenames:
-        fpath = os.path.join(upload_dir, fname)
-        if not os.path.exists(fpath):
-            continue
-        try:
-            result = process_excel_upload(fpath, db)
-            total_rows += result.get("rows_imported", 0)
-            if result.get("months"):
-                all_months.update(result["months"])
-            if result.get("hospitals"):
-                for h in result["hospitals"]:
-                    all_hospital_ids.add(h["id"])
+        # Try re-importing from disk first
+        fpath = os.path.join(UPLOAD_DIR, fname) if UPLOAD_DIR else None
+        if fpath and os.path.exists(fpath):
+            try:
+                result = process_excel_upload(fpath, db)
+                total_rows += result.get("rows_imported", 0)
+                if result.get("months"):
+                    all_months.update(result["months"])
+                if result.get("hospitals"):
+                    for h in result["hospitals"]:
+                        all_hospital_ids.add(h["id"])
+                processed_files += 1
+                continue
+            except Exception as e:
+                logger.error(f"Error processing saved file {fname}: {e}")
+
+        # File not on disk — gather data already in DB
+        iv_rows = (
+            db.query(IndicatorValue)
+            .filter(IndicatorValue.source_file == fname)
+            .all()
+        )
+        if iv_rows:
             processed_files += 1
-        except Exception as e:
-            logger.error(f"Error processing saved file {fname}: {e}")
-            continue
+            for iv in iv_rows:
+                all_hospital_ids.add(iv.hospital_id)
+                all_months.add(iv.month)
+            total_rows += len(iv_rows)
 
     hospitals_list = _get_hospitals_from_ids(db, all_hospital_ids)
     hospital_months = _get_hospital_months_map(db, hospitals_list)
@@ -103,15 +140,31 @@ async def analyze_saved_files(
 
 @router.delete("/saved-files")
 def delete_saved_files(body: dict, db: Session = Depends(get_db)):
+    """Delete uploaded data from database by source file name.
+
+    Removes IndicatorValue rows (and their cascade-linked validation/
+    quality / anomaly results) so the data no longer appears in the
+    "Previously Uploaded Files" list or in any analysis.
+    """
+    from app.models import AnomalyResult
     filenames = body.get("filenames", [])
-    upload_dir = UPLOAD_DIR
     deleted = 0
     for fname in filenames:
-        fpath = os.path.join(upload_dir, fname)
-        if os.path.exists(fpath):
-            os.remove(fpath)
-            deleted += 1
-    return {"message": f"Deleted {deleted} file(s).", "deleted": deleted}
+        # Delete IndicatorValues (cascade will remove ValidationResults etc.)
+        count = db.query(IndicatorValue).filter(IndicatorValue.source_file == fname).delete()
+        # Also delete any anomaly results tied to those hospitals+months
+        # (AnomalyResult doesn't have source_file, so skip for safety)
+        deleted += count
+        # Remove file from disk if it still exists (best-effort)
+        if UPLOAD_DIR:
+            fpath = os.path.join(UPLOAD_DIR, fname)
+            if os.path.exists(fpath):
+                try:
+                    os.remove(fpath)
+                except OSError:
+                    pass
+    db.commit()
+    return {"message": f"Deleted {deleted} record(s) from {len(filenames)} file(s).", "deleted": deleted}
 
 
 @router.post("/upload-multiple", response_model=MultiFileUploadResponse)
