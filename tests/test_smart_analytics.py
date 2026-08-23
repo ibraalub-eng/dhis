@@ -32,6 +32,8 @@ def client(db_session):
 )
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_endpoints_return_500_on_error(mock_run, endpoint, client):
+    from app.cache import cache
+    cache.invalidate("smart_overview")
     response = client.get(endpoint)
     assert response.status_code == 500
     data = response.json()
@@ -332,7 +334,7 @@ def test_trend_memoizes_each_month_once(mock_run, client, db_session):
     """trend يشغّل الأنابيب مرة لكل شهر مميز لا لكل تكرار في الحلقة."""
     from app.cache import cache
     from app.models import Hospital, QualityScore
-    cache.invalidate("smart_overview_2027-")
+    cache.invalidate()  # clear ALL cache including file cache
     h = db_session.query(Hospital).first()
     db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=70))
     db_session.add(QualityScore(hospital_id=h.id, month="2027-02", score=75))
