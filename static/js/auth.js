@@ -78,7 +78,20 @@
       var urlStr = typeof url === 'string' ? url : (url.url || '');
       if (!_isApiUrl(urlStr)) return resp;
       return _refreshToken().then(function(refreshed) {
-        if (!refreshed) return resp;
+        if (!refreshed) {
+          // Session expired — force redirect to login (once)
+          if (!window._authRedirecting) {
+            window._authRedirecting = true;
+            setTimeout(function() {
+              window._authRedirecting = false;
+              if (typeof window.clearTokens === 'function') window.clearTokens();
+              if (typeof window.showLoginPage === 'function') window.showLoginPage();
+              var err = document.getElementById('login-error');
+              if (err) { err.textContent = 'Session expired. Please log in again.'; err.style.display = 'block'; }
+            }, 0);
+          }
+          return resp;
+        }
         // Update the Authorization header with the new token before retrying
         if (opts && opts.headers) {
           var newToken = _getToken();
