@@ -151,7 +151,7 @@ export function renderCompositePatterns(patterns) {
     const desc = p.summary_ar || '';
     const hospitals = p.hospitals || [];
     const count = p.hospitals_count || hospitals.length;
-    const liftBadge = p.lift > 2 ? 'smart-badge-critical' : p.lift > 1.5 ? 'smart-badge-warning' : 'smart-badge-normal';
+    const liftBadge = p.lift > 2 ? 'smart-badge smart-badge-critical' : p.lift > 1.5 ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-normal';
     const statuses = p.statuses || [];
     // Pair each indicator with its status (elevated/lowered)
     const indicatorStatuses = indicators.map((ind, i) => {
@@ -213,13 +213,13 @@ export function renderLagAnalysis(lag) {
   let findingsHtml = '';
   if (lags.length) {
     findingsHtml = '<div style="margin-top:0.8rem;">' + lags.map(f => {
-      const strengthCls = f.strength === 'strong' ? 'smart-badge-critical' : f.strength === 'moderate' ? 'smart-badge-warning' : 'smart-badge-normal';
+      const strengthCls = f.strength === 'strong' ? 'smart-badge smart-badge-critical' : f.strength === 'moderate' ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-normal';
       return `<div class="smart-priority-item smart-priority-normal" style="border-left:3px solid ${f.direction === 'positive' ? '#3b82f6' : '#ef4444'};">
         <div><div class="smart-priority-name">${_smartEscapeHtml(f.summary_ar || f.summary_en || '')}</div>
         <div class="smart-priority-meta">${_smartEscapeHtml(f.prediction_ar || f.prediction_en || '')}
         <span class="${strengthCls}" style="margin-left:0.3rem;">${_t(f.strength)}</span>
-        ${f.granger_pass ? '<span class="smart-badge-normal" style="margin-left:0.3rem;">Granger ✓</span>' : ''}
-        ${f.is_lead ? '<span class="smart-badge-warning" style="margin-left:0.3rem;">' + _t('lead') + '</span>' : ''}
+        ${f.granger_pass ? '<span class="smart-badge smart-badge-normal" style="margin-left:0.3rem;">Granger ✓</span>' : ''}
+        ${f.is_lead ? '<span class="smart-badge smart-badge-warning" style="margin-left:0.3rem;">' + _t('lead') + '</span>' : ''}
         </div></div></div>`;
     }).join('') + '</div>';
   }
@@ -343,6 +343,6 @@ export function renderFeatureImportance(explanations) {
 
 function _riskLevel(score) {
   const label = score >= 0.6 ? _t('critical') : score >= 0.3 ? _t('warning') : _t('normal');
-  const cls = score >= 0.6 ? 'smart-badge-critical' : score >= 0.3 ? 'smart-badge-warning' : 'smart-badge-normal';
+  const cls = score >= 0.6 ? 'smart-badge smart-badge-critical' : score >= 0.3 ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-normal';
   return `<span class="${cls}">${_smartEscapeHtml(label)}</span>`;
 }

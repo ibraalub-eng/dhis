@@ -86,8 +86,8 @@ export function _fmtNum(v, digits) {
 }
 
 export function _riskBadge(label, level) {
-  const cls = level === 'critical' ? 'smart-badge-critical'
-    : level === 'warning' ? 'smart-badge-warning' : 'smart-badge-normal';
+  const cls = level === 'critical' ? 'smart-badge smart-badge-critical'
+    : level === 'warning' ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-normal';
   return `<span class="${cls}">${_smartEscapeHtml(label)}</span>`;
 }
 
