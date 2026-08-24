@@ -10,7 +10,7 @@
     // Only add token for API calls (not static assets or login/refresh)
     var urlStr = typeof url === 'string' ? url : (url.url || '');
     var isApiCall = urlStr.indexOf('/auth/login') === -1 && urlStr.indexOf('/auth/refresh') === -1
-                    && urlStr.indexOf('/static/') === -1 && urlStr.indexOf('/config/') === -1;
+                    && urlStr.indexOf('/static/') === -1;
     if (isApiCall) {
       var token = localStorage.getItem('access_token');
       if (!token) {
@@ -129,7 +129,12 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: username, password: password }),
       });
-      var data = await resp.json();
+      var data;
+      try { data = await resp.json(); } catch(parseErr) {
+        errorEl.textContent = 'Server error (' + resp.status + '). Please try again.';
+        errorEl.style.display = 'block';
+        return false;
+      }
       if (!resp.ok) {
         errorEl.textContent = data.detail || 'Login failed';
         errorEl.style.display = 'block';
@@ -234,25 +239,32 @@
         headers: { 'Authorization': 'Bearer ' + token },
       });
       if (resp.ok) {
-        var user = await resp.json();
+        var user;
+        try { user = await resp.json(); } catch(e) { showLoginPage(); return false; }
         setUserInfo(user);
         hideLoginPage();
         applyPermissions();
         return true;
       }
-    } catch(e) {}
+    } catch(e) {
+      // Network error or server down — try refresh once, then show login
+    }
     var refreshed = await tryRefresh();
     if (refreshed) {
-      var meResp = await fetch(API_BASE + '/auth/me', {
-        headers: { 'Authorization': 'Bearer ' + getAccessToken() },
-      });
-      if (meResp.ok) {
-        setUserInfo(await meResp.json());
-        hideLoginPage();
-        applyPermissions();
-        return true;
-      }
+      try {
+        var meResp = await fetch(API_BASE + '/auth/me', {
+          headers: { 'Authorization': 'Bearer ' + getAccessToken() },
+        });
+        if (meResp.ok) {
+          var u; try { u = await meResp.json(); } catch(e) { showLoginPage(); return false; }
+          setUserInfo(u);
+          hideLoginPage();
+          applyPermissions();
+          return true;
+        }
+      } catch(e) {}
     }
+    clearTokens();
     showLoginPage();
     return false;
   };
