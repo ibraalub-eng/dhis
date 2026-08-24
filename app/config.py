@@ -1,7 +1,12 @@
 import os
 import sys
+from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Load .env from project root (ensures DATABASE_URL is available even if
+# config.py is imported before main.py's load_dotdotenv() call)
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # Data directories (uploads, samples — stored on disk, not in DB)
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
