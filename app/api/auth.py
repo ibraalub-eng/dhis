@@ -19,6 +19,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 class LoginRequest(BaseModel):
     username: str
     password: str
+    remember_me: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -42,7 +43,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         permissions = ["*.*"]
 
     access = create_access_token(user.id, roles, permissions)
-    refresh_token_str, jti, expires_at = create_refresh_token(user.id)
+    refresh_token_str, jti, expires_at = create_refresh_token(user.id, remember_me=req.remember_me)
 
     rt = RefreshToken(user_id=user.id, token_jti=jti, expires_at=expires_at)
     db.add(rt)

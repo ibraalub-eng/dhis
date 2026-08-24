@@ -1,4 +1,5 @@
 """JWT token creation/verification and password hashing."""
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -31,10 +32,18 @@ def create_access_token(user_id: int, roles: list[str], permissions: list[str]) 
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-def create_refresh_token(user_id: int) -> tuple[str, str, datetime]:
-    """Returns (token_string, jti, expires_at)."""
+REMEMBER_ME_EXPIRE_DAYS = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", "30"))
+
+def create_refresh_token(user_id: int, remember_me: bool = False) -> tuple[str, str, datetime]:
+    """Returns (token_string, jti, expires_at).
+
+    When remember_me is True the refresh token lives for 30 days (configurable
+    via REMEMBER_ME_EXPIRE_DAYS).  Otherwise it uses the default
+    REFRESH_TOKEN_EXPIRE_DAYS (7 days).
+    """
     jti = secrets.token_hex(32)
-    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    days = REMEMBER_ME_EXPIRE_DAYS if remember_me else REFRESH_TOKEN_EXPIRE_DAYS
+    expires_at = datetime.now(timezone.utc) + timedelta(days=days)
     payload = {
         "sub": str(user_id),
         "jti": jti,
