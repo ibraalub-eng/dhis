@@ -272,3 +272,147 @@ def test_admin_unauthorized(client, db_session):
     token = resp.json()["access_token"]
     resp = client.get("/admin/users", headers={"Authorization": f"Bearer {token}"})
     assert resp.status_code == 403
+
+
+# --- Integration & edge-case tests ---
+
+def test_admin_create_user_with_role(client, db_session):
+    role = Role(name="doctor", description="Doctor role")
+    db_session.add(role)
+    db_session.flush()
+    headers = _auth_header(client, db_session)
+    resp = client.post("/admin/users", headers=headers, json={
+        "username": "newdoc", "email": "doc@test.com", "full_name": "Dr. Test",
+        "password": "pass123", "role_ids": [role.id],
+    })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert len(data["roles"]) == 1
+    assert data["roles"][0]["name"] == "doctor"
+    fetched = db_session.query(User).filter_by(username="newdoc").first()
+    assert fetched.roles[0].name == "doctor"
+
+
+def test_admin_list_roles(client, db_session):
+    for name in ["superadmin", "admin", "doctor", "viewer"]:
+        db_session.add(Role(name=name, description=f"{name} role", is_system=True))
+    db_session.commit()
+    headers = _auth_header(client, db_session)
+    resp = client.get("/admin/roles", headers=headers)
+    assert resp.status_code == 200
+    roles = {r["name"]: r for r in resp.json()["roles"]}
+    for name in ["superadmin", "admin", "doctor", "viewer"]:
+        assert name in roles
+        assert roles[name]["is_system"] is True
+
+
+def test_admin_create_role(client, db_session):
+    headers = _auth_header(client, db_session)
+    p1 = Permission(codename="data.upload")
+    p2 = Permission(codename="data.export")
+    db_session.add_all([p1, p2])
+    db_session.commit()
+    resp = client.post("/admin/roles", headers=headers, json={
+        "name": "auditor", "description": "Audit role",
+        "permission_ids": [p1.id, p2.id],
+    })
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["name"] == "auditor"
+    role = db_session.query(Role).filter_by(name="auditor").first()
+    assert role is not None
+    assert {p.codename for p in role.permissions} == {"data.upload", "data.export"}
+
+
+def test_admin_delete_system_role_fails(client, db_session):
+    role = Role(name="superadmin", description="Super administrator", is_system=True)
+    db_session.add(role)
+    db_session.commit()
+    headers = _auth_header(client, db_session)
+    resp = client.delete(f"/admin/roles/{role.id}", headers=headers)
+    assert resp.status_code == 400
+    assert db_session.query(Role).filter_by(name="superadmin").count() == 1
+
+
+def test_admin_list_permissions(client, db_session):
+    headers = _auth_header(client, db_session)
+    codenames = [
+        "analysis.read", "quality.read", "outliers.read",
+        "clinical.read", "alerts.read", "hospitals.read", "smart_analytics.read",
+        "rules.read", "root_cause.read", "audit.read", "settings.read",
+        "data.upload", "data.export", "smart_analytics.generate_report",
+        "system.manage_users",
+    ]
+    for c in codenames:
+        db_session.add(Permission(codename=c))
+    db_session.commit()
+    resp = client.get("/admin/permissions", headers=headers)
+    assert resp.status_code == 200
+    perms = resp.json()["permissions"]
+    assert len(perms) == 16
+    assert "dashboard.read" in {p["codename"] for p in perms}
+    assert "system.manage_users" in {p["codename"] for p in perms}
+
+
+def test_admin_update_user_email_duplicate(client, db_session):
+    alice = _seed_user(db_session, username="alice")
+    _seed_user(db_session, username="bob")
+    headers = _auth_header(client, db_session)
+    resp = client.put(f"/admin/users/{alice.id}", headers=headers, json={"email": "bob@test.com"})
+    assert resp.status_code == 400
+
+
+def test_admin_update_nonexistent_user(client, db_session):
+    headers = _auth_header(client, db_session)
+    resp = client.put("/admin/users/99999", headers=headers, json={"full_name": "Ghost"})
+    assert resp.status_code == 404
+
+
+def test_admin_get_user(client, db_session):
+    user = _seed_user(db_session, username="findme")
+    headers = _auth_header(client, db_session)
+    resp = client.get(f"/admin/users/{user.id}", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["username"] == "findme"
+    assert data["email"] == "findme@test.com"
+
+
+def test_admin_get_nonexistent_user(client, db_session):
+    headers = _auth_header(client, db_session)
+    resp = client.get("/admin/users/99999", headers=headers)
+    assert resp.status_code == 404
+
+
+def test_login_returns_roles_and_permissions(client, db_session):
+    p1 = Permission(codename="dashboard.read")
+    p2 = Permission(codename="data.upload")
+    role = Role(name="analyst", permissions=[p1, p2])
+    user = User(
+        username="analyst1", email="analyst1@test.com", full_name="Analyst One",
+        password_hash=hash_password("pass123"), roles=[role],
+    )
+    db_session.add(user)
+    db_session.commit()
+    resp = client.post("/auth/login", json={"username": "analyst1", "password": "pass123"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["user"]["roles"] == ["analyst"]
+    assert set(data["user"]["permissions"]) == {"dashboard.read", "data.upload"}
+
+
+def test_refresh_token_rotation(client, db_session):
+    _seed_user(db_session)
+    login_resp = client.post("/auth/login", json={"username": "testuser", "password": "test123"})
+    old_refresh = login_resp.json()["refresh_token"]
+    resp = client.post("/auth/refresh", json={"refresh_token": old_refresh})
+    assert resp.status_code == 200
+    new_tokens = resp.json()
+    assert new_tokens["refresh_token"] != old_refresh
+    reused = client.post("/auth/refresh", json={"refresh_token": old_refresh})
+    assert reused.status_code == 401
+    jti = decode_token(old_refresh)["jti"]
+    rt = db_session.query(RefreshToken).filter_by(token_jti=jti).first()
+    assert rt.revoked is True
+    resp2 = client.post("/auth/refresh", json={"refresh_token": new_tokens["refresh_token"]})
+    assert resp2.status_code == 200
