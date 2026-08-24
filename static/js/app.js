@@ -140,10 +140,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('resultsSection')?.classList.remove('hidden');
         }
     }).catch(() => {});
-    const savedTab = localStorage.getItem('lastTab');
-    if (savedTab && savedTab !== 'dashboard') {
-        switchTab(savedTab);
-    } else {
-        switchTab('dashboard');
-    }
+    // Always start at dashboard
+    localStorage.removeItem('lastTab');
+    switchTab('dashboard');
 });

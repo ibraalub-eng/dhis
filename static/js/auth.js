@@ -233,13 +233,10 @@
           if (el) el.classList.remove('hidden');
         }
       }).catch(function() {});
-      var savedTab = localStorage.getItem('lastTab');
+      // Always start at dashboard after login
+      localStorage.removeItem('lastTab');
       if (typeof window.switchTab === 'function') {
-        if (savedTab && savedTab !== 'dashboard') {
-          window.switchTab(savedTab);
-        } else {
-          window.switchTab('dashboard');
-        }
+        window.switchTab('dashboard');
       } else if (typeof window.initDashboard === 'function') {
         window.initDashboard();
       }
