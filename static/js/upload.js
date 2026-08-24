@@ -44,19 +44,30 @@
             fd.append('file', files[0]);
             previewFiles = files;
             setStatus('loading', 'Reading file: ' + files[0].name + '...');
-            fetch(API() + '/upload/preview', { method: 'POST', body: fd }).then(r => r.json()).then(data => {
+            fetch(API() + '/upload/preview', { method: 'POST', body: fd }).then(async r => {
+                if (!r.ok) {
+                    let errMsg = 'Server error (' + r.status + ')';
+                    try { const errData = await r.json(); errMsg = errData.detail || errMsg; } catch(e) {}
+                    throw new Error(errMsg);
+                }
+                return r.json();
+            }).then(data => {
                 previewFilePath = data.file_path;
                 previewFileName = data.filename;
+                const hospitals = data.hospitals || [];
+                const months = data.months || [];
+                const sampleRows = data.sample_rows || [];
+                const totalRows = data.total_rows || sampleRows.length;
                 const area = document.getElementById('previewArea');
                 area.style.display = 'block';
-                document.getElementById('previewInfo').textContent = data.total_rows + ' rows | ' + data.hospitals.length + ' hospitals | ' + data.months.length + ' months';
+                document.getElementById('previewInfo').textContent = totalRows + ' rows | ' + hospitals.length + ' hospitals | ' + months.length + ' months';
                 // Build table
                 const cols = [__('Hospital'), 'Month', __('Indicator'), __('Value')];
                 let thead = '<tr>' + cols.map(c => '<th>' + c + '</th>').join('') + '</tr>';
-                let tbody = data.sample_rows.map(r => '<tr><td>' + esc(r.hospital) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.indicator) + '</td><td>' + (r.value !== null ? r.value : '<span style="color:red;">MISSING</span>') + '</td></tr>').join('');
+                let tbody = sampleRows.map(r => '<tr><td>' + esc(r.hospital) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.indicator) + '</td><td>' + (r.value !== null ? r.value : '<span style="color:red;">MISSING</span>') + '</td></tr>').join('');
                 document.querySelector('#previewTable thead').innerHTML = thead;
                 document.querySelector('#previewTable tbody').innerHTML = tbody;
-                setStatus('ok', 'Preview ready — ' + data.total_rows + ' records from ' + data.hospitals.length + ' hospitals across ' + data.months.length + ' months. Scroll to review, then click Confirm.');
+                setStatus('ok', 'Preview ready — ' + totalRows + ' records from ' + hospitals.length + ' hospitals across ' + months.length + ' months. Scroll to review, then click Confirm.');
             }).catch(err => {
                 setStatus('err', 'Preview failed: ' + err.message);
             });
