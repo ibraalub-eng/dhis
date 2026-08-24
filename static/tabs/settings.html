@@ -13,7 +13,8 @@
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('database')" id="stbtn-database">Database</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('control')" id="stbtn-control">Control</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('hospitals')" id="stbtn-hospitals" style="color:var(--accent-blue);border-color:var(--accent-blue);">Hospitals</button>
-                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ml')" id="stbtn-ml">ML Analysis</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ml')" id="stbtn-ml">ML Analysis</button>
+                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('account')" id="stbtn-account" style="color:#e65100;border-color:#e65100;">🔑 Account</button>
                     </div>
 
                     <!-- Quality Score Settings -->
@@ -1045,6 +1046,30 @@
                                 <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;padding-left:205px;">
                                     Cumulative variance threshold for selecting PCA components. 0.95 = keep enough components to explain 95% of variance.
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Account / Change Password -->
+                    <div id="settings-account" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.8rem;">🔑 Change Your Password</h3>
+                        <div style="max-width:450px;">
+                            <div style="background:var(--bg-elevated);padding:1rem;border-radius:8px;border:1px solid var(--border-default);">
+                                <div style="margin-bottom:0.8rem;">
+                                    <label style="font-size:0.82rem;font-weight:600;">Current Password</label>
+                                    <input id="selfPwCurrent" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;margin-top:0.3rem;" placeholder="Enter current password">
+                                </div>
+                                <div style="margin-bottom:0.8rem;">
+                                    <label style="font-size:0.82rem;font-weight:600;">New Password</label>
+                                    <input id="selfPwNew" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;margin-top:0.3rem;" placeholder="Min 6 characters">
+                                </div>
+                                <div style="margin-bottom:0.8rem;">
+                                    <label style="font-size:0.82rem;font-weight:600;">Confirm New Password</label>
+                                    <input id="selfPwConfirm" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;margin-top:0.3rem;" placeholder="Repeat new password">
+                                </div>
+                                <div id="selfPwError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                                <div id="selfPwSuccess" style="display:none;color:#2e7d32;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                                <button class="btn" onclick="changeSelfPassword()" style="background:#e65100;color:white;">Change Password</button>
                             </div>
                         </div>
                     </div>

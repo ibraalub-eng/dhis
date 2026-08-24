@@ -104,10 +104,10 @@
                             <div>📋 <strong>${data.total_indicators}</strong> indicators configured</div>
                             <div>📐 <strong>${data.total_rules}</strong> validation rules</div>
                         </div>
-                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.78rem;color:#666;">
+                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.78rem;color:var(--text-secondary);">
                             <strong>Tables:</strong> ${(data.tables || []).length} tables created
                         </div>
-                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.8rem;color:#666;">
+                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.8rem;color:var(--text-secondary);">
                             <strong>To change database:</strong>
                             <ol style="margin:0.3rem 0 0 1.2rem;">
                                 <li>Edit <code>.env</code> file → change <code>DATABASE_URL</code></li>
@@ -115,10 +115,10 @@
                             </ol>
                         </div>`;
                 } else {
-                    el.innerHTML = `<span style="color:#dc2626;">❌ Not connected</span><br><span style="font-size:0.8rem;color:#888;">${data.error || 'DATABASE_URL not set or unreachable'}</span>`;
+                    el.innerHTML = `<span style="color:#dc2626;">❌ Not connected</span><br><span style="font-size:0.8rem;color:var(--text-muted);">${data.error || 'DATABASE_URL not set or unreachable'}</span>`;
                 }
             }).catch(err => {
-                el.innerHTML = `<span style="color:#dc2626;">❌ Not connected</span><br><span style="font-size:0.8rem;color:#888;">${err.message || 'Failed to check database status'}</span>`;
+                el.innerHTML = `<span style="color:#dc2626;">❌ Not connected</span><br><span style="font-size:0.8rem;color:var(--text-muted);">${err.message || 'Failed to check database status'}</span>`;
             });
         }
 
@@ -138,7 +138,7 @@
                     }, 500);
                 }
             }).catch(err => {
-                container.innerHTML = '<div style="padding:1rem;text-align:center;color:#c62828;">Failed to load hospitals management: ' + (err.message || 'Network error') + '</div>';
+                container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--accent-red);">Failed to load hospitals management: ' + (err.message || 'Network error') + '</div>';
             });
         }
 
@@ -362,23 +362,23 @@
                 const ci = d.critical_issues_count || 0;
                 document.getElementById('rcKpiBar').innerHTML =
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + qsColor + ';">' +
-                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">جودة البيانات / Quality</div>' +
+                        '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">جودة البيانات / Quality</div>' +
                         '<div style="font-size:2rem;font-weight:700;color:' + qsColor + ';">' + qs + '</div>' +
                         '<div style="height:4px;background:#e0e0e0;border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
                             '<div style="width:' + Math.min(qs, 100) + '%;height:100%;background:' + qsColor + ';border-radius:2px;"></div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + confColor + ';">' +
-                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">الثقة / Confidence</div>' +
+                        '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">الثقة / Confidence</div>' +
                         '<div style="font-size:2rem;font-weight:700;color:' + confColor + ';">' + conf + '</div>' +
                         '<div style="height:4px;background:#e0e0e0;border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
                             '<div style="width:' + Math.min(conf, 100) + '%;height:100%;background:' + confColor + ';border-radius:2px;"></div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + (ci > 0 ? '#c62828' : '#2e7d32') + ';">' +
-                        '<div style="font-size:0.7rem;color:#888;text-transform:uppercase;letter-spacing:0.5px;">المشاكل الحرجة / Critical Issues</div>' +
+                        '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">المشاكل الحرجة / Critical Issues</div>' +
                         '<div style="font-size:2rem;font-weight:700;color:' + (ci > 0 ? '#c62828' : '#2e7d32') + ';">' + ci + '</div>' +
-                        '<div style="font-size:0.72rem;color:#888;margin-top:0.2rem;">' + (ci > 0 ? 'يتطلب انتباهاً' : 'لا توجد مشاكل حرجة') + '</div>' +
+                        '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">' + (ci > 0 ? 'يتطلب انتباهاً' : 'لا توجد مشاكل حرجة') + '</div>' +
                     '</div>';
 
                 // ── Summary: Arabic primary (rendered into rcSummaryArabic), English secondary line ──
@@ -408,7 +408,7 @@
                             const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:#f9a825;font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
                                 '&#9679;'.repeat(effort) + '<span style="color:#ddd;">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
                             barHtml = '<div style="margin-top:0.3rem;">' +
-                                '<div style="display:flex;justify-content:space-between;font-size:0.62rem;color:#888;margin-bottom:1px;">' +
+                                '<div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--text-muted);margin-bottom:1px;">' +
                                     '<span>&#128200; الأثر: ' + impact.toFixed(0) + ' نقطة جودة</span>' +
                                     '<span style="color:' + roiCol + ';font-weight:700;">&#128176; عائد ' + roi.toFixed(1) + '</span>' +
                                     '<span>الجهد: ' + effortDots + '</span>' +
@@ -426,7 +426,7 @@
                         al.appendChild(div);
                     });
                 } else {
-                    al.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#888;font-size:0.8rem;">No urgent actions needed.</div>';
+                    al.innerHTML = '<div style="padding:0.5rem;text-align:center;color:var(--text-muted);font-size:0.8rem;">No urgent actions needed.</div>';
                 }
 
                 // ── AI Recommendations (ثنائية اللغة حسب لغة التطبيق) ──
@@ -453,13 +453,13 @@
                             (catLabel ? '<span style="font-size:0.58rem;background:#eef2ff;color:#4338ca;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(catLabel) + '</span>' : '') +
                             '<span style="font-weight:600;color:#333;">' + esc(title) + '</span></div>' +
                             '<span style="font-size:0.6rem;background:' + pCol + ';color:#fff;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(aiPrioLabel(r.priority)) + '</span></div>' +
-                            (desc ? '<div style="font-size:0.75rem;color:#555;margin-top:0.2rem;">' + esc(desc) + '</div>' : '') +
-                            (rat ? '<div style="font-size:0.7rem;color:#888;font-style:italic;margin-top:0.15rem;">' + esc(rat) + '</div>' : '') +
-                            (items && items.length ? '<div style="font-size:0.72rem;color:#666;margin-top:0.15rem;"><strong>' + (isAr ? 'الإجراءات:' : 'Actions:') + '</strong> ' + items.map(esc).join('; ') + '</div>' : '');
+                            (desc ? '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.2rem;">' + esc(desc) + '</div>' : '') +
+                            (rat ? '<div style="font-size:0.7rem;color:var(--text-muted);font-style:italic;margin-top:0.15rem;">' + esc(rat) + '</div>' : '') +
+                            (items && items.length ? '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.15rem;"><strong>' + (isAr ? 'الإجراءات:' : 'Actions:') + '</strong> ' + items.map(esc).join('; ') + '</div>' : '');
                         aiList.appendChild(card);
                     });
                 } else {
-                    aiList.innerHTML = '<div style="padding:0.6rem;text-align:center;background:#fff8e1;border-radius:4px;font-size:0.8rem;color:#888;">' +
+                    aiList.innerHTML = '<div style="padding:0.6rem;text-align:center;background:#fff8e1;border-radius:4px;font-size:0.8rem;color:var(--text-muted);">' +
                         __('No AI recommendations available.') + '<br><a href="javascript:void(0)" onclick="SwitchTab(\'settings\')" style="color:#3f51b5;">' +
                         __('Configure AI provider') + '</a></div>';
                 }
@@ -476,10 +476,10 @@
                                 '<span style="font-weight:600;font-size:0.78rem;">' + esc(f.rule_code) + '</span>' +
                                 '<span style="font-size:0.68rem;color:#999;">' + f.failure_rate + '%</span>' +
                             '</div>' +
-                            '<div style="font-size:0.72rem;color:#555;margin:0.1rem 0 0 1.2rem;">' + esc((f.description || f.primary_cause || '').slice(0, 90)) + '</div>' +
+                            '<div style="font-size:0.72rem;color:var(--text-secondary);margin:0.1rem 0 0 1.2rem;">' + esc((f.description || f.primary_cause || '').slice(0, 90)) + '</div>' +
                             '</div>';
                     }).join('');
-                } else { rf.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#888;font-size:0.78rem;">No rule failures found.</div>'; }
+                } else { rf.innerHTML = '<div style="padding:0.5rem;text-align:center;color:var(--text-muted);font-size:0.78rem;">No rule failures found.</div>'; }
 
                 // ── Quality Drivers ──
                 const qd = document.getElementById('rcQualityDrivers');
@@ -496,10 +496,10 @@
                             '<div style="height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;">' +
                                 '<div style="width:' + Math.min(q.value, 100) + '%;height:100%;background:' + barColor + ';border-radius:3px;transition:width 0.3s;"></div>' +
                             '</div>' +
-                            '<div style="font-size:0.68rem;color:#888;margin-top:0.1rem;">Impact gap: ' + q.impact + ' pts &mdash; ' + (q.recommendation || '').slice(0, 60) + '</div>' +
+                            '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem;">Impact gap: ' + q.impact + ' pts &mdash; ' + (q.recommendation || '').slice(0, 60) + '</div>' +
                             '</div>';
                     }).join('');
-                } else { qd.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#888;font-size:0.78rem;">No data available.</div>'; }
+                } else { qd.innerHTML = '<div style="padding:0.5rem;text-align:center;color:var(--text-muted);font-size:0.78rem;">No data available.</div>'; }
 
                 // ── Confidence Gaps ──
                 const cg = document.getElementById('rcConfidenceGaps');
@@ -513,10 +513,10 @@
                                 '<span style="font-weight:600;font-size:0.78rem;">' + esc((g.indicator_name || '').slice(0, 35)) + '</span>' +
                                 '<span style="font-size:0.68rem;color:#999;">' + g.confidence + '</span>' +
                             '</div>' +
-                            '<div style="font-size:0.7rem;color:#666;margin:0.1rem 0 0 0;">Signal: ' + (g.weakest_signal || '') + ' | ' + esc((g.root_cause || '').slice(0, 90)) + '</div>' +
+                            '<div style="font-size:0.7rem;color:var(--text-secondary);margin:0.1rem 0 0 0;">Signal: ' + (g.weakest_signal || '') + ' | ' + esc((g.root_cause || '').slice(0, 90)) + '</div>' +
                             '</div>';
                     }).join('');
-                } else { cg.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#888;font-size:0.78rem;">No confidence gaps found.</div>'; }
+                } else { cg.innerHTML = '<div style="padding:0.5rem;text-align:center;color:var(--text-muted);font-size:0.78rem;">No confidence gaps found.</div>'; }
 
                 // ── Anomaly Patterns ──
                 const ap = document.getElementById('rcAnomalyPatterns');
@@ -530,10 +530,10 @@
                                 '<span style="font-size:0.65rem;background:' + typeColor + ';color:#fff;padding:0 5px;border-radius:3px;font-weight:600;">' + typeLabel + '</span>' +
                                 '<span style="font-weight:600;font-size:0.78rem;">' + esc((a.rate_name || '').slice(0, 35)) + '</span>' +
                             '</div>' +
-                            '<div style="font-size:0.7rem;color:#666;margin:0.1rem 0 0 0;">|z| = ' + a.avg_z_score + (a.recurrence_count ? ' | Recurring ' + a.recurrence_count + 'x' : '') + '</div>' +
+                            '<div style="font-size:0.7rem;color:var(--text-secondary);margin:0.1rem 0 0 0;">|z| = ' + a.avg_z_score + (a.recurrence_count ? ' | Recurring ' + a.recurrence_count + 'x' : '') + '</div>' +
                             '</div>';
                     }).join('');
-                } else { ap.innerHTML = '<div style="padding:0.5rem;text-align:center;color:#888;font-size:0.78rem;">No anomaly patterns found.</div>'; }
+                } else { ap.innerHTML = '<div style="padding:0.5rem;text-align:center;color:var(--text-muted);font-size:0.78rem;">No anomaly patterns found.</div>'; }
 
 
                 // ── Causal Chains ──
@@ -565,18 +565,18 @@
                                 '<div style="margin:0.4rem 0;height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden;">' +
                                     '<div style="width:' + pct + '%;height:100%;background:' + confColor + ';border-radius:3px;"></div>' +
                                 '</div>' +
-                                '<div style="display:flex;gap:0.8rem;font-size:0.7rem;color:#666;margin-bottom:0.3rem;">' +
+                                '<div style="display:flex;gap:0.8rem;font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +
                                     '<span title="قوة الثقة في السبب الجذري">الثقة <strong>' + pct + '%</strong></span>' +
                                     '<span title="الأثر المتوقع عند الإصلاح">الأثر <strong>' + (c.impact_if_fixed || 0) + '</strong></span>' +
                                 '</div>' +
                                 (c.affected_factors && c.affected_factors.length
-                                    ? '<div style="font-size:0.7rem;color:#555;margin-bottom:0.3rem;"><strong>العوامل المتأثرة:</strong> ' + c.affected_factors.map(esc).join(' ← ') + '</div>' : '') +
+                                    ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;"><strong>العوامل المتأثرة:</strong> ' + c.affected_factors.map(esc).join(' ← ') + '</div>' : '') +
                                 (c.recommended_action ? '<div style="font-size:0.72rem;color:#0f766e;margin-top:0.2rem;">&#128161; ' + esc(c.recommended_action) + '</div>' : '') +
-                                (c.evidence && c.evidence.length ? '<div style="font-size:0.68rem;color:#888;margin-top:0.2rem;">' + c.evidence.slice(0, 3).map(esc).join(' | ') + '</div>' : '') +
+                                (c.evidence && c.evidence.length ? '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem;">' + c.evidence.slice(0, 3).map(esc).join(' | ') + '</div>' : '') +
                             '</div>';
                         }).join('');
                     } else {
-                        chainsEl.innerHTML = '<div style="padding:0.5rem;color:#888;font-size:0.78rem;">لا توجد سلاسل سببية — فعّل التحليل التاريخي أو لا توجد فشل قواعد حرج.</div>';
+                        chainsEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد سلاسل سببية — فعّل التحليل التاريخي أو لا توجد فشل قواعد حرج.</div>';
                     }
                 }
 
@@ -591,15 +591,15 @@
                             return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
                                 '<span style="width:9px;height:9px;border-radius:50%;background:' + sevColor + ';flex-shrink:0;"></span>' +
                                 '<span style="font-weight:600;font-size:0.78rem;">' + esc(n.factor) + '</span>' +
-                                '<span style="font-size:0.7rem;color:#555;">' + (n.current_value != null ? n.current_value : '') + '</span>' +
+                                '<span style="font-size:0.7rem;color:var(--text-secondary);">' + (n.current_value != null ? n.current_value : '') + '</span>' +
                                 (n.history && n.history.length > 1
                                     ? '<span title="الاتجاه عبر الأشهر: ' + esc(n.history.map(h => h.month + ' = ' + h.value).join('، ')) + '">' + _rcSparkline(n.history) + '</span>'
-                                    : '<span style="font-size:0.7rem;color:#888;" title="الاتجاه عبر الأشهر">' + trendArrow + ' ' + esc(n.trend || '') + '</span>') +
+                                    : '<span style="font-size:0.7rem;color:var(--text-muted);" title="الاتجاه عبر الأشهر">' + trendArrow + ' ' + esc(n.trend || '') + '</span>') +
                                 '<span style="margin-right:auto;font-size:0.65rem;color:#aaa;">' + esc(n.factor_type || '') + '</span>' +
                             '</div>';
                         }).join('');
                     } else {
-                        treeEl.innerHTML = '<div style="padding:0.5rem;color:#888;font-size:0.78rem;">لا توجد بيانات شجرة سببية.</div>';
+                        treeEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد بيانات شجرة سببية.</div>';
                     }
                 }
 
@@ -623,12 +623,12 @@
                                     '<span style="font-weight:600;font-size:0.78rem;">' + esc(c.indicator_name || c.indicator_code) + '</span>' +
                                     '<span style="font-size:0.7rem;color:' + color + ';font-weight:700;">' + (over ? '▲ +' : '▼ ') + Math.abs(gap).toFixed(1) + '%</span>' +
                                 '</div>' +
-                                '<div style="font-size:0.68rem;color:#888;">المستشفى ' + c.hospital_value + ' مقابل متوسط النظير ' + c.peer_mean + ' (' + c.peer_count + ' مستشفى) — مئوية ' + c.hospital_percentile + ' | z=' + c.hospital_z_score + '</div>' +
+                                '<div style="font-size:0.68rem;color:var(--text-muted);">المستشفى ' + c.hospital_value + ' مقابل متوسط النظير ' + c.peer_mean + ' (' + c.peer_count + ' مستشفى) — مئوية ' + c.hospital_percentile + ' | z=' + c.hospital_z_score + '</div>' +
                                 (govParts || types ? '<div style="font-size:0.66rem;color:#aaa;margin-top:0.1rem;">النظير: محافظات: ' + (govParts || '—') + ' | أنواع: ' + (types || '—') + '</div>' : '') +
                             '</div>';
                         }).join('');
                     } else {
-                        peerEl.innerHTML = '<div style="padding:0.5rem;color:#888;font-size:0.78rem;">لا توجد مقارنات نظير — تحتاج 3+ مستشفيات بنفس النوع/الملكية/المحافظة.</div>';
+                        peerEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مقارنات نظير — تحتاج 3+ مستشفيات بنفس النوع/الملكية/المحافظة.</div>';
                     }
                 }
 
@@ -650,7 +650,7 @@
                         const entries = Object.entries(features).sort((a, b) => b[1] - a[1]);
                         let html = '<div style="margin-top:0.3rem;">';
                         const cumVar = pca.cumulative_variance ?? 0;
-                        html += '<div style="font-size:0.72rem;color:#666;margin-bottom:0.3rem;">Cumulative variance explained: ' + (cumVar * 100).toFixed(0) + '%</div>';
+                        html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem;">Cumulative variance explained: ' + (cumVar * 100).toFixed(0) + '%</div>';
                         if (!entries.length) {
                             html += '<div style="font-size:0.72rem;color:#999;">No PCA data available.</div>';
                         } else {
@@ -660,7 +660,7 @@
                                 html += '<div style="display:flex;align-items:center;gap:0.3rem;margin:0.15rem 0;">';
                                 html += '<span style="width:120px;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(name) + '">' + esc(name) + '</span>';
                                 html += '<div style="flex:1;height:14px;background:#eee;border-radius:3px;"><div style="height:100%;width:' + pct + '%;background:#1a237e;border-radius:3px;"></div></div>';
-                                html += '<span style="width:40px;text-align:right;font-size:0.7rem;color:#555;">' + (variance * 100).toFixed(0) + '%</span>';
+                                html += '<span style="width:40px;text-align:right;font-size:0.7rem;color:var(--text-secondary);">' + (variance * 100).toFixed(0) + '%</span>';
                                 html += '</div>';
                             });
                         }
@@ -672,7 +672,7 @@
             }).catch(e => {
                 document.getElementById('rcLoading').style.display = 'none';
                 document.getElementById('rcContent').style.display = 'block';
-                document.getElementById('rcSummary').innerHTML = '<p style="color:#c62828;">Error: ' + e.message + '</p>';
+                document.getElementById('rcSummary').innerHTML = '<p style="color:var(--accent-red);">Error: ' + e.message + '</p>';
             });
         }
 
@@ -765,9 +765,9 @@
                     const barPct = Math.min(pct * 100, 100);
                     return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';">' +
                         '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
-                        '<span style="font-size:0.75rem;color:#555;font-weight:500;">' + k.label + '</span>' +
+                        '<span style="font-size:0.75rem;color:var(--text-secondary);font-weight:500;">' + k.label + '</span>' +
                         '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? ' <span style="font-size:0.7rem;">' + k.unit + '</span>' : '') + '</span></div>' +
-                        (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:#ddd;border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + (pct >= 1 ? '#4caf50' : pct >= 0.75 ? '#ff9800' : '#f44336') + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:#888;">target ' + k.target + '</span></div>' : '') +
+                        (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:#ddd;border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + (pct >= 1 ? '#4caf50' : pct >= 0.75 ? '#ff9800' : '#f44336') + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:var(--text-muted);">target ' + k.target + '</span></div>' : '') +
                         '</div>';
                 }).join('');
             }).catch(() => {});
@@ -846,7 +846,7 @@
                     '<td>' + r.completeness + '%</td>' +
                     '<td>' + r.consistency + '%</td>' +
                     '<td>' + r.reports + '</td>' +
-                    '<td>' + (r.alerts > 0 ? '<span style="color:#c62828;font-weight:600;">' + r.alerts + '</span>' : '0') + '</td>' +
+                    '<td>' + (r.alerts > 0 ? '<span style="color:var(--accent-red);font-weight:600;">' + r.alerts + '</span>' : '0') + '</td>' +
                 '</tr>';
             }).join('');
 
@@ -873,7 +873,7 @@
             document.getElementById('modalBody').innerHTML =
                 '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;gap:0.9rem;">' +
                 '<span class="spinner spinner-lg"></span>' +
-                '<span style="color:#888;font-size:0.85rem;">' + __('Loading hospital details...') + '</span>' +
+                '<span style="color:var(--text-muted);font-size:0.85rem;">' + __('Loading hospital details...') + '</span>' +
                 '</div>';
             modal.classList.add('show');
 
@@ -882,26 +882,26 @@
                 const gc = gradeColors[d.grade] || '#888';
                 document.getElementById('modalTitle').innerHTML =
                     '<span class="scorecard-grade" style="background:' + gc + ';">' + d.grade + '</span>' + esc(d.name) +
-                    ' <span style="font-size:0.72rem;font-weight:400;color:#888;">\u2014 Hospital Scorecard</span>';
+                    ' <span style="font-size:0.72rem;font-weight:400;color:var(--text-muted);">\u2014 Hospital Scorecard</span>';
 
                 const qc = d.avg_score >= 75 ? '#2e7d32' : d.avg_score >= 50 ? '#e65100' : '#c62828';
                 let html = '<div class="scorecard-kpi-bar">' +
                     '<div class="scorecard-kpi-item" style="border-top-color:' + qc + ';background:#f0f8ff;">' +
-                        '<div style="font-size:0.65rem;color:#888;text-transform:uppercase;">Quality Score</div>' +
+                        '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Quality Score</div>' +
                         '<div style="font-size:1.5rem;font-weight:700;color:' + qc + ';">' + d.avg_score + '%</div></div>' +
-                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:#888;text-transform:uppercase;">Compliance</div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Compliance</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;">' + d.avg_compliance + '%</div></div>' +
-                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:#888;text-transform:uppercase;">Completeness</div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Completeness</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;">' + d.avg_completeness + '%</div></div>' +
-                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:#888;text-transform:uppercase;">Consistency</div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Consistency</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;">' + d.avg_consistency + '%</div></div>' +
-                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:#888;text-transform:uppercase;">Alerts</div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Alerts</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;color:' + (d.total_alerts > 0 ? '#c62828' : '#2e7d32') + ';">' + d.total_alerts + '</div></div>' +
                 '</div>';
 
                 html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' +
                     '<div class="card"><h3>Quality Score Trend</h3><canvas id="scorecardTrendChart" style="height:180px;"></canvas></div>' +
-                    '<div class="card"><h3>Clinical Rates <span style="font-size:0.7rem;font-weight:400;color:#888;">vs Peer Avg</span></h3><canvas id="scorecardRatesChart" style="height:180px;"></canvas></div>' +
+                    '<div class="card"><h3>Clinical Rates <span style="font-size:0.7rem;font-weight:400;color:var(--text-muted);">vs Peer Avg</span></h3><canvas id="scorecardRatesChart" style="height:180px;"></canvas></div>' +
                 '</div>';
 
                 html += '<div style="margin-top:1rem;"><h3>Recent Alerts</h3>';
@@ -912,12 +912,12 @@
                             '<span style="width:8px;height:8px;border-radius:50%;background:' + sc + ';flex-shrink:0;"></span>' +
                             '<span style="font-weight:600;font-size:0.7rem;color:' + sc + ';">' + a.severity + '</span>' +
                             '<span style="font-size:0.75rem;">' + esc(a.rule_code) + '</span>' +
-                            '<span style="color:#888;font-size:0.7rem;">' + esc(a.details) + '</span>' +
+                            '<span style="color:var(--text-muted);font-size:0.7rem;">' + esc(a.details) + '</span>' +
                             '<span style="color:#aaa;font-size:0.65rem;margin-left:auto;">' + a.month + '</span>' +
                         '</div>';
                     }).join('');
                 } else {
-                    html += '<p style="color:#888;font-size:0.8rem;">No alerts for this hospital.</p>';
+                    html += '<p style="color:var(--text-muted);font-size:0.8rem;">No alerts for this hospital.</p>';
                 }
                 html += '</div>';
 
@@ -1036,7 +1036,7 @@
                     });
                 }
             }).catch(e => {
-                document.getElementById('modalBody').innerHTML = '<p style="color:#c62828;">Error: ' + e.message + '</p>';
+                document.getElementById('modalBody').innerHTML = '<p style="color:var(--accent-red);">Error: ' + e.message + '</p>';
             });
         }
 
@@ -1186,7 +1186,7 @@
                 html += '</tbody></table>';
                 container.innerHTML = html;
             }).catch(() => {
-                document.getElementById('heatmapContainer').innerHTML = '<p style="color:#888;text-align:center;padding:1rem;font-size:0.85rem;">Heatmap unavailable.</p>';
+                document.getElementById('heatmapContainer').innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem;font-size:0.85rem;">Heatmap unavailable.</p>';
             });
         }
 
@@ -1477,7 +1477,7 @@
             if (enabledFilter) url += 'enabled=' + enabledFilter + '&';
             const tbody = document.getElementById('rulesTbody');
             document.getElementById('rulesLoading').classList.remove('hidden');
-            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:#888;">Loading rules...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Loading rules...</td></tr>';
             fetch(url)
                 .then(r => r.json())
                 .then(data => {
@@ -1636,7 +1636,7 @@
             document.getElementById('rulesManagerCount').textContent = rulesManagerData.length + ' rule(s)';
             const filtered = document.getElementById('rulesTbody');
             if (!rulesManagerData.length) {
-                filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#888;padding:2rem;">No rules found.</td></tr>';
+                filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">No rules found.</td></tr>';
                 return;
             }
             const typeColors = {'LOGIC': '#1565c0', 'CLINICAL': '#6a1b9a', 'BENCHMARK': '#e65100', 'DATA_QUALITY': '#c62828'};
@@ -1655,10 +1655,10 @@
                     '<td>' + esc(r.name) + '</td>' +
                     '<td>' + typeB + '</td>' +
                     '<td>' + sevB + '</td>' +
-                    '<td style="font-size:0.75rem;color:#666;">' + esc(r.category) + '</td>' +
-                    '<td style="font-size:0.75rem;font-family:Consolas,monospace;color:#888;">' + esc(r.expression_type) + '</td>' +
+                    '<td style="font-size:0.75rem;color:var(--text-secondary);">' + esc(r.category) + '</td>' +
+                    '<td style="font-size:0.75rem;font-family:Consolas,monospace;color:var(--text-muted);">' + esc(r.expression_type) + '</td>' +
                     '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
-                    '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:#c62828;border-color:#ef5350;">Del</button></td>' +
+                    '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-red);border-color:#ef5350;">Del</button></td>' +
                     '</tr>';
             });
             filtered.innerHTML = html;
@@ -1842,3 +1842,48 @@
             });
         }
 
+
+// ---- Self Change Password ----
+window.changeSelfPassword = async function() {
+    var curEl = document.getElementById('selfPwCurrent');
+    var newEl = document.getElementById('selfPwNew');
+    var confirmEl = document.getElementById('selfPwConfirm');
+    var errEl = document.getElementById('selfPwError');
+    var okEl = document.getElementById('selfPwSuccess');
+
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+
+    var cur = curEl ? curEl.value : '';
+    var nw = newEl ? newEl.value : '';
+    var cf = confirmEl ? confirmEl.value : '';
+
+    if (!cur) { errEl.textContent = 'Current password is required'; errEl.style.display = 'block'; return; }
+    if (!nw) { errEl.textContent = 'New password is required'; errEl.style.display = 'block'; return; }
+    if (nw.length < 6) { errEl.textContent = 'Password must be at least 6 characters'; errEl.style.display = 'block'; return; }
+    if (nw === cur) { errEl.textContent = 'New password must be different from current'; errEl.style.display = 'block'; return; }
+    if (nw !== cf) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
+
+    try {
+        var token = getAccessToken();
+        var resp = await fetch(API() + '/auth/change-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ current_password: cur, new_password: nw, confirm_password: cf })
+        });
+        var data = await resp.json();
+        if (!resp.ok) {
+            errEl.textContent = data.detail || 'Failed to change password';
+            errEl.style.display = 'block';
+            return;
+        }
+        okEl.textContent = '✅ Password changed successfully! You can continue using the app.';
+        okEl.style.display = 'block';
+        curEl.value = '';
+        newEl.value = '';
+        confirmEl.value = '';
+    } catch(e) {
+        errEl.textContent = 'Network error';
+        errEl.style.display = 'block';
+    }
+};

@@ -91,6 +91,7 @@
                       <td style="padding:0.4rem;">${u.is_active ? '<span style="color:#2e7d32;">Active</span>' : '<span style="color:var(--accent-red);">Inactive</span>'}</td>
                       <td style="padding:0.4rem;">
                         <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})" style="font-size:0.72rem;">Edit</button>
+                        <button class="btn btn-sm btn-outline" onclick="changePassword(${u.id}, '${esc(u.username)}')" style="font-size:0.72rem;color:#e65100;margin-left:0.2rem;">🔑 Password</button>
                         <button class="btn btn-sm btn-outline" onclick="assignHospitals(${u.id}, '${esc(u.username)}')" style="font-size:0.72rem;color:#1565c0;margin-left:0.2rem;">Hospitals</button>
                         ${u.is_active ? '<button class="btn btn-sm btn-outline" onclick="deactivateUser(' + u.id + ')" style="font-size:0.72rem;color:var(--accent-red);margin-left:0.2rem;">Deactivate</button>' : ''}
                       </td>
@@ -283,6 +284,57 @@
   };
   // Auto-load when admin panel opens
   setTimeout(function() { if (document.getElementById('visMatrixBody')) loadVisibilityMatrix(); }, 500);
+
+  // ---- Password Change ----
+  window.changePassword = function(userId, username) {
+    document.getElementById('pwModalUserId').value = userId;
+    document.getElementById('pwModalUsername').textContent = username;
+    document.getElementById('adminPwNew').value = '';
+    document.getElementById('adminPwConfirm').value = '';
+    document.getElementById('pwModalError').style.display = 'none';
+    document.getElementById('pwModalSuccess').style.display = 'none';
+    document.getElementById('adminPwModal').style.display = 'flex';
+  };
+
+  window.closePwModal = function() {
+    document.getElementById('adminPwModal').style.display = 'none';
+  };
+
+  window.saveNewPassword = async function() {
+    var userId = document.getElementById('pwModalUserId').value;
+    var newPw = document.getElementById('adminPwNew').value;
+    var confirmPw = document.getElementById('adminPwConfirm').value;
+    var errEl = document.getElementById('pwModalError');
+    var okEl = document.getElementById('pwModalSuccess');
+
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+
+    if (!newPw) { errEl.textContent = 'Password is required'; errEl.style.display = 'block'; return; }
+    if (newPw.length < 6) { errEl.textContent = 'Password must be at least 6 characters'; errEl.style.display = 'block'; return; }
+    if (newPw !== confirmPw) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
+
+    var resp = await api('/admin/users/' + userId + '/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ new_password: newPw, confirm_password: confirmPw })
+    });
+
+    if (resp && resp.detail) {
+      errEl.textContent = resp.detail;
+      errEl.style.display = 'block';
+      return;
+    }
+    if (resp && resp._error) {
+      errEl.textContent = resp.detail || 'Server error';
+      errEl.style.display = 'block';
+      return;
+    }
+    okEl.textContent = '✅ Password changed successfully!';
+    okEl.style.display = 'block';
+    document.getElementById('adminPwNew').value = '';
+    document.getElementById('adminPwConfirm').value = '';
+    setTimeout(closePwModal, 1500);
+  };
 
   function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 

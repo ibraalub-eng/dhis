@@ -124,3 +124,25 @@ def me(user=Depends(get_current_user)):
         "roles": roles,
         "permissions": permissions,
     }
+
+
+class SelfPasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+    confirm_password: str = ""
+
+
+@router.post("/change-password")
+def change_own_password(req: SelfPasswordChangeRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Logged-in user changes their own password."""
+    if not verify_password(req.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    if req.new_password == req.current_password:
+        raise HTTPException(status_code=400, detail="New password must be different from current")
+    if req.confirm_password and req.new_password != req.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+    user.password_hash = hash_password(req.new_password)
+    db.commit()
+    return {"success": True, "message": "Password changed successfully"}
