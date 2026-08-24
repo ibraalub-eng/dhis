@@ -5,7 +5,21 @@
 
         // ── Saved Files ────────────────────────────────────────────
         export function refreshSavedFiles() {
-            fetch(API() + '/analysis/saved-files').then(r => r.json()).then(files => {
+            // Skip if user lacks data.upload permission (doctor/viewer roles)
+            try {
+                var userInfo = JSON.parse(localStorage.getItem('user_info') || sessionStorage.getItem('user_info') || '{}');
+                var perms = userInfo.permissions || [];
+                if (!perms.includes('*.*') && !perms.includes('data.upload')) {
+                    // Hide the saved files section for non-upload users
+                    var card = document.querySelector('[data-requires="data.upload"]');
+                    if (card) card.style.display = 'none';
+                    return;
+                }
+            } catch(e) {}
+            fetch(API() + '/analysis/saved-files').then(r => {
+                if (!r.ok) { throw new Error('HTTP ' + r.status); }
+                return r.json();
+            }).then(files => {
                 const container = document.getElementById('savedFilesList');
                 const actions = document.getElementById('savedActions');
                 document.getElementById('savedCount').textContent = files.length + ' file(s)';
