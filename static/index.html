@@ -8,6 +8,27 @@
     <script src="/static/vendor/chart.umd.min.js"></script>
     <script src="/static/vendor/plotly.min.js"></script>
     <link rel="stylesheet" href="/static/css/styles.css">
+    <script>
+    (function(){
+      var stored = localStorage.getItem('theme');
+      var theme = stored || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+      window._currentTheme = theme;
+    })();
+    function toggleTheme() {
+      var current = document.documentElement.getAttribute('data-theme');
+      var next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('theme', next);
+      document.getElementById('themeToggle').textContent = next === 'dark' ? '🌙' : '☀️';
+    }
+    </script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var theme = document.documentElement.getAttribute('data-theme') || 'dark';
+      document.getElementById('themeToggle').textContent = theme === 'dark' ? '🌙' : '☀️';
+    });
+    </script>
 </head>
 <body>
     <!-- Login Page (hidden by default) -->
@@ -52,6 +73,7 @@
             <span style="font-size:0.8rem;opacity:0.7;">API:</span>
             <input id="apiBase" value="" style="width:180px;color:var(--text-primary);" placeholder="API Base URL">
             <button class="lang-btn" id="langToggle" onclick="toggleLang()">English</button>
+            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle light/dark mode">...</button>
         </div>
     </div>
 

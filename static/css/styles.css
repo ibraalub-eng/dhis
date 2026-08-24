@@ -55,6 +55,74 @@
   --chart-secondary: #A78BFA;
   --chart-grid: #2A2E3B;
 }
+/* ── Light Theme Override ────────────────────────────── */
+[data-theme="light"] {
+  --bg-base: #F5F6F8;
+  --bg-surface: #FFFFFF;
+  --bg-surface-hover: #F0F1F3;
+  --bg-elevated: #E8E9EC;
+  --bg-input: #F5F6F8;
+
+  --border-default: #D1D5DB;
+  --border-focus: #3B6FDB;
+
+  --text-primary: #1F2937;
+  --text-secondary: #6B7280;
+  --text-muted: #9CA3AF;
+
+  --accent-blue: #3B6FDB;
+  --accent-teal: #0D9488;
+  --accent-purple: #7C3AED;
+  --accent-orange: #D97706;
+  --accent-red: #DC2626;
+  --accent-green: #16A34A;
+  --accent-yellow: #CA8A04;
+  --accent-pink: #DB2777;
+
+  --severity-critical-text: #DC2626;
+  --severity-critical-bg: rgba(220,38,38,0.08);
+  --severity-critical-border: rgba(220,38,38,0.2);
+  --severity-warning-text: #D97706;
+  --severity-warning-bg: rgba(217,119,6,0.08);
+  --severity-warning-border: rgba(217,119,6,0.2);
+  --severity-success-text: #16A34A;
+  --severity-success-bg: rgba(22,163,74,0.08);
+  --severity-success-border: rgba(22,163,74,0.2);
+  --severity-info-text: #3B6FDB;
+  --severity-info-bg: rgba(59,111,219,0.08);
+  --severity-info-border: rgba(59,111,219,0.2);
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+  --glow-blue: 0 0 16px rgba(59,111,219,0.1);
+
+  --header-gradient: linear-gradient(135deg, #EFF1F5, #FFFFFF);
+  --page-bg: #F5F6F8;
+
+  --chart-primary: #0D9488;
+  --chart-secondary: #7C3AED;
+  --chart-grid: #D1D5DB;
+}
+/* ── Theme Toggle Button ─────────────────────────────── */
+.theme-toggle {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: background 0.2s, border-color 0.2s;
+  color: var(--text-primary);
+}
+.theme-toggle:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-focus);
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { background: var(--page-bg); }
 body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--page-bg); color: var(--text-primary); line-height: 1.5; min-height:100vh; }
