@@ -14,6 +14,7 @@ from app.models import IndicatorValue, Indicator, Hospital
 from app.cache import cache
 from app.engine.comparative.report_cache import invalidate_report_cache
 from app.core.deps import require_permission
+from app.config import MAX_UPLOAD_SIZE
 from datetime import datetime
 import logging
 
@@ -22,6 +23,29 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/upload", tags=["upload"])
 
 ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".xlsm", ".xlsb"}
+
+
+def _check_upload_size_sync(file: UploadFile):
+    """Reject files larger than MAX_UPLOAD_SIZE (sync version for sync endpoints)."""
+    data = file.file.read()
+    size = len(data)
+    file.file.seek(0)
+    if size > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {size // 1024 // 1024}MB exceeds {MAX_UPLOAD_SIZE // 1024 // 1024}MB limit",
+        )
+
+async def _check_upload_size(file: UploadFile):
+    """Reject files larger than MAX_UPLOAD_SIZE (async version)."""
+    data = await file.read()
+    size = len(data)
+    await file.seek(0)
+    if size > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {size // 1024 // 1024}MB exceeds {MAX_UPLOAD_SIZE // 1024 // 1024}MB limit",
+        )
 
 
 def _precompute_smart_bg(db_session, months: list):
@@ -101,6 +125,7 @@ def preview_excel(file: UploadFile = File(...), db: Session = Depends(get_db), u
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported extension: {ext}")
     from app.config import UPLOAD_DIR
+    _check_upload_size_sync(file)
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
@@ -201,6 +226,7 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     from app.config import UPLOAD_DIR
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
+    await _check_upload_size(file)
     file_path = os.path.join(upload_dir, file.filename)
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
@@ -245,6 +271,7 @@ async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends
     from app.config import UPLOAD_DIR
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
+    await _check_upload_size(file)
     file_path = os.path.join(upload_dir, file.filename)
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)

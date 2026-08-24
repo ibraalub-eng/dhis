@@ -10,7 +10,7 @@ from app.engine.anomaly import analyze_historical_trends, compare_hospitals
 from app.engine.clinical import run_clinical_analysis
 from app.utils.excel_parser import process_excel_upload
 from datetime import datetime
-from app.config import UPLOAD_DIR
+from app.config import UPLOAD_DIR, MAX_UPLOAD_SIZE
 from app.schemas import MultiFileUploadResponse
 from app.core.deps import require_permission
 import os
@@ -186,6 +186,12 @@ async def upload_multiple_files(
         if ext not in ALLOWED_EXTENSIONS:
             logger.warning(f"Skipping file with unsupported extension: {file.filename}")
             continue
+
+        data = await file.read()
+        if len(data) > MAX_UPLOAD_SIZE:
+            logger.warning(f"Skipping oversized file: {file.filename} ({len(data) // 1024 // 1024}MB)")
+            continue
+        await file.seek(0)
 
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, "wb") as f:
