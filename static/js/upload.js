@@ -11,6 +11,7 @@
         let previewFilePath = null;
         let previewFiles = null;
         let previewFileName = null;
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
         dropZone.addEventListener('click', () => fileInput.click());
         dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -22,9 +23,15 @@
             const list = document.getElementById('fileList');
             if (fileInput.files.length) {
                 list.classList.remove('hidden');
-                list.innerHTML = Array.from(fileInput.files).map(f => '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;">' +
-                    '<span style="color:#3f51b5;">📄</span><span>' + f.name + '</span>' +
-                    '<span style="color:#999;font-size:0.75rem;">(' + (f.size / 1024).toFixed(1) + ' KB)</span></div>').join('');
+                list.innerHTML = Array.from(fileInput.files).map(f => {
+                    const tooLarge = f.size > MAX_FILE_SIZE;
+                    const sizeStr = (f.size / 1024).toFixed(1) + ' KB';
+                    const warnStr = tooLarge ? ' ⚠️ exceeds 10 MB limit' : '';
+                    const warnColor = tooLarge ? '#dc2626' : '#999';
+                    return '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;">' +
+                        '<span style="color:#3f51b5;">📄</span><span>' + f.name + '</span>' +
+                        '<span style="color:' + warnColor + ';font-size:0.75rem;">(' + sizeStr + warnStr + ')</span></div>';
+                }).join('');
             } else { list.classList.add('hidden'); list.innerHTML = ''; }
         });
 
@@ -39,6 +46,12 @@
         }
 
         function showPreview(files) {
+            // Reject files larger than MAX_FILE_SIZE before uploading
+            if (files[0] && files[0].size > MAX_FILE_SIZE) {
+                const sizeMB = (files[0].size / (1024 * 1024)).toFixed(1);
+                setStatus('error', files[0].name + ': ' + sizeMB + ' MB exceeds the ' + (MAX_FILE_SIZE / (1024 * 1024)) + ' MB limit. Please choose a smaller file.');
+                return;
+            }
             updateStep(2);
             const fd = new FormData();
             fd.append('file', files[0]);
