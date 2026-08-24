@@ -167,6 +167,7 @@
 
             const hoverText = scores.map(s => {
                 const parts = ['<b>' + s.month + '</b>', cfg.label + ': <b>' + _qtValue(s, metric) + '</b>'];
+                if (s.peer_avg !== null && s.peer_avg !== undefined) parts.push('متوسط النظير: <b>' + Number(s.peer_avg).toFixed(1) + '</b>');
                 if (metric !== 'score') parts.push('درجة الجودة: ' + _qtValue(s, 'score'));
                 parts.push('الاكتمال: ' + _qtValue(s, 'completeness'));
                 parts.push('الالتزام: ' + _qtValue(s, 'rule_compliance'));
@@ -197,6 +198,20 @@
                     name: 'درجة الجودة (مرجع)',
                     line: { color: '#1a237e', width: 1.5, dash: 'dot' },
                     hoverinfo: 'skip',
+                });
+            }
+
+            // Peer average line (average of all hospitals per month)
+            var peerData = scores.map(s => s.peer_avg !== null && s.peer_avg !== undefined ? s.peer_avg : null);
+            var hasPeerData = peerData.some(v => v !== null);
+            if (hasPeerData) {
+                traces.push({
+                    type: 'scatter', mode: 'lines',
+                    x: months, y: peerData,
+                    name: 'متوسط النظير (Peer Avg)',
+                    line: { color: '#d97706', width: 2, dash: 'dashdot' },
+                    marker: { size: 6, color: '#d97706', symbol: 'diamond' },
+                    hovertemplate: 'متوسط النظير: <b>%{y:.1f}</b><extra></extra>',
                 });
             }
 

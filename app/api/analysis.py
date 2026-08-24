@@ -41,6 +41,7 @@ class QualityTrendPoint(BaseModel):
     consistency: Optional[float] = None
     outlier_penalty: Optional[float] = None
     issues_count: int = 0
+    peer_avg: Optional[float] = None
 
 
 class QualityTrendOut(BaseModel):
@@ -201,6 +202,25 @@ def quality_trend(hospital_id: int, db: Session = Depends(get_db)):
             outlier_penalty=round(s.outlier_penalty, 1) if s.outlier_penalty is not None else None,
             issues_count=len(issues),
         ))
+
+    # Calculate peer average (avg score across all hospitals per month)
+    peer_months = [d.month for d in data]
+    peer_avgs = {}
+    if peer_months:
+        from sqlalchemy import func as sa_func
+        peer_rows = (
+            db.query(
+                QualityScore.month,
+                sa_func.avg(QualityScore.score).label("peer_avg"),
+            )
+            .filter(QualityScore.month.in_(peer_months))
+            .group_by(QualityScore.month)
+            .all()
+        )
+        peer_avgs = {r.month: round(r.peer_avg, 1) for r in peer_rows if r.peer_avg is not None}
+
+    for d in data:
+        d.peer_avg = peer_avgs.get(d.month)
 
     scores_only = [d.score for d in data]
     current_score = scores_only[-1] if scores_only else None
