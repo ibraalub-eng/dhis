@@ -76,12 +76,15 @@ def seed_hospital_metadata(session: Session) -> int:
     own_map = {o.name.lower(): o.id for o in session.query(FacilityOwnership).all()}
     ft_map = {f.name.lower(): f.id for f in session.query(FacilityType).all()}
 
-    # Build hospital lookup with normalized names
+    # Build hospital lookup with normalized names + org_unit_id
     hosp_lookup = {}
+    org_lookup = {}
     for h in session.query(Hospital).all():
         norm = h.name.strip().lower()
         hosp_lookup[norm] = h
         hosp_lookup[norm.replace(" ", "")] = h
+        if h.organisation_unit_id:
+            org_lookup[h.organisation_unit_id.strip()] = h
 
     updated = 0
     matched = 0
@@ -92,7 +95,12 @@ def seed_hospital_metadata(session: Session) -> int:
         if not name:
             continue
 
-        hosp = hosp_lookup.get(name.lower()) or hosp_lookup.get(name.lower().replace(" ", ""))
+        # Try org_unit_id first (most reliable)
+        org_id_str = str(entry.get("organisation_unit_id", "")).strip()
+        hosp = org_lookup.get(org_id_str) if org_id_str else None
+
+        if not hosp:
+            hosp = hosp_lookup.get(name.lower()) or hosp_lookup.get(name.lower().replace(" ", ""))
         if not hosp:
             # Try partial match
             for key, h in hosp_lookup.items():
@@ -101,15 +109,26 @@ def seed_hospital_metadata(session: Session) -> int:
                     break
 
         if not hosp:
-            unmatched.append(name)
-            continue
+            # Create the hospital if it doesn't exist
+            hosp = Hospital(name=name, is_active=True)
+            session.add(hosp)
+            session.flush()
+            hosp_lookup[name.lower()] = hosp
+            if org_id_str:
+                org_lookup[org_id_str] = hosp
+                hosp.organisation_unit_id = org_id_str
+            matched += 1
+            # Fall through to set metadata below
+            changed = True
+        else:
+            matched += 1
 
         matched += 1
         changed = False
 
         # Set governorate
         gov_name = entry.get("governorate", "")
-        if gov_name and not hosp.governorate_id:
+        if gov_name:
             gov_id = _fuzzy_match(gov_name, gov_map)
             if gov_id:
                 hosp.governorate_id = gov_id
@@ -117,7 +136,7 @@ def seed_hospital_metadata(session: Session) -> int:
 
         # Set hospital type
         ht_name = entry.get("hospital_type", "")
-        if ht_name and not hosp.hospital_type_id:
+        if ht_name:
             ht_id = _fuzzy_match(ht_name, type_map)
             if ht_id:
                 hosp.hospital_type_id = ht_id
@@ -125,7 +144,7 @@ def seed_hospital_metadata(session: Session) -> int:
 
         # Set facility ownership
         own_name = entry.get("facility_ownership", "")
-        if own_name and not hosp.facility_ownership_id:
+        if own_name:
             own_id = _fuzzy_match(own_name, own_map)
             if own_id:
                 hosp.facility_ownership_id = own_id
@@ -133,7 +152,7 @@ def seed_hospital_metadata(session: Session) -> int:
 
         # Set facility type
         ft_name = entry.get("facility_type", "")
-        if ft_name and not hosp.facility_type_id:
+        if ft_name:
             ft_id = _fuzzy_match(ft_name, ft_map)
             if ft_id:
                 hosp.facility_type_id = ft_id
@@ -141,7 +160,7 @@ def seed_hospital_metadata(session: Session) -> int:
 
         # Set organisation unit ID
         org_id = entry.get("organisation_unit_id", "")
-        if org_id and not hosp.organisation_unit_id:
+        if org_id:
             hosp.organisation_unit_id = org_id
             changed = True
 

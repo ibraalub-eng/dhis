@@ -1,69 +1,47 @@
 {
-  "_comment": "Hospital metadata auto-applied on startup. Matched by hospital name.",
-  "_instructions": "Add/edit entries below. Only NULL fields are updated — safe to run every startup.",
+  "_comment": "Hospital metadata — auto-applied on startup via seed_hospital_metadata().",
+  "_instructions": "Matched by organisation_unit_id first, then by name. Only NULL fields updated.",
   "hospitals": [
-    {
-      "name": "مستشفى ناصر",
-      "governorate": "خان يونس",
-      "hospital_type": "عام",
-      "facility_ownership": "حكومة",
-      "facility_type": "مستشفيات"
-    },
-    {
-      "name": "مستشفى الشفاء",
-      "governorate": "غزة",
-      "hospital_type": "عام",
-      "facility_ownership": "حكومة",
-      "facility_type": "مستشفيات"
-    },
-    {
-      "name": "مستشفى العرينة",
-      "governorate": "رفح",
-      "hospital_type": "عام",
-      "facility_ownership": "حكومة",
-      "facility_type": "مستشفيات"
-    },
-    {
-      "name": "مستشفى النصر",
-      "governorate": "شمال غزة",
-      "hospital_type": "عام",
-      "facility_ownership": "حكومة",
-      "facility_type": "مستشفيات"
-    },
-    {
-      "name": "مستشفى بيت حانون",
-      "governorate": "شمال غزة",
-      "hospital_type": "عام",
-      "facility_ownership": "حكومة",
-      "facility_type": "مستشفيات"
-    },
-    {
-      "name": "مستشفى محمد الدرة",
-      "governorate": "شمال غزة",
-      "hospital_type": "عام",
-      "facility_ownership": "حكومة",
-      "facility_type": "مستشفيات"
-    },
-    {
-      "name": "مستشفى الأكاديمية البحرية",
-      "governorate": "غزة",
-      "hospital_type": "تخصصي",
-      "facility_ownership": "حكومي",
-      "facility_type": "مستشفيات"
-    },
-    {
-      "name": "مستشفى كويкопا",
-      "governorate": "جنوب غزة",
-      "hospital_type": "عام",
-      "facility_ownership": "INGOs",
-      "facility_type": "مستشفيات"
-    },
-    {
-      "name": "مستشفى الأمل",
-      "governorate": "خان يونس",
-      "hospital_type": "عام",
-      "facility_ownership": "INGOs",
-      "facility_type": "مستشفيات"
-    }
+    {"organisation_unit_id": "1026", "name": "وزارة الصحة/مستشفيات/مستشفى العيون", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى تخصصي"},
+    {"organisation_unit_id": "1023", "name": "مستشفيات/ مستشفى الصليب الأحمر الميداني/ ICRC", "facility_ownership": "INGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "1007", "name": "جمعية الوفاء/مستشفيات/مستشفى الوفاء للتأهيل الطبي", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى تخصصي"},
+    {"organisation_unit_id": "2162", "name": "جمعية السلام/مستشفيات/مستشفى دارالسلام", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1022", "name": "وزارة الصحة/مستشفيات/مستشفى الشفاء", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1025", "name": "العودة/مستشفيات/مستشفى العودة-النصيرات", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1017", "name": "وزارة الصحة/مستشفيات/مستشفى الاندونيسي", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1020", "name": "الخدمة العامة/ مستشفيات/ مستشفى الخدمة العامة", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1015", "name": "مستشفيات/ مستشفى أطباء بلا حدود الميداني- هولندا/MSF", "facility_ownership": "INGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "1021", "name": "وزارة الصحة/مستشفيات/مستشفى الزوايدة الميداني", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "1027", "name": "وزارة الصحة/مستشفيات/عبدالعزيز الرنتيسي", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى تخصصي"},
+    {"organisation_unit_id": "45290", "name": "وزارة الصحة / مستشفيات/مستشفى الدرة", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى تخصصي"},
+    {"organisation_unit_id": "1016", "name": "الكنيسة الانجليكانية/مستشفيات/مستشفى الأهلي العربي", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "48134", "name": "قطر للتنمية/مستشفيات/مستشفى حمد للتأهيل والأطراف الصناعية", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى تخصصي"},
+    {"organisation_unit_id": "1005", "name": "مستشفيات/المستشفى البريطاني الميداني/ Uk-Med", "facility_ownership": "INGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "1032", "name": "الصلاح الإسلامية/ مستشفيات/مستشفى يافا", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "46941", "name": "الهلال الأحمر/مستشفيات/مستشفى السرايا الميداني", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "1028", "name": "وزارة الصحة/مستشفيات/مستشفى شهداء الأقصى", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "26212", "name": "الخدمات الأردنية/مستشفيات/الميداني الأردني", "facility_ownership": "INGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "15106", "name": "جمعية مركز حيفا/مستشفيات /مستشفى حيفا", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1009", "name": "الصحابة/مستشفيات/مجمع الصحابة الطبي", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1030", "name": "مستشفيات / مستشفى مدينة الأمل/ PRCS", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "102944", "name": "وزارة الصحة/مستشفيات/مستشفى الشفاء-الحلو", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "102946", "name": "وزارة الصحة/مستشفيات/مستشفى الشفاء-الخدمة العامة", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "99164", "name": "الخدمات الأردنية/مستشفيات/الميداني الأردني خانيونس", "facility_ownership": "INGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "48932", "name": "وزارة الصحة/ مستشفيات /مركز غزة للسرطان", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى تخصصي"},
+    {"organisation_unit_id": "106895", "name": "مستشفيات / مستشفى المواصي الميداني/ PRCS", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "1031", "name": "وزارة الصحة/ مستشفيات/ مستشفى ناصر", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1008", "name": "الكويتي / مستشفيات/مستشفى الكويت التخصصي الميداني -شفاء فلسطين", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "13135", "name": "الصحابة/مستشفيات/مستشفى الخير", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "132799", "name": "مستشفيات/ الهيئة الطبية الدولية الميداني غزة الكتيبة/IMC", "facility_ownership": "INGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "1024", "name": "العودة/مستشفيات/مستشفى العودة- جباليا", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "44641", "name": "مستشفيات/ مستشفى القدس/PRCS", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1029", "name": "وزارة الصحة/مستشفيات/مستشفى كمال عدوان", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1018", "name": "وزارة الصحة/مستشفيات/ مستشفى الاوروبي", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "12951", "name": "وزارة الصحة/ مستشفيات /مستشفى الهلال الاماراتي", "facility_ownership": "حكومي", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1019", "name": "الحلو/مستشفيات/ مستشفى الحلوالدولي", "facility_ownership": "خاص", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1003", "name": "أصدقاء المريض/ مستشفيات/ مستشفى أصدقاء المريض", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى عام"},
+    {"organisation_unit_id": "1004", "name": "مستشفيات/ الهيئة الطبية الدولية الميداني ديرالبلح/IMC", "facility_ownership": "INGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "4877", "name": "مستشفيات/مستشفى القدس الميداني/PRCS", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى ميداني"},
+    {"organisation_unit_id": "148282", "name": "مستشفى سانت جون للعيون", "facility_ownership": "NGOs", "facility_type": "مستشفيات", "hospital_type": "مستشفى تخصصي"}
   ]
 }
