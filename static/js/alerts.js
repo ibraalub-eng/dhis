@@ -4,7 +4,10 @@
         // ── Alerts Tab (overview only; rule-failures table merged here) ──
         export function loadAlerts() {
             fetch(API() + '/alerts/overview')
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                })
                 .then(data => {
                     renderAlertOverview(data);
                     updateAlertBadge(data);

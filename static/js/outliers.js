@@ -169,24 +169,29 @@
 
         // ── Rule Failures Tab ──────────────────────────────────────
         export function loadRuleFailures() {
-            if (!document.getElementById('ruleFailTbody')) return;
+            const tbody = document.getElementById('ruleFailTbody');
+            if (!tbody) return;
             const hosp = document.getElementById('ruleFailHospitalFilter').value;
             const mon = document.getElementById('ruleFailMonthFilter').value;
             const sev = document.getElementById('ruleFailSeverityFilter').value;
             const typ = document.getElementById('ruleFailTypeFilter').value;
-            document.getElementById('ruleFailLoading').classList.remove('hidden');
-            document.getElementById('ruleFailTbody').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:#888;">Loading rule failures...</td></tr>';
+            const loading = document.getElementById('ruleFailLoading');
+            if (loading) loading.classList.remove('hidden');
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:#888;">Loading rule failures...</td></tr>';
             let url = API() + '/analysis/rule-failures?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
             if (sev) url += 'severity=' + encodeURIComponent(sev) + '&';
             if (typ) url += 'rule_type=' + encodeURIComponent(typ) + '&';
-            fetch(url).then(r => r.json()).then(data => {
-                document.getElementById('ruleFailLoading').classList.add('hidden');
+            fetch(url).then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.json();
+            }).then(data => {
+                if (loading) loading.classList.add('hidden');
                 updateRuleFailUI(data, hosp, mon);
             }).catch(err => {
-                document.getElementById('ruleFailLoading').classList.add('hidden');
-                document.getElementById('ruleFailTbody').innerHTML = '<tr><td colspan="7" style="color:red;">Error: ' + err.message + '</td></tr>';
+                if (loading) loading.classList.add('hidden');
+                tbody.innerHTML = '<tr><td colspan="7" style="color:red;text-align:center;">Error loading rule failures: ' + err.message + '</td></tr>';
             });
         }
 
