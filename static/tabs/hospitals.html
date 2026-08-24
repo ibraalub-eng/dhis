@@ -27,27 +27,32 @@
                 <option value="">All Facility Types</option>
             </select>
         </div>
+        <div id="hospLoading" style="text-align:center;padding:1.5rem;color:#888;"><span class="spinner"></span> Loading hospitals...</div>
         <div id="hospList" style="font-size:0.85rem;"></div>
     </div>
 
     <div id="hospSub-governorates" class="hosp-subtab-content" style="display:none;">
         <button class="btn" onclick="showGovModal()" style="background:var(--accent-blue);color:white;margin-bottom:0.8rem;">+ Add Governorate</button>
-        <div id="govList" style="font-size:0.85rem;"></div>
+        <div id="govLoading" style="text-align:center;padding:1rem;color:#888;"><span class="spinner"></span> Loading...</div>
+            <div id="govList" style="font-size:0.85rem;"></div>
     </div>
 
     <div id="hospSub-types" class="hosp-subtab-content" style="display:none;">
         <button class="btn" onclick="showTypeModal()" style="background:var(--accent-blue);color:white;margin-bottom:0.8rem;">+ Add Hospital Type</button>
-        <div id="typeList" style="font-size:0.85rem;"></div>
+        <div id="typeLoading" style="text-align:center;padding:1rem;color:#888;"><span class="spinner"></span> Loading...</div>
+            <div id="typeList" style="font-size:0.85rem;"></div>
     </div>
 
     <div id="hospSub-ownerships" class="hosp-subtab-content" style="display:none;">
         <button class="btn" onclick="showOwnershipModal()" style="background:var(--accent-blue);color:white;margin-bottom:0.8rem;">+ Add Ownership</button>
-        <div id="ownershipList" style="font-size:0.85rem;"></div>
+        <div id="ownershipLoading" style="text-align:center;padding:1rem;color:#888;"><span class="spinner"></span> Loading...</div>
+            <div id="ownershipList" style="font-size:0.85rem;"></div>
     </div>
 
     <div id="hospSub-facilitytypes" class="hosp-subtab-content" style="display:none;">
         <button class="btn" onclick="showFacilityTypeModal()" style="background:var(--accent-blue);color:white;margin-bottom:0.8rem;">+ Add Facility Type</button>
-        <div id="facilityTypeList" style="font-size:0.85rem;"></div>
+        <div id="facilityTypeLoading" style="text-align:center;padding:1rem;color:#888;"><span class="spinner"></span> Loading...</div>
+            <div id="facilityTypeList" style="font-size:0.85rem;"></div>
     </div>
 </div>
 

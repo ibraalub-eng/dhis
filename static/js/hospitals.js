@@ -31,9 +31,18 @@ function switchHospSubtab(name) {
 window.switchHospSubtab = switchHospSubtab;
 
 function loadHospitalsList() {
+    var sp = document.getElementById('hospLoading');
+    if (sp) sp.style.display = '';
+    var ct = document.getElementById('hospList');
+    if (ct) ct.style.display = 'none';
     apiGet('/hospitals/?include_inactive=true').then(data => {
         _hospitals = data || [];
+        if (sp) sp.style.display = 'none';
+        if (ct) ct.style.display = '';
         renderHospitals();
+    }).catch(function() {
+        if (sp) sp.style.display = 'none';
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load hospitals.</div>'; }
     });
 }
 
@@ -113,10 +122,19 @@ function renderHospitalsTable(filtered, statusMap) {
 window.filterHospitals = function() { renderHospitals(); };
 
 function loadGovernorates() {
+    var sp = document.getElementById('govLoading');
+    if (sp) sp.style.display = '';
+    var ct = document.getElementById('govList');
+    if (ct) ct.style.display = 'none';
     apiGet('/governorates/').then(data => {
         _governorates = data || [];
+        if (sp) sp.style.display = 'none';
+        if (ct) ct.style.display = '';
         renderGovernorates();
         populateGovDropdowns();
+    }).catch(function() {
+        if (sp) sp.style.display = 'none';
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load.</div>'; }
     });
 }
 
@@ -155,10 +173,19 @@ function populateGovDropdowns() {
 }
 
 function loadHospitalTypes() {
+    var sp = document.getElementById('typeLoading');
+    if (sp) sp.style.display = '';
+    var ct = document.getElementById('typeList');
+    if (ct) ct.style.display = 'none';
     apiGet('/hospital-types/').then(data => {
         _types = data || [];
+        if (sp) sp.style.display = 'none';
+        if (ct) ct.style.display = '';
         renderHospitalTypes();
         populateTypeDropdowns();
+    }).catch(function() {
+        if (sp) sp.style.display = 'none';
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load.</div>'; }
     });
 }
 
@@ -333,10 +360,19 @@ window.deleteHospitalType = deleteHospitalType;
 // ── Facility Ownerships ──────────────────────────────────────────
 
 function loadOwnerships() {
+    var sp = document.getElementById('ownershipLoading');
+    if (sp) sp.style.display = '';
+    var ct = document.getElementById('ownershipList');
+    if (ct) ct.style.display = 'none';
     apiGet('/facility-ownerships/').then(data => {
         _ownerships = data || [];
+        if (sp) sp.style.display = 'none';
+        if (ct) ct.style.display = '';
         renderOwnerships();
         populateOwnershipDropdowns();
+    }).catch(function() {
+        if (sp) sp.style.display = 'none';
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load.</div>'; }
     });
 }
 
@@ -415,10 +451,19 @@ window.deleteOwnership = deleteOwnership;
 // ── Facility Types ───────────────────────────────────────────────
 
 function loadFacilityTypes() {
+    var sp = document.getElementById('facilityTypeLoading');
+    if (sp) sp.style.display = '';
+    var ct = document.getElementById('facilityTypeList');
+    if (ct) ct.style.display = 'none';
     apiGet('/facility-types/').then(data => {
         _facilityTypes = data || [];
+        if (sp) sp.style.display = 'none';
+        if (ct) ct.style.display = '';
         renderFacilityTypes();
         populateFacilityTypeDropdowns();
+    }).catch(function() {
+        if (sp) sp.style.display = 'none';
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load.</div>'; }
     });
 }
 
