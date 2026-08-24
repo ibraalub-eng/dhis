@@ -115,7 +115,20 @@ window.loadHospitalsTab = loadHospitalsTab;
 
 // Bootstrap
 document.addEventListener('DOMContentLoaded', async () => {
-    // Auth guard — must run before any data loading
+    // Auth guard — hard check for token BEFORE any data loading
+    const _token = localStorage.getItem('access_token');
+    if (!_token) {
+        // No token at all — show login page, stop all init
+        const lp = document.getElementById('login-page');
+        if (lp) lp.style.display = 'flex';
+        const hdr = document.querySelector('.header');
+        if (hdr) hdr.style.display = 'none';
+        const cc = document.querySelector('.container');
+        if (cc) cc.style.display = 'none';
+        return;
+    }
+
+    // Token exists — verify it via checkAuth (validates + refreshes if needed)
     if (typeof checkAuth === 'function') {
         const authenticated = await checkAuth();
         if (!authenticated) return; // login page shown, stop init

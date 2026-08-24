@@ -9,10 +9,17 @@
     opts.headers = opts.headers || {};
     // Only add token for API calls (not static assets or login/refresh)
     var urlStr = typeof url === 'string' ? url : (url.url || '');
-    var isApiCall = urlStr.indexOf('/auth/login') === -1 && urlStr.indexOf('/auth/refresh') === -1;
+    var isApiCall = urlStr.indexOf('/auth/login') === -1 && urlStr.indexOf('/auth/refresh') === -1
+                    && urlStr.indexOf('/static/') === -1 && urlStr.indexOf('/config/') === -1;
     if (isApiCall) {
       var token = localStorage.getItem('access_token');
-      if (token && !opts.headers['Authorization']) {
+      if (!token) {
+        // No token — return synthetic 401 without hitting the server
+        return Promise.resolve(new Response(JSON.stringify({detail: 'Not authenticated'}), {
+          status: 401, statusText: 'Unauthorized', headers: {'Content-Type': 'application/json'}
+        }));
+      }
+      if (!opts.headers['Authorization']) {
         opts.headers['Authorization'] = 'Bearer ' + token;
       }
     }
@@ -131,8 +138,25 @@
       setTokens(data.access_token, data.refresh_token);
       setUserInfo(data.user);
       hideLoginPage();
-      if (typeof window.initDashboard === 'function') window.initDashboard();
       applyPermissions();
+      // Re-run full bootstrap (same as app.js DOMContentLoaded)
+      if (typeof window.refreshSavedFiles === 'function') window.refreshSavedFiles();
+      fetch(API_BASE + '/reports/').then(function(r) { return r.json(); }).then(function(reports) {
+        if (reports && reports.length > 0) {
+          var el = document.getElementById('resultsSection');
+          if (el) el.classList.remove('hidden');
+        }
+      }).catch(function() {});
+      var savedTab = localStorage.getItem('lastTab');
+      if (typeof window.switchTab === 'function') {
+        if (savedTab && savedTab !== 'dashboard') {
+          window.switchTab(savedTab);
+        } else {
+          window.switchTab('dashboard');
+        }
+      } else if (typeof window.initDashboard === 'function') {
+        window.initDashboard();
+      }
     } catch (err) {
       errorEl.textContent = 'Network error';
       errorEl.style.display = 'block';
