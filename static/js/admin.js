@@ -25,11 +25,18 @@
     var container = document.getElementById('tab-admin');
     if (!container) return;
     container.innerHTML = '<div style="padding:1rem;color:#888;">Loading...</div>';
+    try {
 
     var usersData = await api('/admin/users');
     var rolesData = await api('/admin/roles');
     var permsData = await api('/admin/permissions');
-    if (!usersData || !rolesData || !permsData) return;
+    if (!usersData || !rolesData || !permsData) {
+      container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
+        '<h3 style="color:#c62828;margin-bottom:0.5rem;">Authentication Required</h3>' +
+        '<p style="color:#666;">Please log in again to access the Admin panel.</p>' +
+        '</div>';
+      return;
+    }
 
     // Handle API errors (403, 500, network)
     var firstErr = [usersData, rolesData, permsData].find(function(d) { return d && (d._forbidden || d._error); });
@@ -93,7 +100,8 @@
           <!-- Roles -->
           <div style="flex:1;min-width:250px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;"><h3 style="color:#1a237e;margin:0;">Roles (${roles.length})</h3>
+              <h3 style="color:#1a237e;margin:0;">Roles (${roles.length})</h3>
+              <button class="btn btn-sm" onclick="showCreateRoleModal()">+ New Role</button>
             </div>
             <div style="overflow-x:auto;">
               <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
@@ -196,6 +204,13 @@
         </div>
       </div>
     `;
+  } catch(e) {
+    container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
+      '<h3 style="color:#c62828;margin-bottom:0.5rem;">Error Loading Admin Panel</h3>' +
+      '<p style="color:#666;">' + (e.message || 'An unexpected error occurred') + '</p>' +
+      '<button class="btn btn-sm" onclick="loadAdminPanel()" style="margin-top:0.5rem;">Retry</button>' +
+      '</div>';
+  }
   };
 
   function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
