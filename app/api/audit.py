@@ -8,6 +8,13 @@ from app.core.deps import require_permission
 router = APIRouter(prefix="/audit", tags=["audit"], dependencies=[Depends(require_permission("audit.read"))])
 
 
+@router.get("/")
+def list_audit_summary():
+    """Audit log placeholder — AuditLog model not yet created.
+    Returns empty list for now."""
+    return []
+
+
 @router.get("/calculation-steps/{hospital_id}")
 def api_calculation_steps(
     hospital_id: int,

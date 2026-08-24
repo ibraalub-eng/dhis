@@ -137,8 +137,8 @@
                         if (typeof window.loadHospitalsTab === 'function') window.loadHospitalsTab();
                     }, 500);
                 }
-            }).catch(() => {
-                container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">Failed to load hospitals management.</div>';
+            }).catch(err => {
+                container.innerHTML = '<div style="padding:1rem;text-align:center;color:#c62828;">Failed to load hospitals management: ' + (err.message || 'Network error') + '</div>';
             });
         }
 

@@ -17,7 +17,7 @@ MONTH_SETTINGS_PREFIX = "month_enabled_"
 def get_database_status(db: Session = Depends(get_db)):
     """Check database connection and return stats."""
     from sqlalchemy import inspect as sa_inspect, func
-    from app.models import Hospital, IndicatorValue, QualityScore, Indicator, ValidationRule, AppConfig, SystemSetting
+    from app.models import Hospital, IndicatorValue, QualityScore, Indicator, Rule, AppConfig, SystemSetting
     try:
         db.execute(func.now())
         total_hospitals = db.query(func.count(Hospital.id)).scalar() or 0
@@ -25,7 +25,7 @@ def get_database_status(db: Session = Depends(get_db)):
         total_indicator_values = db.query(func.count(IndicatorValue.id)).scalar() or 0
         total_quality_scores = db.query(func.count(QualityScore.id)).scalar() or 0
         total_indicators = db.query(func.count(Indicator.id)).scalar() or 0
-        total_rules = db.query(func.count(ValidationRule.id)).scalar() or 0
+        total_rules = db.query(func.count(Rule.id)).scalar() or 0
         # Check key tables exist (portable: works on any database)
         tables = sa_inspect(db.get_bind()).get_table_names()
         return {
