@@ -133,7 +133,7 @@ async function loadTimeline() {
         pad: { t: 40 }, currentvalue: { prefix: `${_t('Month')}: `, font: { size: 12, color: '#1a237e' } },
       }],
       margin: { t: 60, b: 100, l: 50, r: 20 },
-      height: 460, paper_bgcolor: 'white', plot_bgcolor: 'white', hovermode: 'closest',
+      height: 460, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)', hovermode: 'closest',
     };
     if (window.Plotly && window.Plotly.addFrames) {
       Plotly.newPlot('smart-timeline-chart', [makeTrace(months[0])], layout).then(gd => {

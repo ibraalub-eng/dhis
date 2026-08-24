@@ -202,7 +202,7 @@ function renderReportLines(reportText) {
       return `<div class="report-line report-bullet">${_smartEscapeHtml(content)}</div>`;
     }
     if (t.endsWith(':') && t.length < 60) {
-      return `<div class="report-line report-text" style="font-weight:700;color:#1a237e;">${_smartEscapeHtml(t)}</div>`;
+      return `<div class="report-line report-text" style="font-weight:700;color:var(--accent-blue);">${_smartEscapeHtml(t)}</div>`;
     }
     return `<div class="report-line report-text">${_smartEscapeHtml(t)}</div>`;
   }).join('');

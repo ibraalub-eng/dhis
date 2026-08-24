@@ -67,17 +67,17 @@ export function renderKPIs(kpi, hospitalsCount) {
 
   c.innerHTML = `
     <div class="smart-kpi-card" style="border-top-color:${kpi.total_anomalies > 0 ? SMART_COLORS.critical : SMART_COLORS.normal};" onclick="window._smartKPIAnomalies()">
-      <div class="smart-kpi-value" style="color:${kpi.total_anomalies > 0 ? SMART_COLORS.critical : SMART_COLORS.normal};">${kpi.total_anomalies}<span style="font-size:0.9rem;font-weight:400;color:#999;">/${hospitalsCount}</span></div>
+      <div class="smart-kpi-value" style="color:${kpi.total_anomalies > 0 ? SMART_COLORS.critical : SMART_COLORS.normal};">${kpi.total_anomalies}<span style="font-size:0.9rem;font-weight:400;color:var(--text-muted);">/${hospitalsCount}</span></div>
       <div class="smart-kpi-label">${_t('Hospitals with anomalies')}</div>
       <div class="smart-kpi-sub">${kpi.critical_count} ${_t('critical')} (${criticalPct}%) + ${kpi.warning_count} ${_t('warning')} (${warningPct}%)</div>
     </div>
     <div class="smart-kpi-card" style="border-top-color:#3b82f6;" onclick="window._smartKPIGovernorates()">
-      <div class="smart-kpi-value" style="color:#3b82f6;">${kpi.affected_governorates}<span style="font-size:0.9rem;font-weight:400;color:#999;">/${hospitalsCount > 0 ? Math.min(hospitalsCount, 5) : 5}</span></div>
+      <div class="smart-kpi-value" style="color:#3b82f6;">${kpi.affected_governorates}<span style="font-size:0.9rem;font-weight:400;color:var(--text-muted);">/${hospitalsCount > 0 ? Math.min(hospitalsCount, 5) : 5}</span></div>
       <div class="smart-kpi-label">${_t('Governorates with deviations')}</div>
       <div class="smart-kpi-sub">${_t('Contain warning or critical hospitals')}</div>
     </div>
-    <div class="smart-kpi-card" style="border-top-color:#8b5cf6;" onclick="window._smartKPIFactors()">
-      <div class="smart-kpi-value" style="font-size:1rem;color:#8b5cf6;word-break:break-word;line-height:1.4;">${_smartEscapeHtml(smartTranslateFeature(kpi.top_contributing_factor) || _t('Undefined'))}</div>
+    <div class="smart-kpi-card" style="border-top-color:var(--accent-purple);" onclick="window._smartKPIFactors()">
+      <div class="smart-kpi-value" style="font-size:1rem;color:var(--accent-purple);word-break:break-word;line-height:1.4;">${_smartEscapeHtml(smartTranslateFeature(kpi.top_contributing_factor) || _t('Undefined'))}</div>
       <div class="smart-kpi-label">${_t('Top contributing factor')}</div>
       <div class="smart-kpi-sub">${_t('SHAP analysis of drivers')}</div>
     </div>
@@ -115,7 +115,7 @@ export function renderCriticalList(anomalies) {
       <div style="display:flex;gap:0.4rem;align-items:center;">
         ${_riskBadge(h.anomaly_score.toFixed(3), 'critical')}
         <button class="btn btn-sm btn-outline" onclick="window.smartDrilldown(${hid})">📊 ${_t('Details')}</button>
-        <button class="btn btn-sm" style="background:#dc2626;color:#fff;border:none;" onclick="window.smartGoRootCause(${hid}, '${month}')">🔍 ${_t('Root cause')}</button>
+        <button class="btn btn-sm" style="background:var(--accent-red);color:white;border:none;" onclick="window.smartGoRootCause(${hid}, '${month}')">🔍 ${_t('Root cause')}</button>
       </div>
     </div>`;
   }).join('');
@@ -139,7 +139,7 @@ export function renderEarlyWarnings(ew) {
       <div>
         <div class="smart-priority-name">${_smartEscapeHtml(w.hospital_name || '')}</div>
         <div class="smart-priority-meta">${_smartEscapeHtml(w.governorate || '')} · ${_smartEscapeHtml(metrics)}</div>
-        <div class="smart-priority-meta" style="font-size:0.72rem;color:#6b7280;">
+        <div class="smart-priority-meta" style="font-size:0.72rem;color:var(--text-muted);">
           ${prob ? _t('Probability') + ': ' + prob : ''}
           ${confLabel ? ' · ' + _smartEscapeHtml(confLabel) : ''}
           ${w.outcome_rising ? ' · ⚠️ ' + _t('outcome rising') : ''}
@@ -172,7 +172,7 @@ export function renderHealthyHospitals(healthy) {
       <div>
         <div class="smart-priority-name">${_smartEscapeHtml(h.hospital_name)}</div>
         <div class="smart-priority-meta">${_smartEscapeHtml(h.governorate || '')}${h.hospital_type ? ' · ' + _smartEscapeHtml(h.hospital_type) : ''}</div>
-        <div class="smart-priority-meta" style="font-size:0.72rem;color:#6b7280;">
+        <div class="smart-priority-meta" style="font-size:0.72rem;color:var(--text-muted);">
           ${metrics.join(' · ')} · ${_t('composite')}: ${_fmtNum(h.composite_score, 1)}
         </div>
       </div>
@@ -184,7 +184,7 @@ export function renderHealthyHospitals(healthy) {
   container.innerHTML = `<div class="smart-section-card">
     <div class="smart-section-header" data-smart-collapsible="smart-healthy-body">
       <span>🏆 ${_t('Healthy hospitals (models to follow)')}</span>
-      <span style="font-size:0.72rem;color:#6b7280;">${list.length} ${_t('hospitals')}</span>
+      <span style="font-size:0.72rem;color:var(--text-muted);">${list.length} ${_t('hospitals')}</span>
       <span class="smart-toggle-icon">▾</span>
     </div>
     <div id="smart-healthy-body" class="smart-section-body">${bodyContent}</div>

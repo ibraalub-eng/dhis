@@ -221,8 +221,8 @@
                 yaxis: { title: 'الدرجة (0-100)', range: [0, 100], gridcolor: '#f5f5f5', zeroline: false },
                 hovermode: 'x unified',
                 legend: { orientation: 'h', y: 1.08, x: 0 },
-                paper_bgcolor: 'white',
-                plot_bgcolor: 'white',
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
                 font: { family: 'Segoe UI, Tahoma, Arial, sans-serif', size: 12 },
             }, { displayModeBar: true, responsive: true });
         }

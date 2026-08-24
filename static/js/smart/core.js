@@ -1,11 +1,21 @@
 // core.js — shared state, fetch, loaders, mode switching, small utilities.
 // Singletons used by the whole smart-analytics screen.
 
+function _getCSSVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 export const SMART_COLORS = {
-  normal: '#22c55e', warning: '#f59e0b', critical: '#ef4444',
+  get normal() { return _getCSSVar('--accent-green') || '#22c55e'; },
+  get warning() { return _getCSSVar('--accent-orange') || '#f59e0b'; },
+  get critical() { return _getCSSVar('--accent-red') || '#ef4444'; },
   clusters: ['#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#06b6d4', '#84cc16'],
-  noise: '#6b7280', shap_positive: '#ef4444', shap_negative: '#3b82f6',
-  corr_negative: '#3b82f6', corr_zero: '#ffffff', corr_positive: '#ef4444',
+  get noise() { return _getCSSVar('--text-muted') || '#6b7280'; },
+  get shap_positive() { return _getCSSVar('--accent-red') || '#ef4444'; },
+  get shap_negative() { return _getCSSVar('--accent-blue') || '#3b82f6'; },
+  get corr_negative() { return _getCSSVar('--accent-blue') || '#3b82f6'; },
+  corr_zero: '#ffffff',
+  get corr_positive() { return _getCSSVar('--accent-red') || '#ef4444'; },
 };
 
 export const smartState = {

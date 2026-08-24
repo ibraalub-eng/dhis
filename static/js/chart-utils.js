@@ -1,14 +1,27 @@
-// Chart color palette - unified design system
-const CHART_COLORS = {
-  primary: '#0d9488',      // Teal - hospital value line
-  secondary: '#7c3aed',    // Purple - peer average line
-  accent: '#c62828',       // Red - critical severity
-  warning: '#e65100',      // Orange - high/medium severity
-  success: '#2e7d32',      // Green - good status
-  neutral: '#64748b',      // Gray - text and borders
-  background: '#f8fafc',   // Light gray - chart background
-  grid: '#e2e8f0',        // Light gray - grid lines
-  ciBand: 'rgba(124,58,237,0.12)', // Purple with opacity - CI band
+// Theme-aware CSS variable reader
+function getCSSVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// Chart color palette - reads from CSS design tokens
+function getChartColors() {
+  return {
+    primary: getCSSVar('--accent-teal'),
+    secondary: getCSSVar('--accent-purple'),
+    accent: getCSSVar('--accent-red'),
+    warning: getCSSVar('--accent-orange'),
+    success: getCSSVar('--accent-green'),
+    neutral: getCSSVar('--text-secondary'),
+    background: getCSSVar('--bg-surface'),
+    grid: getCSSVar('--border-default'),
+    ciBand: getCSSVar('--severity-info-bg'),
+  };
+}
+
+// Global mutable reference updated on theme change
+const CHART_COLORS = getChartColors();
+window.__refreshChartColors = function() {
+  Object.assign(CHART_COLORS, getChartColors());
 };
 
 // Export for use in other modules
