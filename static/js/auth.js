@@ -11,12 +11,19 @@
            && urlStr.indexOf('/static/') === -1;
   }
 
+  function _getToken() {
+    return typeof window.getAccessToken === 'function' ? window.getAccessToken() : localStorage.getItem('access_token');
+  }
+  function _getRefresh() {
+    return typeof window.getRefreshToken === 'function' ? window.getRefreshToken() : localStorage.getItem('refresh_token');
+  }
+
   function _doFetch(url, opts) {
     opts = opts || {};
     opts.headers = opts.headers || {};
     var urlStr = typeof url === 'string' ? url : (url.url || '');
     if (_isApiUrl(urlStr)) {
-      var token = localStorage.getItem('access_token');
+      var token = _getToken();
       if (!token) {
         return Promise.resolve(new Response(JSON.stringify({detail: 'Not authenticated'}), {
           status: 401, statusText: 'Unauthorized', headers: {'Content-Type': 'application/json'}
@@ -32,25 +39,33 @@
   function _refreshToken() {
     if (_refreshInProgress) return _refreshInProgress;
     _refreshInProgress = (async function() {
-      var refresh = localStorage.getItem('refresh_token');
+      var refresh = _getRefresh();
       if (!refresh) { _refreshInProgress = null; return false; }
       try {
-        var resp = await _origFetch.call(window, (document.getElementById('apiBase') ? document.getElementById('apiBase').value : '') + '/auth/refresh', {
+        var resp = await _origFetch.call(window, API_BASE + '/auth/refresh', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refresh_token: refresh }),
         });
         if (resp.ok) {
           var data = await resp.json();
-          localStorage.setItem('access_token', data.access_token);
-          localStorage.setItem('refresh_token', data.refresh_token);
+          if (typeof window.setTokens === 'function') {
+            window.setTokens(data.access_token, data.refresh_token);
+          } else {
+            localStorage.setItem('access_token', data.access_token);
+            localStorage.setItem('refresh_token', data.refresh_token);
+          }
           _refreshInProgress = null;
           return true;
         }
       } catch(e) {}
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      localStorage.removeItem('user_info');
+      if (typeof window.clearTokens === 'function') {
+        window.clearTokens();
+      } else {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        localStorage.removeItem('user_info');
+      }
       _refreshInProgress = null;
       return false;
     })();

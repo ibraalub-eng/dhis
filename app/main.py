@@ -245,7 +245,8 @@ def _ensure_admin_user(session):
     """Seed default admin user if users table is empty."""
     try:
         from app.models import User, Role
-        if session.query(User).count() == 0:
+        admin = session.query(User).filter(User.username == "admin").first()
+        if admin is None:
             from app.core.security import hash_password
             admin_pw = os.getenv("ADMIN_PASSWORD", "admin123")
             admin = User(
@@ -256,22 +257,32 @@ def _ensure_admin_user(session):
             )
             session.add(admin)
             session.flush()
-            # Assign superadmin role if it exists
-            sa_role = session.query(Role).filter(Role.name == "superadmin").first()
-            if sa_role:
-                admin.roles.append(sa_role)
-            session.commit()
-            print("[startup] Default admin user created with roles.")
+            print("[startup] Default admin user created.")
         else:
-            # Ensure existing admin has superadmin role
-            admin = session.query(User).filter(User.username == "admin").first()
-            if admin and not admin.roles:
-                sa_role = session.query(Role).filter(Role.name == "superadmin").first()
-                if sa_role:
-                    admin.roles.append(sa_role)
-                    session.commit()
-                    print("[startup] Admin role assigned.")
-            print("[startup] Admin users already exist.")
+            # Always enforce superuser + active on the built-in admin
+            changed = False
+            if not admin.is_superuser:
+                admin.is_superuser = True
+                changed = True
+            if not admin.is_active:
+                admin.is_active = True
+                changed = True
+            if changed:
+                session.commit()
+                print("[startup] Admin user flags corrected (is_superuser=True, is_active=True).")
+
+        # Ensure admin has the superadmin role
+        sa_role = session.query(Role).filter(Role.name == "superadmin").first()
+        if sa_role and sa_role not in admin.roles:
+            admin.roles.append(sa_role)
+            session.commit()
+            print("[startup] Superadmin role assigned to admin user.")
+        elif not admin.roles and sa_role:
+            admin.roles.append(sa_role)
+            session.commit()
+            print("[startup] Superadmin role assigned to admin user.")
+
+        print("[startup] Admin user verified.")
     except Exception as e:
         print(f"[startup] Admin user check/seed error: {e}")
 
@@ -363,14 +374,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://dhis-zve0.onrender.com",
-    ],
-    allow_origin_regex=r"https://.*\.onrender\.com$",
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
