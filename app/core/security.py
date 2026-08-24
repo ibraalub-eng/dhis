@@ -32,7 +32,7 @@ def create_access_token(user_id: int, roles: list[str], permissions: list[str]) 
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
 
 
-REMEMBER_ME_EXPIRE_DAYS = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", "30"))
+REMEMBER_ME_EXPIRE_DAYS = int(os.getenv("REMEMBER_ME_EXPIRE_DAYS", "365"))  # 1 year
 
 def create_refresh_token(user_id: int, remember_me: bool = False) -> tuple[str, str, datetime]:
     """Returns (token_string, jti, expires_at).

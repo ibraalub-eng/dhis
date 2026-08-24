@@ -282,8 +282,8 @@
   };
 
   // ---- Session timeout / inactivity tracking ----
-  var _INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;  // 30 minutes
-  var _WARNING_BEFORE_MS = 5 * 60 * 1000;       // warn 5 minutes before timeout
+  var _INACTIVITY_TIMEOUT_MS = 8 * 60 * 60 * 1000;  // 8 hours
+  var _WARNING_BEFORE_MS = 15 * 60 * 1000;       // warn 15 minutes before timeout
   var _inactivityTimer = null;
   var _warningTimer = null;
   var _lastActivity = Date.now();
@@ -425,7 +425,7 @@
       // Color the badge
       if (badge) {
         var isSuper = user.is_superuser || (user.permissions && user.permissions.indexOf('*.*') !== -1);
-        userInfoEl.style.color = isSuper ? '#7c3aed' : '#1a237e';
+        userInfoEl.style.color = isSuper ? 'var(--accent-purple)' : 'var(--accent-blue)';
       }
     }
   };
