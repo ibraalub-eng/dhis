@@ -1,17 +1,17 @@
 <div class="smart-analytics-tab" dir="rtl" style="padding:0.5rem 0.25rem;max-width:1200px;margin:0 auto;position:relative;">
 
   <!-- Loading overlay -->
-  <div id="smart-loading-overlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(255,255,255,0.85);z-index:500;border-radius:12px;backdrop-filter:blur(3px);flex-direction:column;align-items:center;justify-content:center;gap:1rem;">
-    <div style="width:48px;height:48px;border:4px solid #c7d2fe;border-top-color:#1a237e;border-radius:50%;animation:smartSpin 0.8s linear infinite;"></div>
-    <span style="font-size:0.95rem;font-weight:600;color:#1a237e;" data-i18n="Analyzing data...">جاري تحليل البيانات…</span>
+  <div id="smart-loading-overlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(15,17,23,0.85);z-index:500;border-radius:12px;backdrop-filter:blur(3px);flex-direction:column;align-items:center;justify-content:center;gap:1rem;">
+    <div style="width:48px;height:48px;border:4px solid var(--border-default);border-top-color:var(--accent-blue);border-radius:50%;animation:smartSpin 0.8s linear infinite;"></div>
+    <span style="font-size:0.95rem;font-weight:600;color:var(--accent-blue);" data-i18n="Analyzing data...">جاري تحليل البيانات…</span>
   </div>
   <style>@keyframes smartSpin{to{transform:rotate(360deg)}}</style>
 
   <!-- ═══ Top bar: title + mode bar + methodology ⓘ ═══ -->
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.8rem;margin-bottom:1rem;">
     <div>
-      <h2 style="margin:0;color:#1a237e;font-size:1.15rem;">🛡️ <span data-i18n="Smart Analytics">التحليل الذكي</span></h2>
-      <div style="font-size:0.72rem;color:#6b7280;margin-top:0.2rem;" data-i18n="Decision first, analysis second">قرار أولاً، تحليل ثانياً</div>
+      <h2 style="margin:0;color:var(--accent-blue);font-size:1.15rem;">🛡️ <span data-i18n="Smart Analytics">التحليل الذكي</span></h2>
+      <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.2rem;" data-i18n="Decision first, analysis second">قرار أولاً، تحليل ثانياً</div>
     </div>
     <div class="smart-mode-bar" role="tablist" aria-label="Analysis mode">
       <button id="smart-mode-monthly" class="smart-mode-btn active" role="tab" aria-selected="true" data-smart-mode="monthly" data-i18n="Monthly">شهري</button>
@@ -25,18 +25,18 @@
   <div class="smart-context-bar">
     <div id="smart-monthly-context" style="display:flex;gap:0.8rem;align-items:flex-end;flex-wrap:wrap;width:100%;">
       <div>
-        <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;" data-i18n="Month:">الشهر:</label>
-        <select id="smart-month-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:130px;font-size:0.85rem;background:white;"></select>
+        <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:var(--accent-purple);" data-i18n="Month:">الشهر:</label>
+        <select id="smart-month-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);min-width:130px;font-size:0.85rem;background:var(--bg-input);"></select>
       </div>
       <div>
-        <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;" data-i18n="Hospital:">المستشفى:</label>
-        <select id="smart-hospital-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:220px;font-size:0.85rem;background:white;">
+        <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:var(--accent-purple);" data-i18n="Hospital:">المستشفى:</label>
+        <select id="smart-hospital-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);min-width:220px;font-size:0.85rem;background:var(--bg-input);">
           <option value="">-- <span data-i18n="All Hospitals">جميع المستشفيات</span> --</option>
         </select>
       </div>
       <button id="smart-refresh" class="btn btn-sm" data-i18n="Refresh">تحديث</button>
       <div style="margin-inline-start:auto;display:flex;gap:0.5rem;align-items:flex-end;flex-wrap:wrap;">
-        <select id="smart-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.82rem;background:white;">
+        <select id="smart-export-scope" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);font-size:0.82rem;background:var(--bg-input);">
           <option value="current" data-i18n="Selected month">الشهر المحدد</option>
           <option value="all" data-i18n="All months">كل الأشهر</option>
         </select>
@@ -45,14 +45,14 @@
         <button id="smart-report-lang-toggle" class="btn btn-sm btn-outline" onclick="smartToggleReportLang()">🇬🇧 English</button>
       </div>
     </div>
-    <div id="smart-time-context" style="display:none;font-size:0.8rem;color:#6b7280;width:100%;" data-i18n="All hospitals across all months">كل المستشفيات عبر كل الأشهر</div>
+    <div id="smart-time-context" style="display:none;font-size:0.8rem;color:var(--text-secondary);width:100%;" data-i18n="All hospitals across all months">كل المستشفيات عبر كل الأشهر</div>
     <div id="smart-hospital-context" style="display:none;gap:0.8rem;align-items:flex-end;flex-wrap:wrap;width:100%;">
-      <select id="smart-hospital-context-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;min-width:220px;font-size:0.85rem;background:white;">
+      <select id="smart-hospital-context-select" style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);min-width:220px;font-size:0.85rem;background:var(--bg-input);">
         <option value="">-- <span data-i18n="Select Hospital">اختر مستشفى</span> --</option>
       </select>
       <button id="smart-hospital-context-all" class="btn btn-sm btn-outline" data-i18n="All months">كل الأشهر</button>
     </div>
-    <span id="smart-status" style="font-size:0.8rem;color:#6b7280;"></span>
+    <span id="smart-status" style="font-size:0.8rem;color:var(--text-secondary);"></span>
   </div>
 
   <!-- ═══ Panel: Monthly ═══ -->
@@ -61,19 +61,19 @@
     <!-- Decision board (above the fold) -->
     <div id="smart-decision-board" style="margin-bottom:1.2rem;">
       <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.8rem;">
-        <h3 style="margin:0;color:#1a237e;font-size:1rem;">🛡️ <span data-i18n="Decision Board">لوحة القرار</span></h3>
-        <span id="smart-decision-month" style="font-size:0.8rem;font-weight:700;color:#4338ca;background:#eef2ff;border:1px solid #c7d2fe;padding:0.2rem 0.7rem;border-radius:12px;"></span>
+        <h3 style="margin:0;color:var(--accent-blue);font-size:1rem;">🛡️ <span data-i18n="Decision Board">لوحة القرار</span></h3>
+        <span id="smart-decision-month" style="font-size:0.8rem;font-weight:700;color:var(--accent-purple);background:rgba(67,56,202,0.12);border:1px solid var(--border-default);padding:0.2rem 0.7rem;border-radius:12px;"></span>
       </div>
       <div id="smart-kpi-container" class="smart-kpi-grid"></div>
       <div class="smart-section-card">
         <div class="smart-section-header" data-smart-collapsible="smart-critical-block">
           <span>🚨 <span data-i18n="Hospitals needing urgent action">مستشفيات تحتاج تدخلاً عاجلاً</span></span>
-          <span id="smart-critical-count" style="font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:12px;background:#fef2f2;color:#dc2626;font-weight:600;"></span>
+          <span id="smart-critical-count" style="font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:12px;background:rgba(239,68,68,0.12);color:var(--accent-red);font-weight:600;"></span>
           <span class="smart-toggle-icon">▾</span>
         </div>
         <div id="smart-critical-block" class="smart-section-body">
           <div id="smart-critical-list" class="smart-priority-list"></div>
-          <div id="smart-critical-text" style="font-size:0.72rem;color:#6b7280;margin-top:0.5rem;"></div>
+          <div id="smart-critical-text" style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.5rem;"></div>
         </div>
       </div>
       <div id="smart-early-warnings" style="margin-bottom:0.8rem;"></div>
@@ -146,7 +146,7 @@
               <select id="smart-strat-indicator" class="smart-select-sm"></select>
             </div>
             <div id="smart-stratified-chart" style="height:300px;"></div>
-            <div id="smart-strat-text" style="font-size:0.78rem;color:#6b7280;margin-top:0.3rem;"></div>
+            <div id="smart-strat-text" style="font-size:0.78rem;color:var(--text-secondary);margin-top:0.3rem;"></div>
           </div>
         </div>
         <div id="fi-tab" style="display:none;">
@@ -172,7 +172,7 @@
 
     <!-- Report output (kept for backward compatibility) -->
     <div id="smart-report-section" style="display:none;margin-top:1.2rem;">
-      <h3 style="color:#1a237e;font-size:1rem;">📋 <span data-i18n="Comprehensive Report">التقرير الشامل</span></h3>
+      <h3 style="color:var(--accent-blue);font-size:1rem;">📋 <span data-i18n="Comprehensive Report">التقرير الشامل</span></h3>
       <div id="smart-report-kpi-dashboard" class="smart-kpi-grid"></div>
       <div class="smart-section-card">
         <div class="smart-section-header" data-smart-collapsible="smart-decision-board">
@@ -181,12 +181,12 @@
         </div>
         <div class="smart-section-body">
           <div id="smart-decision-verdict" style="font-size:1rem;font-weight:700;margin-bottom:0.6rem;"></div>
-          <div id="smart-decision-risk" style="font-size:0.8rem;color:#6b7280;margin-bottom:0.6rem;"></div>
-          <h4 style="font-size:0.85rem;color:#1a237e;margin:0.6rem 0 0.3rem;"><span data-i18n="Hotspots">البؤر الساخنة</span></h4>
+          <div id="smart-decision-risk" style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:0.6rem;"></div>
+          <h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.6rem 0 0.3rem;"><span data-i18n="Hotspots">البؤر الساخنة</span></h4>
           <div id="smart-decision-hotspots"></div>
-          <h4 style="font-size:0.85rem;color:#1a237e;margin:0.6rem 0 0.3rem;"><span data-i18n="Watchlist">قائمة المراقبة</span></h4>
+          <h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.6rem 0 0.3rem;"><span data-i18n="Watchlist">قائمة المراقبة</span></h4>
           <div id="smart-decision-watchlist"></div>
-          <h4 style="font-size:0.85rem;color:#1a237e;margin:0.6rem 0 0.3rem;"><span data-i18n="Priorities">الأولويات</span></h4>
+          <h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.6rem 0 0.3rem;"><span data-i18n="Priorities">الأولويات</span></h4>
           <div id="smart-decision-priorities"></div>
         </div>
       </div>
@@ -198,8 +198,8 @@
         </div>
         <div class="smart-section-body" id="smart-comparison-block">
           <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.6rem;">
-            <label style="font-size:0.8rem;color:#4338ca;font-weight:600;" data-i18n="Comparison scope:">نطاق المقارنة:</label>
-            <select id="smart-comparison-type" style="padding:0.4rem 0.6rem;border-radius:6px;border:1px solid #c7d2fe;font-size:0.8rem;">
+            <label style="font-size:0.8rem;color:var(--accent-purple);font-weight:600;" data-i18n="Comparison scope:">نطاق المقارنة:</label>
+            <select id="smart-comparison-type" style="padding:0.4rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);font-size:0.8rem;">
               <option value="all" data-i18n="All hospitals">كل المستشفيات</option>
               <option value="governorate" data-i18n="Same governorate">نفس المحافظة</option>
               <option value="type" data-i18n="Same type">نفس النوع</option>
@@ -223,14 +223,14 @@
     <div class="smart-section-card">
       <div class="smart-section-header" data-smart-collapsible="smart-timeline-block">
         <span>📈 <span data-i18n="Anomaly Timeline">تطور درجات الشذوذ</span></span>
-        <span id="smart-timeline-badge" style="font-size:0.7rem;color:#6b7280;"></span>
+        <span id="smart-timeline-badge" style="font-size:0.7rem;color:var(--text-secondary);"></span>
         <span class="smart-toggle-icon">▾</span>
       </div>
       <div class="smart-section-body" id="smart-timeline-block">
         <div class="smart-loader" data-smart-loader="timeline"><span data-i18n="Loading...">جاري التحميل...</span></div>
         <div class="smart-error-banner" data-smart-error="timeline" role="alert"></div>
         <div id="smart-timeline-chart" style="height:420px;"></div>
-        <div id="smart-timeline-text" style="font-size:0.75rem;color:#6b7280;margin-top:0.4rem;"></div>
+        <div id="smart-timeline-text" style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.4rem;"></div>
       </div>
     </div>
     <div class="smart-section-card">
@@ -254,7 +254,7 @@
     <div class="smart-loader" data-smart-loader="hospital"><span data-i18n="Loading...">جاري التحميل...</span></div>
     <div class="smart-error-banner" data-smart-error="hospital" role="alert"></div>
     <div class="smart-empty-state" data-smart-empty="hospital"></div>
-    <div id="smart-hospital-name" style="font-size:1rem;font-weight:700;color:#1a237e;margin-bottom:0.8rem;"></div>
+    <div id="smart-hospital-name" style="font-size:1rem;font-weight:700;color:var(--accent-blue);margin-bottom:0.8rem;"></div>
     <div id="smart-hospital-forecast"></div>
     <div id="smart-hospital-trend" style="height:260px;"></div>
     <div id="smart-hospital-factors" class="smart-table-wrap"></div>
@@ -263,11 +263,11 @@
   <!-- ═══ Methodology modal (single unified source) ═══ -->
   <div id="smart-methodology-modal" class="smart-methodology-modal" role="dialog" aria-modal="true" aria-labelledby="smart-methodology-title">
     <div class="smart-modal-box">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid #e5e7eb;background:linear-gradient(135deg,#f8fafc,#eef2ff);border-radius:14px 14px 0 0;position:sticky;top:0;z-index:1;">
-        <h3 id="smart-methodology-title" style="margin:0;color:#1a237e;font-size:1.05rem;">📘 <span data-i18n="How is the anomaly score calculated?">كيف تُحسب درجة الشذوذ؟</span></h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid var(--border-default);background:linear-gradient(135deg,var(--bg-surface),var(--bg-elevated));border-radius:14px 14px 0 0;position:sticky;top:0;z-index:1;">
+        <h3 id="smart-methodology-title" style="margin:0;color:var(--accent-blue);font-size:1.05rem;">📘 <span data-i18n="How is the anomaly score calculated?">كيف تُحسب درجة الشذوذ؟</span></h3>
         <button id="smart-methodology-close" aria-label="Close" class="smart-modal-close">&#10006;</button>
       </div>
-      <div style="padding:1.5rem;font-size:0.85rem;color:#374151;line-height:1.8;">
+      <div style="padding:1.5rem;font-size:0.85rem;color:var(--text-primary);line-height:1.8;">
         <p><strong><span data-i18n="Four engines">4 محركات</span>:</strong> <span data-i18n="Isolation Forest (35%), LOF (30%), Mahalanobis (20%), residuals (15%).">Isolation Forest (35%)، LOF (30%)، Mahalanobis (20%)، والبواقي (15%).</span></p>
         <p><strong><span data-i18n="Unified score (0-1)">النتيجة الموحّدة (0–1)</span>:</strong> <span data-i18n="below 0.3 normal, 0.3-0.6 warning, above 0.6 critical.">أقل من 0.3 طبيعي، 0.3–0.6 تنبيه، أعلى 0.6 حرج.</span></p>
         <p><strong><span data-i18n="Inputs">الإدخالات</span>:</strong> <span data-i18n="10 clinical indicators + hospital type + governorate.">10 مؤشرات سريرية + نوع المستشفى + المحافظة.</span></p>
@@ -278,16 +278,16 @@
 
   <!-- ═══ Drill-down modal (kept IDs + a11y) ═══ -->
   <div id="smart-drilldown-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center;backdrop-filter:blur(3px);" role="dialog" aria-modal="true" aria-labelledby="smart-drilldown-name">
-    <div style="background:white;border-radius:14px;max-width:800px;width:94%;max-height:88vh;overflow-y:auto;box-shadow:0 25px 80px rgba(0,0,0,0.3);position:relative;">
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid #e5e7eb;background:linear-gradient(135deg,#f8fafc,#eef2ff);border-radius:14px 14px 0 0;position:sticky;top:0;z-index:1;">
-        <h3 style="margin:0;color:#1a237e;font-size:1.05rem;">&#128269; <span data-i18n="Hospital details">تفاصيل المستشفى</span>: <span id="smart-drilldown-name" style="font-weight:700;"></span></h3>
+    <div style="background:var(--bg-input);border-radius:14px;max-width:800px;width:94%;max-height:88vh;overflow-y:auto;box-shadow:0 25px 80px rgba(0,0,0,0.3);position:relative;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid var(--border-default);background:linear-gradient(135deg,var(--bg-surface),var(--bg-elevated));border-radius:14px 14px 0 0;position:sticky;top:0;z-index:1;">
+        <h3 style="margin:0;color:var(--accent-blue);font-size:1.05rem;">&#128269; <span data-i18n="Hospital details">تفاصيل المستشفى</span>: <span id="smart-drilldown-name" style="font-weight:700;"></span></h3>
         <button onclick="document.getElementById('smart-drilldown-modal').style.display='none'" aria-label="Close" class="smart-modal-close">&#10006;</button>
       </div>
       <div style="padding:1.5rem;">
         <div id="smart-shap-waterfall" style="height:250px;"></div>
         <div id="smart-trend-line" style="height:250px;"></div>
-        <p id="smart-drilldown-text" style="font-size:0.82rem;color:#444;background:#f9fafb;padding:0.7rem;border-radius:6px;border:1px solid #e5e7eb;line-height:1.6;"></p>
-        <h4 style="color:#333;font-size:0.88rem;margin-bottom:0.5rem;">&#128202; <span data-i18n="Actual factor values vs peer average">قيم العوامل الفعلية مقابل متوسط النظير</span></h4>
+        <p id="smart-drilldown-text" style="font-size:0.82rem;color:var(--text-secondary);background:var(--bg-elevated);padding:0.7rem;border-radius:6px;border:1px solid var(--border-default);line-height:1.6;"></p>
+        <h4 style="color:var(--text-primary);font-size:0.88rem;margin-bottom:0.5rem;">&#128202; <span data-i18n="Actual factor values vs peer average">قيم العوامل الفعلية مقابل متوسط النظير</span></h4>
         <div id="smart-drilldown-factors" style="font-size:0.8rem;overflow-x:auto;"></div>
       </div>
     </div>
@@ -295,9 +295,9 @@
 
   <!-- ═══ KPI detail modal (kept IDs + a11y) ═══ -->
   <div id="smart-kpi-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;justify-content:center;align-items:center;backdrop-filter:blur(2px);" role="dialog" aria-modal="true">
-    <div style="background:white;border-radius:14px;max-width:720px;width:92%;max-height:82vh;overflow-y:auto;box-shadow:0 25px 80px rgba(0,0,0,0.25);position:relative;">
-      <div id="smart-kpi-modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid #e5e7eb;background:linear-gradient(135deg,#f8fafc,#eef2ff);border-radius:14px 14px 0 0;position:sticky;top:0;z-index:1;">
-        <h3 id="smart-kpi-modal-title" style="margin:0;color:#1a237e;font-size:1.05rem;"></h3>
+    <div style="background:var(--bg-input);border-radius:14px;max-width:720px;width:92%;max-height:82vh;overflow-y:auto;box-shadow:0 25px 80px rgba(0,0,0,0.25);position:relative;">
+      <div id="smart-kpi-modal-header" style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.5rem;border-bottom:1px solid var(--border-default);background:linear-gradient(135deg,var(--bg-surface),var(--bg-elevated));border-radius:14px 14px 0 0;position:sticky;top:0;z-index:1;">
+        <h3 id="smart-kpi-modal-title" style="margin:0;color:var(--accent-blue);font-size:1.05rem;"></h3>
         <button aria-label="Close" class="smart-modal-close">&#10006;</button>
       </div>
       <div id="smart-kpi-modal-body" style="padding:1.5rem;"></div>

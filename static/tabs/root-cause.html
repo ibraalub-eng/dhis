@@ -1,35 +1,35 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
                         <h2 style="margin:0;">Root Cause Analysis</h2>
                         <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-                            <label style="font-size:0.78rem;color:#666;">Hospital:</label>
+                            <label style="font-size:0.78rem;color:var(--text-secondary);">Hospital:</label>
                             <select id="rcHospital" onchange="loadRootCause()" style="font-size:0.82rem;padding:0.3rem 0.5rem;min-width:180px;"></select>
-                            <label style="font-size:0.78rem;color:#666;">Month:</label>
+                            <label style="font-size:0.78rem;color:var(--text-secondary);">Month:</label>
                             <select id="rcMonth" onchange="loadRootCause()" style="font-size:0.82rem;padding:0.3rem 0.5rem;min-width:110px;"></select>
                         </div>
                     </div>
-                    <div id="rcLoading" style="display:none;text-align:center;padding:2rem;color:#888;"><span class="spinner"></span> Loading...</div>
+                    <div id="rcLoading" style="display:none;text-align:center;padding:2rem;color:var(--text-muted);"><span class="spinner"></span> Loading...</div>
                     <div id="rcContent" style="display:none;">
 
                         <!-- KPI Banner -->
                         <div id="rcKpiBar" style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.8rem;margin-bottom:1rem;"></div>
 
                         <!-- Executive Summary: Arabic first (primary), English secondary -->
-                        <div class="card" style="padding:0.8rem 1rem;margin-bottom:1rem;border-right:4px solid #0d9488;background:linear-gradient(135deg,#f0fdfa,#f8fafc);">
+                        <div class="card" style="padding:0.8rem 1rem;margin-bottom:1rem;border-right:4px solid var(--accent-teal);background:linear-gradient(135deg,#1a2422,#1a1d27);">
                             <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
                                 <span style="font-size:1rem;">&#128172;</span>
-                                <span style="font-weight:700;font-size:0.9rem;color:#0f766e;">الملخص التنفيذي</span>
-                                <span style="font-size:0.6rem;background:#0d9488;color:#fff;padding:1px 7px;border-radius:8px;font-weight:600;">Executive Summary</span>
+                                <span style="font-weight:700;font-size:0.9rem;color:var(--accent-teal);">الملخص التنفيذي</span>
+                                <span style="font-size:0.6rem;background:var(--accent-teal);color:#fff;padding:1px 7px;border-radius:8px;font-weight:600;">Executive Summary</span>
                             </div>
-                            <div id="rcSummaryArabic" style="font-size:0.88rem;line-height:1.8;color:#134e4a;"></div>
-                            <div id="rcSummary" style="font-size:0.75rem;line-height:1.6;color:#64748b;margin-top:0.5rem;padding-top:0.5rem;border-top:1px dashed #99f6e4;direction:ltr;text-align:left;"></div>
+                            <div id="rcSummaryArabic" style="font-size:0.88rem;line-height:1.8;color:var(--accent-teal);"></div>
+                            <div id="rcSummary" style="font-size:0.75rem;line-height:1.6;color:var(--text-secondary);margin-top:0.5rem;padding-top:0.5rem;border-top:1px dashed var(--accent-teal);direction:ltr;text-align:left;"></div>
                         </div>
 
                         <!-- Causal Chains: the conclusions, right after the summary -->
-                        <div class="card" style="padding:0.7rem 1rem;margin-bottom:1rem;border-top:3px solid #0d9488;">
+                        <div class="card" style="padding:0.7rem 1rem;margin-bottom:1rem;border-top:3px solid var(--accent-teal);">
                             <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
                                 <span style="font-size:0.9rem;">&#127919;</span>
-                                <h4 style="margin:0;font-size:0.9rem;color:#0d9488;">السلاسل السببية</h4>
-                                <span style="font-size:0.6rem;background:#ccfbf1;color:#115e59;padding:1px 7px;border-radius:8px;font-weight:600;">Root Cause Chains</span>
+                                <h4 style="margin:0;font-size:0.9rem;color:var(--accent-teal);">السلاسل السببية</h4>
+                                <span style="font-size:0.6rem;background:#1a2d2a;color:var(--accent-teal);padding:1px 7px;border-radius:8px;font-weight:600;">Root Cause Chains</span>
                             </div>
                             <div id="rcCausalChains" style="font-size:0.8rem;"></div>
                         </div>
@@ -38,16 +38,16 @@
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
                             <div class="card" style="padding:0.6rem 0.8rem;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
-                                    <h3 style="margin:0;font-size:0.9rem;color:#c62828;">&#9888; الإجراءات ذات الأولوية</h3>
-                                    <span style="font-size:0.6rem;background:#fee2e2;color:#b91c1c;padding:1px 7px;border-radius:8px;font-weight:600;">Priority Actions</span>
+                                    <h3 style="margin:0;font-size:0.9rem;color:var(--accent-red);">&#9888; الإجراءات ذات الأولوية</h3>
+                                    <span style="font-size:0.6rem;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 7px;border-radius:8px;font-weight:600;">Priority Actions</span>
                                 </div>
                                 <div id="rcActionsList"></div>
                             </div>
                             <div class="card" style="padding:0.6rem 0.8rem;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
-                                    <h3 style="margin:0;font-size:0.9rem;color:#1a237e;">&#129504; التوصيات الذكية</h3>
-                                    <span style="background:#1a237e;color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:3px;">AI</span>
-                                    <span style="font-size:0.6rem;background:#e0e7ff;color:#3730a3;padding:1px 7px;border-radius:8px;font-weight:600;">Recommendations</span>
+                                    <h3 style="margin:0;font-size:0.9rem;color:var(--accent-blue);">&#129504; التوصيات الذكية</h3>
+                                    <span style="background:var(--accent-blue);color:#fff;font-size:0.6rem;padding:1px 6px;border-radius:3px;">AI</span>
+                                    <span style="font-size:0.6rem;background:rgba(58,53,163,0.12);color:var(--accent-purple);padding:1px 7px;border-radius:8px;font-weight:600;">Recommendations</span>
                                 </div>
                                 <div id="rcAIList"></div>
                             </div>
@@ -56,72 +56,72 @@
                         <!-- Diagnostic Evidence Grid: 2x2 -->
                         <div style="display:flex;align-items:center;gap:0.5rem;margin:0 0 0.6rem 0;">
                             <span style="font-size:0.9rem;">&#128269;</span>
-                            <span style="font-weight:700;font-size:0.88rem;color:#374151;">الأدلة التشخيصية</span>
-                            <span style="font-size:0.6rem;background:#e2e8f0;color:#475569;padding:1px 7px;border-radius:8px;font-weight:600;">Diagnostic Evidence</span>
+                            <span style="font-weight:700;font-size:0.88rem;color:var(--text-primary);">الأدلة التشخيصية</span>
+                            <span style="font-size:0.6rem;background:var(--bg-elevated);color:var(--text-secondary);padding:1px 7px;border-radius:8px;font-weight:600;">Diagnostic Evidence</span>
                         </div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
-                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid #c62828;">
+                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid var(--accent-red);">
                                 <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
-                                    <h4 style="margin:0;font-size:0.85rem;color:#c62828;">&#9888; فشل قواعد التحقق</h4>
-                                    <span style="font-size:0.58rem;background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:8px;">Rule Failures</span>
+                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-red);">&#9888; فشل قواعد التحقق</h4>
+                                    <span style="font-size:0.58rem;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:8px;">Rule Failures</span>
                                 </div>
                                 <div id="rcRuleFailures" style="font-size:0.8rem;"></div>
                             </div>
-                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid #1565c0;">
+                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid var(--accent-blue);">
                                 <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
-                                    <h4 style="margin:0;font-size:0.85rem;color:#1565c0;">&#128202; محركات جودة البيانات</h4>
-                                    <span style="font-size:0.58rem;background:#e3f2fd;color:#1565c0;padding:1px 6px;border-radius:8px;">Quality Drivers</span>
+                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-blue);">&#128202; محركات جودة البيانات</h4>
+                                    <span style="font-size:0.58rem;background:rgba(21,101,192,0.12);color:var(--accent-blue);padding:1px 6px;border-radius:8px;">Quality Drivers</span>
                                 </div>
                                 <div id="rcQualityDrivers" style="font-size:0.8rem;"></div>
                             </div>
-                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid #e65100;">
+                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid var(--accent-orange);">
                                 <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
-                                    <h4 style="margin:0;font-size:0.85rem;color:#e65100;">&#128270; فجوات الثقة</h4>
-                                    <span style="font-size:0.58rem;background:#fff3e0;color:#e65100;padding:1px 6px;border-radius:8px;">Confidence Gaps</span>
+                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-orange);">&#128270; فجوات الثقة</h4>
+                                    <span style="font-size:0.58rem;background:rgba(230,81,0,0.12);color:var(--accent-orange);padding:1px 6px;border-radius:8px;">Confidence Gaps</span>
                                 </div>
                                 <div id="rcConfidenceGaps" style="font-size:0.8rem;"></div>
                             </div>
-                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid #7b1fa2;">
+                            <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid var(--accent-purple);">
                                 <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
-                                    <h4 style="margin:0;font-size:0.85rem;color:#7b1fa2;">&#128200; أنماط الشذوذ</h4>
-                                    <span style="font-size:0.58rem;background:#f3e8ff;color:#7b1fa2;padding:1px 6px;border-radius:8px;">Anomaly Patterns</span>
+                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-purple);">&#128200; أنماط الشذوذ</h4>
+                                    <span style="font-size:0.58rem;background:rgba(123,31,162,0.12);color:var(--accent-purple);padding:1px 6px;border-radius:8px;">Anomaly Patterns</span>
                                 </div>
                                 <div id="rcAnomalyPatterns" style="font-size:0.8rem;"></div>
                             </div>
                         </div>
-                        <div style="background:#fafafa;padding:0.6rem;border-radius:4px;margin-bottom:1rem;">
-                            <h4 style="margin:0 0 0.3rem;font-size:0.82rem;color:#333;">PCA Feature Importance</h4>
-                            <div id="pcaFeatures" style="font-size:0.78rem;color:#888;">Not available</div>
+                        <div style="background:var(--bg-elevated);padding:0.6rem;border-radius:4px;margin-bottom:1rem;">
+                            <h4 style="margin:0 0 0.3rem;font-size:0.82rem;color:var(--text-primary);">PCA Feature Importance</h4>
+                            <div id="pcaFeatures" style="font-size:0.78rem;color:var(--text-muted);">Not available</div>
                         </div>
 
                         <!-- Details: causal tree + peer comparisons -->
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
-                            <div class="card" style="padding:0.7rem 1rem;border-top:3px solid #0d9488;">
-                                <h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:#0d9488;">&#127795; شجرة العوامل السببية</h4>
+                            <div class="card" style="padding:0.7rem 1rem;border-top:3px solid var(--accent-teal);">
+                                <h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:var(--accent-teal);">&#127795; شجرة العوامل السببية</h4>
                                 <div id="rcCausalTree" style="font-size:0.78rem;"></div>
                             </div>
-                            <div class="card" style="padding:0.7rem 1rem;border-top:3px solid #7c3aed;">
-                                <h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:#7c3aed;">&#128200; مقارنة النظير لكل مؤشر</h4>
+                            <div class="card" style="padding:0.7rem 1rem;border-top:3px solid var(--accent-purple);">
+                                <h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:var(--accent-purple);">&#128200; مقارنة النظير لكل مؤشر</h4>
                                 <div id="rcPeerComparisons" style="font-size:0.78rem;"></div>
                             </div>
                         </div>
 
                         <!-- Timeline: indicator value vs peer average with 95% CI band -->
-                        <div class="card" style="padding:0.8rem 1rem;margin-top:1rem;border-top:3px solid #7c3aed;">
+                        <div class="card" style="padding:0.8rem 1rem;margin-top:1rem;border-top:3px solid var(--accent-purple);">
                             <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
                                     <span style="font-size:0.95rem;">&#128200;</span>
-                                    <h4 style="margin:0;font-size:0.9rem;color:#7c3aed;">المقارنة الزمنية بالمؤشرات</h4>
-                                    <span style="font-size:0.6rem;background:#f3e8ff;color:#7b1fa2;padding:1px 7px;border-radius:8px;font-weight:600;">Timeline vs Peers</span>
+                                    <h4 style="margin:0;font-size:0.9rem;color:var(--accent-purple);">المقارنة الزمنية بالمؤشرات</h4>
+                                    <span style="font-size:0.6rem;background:rgba(123,31,162,0.12);color:var(--accent-purple);padding:1px 7px;border-radius:8px;font-weight:600;">Timeline vs Peers</span>
                                 </div>
-                                <label style="font-size:0.75rem;color:#666;">المؤشر:
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">المؤشر:
                                     <select id="rcTimelineIndicator" onchange="renderRcTimelineChart()" style="font-size:0.8rem;padding:0.25rem 0.4rem;min-width:170px;"></select>
                                 </label>
                             </div>
                             <div style="position:relative;width:100%;height:320px;">
                                 <canvas id="rcTimelineChart"></canvas>
                             </div>
-                            <div id="rcTimelineText" style="font-size:0.72rem;color:#888;margin-top:0.3rem;"></div>
+                            <div id="rcTimelineText" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;"></div>
                         </div>
                     </div>
 
