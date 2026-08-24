@@ -14,7 +14,10 @@
       var resp = await fetch(API_BASE + path, opts);
       if (resp.status === 401) { showLoginPage(); return null; }
       if (resp.status === 403) { return { _forbidden: true, detail: 'Access denied — admin only' }; }
-      if (!resp.ok) { return { _error: true, detail: 'Server error (' + resp.status + ')' }; }
+      if (!resp.ok) {
+        try { var errData = await resp.json(); return errData; } catch(e) {}
+        return { _error: true, detail: 'Server error (' + resp.status + ')' };
+      }
       try { return await resp.json(); } catch(e) { return { _error: true, detail: 'Invalid server response' }; }
     } catch(e) {
       return { _error: true, detail: 'Network error' };
@@ -120,7 +123,7 @@
                       <td style="padding:0.4rem;">${r.user_count}</td>
                       <td style="padding:0.4rem;font-size:0.75rem;color:#666;">${r.permission_ids.length} perms</td>
                       <td style="padding:0.4rem;">
-                        <button class="btn btn-sm btn-outline" onclick="editRole(${r.id})" style="font-size:0.72rem;">Edit</button>
+                        ${r.is_system ? '<span style="font-size:0.72rem;color:#888;">System</span>' : '<button class="btn btn-sm btn-outline" onclick="editRole(${r.id})" style="font-size:0.72rem;">Edit</button>'}
                         ${!r.is_system ? '<button class="btn btn-sm btn-outline" onclick="deleteRole(' + r.id + ')" style="font-size:0.72rem;color:#c62828;margin-left:0.2rem;">Delete</button>' : ''}
                       </td>
                     </tr>
