@@ -11,31 +11,31 @@
 </head>
 <body>
     <!-- Login Page (hidden by default) -->
-    <div id="login-page" style="display:none; min-height:100vh; align-items:center; justify-content:center; background:linear-gradient(135deg,#f8fafc,#eef2ff);">
-      <div id="login-card" style="background:white;border-radius:14px;padding:2rem;box-shadow:0 8px 32px rgba(0,0,0,0.12);width:380px;max-width:94%;">
+    <div id="login-page" style="display:none; min-height:100vh; align-items:center; justify-content:center; background:var(--page-bg);">
+      <div id="login-card" style="background:var(--bg-surface);border-radius:14px;padding:2rem;box-shadow:var(--shadow-lg);width:380px;max-width:94%;border:1px solid var(--border-default);">
         <div style="text-align:center;margin-bottom:1.5rem;">
-          <h1 style="color:#1a237e;font-size:1.3rem;margin:0;">&#x1F6E1;&#xFE0F; <span data-i18n="Smart Analytics">التحليل الذكي</span></h1>
-          <p style="color:#6b7280;font-size:0.82rem;margin:0.4rem 0 0;" data-i18n="Login to access the dashboard">سجّل الدخول للوصول إلى لوحة التحكم</p>
+          <h1 style="color:var(--accent-blue);font-size:1.3rem;margin:0;">&#x1F6E1;&#xFE0F; <span data-i18n="Smart Analytics">التحليل الذكي</span></h1>
+          <p style="color:var(--text-secondary);font-size:0.82rem;margin:0.4rem 0 0;" data-i18n="Login to access the dashboard">سجّل الدخول للوصول إلى لوحة التحكم</p>
         </div>
         <form id="login-form" onsubmit="return handleLogin(event)">
           <div style="margin-bottom:1rem;">
-            <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;" data-i18n="Username">اسم المستخدم</label>
-            <input id="login-username" type="text" required style="width:100%;padding:0.5rem;border:1px solid #c7d2fe;border-radius:8px;font-size:0.9rem;box-sizing:border-box;" autocomplete="username">
+            <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:var(--accent-purple);" data-i18n="Username">اسم المستخدم</label>
+            <input id="login-username" type="text" required style="width:100%;padding:0.5rem;border:1px solid var(--border-default);border-radius:8px;font-size:0.9rem;box-sizing:border-box;background:var(--bg-input);color:var(--text-primary);" autocomplete="username">
           </div>
           <div style="margin-bottom:1rem;">
-            <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:#4338ca;" data-i18n="Password">كلمة المرور</label>
-            <input id="login-password" type="password" required style="width:100%;padding:0.5rem;border:1px solid #c7d2fe;border-radius:8px;font-size:0.9rem;box-sizing:border-box;" autocomplete="current-password">
+            <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:var(--accent-purple);" data-i18n="Password">كلمة المرور</label>
+            <input id="login-password" type="password" required style="width:100%;padding:0.5rem;border:1px solid var(--border-default);border-radius:8px;font-size:0.9rem;box-sizing:border-box;background:var(--bg-input);color:var(--text-primary);" autocomplete="current-password">
           </div>
-          <div id="login-error" style="display:none;color:#dc2626;font-size:0.82rem;margin-bottom:0.8rem;"></div>
+          <div id="login-error" style="display:none;color:var(--accent-red);font-size:0.82rem;margin-bottom:0.8rem;"></div>
           <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">
-            <input type="checkbox" id="remember-me" style="accent-color:#4338ca;width:16px;height:16px;cursor:pointer;">
-            <label for="remember-me" style="font-size:0.82rem;color:#555;cursor:pointer;" data-i18n="Remember Me">تذكرني</label>
-            <span style="margin-left:auto;font-size:0.72rem;color:#999;" data-i18n="30 days" id="remember-hint"></span>
+            <input type="checkbox" id="remember-me" style="accent-color:var(--accent-blue);width:16px;height:16px;cursor:pointer;">
+            <label for="remember-me" style="font-size:0.82rem;color:var(--text-secondary);cursor:pointer;" data-i18n="Remember Me">تذكرني</label>
+            <span style="margin-left:auto;font-size:0.72rem;color:var(--text-muted);" data-i18n="30 days" id="remember-hint"></span>
           </div>
-          <button type="submit" id="login-submit" style="width:100%;padding:0.6rem;background:linear-gradient(135deg,#1a237e,#312e81);color:white;border:none;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;" data-i18n="Login">تسجيل الدخول</button>
+          <button type="submit" id="login-submit" style="width:100%;padding:0.6rem;background:linear-gradient(135deg,var(--accent-blue),var(--accent-purple));color:white;border:none;border-radius:8px;font-size:0.95rem;font-weight:600;cursor:pointer;" data-i18n="Login">تسجيل الدخول</button>
         </form>
         <div style="text-align:center;margin-top:1rem;">
-          <button id="login-lang-toggle" onclick="toggleLoginLang()" style="background:none;border:1px solid #c7d2fe;border-radius:6px;padding:0.3rem 0.8rem;font-size:0.78rem;color:#4338ca;cursor:pointer;">&#x1F1EC;&#x1F1E7; English</button>
+          <button id="login-lang-toggle" onclick="toggleLoginLang()" style="background:none;border:1px solid var(--border-default);border-radius:6px;padding:0.3rem 0.8rem;font-size:0.78rem;color:var(--accent-blue);cursor:pointer;">&#x1F1EC;&#x1F1E7; English</button>
         </div>
       </div>
     </div>
@@ -47,10 +47,10 @@
             <div class="subtitle" id="headerSubtitle" data-i18n="تحليل مؤشرات صحة الأم والوليد">تحليل مؤشرات صحة الأم والوليد</div>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;">
-            <span id="user-info" style="font-size:0.8rem;color:#333;font-weight:600;"></span>
-            <button id="logout-btn" onclick="handleLogout()" style="display:none;background:none;border:1px solid #dc2626;color:#dc2626;border-radius:6px;padding:0.3rem 0.7rem;font-size:0.78rem;cursor:pointer;" data-i18n="Logout">تسجيل الخروج</button>
+            <span id="user-info" style="font-size:0.8rem;color:var(--text-primary);font-weight:600;"></span>
+            <button id="logout-btn" onclick="handleLogout()" style="display:none;background:none;border:1px solid var(--accent-red);color:var(--accent-red);border-radius:6px;padding:0.3rem 0.7rem;font-size:0.78rem;cursor:pointer;" data-i18n="Logout">تسجيل الخروج</button>
             <span style="font-size:0.8rem;opacity:0.7;">API:</span>
-            <input id="apiBase" value="" style="width:180px;color:#333;" placeholder="API Base URL">
+            <input id="apiBase" value="" style="width:180px;color:var(--text-primary);" placeholder="API Base URL">
             <button class="lang-btn" id="langToggle" onclick="toggleLang()">English</button>
         </div>
     </div>
@@ -61,13 +61,13 @@
             <h2 data-i18n="Smart Data Entry">إدخال البيانات الذكي</h2>
             <!-- Step indicator -->
             <div id="uploadSteps" style="display:flex;gap:0.3rem;margin-bottom:1rem;font-size:0.78rem;align-items:center;">
-                <span class="step-dot active" data-step="1" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:#1a237e;color:white;font-weight:600;">1. Upload</span>
-                <span style="color:#bbb;">→</span>
-                <span class="step-dot" data-step="2" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:#e0e0e0;color:#888;">2. Preview</span>
-                <span style="color:#bbb;">→</span>
-                <span class="step-dot" data-step="3" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:#e0e0e0;color:#888;">3. Analyze</span>
-                <span style="color:#bbb;">→</span>
-                <span class="step-dot" data-step="4" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:#e0e0e0;color:#888;">4. Results</span>
+                <span class="step-dot active" data-step="1" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:var(--accent-blue);color:white;font-weight:600;">1. Upload</span>
+                <span style="color:var(--text-muted);">→</span>
+                <span class="step-dot" data-step="2" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:var(--border-default);color:var(--text-muted);">2. Preview</span>
+                <span style="color:var(--text-muted);">→</span>
+                <span class="step-dot" data-step="3" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:var(--border-default);color:var(--text-muted);">3. Analyze</span>
+                <span style="color:var(--text-muted);">→</span>
+                <span class="step-dot" data-step="4" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:var(--border-default);color:var(--text-muted);">4. Results</span>
             </div>
             <div style="display:flex;gap:1rem;flex-wrap:wrap;">
                 <div style="flex:1;min-width:300px;">
@@ -82,8 +82,8 @@
                 </div>
             </div>
             <div id="previewArea" style="margin-top:1rem;display:none;">
-                <h3 data-i18n="Preview Before Import">معاينة قبل الاستيراد <span id="previewInfo" style="font-size:0.8rem;color:#888;"></span></h3>
-                <div style="max-height:300px;overflow-y:auto;border:1px solid #eee;border-radius:4px;">
+                <h3 data-i18n="Preview Before Import">معاينة قبل الاستيراد <span id="previewInfo" style="font-size:0.8rem;color:var(--text-muted);"></span></h3>
+                <div style="max-height:300px;overflow-y:auto;border:1px solid var(--border-default);border-radius:4px;">
                     <table id="previewTable" style="font-size:0.78rem;"><thead></thead><tbody></tbody></table>
                 </div>
                 <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
@@ -93,8 +93,8 @@
             </div>
             <div id="status"></div>
             <div id="uploadProgress" class="hidden" style="margin-top:0.5rem;">
-                <div class="progress-bar"><div class="progress-bar-fill" id="uploadProgressFill" style="width:0%;background:#3f51b5;"></div></div>
-                <p id="uploadProgressText" style="font-size:0.8rem;color:#888;margin-top:0.3rem;"></p>
+                <div class="progress-bar"><div class="progress-bar-fill" id="uploadProgressFill" style="width:0%;background:var(--accent-blue);"></div></div>
+                <p id="uploadProgressText" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.3rem;"></p>
             </div>
         </div>
 
@@ -105,7 +105,7 @@
                 <button class="btn btn-sm btn-outline" onclick="refreshSavedFiles()" style="float:right;font-size:0.75rem;" data-i18n="Refresh">تحديث</button>
             </h2>
             <div id="savedFilesList">
-                <p style="font-size:0.85rem;color:#888;" data-i18n="Loading saved files...">جاري تحميل الملفات المحفوظة...</p>
+                <p style="font-size:0.85rem;color:var(--text-muted);" data-i18n="Loading saved files...">جاري تحميل الملفات المحفوظة...</p>
             </div>
             <div style="margin-top:0.5rem;display:none;" id="savedActions">
                 <button class="btn btn-sm" onclick="analyzeSelectedSaved()" id="analyzeSavedBtn" data-i18n="Analyze Selected">تحليل المحدد</button>
@@ -118,17 +118,17 @@
             <div class="tab-bar" role="tablist" aria-label="التقارير والأقسام">
                 <div class="tab active" data-tab="dashboard" role="tab" aria-selected="true" aria-controls="tab-dashboard" tabindex="0" data-requires="dashboard.read">Dashboard</div>
                 <div class="tab" data-tab="quality" role="tab" aria-selected="false" aria-controls="tab-quality" tabindex="-1" data-requires="quality.read">Quality Reports</div>
-                <div class="tab" data-tab="analysis" role="tab" aria-selected="false" aria-controls="tab-analysis" tabindex="-1" style="color:#1565c0;font-weight:600;" data-requires="analysis.read" data-i18n="Comparative Analysis">التحليل المقارن</div>
+                <div class="tab" data-tab="analysis" role="tab" aria-selected="false" aria-controls="tab-analysis" tabindex="-1" style="color:var(--accent-blue);font-weight:600;" data-requires="analysis.read" data-i18n="Comparative Analysis">التحليل المقارن</div>
                 <div class="tab" data-tab="clinical" role="tab" aria-selected="false" aria-controls="tab-clinical" tabindex="-1" data-requires="clinical.read">Clinical Intelligence</div>
                 <div class="tab" data-tab="outliers" role="tab" aria-selected="false" aria-controls="tab-outliers" tabindex="-1" data-requires="outliers.read">Outliers</div>
-                <div class="tab" data-tab="alerts" role="tab" aria-selected="false" aria-controls="tab-alerts" tabindex="-1" style="position:relative;" data-requires="alerts.read">Alerts <span id="alertBadge" class="count-badge" style="display:none;background:#c62828;color:#fff;"></span></div>
+                <div class="tab" data-tab="alerts" role="tab" aria-selected="false" aria-controls="tab-alerts" tabindex="-1" style="position:relative;" data-requires="alerts.read">Alerts <span id="alertBadge" class="count-badge" style="display:none;background:var(--accent-red);color:white;"></span></div>
                 <div class="tab" data-tab="indicator-tree" role="tab" aria-selected="false" aria-controls="tab-indicator-tree" tabindex="-1" data-requires="dashboard.read">Indicator Tree</div>
                 <div class="tab" data-tab="rules-manager" role="tab" aria-selected="false" aria-controls="tab-rules-manager" tabindex="-1" data-requires="rules.read">Rules Manager</div>
                 <div class="tab" data-tab="root-cause" role="tab" aria-selected="false" aria-controls="tab-root-cause" tabindex="-1" data-requires="root_cause.read">Root Cause</div>
-                <div class="tab" data-tab="audit" role="tab" aria-selected="false" aria-controls="tab-audit" tabindex="-1" style="color:#d32f2f;font-weight:600;" data-requires="audit.read">Audit</div>
-                <div class="tab" data-tab="admin" role="tab" aria-selected="false" aria-controls="tab-admin" tabindex="-1" data-requires="system.manage_users" style="color:#6a1b9a;font-weight:600;">Admin</div>
+                <div class="tab" data-tab="audit" role="tab" aria-selected="false" aria-controls="tab-audit" tabindex="-1" style="color:var(--accent-red);font-weight:600;" data-requires="audit.read">Audit</div>
+                <div class="tab" data-tab="admin" role="tab" aria-selected="false" aria-controls="tab-admin" tabindex="-1" data-requires="system.manage_users" style="color:var(--accent-purple);font-weight:600;">Admin</div>
                 <div class="tab" data-tab="settings" role="tab" aria-selected="false" aria-controls="tab-settings" tabindex="-1" data-requires="settings.read">Settings</div>
-                <div class="tab" data-tab="smart-analytics" role="tab" aria-selected="false" aria-controls="tab-smart-analytics" tabindex="-1" style="color:#1a237e;font-weight:600;" data-requires="smart_analytics.read">التحليل الذكي</div>
+                <div class="tab" data-tab="smart-analytics" role="tab" aria-selected="false" aria-controls="tab-smart-analytics" tabindex="-1" style="color:var(--accent-blue);font-weight:600;" data-requires="smart_analytics.read">التحليل الذكي</div>
             </div>
 
             <!-- Dashboard Tab -->
@@ -166,7 +166,7 @@
         <div id="detailModal">
             <div class="modal-content">
                 <button class="modal-close" onclick="closeModal()">&times;</button>
-                <h2 id="modalTitle" style="color:#1a237e;margin-bottom:1rem;"></h2>
+                <h2 id="modalTitle" style="color:var(--text-primary);margin-bottom:1rem;"></h2>
                 <div id="modalBody"></div>
             </div>
         </div>
@@ -175,11 +175,11 @@
         <div id="ruleEditModal">
             <div class="modal-content" style="max-width:750px;">
                 <button class="modal-close" onclick="closeRuleModal()">&times;</button>
-                <h2 id="ruleEditTitle" style="color:#1a237e;margin-bottom:1rem;">New Rule</h2>
+                <h2 id="ruleEditTitle" style="color:var(--text-primary);margin-bottom:1rem;">New Rule</h2>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
-                    <div><label style="font-size:0.8rem;color:#666;">Code</label><br><input id="ruleEditCode" style="width:100%;" placeholder="R061"></div>
-                    <div><label style="font-size:0.8rem;color:#666;">Name</label><br><input id="ruleEditName" style="width:100%;" placeholder="Rule description"></div>
-                    <div><label style="font-size:0.8rem;color:#666;">Rule Type</label><br>
+                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Code</label><br><input id="ruleEditCode" style="width:100%;" placeholder="R061"></div>
+                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Name</label><br><input id="ruleEditName" style="width:100%;" placeholder="Rule description"></div>
+                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Rule Type</label><br>
                         <select id="ruleEditType" style="width:100%;">
                             <option value="LOGIC">LOGIC</option>
                             <option value="CLINICAL">CLINICAL</option>
@@ -187,7 +187,7 @@
                             <option value="DATA_QUALITY">DATA_QUALITY</option>
                         </select>
                     </div>
-                    <div><label style="font-size:0.8rem;color:#666;">Severity</label><br>
+                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Severity</label><br>
                         <select id="ruleEditSeverity" style="width:100%;">
                             <option value="CRITICAL">CRITICAL</option>
                             <option value="HIGH">HIGH</option>
@@ -195,7 +195,7 @@
                             <option value="LOW">LOW</option>
                         </select>
                     </div>
-                    <div><label style="font-size:0.8rem;color:#666;">Category</label><br>
+                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Category</label><br>
                         <select id="ruleEditCategory" style="width:100%;">
                             <option value="BASIC_LOGIC">BASIC_LOGIC</option>
                             <option value="CLINICAL_CONSISTENCY">CLINICAL_CONSISTENCY</option>
@@ -203,7 +203,7 @@
                             <option value="TREND_DATA_QUALITY">TREND_DATA_QUALITY</option>
                         </select>
                     </div>
-                    <div><label style="font-size:0.8rem;color:#666;">Expression Type</label><br>
+                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Expression Type</label><br>
                         <select id="ruleEditExpr" style="width:100%;" onchange="ruleExprTemplate()">
                             <option value="ge">ge — parent >= sum(children)</option>
                             <option value="eq">eq — parent == sum(children)</option>
@@ -220,7 +220,7 @@
                             <option value="all_zero">all_zero — all indicators zero</option>
                         </select>
                     </div>
-                    <div><label style="font-size:0.8rem;color:#666;">Enabled</label><br>
+                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Enabled</label><br>
                         <select id="ruleEditEnabled" style="width:100%;">
                             <option value="true">Enabled</option>
                             <option value="false">Disabled</option>
@@ -228,12 +228,12 @@
                     </div>
                 </div>
                 <div style="margin-top:0.6rem;">
-                    <label style="font-size:0.8rem;color:#666;">Description</label><br>
+                    <label style="font-size:0.8rem;color:var(--text-secondary);">Description</label><br>
                     <input id="ruleEditDesc" style="width:100%;" placeholder="Optional description">
                 </div>
                 <div id="ruleVisualBuilderContainer" style="margin-top:0.6rem;">
                     <div id="ruleVisualBuilder"></div>
-                    <div id="ruleExprExplanation" style="margin-top:0.5rem;padding:0.5rem;background:#f5f5f5;border-radius:4px;font-size:0.78rem;color:#666;display:none;">
+                    <div id="ruleExprExplanation" style="margin-top:0.5rem;padding:0.5rem;background:var(--bg-surface-hover);border-radius:4px;font-size:0.78rem;color:var(--text-secondary);display:none;">
                         <strong id="ruleExprExplTitle"></strong><br>
                         <span id="ruleExprExplText"></span>
                     </div>
