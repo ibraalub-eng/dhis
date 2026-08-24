@@ -93,7 +93,7 @@
           <!-- Roles -->
           <div style="flex:1;min-width:250px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-              <h3 style="color:#1a237e;margin:0;">Roles (${roles.length})</h3>
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;"><h3 style="color:#1a237e;margin:0;">Roles (${roles.length})</h3>
             </div>
             <div style="overflow-x:auto;">
               <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
@@ -102,6 +102,7 @@
                     <th style="padding:0.4rem;text-align:left;">Role</th>
                     <th style="padding:0.4rem;text-align:left;">Users</th>
                     <th style="padding:0.4rem;text-align:left;">Permissions</th>
+                    <th style="padding:0.4rem;text-align:left;">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -110,6 +111,10 @@
                       <td style="padding:0.4rem;font-weight:600;">${esc(r.name)}${r.is_system ? ' <span style="font-size:0.7rem;color:#888;">(system)</span>' : ''}</td>
                       <td style="padding:0.4rem;">${r.user_count}</td>
                       <td style="padding:0.4rem;font-size:0.75rem;color:#666;">${r.permission_ids.length} perms</td>
+                      <td style="padding:0.4rem;">
+                        <button class="btn btn-sm btn-outline" onclick="editRole(${r.id})" style="font-size:0.72rem;">Edit</button>
+                        ${!r.is_system ? '<button class="btn btn-sm btn-outline" onclick="deleteRole(' + r.id + ')" style="font-size:0.72rem;color:#c62828;margin-left:0.2rem;">Delete</button>' : ''}
+                      </td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -145,15 +150,47 @@
               <input id="adminPassword" type="password" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;">
             </div>
             <div style="margin-bottom:0.8rem;">
-              <label style="font-size:0.82rem;font-weight:600;">Role</label>
-              <select id="adminRoleSelect" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;">
-                ${roles.map(r => '<option value="' + r.id + '">' + esc(r.name) + '</option>').join('')}
-              </select>
+              <label style="font-size:0.82rem;font-weight:600;">Roles</label>
+              <div id="adminRoleCheckboxes" style="max-height:120px;overflow-y:auto;border:1px solid #c7d2fe;border-radius:6px;padding:0.4rem;">
+                ${roles.map(r => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-role-cb" value="' + r.id + '"> ' + esc(r.name) + (r.is_system ? ' <span style="color:#888;font-size:0.7rem;">(system)</span>' : '') + '</label>').join('')}
+              </div>
             </div>
             <div id="adminModalError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
             <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
               <button class="btn btn-sm btn-outline" onclick="closeAdminModal()">Cancel</button>
               <button class="btn btn-sm" id="adminSaveBtn" onclick="saveAdminUser()">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+        <!-- Role Editor Modal -->
+        <div id="adminRoleModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center;">
+          <div style="background:white;border-radius:10px;padding:1.5rem;width:480px;max-width:94%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+            <h3 id="roleModalTitle" style="color:#1a237e;margin:0 0 1rem;">New Role</h3>
+            <input type="hidden" id="adminEditRoleId">
+            <div style="margin-bottom:0.8rem;">
+              <label style="font-size:0.82rem;font-weight:600;">Role Name</label>
+              <input id="adminRoleName" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;" placeholder="e.g. data_entry">
+            </div>
+            <div style="margin-bottom:0.8rem;">
+              <label style="font-size:0.82rem;font-weight:600;">Description</label>
+              <input id="adminRoleDesc" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;" placeholder="Optional description">
+            </div>
+            <div style="margin-bottom:0.8rem;">
+              <label style="font-size:0.82rem;font-weight:600;">Permissions</label>
+              <div style="display:flex;gap:0.3rem;margin-bottom:0.4rem;">
+                <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('#adminPermCheckboxes input').forEach(function(c){c.checked=true})" style="font-size:0.72rem;">Select All</button>
+                <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('#adminPermCheckboxes input').forEach(function(c){c.checked=false})" style="font-size:0.72rem;">Clear All</button>
+              </div>
+              <div id="adminPermCheckboxes" style="max-height:200px;overflow-y:auto;border:1px solid #c7d2fe;border-radius:6px;padding:0.4rem;">
+                ${perms.map(p => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-perm-cb" value="' + p.id + '"> <strong style="color:#4338ca;">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:#888;font-size:0.75rem;">— ' + esc(p.description) + '</span>' : '') + '</label>').join('')}
+              </div>
+            </div>
+            <div id="adminRoleModalError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+            <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
+              <button class="btn btn-sm btn-outline" onclick="closeRoleModal()">Cancel</button>
+              <button class="btn btn-sm" onclick="saveRole()">Save Role</button>
             </div>
           </div>
         </div>
@@ -192,6 +229,10 @@
     document.getElementById('adminPassword').value = '';
     document.getElementById('adminPassHint').textContent = '(leave blank to keep)';
     document.getElementById('adminModalError').style.display = 'none';
+    var userRoleIds = (data.roles || []).map(function(r) { return r.id; });
+    document.querySelectorAll('.admin-role-cb').forEach(function(cb) {
+      cb.checked = userRoleIds.indexOf(parseInt(cb.value)) !== -1;
+    });
     document.getElementById('adminUserModal').style.display = 'flex';
   };
 
@@ -206,7 +247,7 @@
       username: document.getElementById('adminUsername').value,
       full_name: document.getElementById('adminFullName').value,
       email: document.getElementById('adminEmail').value,
-      role_ids: [parseInt(document.getElementById('adminRoleSelect').value)],
+      var checkedRoles = document.querySelectorAll('.admin-role-cb:checked'); var roleIds = Array.from(checkedRoles).map(function(c) { return parseInt(c.value); }); role_ids: roleIds,
     };
     var pw = document.getElementById('adminPassword').value;
     if (pw) body.password = pw;
@@ -232,6 +273,61 @@
       return;
     }
     closeAdminModal();
+    loadAdminPanel();
+  };
+
+  // ---- Role editor modal ----
+  window.showCreateRoleModal = function() {
+    window._adminEditRoleId = null;
+    document.getElementById('roleModalTitle').textContent = 'New Role';
+    document.getElementById('adminEditRoleId').value = '';
+    document.getElementById('adminRoleName').value = '';
+    document.getElementById('adminRoleDesc').value = '';
+    document.querySelectorAll('.admin-perm-cb').forEach(function(c) { c.checked = false; });
+    document.getElementById('adminRoleModalError').style.display = 'none';
+    document.getElementById('adminRoleModal').style.display = 'flex';
+  };
+  window.editRole = async function(roleId) {
+    var data = await api('/admin/roles/' + roleId);
+    if (!data || data._error) return;
+    window._adminEditRoleId = roleId;
+    document.getElementById('roleModalTitle').textContent = 'Edit Role';
+    document.getElementById('adminEditRoleId').value = roleId;
+    document.getElementById('adminRoleName').value = data.name || '';
+    document.getElementById('adminRoleDesc').value = data.description || '';
+    var permIds = data.permission_ids || [];
+    document.querySelectorAll('.admin-perm-cb').forEach(function(cb) {
+      cb.checked = permIds.indexOf(parseInt(cb.value)) !== -1;
+    });
+    document.getElementById('adminRoleModalError').style.display = 'none';
+    document.getElementById('adminRoleModal').style.display = 'flex';
+  };
+  window.closeRoleModal = function() {
+    document.getElementById('adminRoleModal').style.display = 'none';
+  };
+  window.saveRole = async function() {
+    var errEl = document.getElementById('adminRoleModalError');
+    var editId = document.getElementById('adminEditRoleId').value;
+    var checkedPerms = document.querySelectorAll('.admin-perm-cb:checked');
+    var permIds = Array.from(checkedPerms).map(function(c) { return parseInt(c.value); });
+    var body = {
+      name: document.getElementById('adminRoleName').value,
+      description: document.getElementById('adminRoleDesc').value,
+      permission_ids: permIds,
+    };
+    if (!body.name) { errEl.textContent = 'Role name is required'; errEl.style.display = 'block'; return; }
+    var resp;
+    if (editId) { resp = await api('/admin/roles/' + editId, { method: 'PUT', body: JSON.stringify(body) }); }
+    else { resp = await api('/admin/roles', { method: 'POST', body: JSON.stringify(body) }); }
+    if (resp && (resp._error || resp._forbidden || resp.detail)) {
+      errEl.textContent = resp.detail || 'Error saving role'; errEl.style.display = 'block'; return;
+    }
+    closeRoleModal(); loadAdminPanel();
+  };
+  window.deleteRole = async function(roleId) {
+    if (!confirm('Delete this role? Users with this role will lose its permissions.')) return;
+    var resp = await api('/admin/roles/' + roleId, { method: 'DELETE' });
+    if (resp && resp.detail) { alert(resp.detail); return; }
     loadAdminPanel();
   };
 

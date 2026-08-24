@@ -136,6 +136,19 @@ def list_roles(db: Session = Depends(get_db)):
                          "user_count": len(r.users)} for r in roles]}
 
 
+@router.get("/roles/{role_id}")
+def get_role(role_id: int, db: Session = Depends(get_db)):
+    role = db.query(Role).filter(Role.id == role_id).first()
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+    return {
+        "id": role.id, "name": role.name, "description": role.description,
+        "is_system": role.is_system,
+        "permission_ids": [p.id for p in role.permissions],
+        "user_count": len(role.users),
+    }
+
+
 @router.post("/roles", status_code=status.HTTP_201_CREATED)
 def create_role(req: RoleCreate, db: Session = Depends(get_db)):
     if db.query(Role).filter(Role.name == req.name).first():
