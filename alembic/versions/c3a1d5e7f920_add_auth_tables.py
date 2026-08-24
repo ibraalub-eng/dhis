@@ -151,6 +151,11 @@ def upgrade() -> None:
         INSERT INTO users (username, email, full_name, password_hash, is_active, is_superuser)
         VALUES ('admin', 'admin@health.local', 'System Administrator', '{hashed_escaped}', TRUE, TRUE)
     """)
+    op.execute("""
+        INSERT INTO user_roles (user_id, role_id)
+        SELECT u.id, r.id FROM users u, roles r
+        WHERE u.username = 'admin' AND r.name = 'superadmin'
+    """)
 
 
 def downgrade() -> None:
