@@ -167,8 +167,8 @@ def update_role(role_id: int, req: RoleUpdate, db: Session = Depends(get_db)):
     role = db.query(Role).get(role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
-    if role.is_system:
-        raise HTTPException(status_code=400, detail="Cannot modify system role")
+    if role.is_system and role.name == "superadmin":
+        raise HTTPException(status_code=400, detail="Cannot modify the superadmin role")
     if req.name is not None:
         existing = db.query(Role).filter(Role.name == req.name, Role.id != role_id).first()
         if existing:

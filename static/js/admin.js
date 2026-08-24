@@ -123,7 +123,7 @@
                       <td style="padding:0.4rem;">${r.user_count}</td>
                       <td style="padding:0.4rem;font-size:0.75rem;color:#666;">${r.permission_ids.length} perms</td>
                       <td style="padding:0.4rem;">
-                        ${r.is_system ? '<span style="font-size:0.72rem;color:#888;">System</span>' : '<button class="btn btn-sm btn-outline" onclick="editRole(${r.id})" style="font-size:0.72rem;">Edit</button>'}
+                        ${r.name === 'superadmin' ? '<span style="font-size:0.72rem;color:#888;">System</span>' : '<button class="btn btn-sm btn-outline" onclick="editRole(${r.id})" style="font-size:0.72rem;">Edit</button>'}
                         ${!r.is_system ? '<button class="btn btn-sm btn-outline" onclick="deleteRole(' + r.id + ')" style="font-size:0.72rem;color:#c62828;margin-left:0.2rem;">Delete</button>' : ''}
                       </td>
                     </tr>
