@@ -215,6 +215,67 @@ def _seed_reference_data(session):
         session.add(FacilityType(name="\u0645\u0633\u062a\u0634\u0641\u064a\u0627\u062a"))
 
 
+
+def _ensure_auth_tables(session):
+    """Create auth tables if they don't exist (handles partial migration failures)."""
+    try:
+        from sqlalchemy import inspect as sa_inspect
+        insp = sa_inspect(session.get_bind())
+        existing = set(insp.get_table_names())
+        needed = {'users', 'roles', 'permissions', 'refresh_tokens', 'user_roles', 'role_permissions'}
+        missing = needed - existing
+        if missing:
+            print(f"[startup] Creating missing auth tables: {missing}")
+            from app.database import Base
+            # Create tables in dependency order: no FKs first, then with FKs
+            create_order = ['permissions', 'roles', 'users', 'refresh_tokens', 'user_roles', 'role_permissions']
+            for tname in create_order:
+                if tname in missing:
+                    table = Base.metadata.tables.get(tname)
+                    if table is not None:
+                        table.create(bind=session.get_bind(), checkfirst=True)
+            print("[startup] Auth tables created.")
+        else:
+            print("[startup] Auth tables already exist.")
+    except Exception as e:
+        print(f"[startup] Auth table creation error: {e}")
+
+
+def _ensure_admin_user(session):
+    """Seed default admin user if users table is empty."""
+    try:
+        from app.models import User, Role
+        if session.query(User).count() == 0:
+            from app.core.security import hash_password
+            admin_pw = os.getenv("ADMIN_PASSWORD", "admin123")
+            admin = User(
+                username="admin", email="admin@health.local",
+                full_name="System Administrator",
+                password_hash=hash_password(admin_pw),
+                is_active=True, is_superuser=True,
+            )
+            session.add(admin)
+            session.flush()
+            # Assign superadmin role if it exists
+            sa_role = session.query(Role).filter(Role.name == "superadmin").first()
+            if sa_role:
+                admin.roles.append(sa_role)
+            session.commit()
+            print("[startup] Default admin user created with roles.")
+        else:
+            # Ensure existing admin has superadmin role
+            admin = session.query(User).filter(User.username == "admin").first()
+            if admin and not admin.roles:
+                sa_role = session.query(Role).filter(Role.name == "superadmin").first()
+                if sa_role:
+                    admin.roles.append(sa_role)
+                    session.commit()
+                    print("[startup] Admin role assigned.")
+            print("[startup] Admin users already exist.")
+    except Exception as e:
+        print(f"[startup] Admin user check/seed error: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _startup_done
@@ -238,41 +299,6 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     print(f"[startup] Migration error (non-fatal): {e}")
                     import traceback; traceback.print_exc()
-                # Ensure auth tables exist even if migration partially failed
-                try:
-                    from app.models import User, Role, Permission, RefreshToken
-                    from sqlalchemy import inspect as sa_inspect
-                    insp = sa_inspect(session.get_bind())
-                    existing = set(insp.get_table_names())
-                    needed = {'users', 'roles', 'permissions', 'refresh_tokens', 'user_roles', 'role_permissions'}
-                    missing = needed - existing
-                    if missing:
-                        print(f"[startup] Creating missing auth tables: {missing}")
-                        from app.database import Base
-                        Base.metadata.create_all(bind=session.get_bind(), tables=[
-                            t for t in Base.metadata.sorted_tables if t.name in missing
-                        ])
-                        print("[startup] Auth tables created.")
-                except Exception as e:
-                    print(f"[startup] Auth table creation error: {e}")
-                # Seed default admin user if users table is empty
-                try:
-                    from app.models import User
-                    if session.query(User).count() == 0:
-                        from app.core.security import hash_password
-                        import os as _os
-                        admin_pw = _os.getenv("ADMIN_PASSWORD", "admin123")
-                        admin = User(
-                            username="admin", email="admin@health.local",
-                            full_name="System Administrator",
-                            password_hash=hash_password(admin_pw),
-                            is_active=True, is_superuser=True,
-                        )
-                        session.add(admin)
-                        session.commit()
-                        print("[startup] Default admin user created.")
-                except Exception as e:
-                    print(f"[startup] Admin seed error: {e}")
                 # Fresh session after DDL changes
                 session.close()
                 session = SessionLocal()
@@ -289,6 +315,13 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     print(f"[startup] Reference data error (non-fatal): {e}")
                     import traceback; traceback.print_exc()
+
+            # Always ensure auth tables exist (migration may have partially failed)
+            # Create a fresh session in case DDL changes were made
+            _ensure_auth_tables(session)
+            session.close()
+            session = SessionLocal()
+            _ensure_admin_user(session)
 
             # Apply hospital metadata (OrgUnit ID, Ownership, Governorate, Type)
             # from scripts/hospital_metadata.json - safe to run every startup.

@@ -141,23 +141,6 @@ def upgrade() -> None:
         WHERE r.name = 'viewer' AND p.codename LIKE '%.read'
     """)
 
-    # Create default superadmin user
-    import os
-    from app.core.security import hash_password
-    admin_pw = os.getenv("ADMIN_PASSWORD", "admin123")
-    hashed = hash_password(admin_pw)
-    hashed_escaped = hashed.replace("'", "''")
-    op.execute(f"""
-        INSERT INTO users (username, email, full_name, password_hash, is_active, is_superuser)
-        VALUES ('admin', 'admin@health.local', 'System Administrator', '{hashed_escaped}', TRUE, TRUE)
-    """)
-    op.execute("""
-        INSERT INTO user_roles (user_id, role_id)
-        SELECT u.id, r.id FROM users u, roles r
-        WHERE u.username = 'admin' AND r.name = 'superadmin'
-    """)
-
-
 def downgrade() -> None:
     op.execute("DELETE FROM users WHERE username = 'admin'")
     op.execute("DELETE FROM role_permissions")
