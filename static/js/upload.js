@@ -61,15 +61,64 @@
             const reader = new FileReader();
             reader.onload = function() { previewFileBytes = new Uint8Array(reader.result); };
             reader.readAsArrayBuffer(files[0]);
-            setStatus('loading', 'Reading file: ' + files[0].name + '...');
-            fetch(API() + '/upload/preview', { method: 'POST', body: fd }).then(async r => {
-                if (!r.ok) {
-                    let errMsg = 'Server error (' + r.status + ')';
-                    try { const errData = await r.json(); errMsg = errData.detail || errMsg; } catch(e) {}
-                    throw new Error(errMsg);
+
+            // Show upload progress bar
+            const uploadProg = document.getElementById('uploadProgress');
+            const uploadFill = document.getElementById('uploadProgressFill');
+            const uploadTxt  = document.getElementById('uploadProgressText');
+            uploadProg.classList.remove('hidden');
+            uploadFill.style.width = '5%';
+            uploadFill.style.background = '#3f51b5';
+            uploadTxt.textContent = 'Uploading ' + files[0].name + '...';
+            setStatus('loading', 'Uploading file: ' + files[0].name + '...');
+
+            // Use XHR instead of fetch to get upload progress events
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', API() + '/upload/preview');
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    var pct = Math.round((e.loaded / e.total) * 90);
+                    uploadFill.style.width = pct + '%';
+                    var loadedMB = (e.loaded / (1024 * 1024)).toFixed(1);
+                    var totalMB = (e.total / (1024 * 1024)).toFixed(1);
+                    uploadTxt.textContent = 'Uploading ' + files[0].name + '... ' + loadedMB + '/' + totalMB + ' MB (' + pct + '%)';
                 }
-                return r.json();
-            }).then(data => {
+            };
+            xhr.onload = function() {
+                uploadFill.style.width = '95%';
+                uploadTxt.textContent = 'Processing file...';
+                var data;
+                try { data = JSON.parse(xhr.responseText); } catch(e) { data = null; }
+                if (xhr.status !== 200 || !data) {
+                    uploadProg.classList.add('hidden');
+                    var errMsg = (data && data.detail) ? data.detail : 'Server error (' + xhr.status + ')';
+                    setStatus('err', 'Preview failed: ' + errMsg);
+                    return;
+                }
+                uploadFill.style.width = '100%';
+                uploadTxt.textContent = 'Preview loaded!';
+                setTimeout(function() { uploadProg.classList.add('hidden'); uploadFill.style.width = '0%'; }, 1500);
+                previewFilePath = data.file_path;
+                previewFileName = data.filename;
+                var hospitals = data.hospitals || [];
+                var months = data.months || [];
+                var sampleRows = data.sample_rows || [];
+                var totalRows = data.total_rows || sampleRows.length;
+                var area = document.getElementById('previewArea');
+                area.style.display = 'block';
+                document.getElementById('previewInfo').textContent = totalRows + ' rows | ' + hospitals.length + ' hospitals | ' + months.length + ' months';
+                var cols = [__('Hospital'), 'Month', __('Indicator'), 'Value'];
+                var thead = '<tr>' + cols.map(function(c) { return '<th>' + c + '</th>'; }).join('') + '</tr>';
+                var tbody = sampleRows.map(function(r) { return '<tr><td>' + esc(r.hospital) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.indicator) + '</td><td>' + (r.value !== null ? r.value : '<span style="color:red;">MISSING</span>') + '</td></tr>'; }).join('');
+                document.querySelector('#previewTable thead').innerHTML = thead;
+                document.querySelector('#previewTable tbody').innerHTML = tbody;
+                setStatus('ok', 'Preview ready — ' + totalRows + ' records from ' + hospitals.length + ' hospitals across ' + months.length + ' months. Scroll to review, then click Confirm.');
+            };
+            xhr.onerror = function() {
+                uploadProg.classList.add('hidden');
+                setStatus('err', 'Preview failed: Network error');
+            };
+            xhr.send(fd);
                 previewFilePath = data.file_path;
                 previewFileName = data.filename;
                 const hospitals = data.hospitals || [];
@@ -85,10 +134,7 @@
                 let tbody = sampleRows.map(r => '<tr><td>' + esc(r.hospital) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.indicator) + '</td><td>' + (r.value !== null ? r.value : '<span style="color:red;">MISSING</span>') + '</td></tr>').join('');
                 document.querySelector('#previewTable thead').innerHTML = thead;
                 document.querySelector('#previewTable tbody').innerHTML = tbody;
-                setStatus('ok', 'Preview ready — ' + totalRows + ' records from ' + hospitals.length + ' hospitals across ' + months.length + ' months. Scroll to review, then click Confirm.');
-            }).catch(err => {
-                setStatus('err', 'Preview failed: ' + err.message);
-            });
+
         }
 
         export function confirmImport() {
@@ -179,6 +225,7 @@
             previewFilePath = null;
             previewFiles = null;
             previewFileName = null;
+            previewFileBytes = null;
             previewFileBytes = null;
             fileInput.value = '';
         }
