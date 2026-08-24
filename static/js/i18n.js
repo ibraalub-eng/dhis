@@ -7,6 +7,7 @@
             // General UI
             'Dashboard': 'لوحة القيادة',
             'Quality Reports': 'تقارير الجودة',
+            'Comparative Analysis': 'التحليل المقارن',
             'Trend Analysis': 'تحليل الاتجاهات',
             'Hospital Comparison': 'مقارنة المستشفيات',
             'Clinical Intelligence': 'التحليل السريري',
