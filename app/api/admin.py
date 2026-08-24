@@ -84,7 +84,7 @@ def create_user(req: UserCreate, db: Session = Depends(get_db)):
 
 @router.get("/users/{user_id}")
 def get_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return _user_dict(user)
@@ -92,7 +92,7 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 
 @router.put("/users/{user_id}")
 def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db)):
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if req.email is not None:
@@ -117,7 +117,7 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db)):
 
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db)):
-    user = db.query(User).get(user_id)
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     user.is_active = False
@@ -164,7 +164,7 @@ def create_role(req: RoleCreate, db: Session = Depends(get_db)):
 
 @router.put("/roles/{role_id}")
 def update_role(role_id: int, req: RoleUpdate, db: Session = Depends(get_db)):
-    role = db.query(Role).get(role_id)
+    role = db.get(Role, role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     if role.is_system and role.name == "superadmin":
@@ -185,7 +185,7 @@ def update_role(role_id: int, req: RoleUpdate, db: Session = Depends(get_db)):
 
 @router.delete("/roles/{role_id}")
 def delete_role(role_id: int, db: Session = Depends(get_db)):
-    role = db.query(Role).get(role_id)
+    role = db.get(Role, role_id)
     if not role:
         raise HTTPException(status_code=404, detail="Role not found")
     if role.is_system:
