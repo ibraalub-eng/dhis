@@ -4,17 +4,20 @@
 
   // ---- Auto-inject auth header into ALL fetch calls ----
   var _origFetch = window.fetch;
-  window.fetch = function(url, opts) {
+  var _refreshInProgress = null;
+
+  function _isApiUrl(urlStr) {
+    return urlStr.indexOf('/auth/login') === -1 && urlStr.indexOf('/auth/refresh') === -1
+           && urlStr.indexOf('/static/') === -1;
+  }
+
+  function _doFetch(url, opts) {
     opts = opts || {};
     opts.headers = opts.headers || {};
-    // Only add token for API calls (not static assets or login/refresh)
     var urlStr = typeof url === 'string' ? url : (url.url || '');
-    var isApiCall = urlStr.indexOf('/auth/login') === -1 && urlStr.indexOf('/auth/refresh') === -1
-                    && urlStr.indexOf('/static/') === -1;
-    if (isApiCall) {
+    if (_isApiUrl(urlStr)) {
       var token = localStorage.getItem('access_token');
       if (!token) {
-        // No token — return synthetic 401 without hitting the server
         return Promise.resolve(new Response(JSON.stringify({detail: 'Not authenticated'}), {
           status: 401, statusText: 'Unauthorized', headers: {'Content-Type': 'application/json'}
         }));
@@ -24,6 +27,46 @@
       }
     }
     return _origFetch.call(window, url, opts);
+  }
+
+  function _refreshToken() {
+    if (_refreshInProgress) return _refreshInProgress;
+    _refreshInProgress = (async function() {
+      var refresh = localStorage.getItem('refresh_token');
+      if (!refresh) { _refreshInProgress = null; return false; }
+      try {
+        var resp = await _origFetch.call(window, (document.getElementById('apiBase') ? document.getElementById('apiBase').value : '') + '/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refresh }),
+        });
+        if (resp.ok) {
+          var data = await resp.json();
+          localStorage.setItem('access_token', data.access_token);
+          localStorage.setItem('refresh_token', data.refresh_token);
+          _refreshInProgress = null;
+          return true;
+        }
+      } catch(e) {}
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('user_info');
+      _refreshInProgress = null;
+      return false;
+    })();
+    return _refreshInProgress;
+  }
+
+  window.fetch = function(url, opts) {
+    return _doFetch(url, opts).then(function(resp) {
+      if (resp.status !== 401) return resp;
+      var urlStr = typeof url === 'string' ? url : (url.url || '');
+      if (!_isApiUrl(urlStr)) return resp;
+      return _refreshToken().then(function(refreshed) {
+        if (!refreshed) return resp;
+        return _doFetch(url, opts);
+      });
+    });
   };
 
   // ---- Token storage: localStorage (remember me) or sessionStorage (session only) ----
@@ -202,6 +245,9 @@
       } catch(e) {}
     }
     clearTokens();
+    // Reset user info display
+    var userInfoEl = document.getElementById('user-info');
+    if (userInfoEl) { userInfoEl.textContent = ''; userInfoEl.style.color = ''; }
     showLoginPage();
   };
 
@@ -277,34 +323,81 @@
   };
 
   // ---- Permissions ----
+  // Full map of tab-content IDs to required permissions.
+  // The Admin tab uses data-requires on the <div class="tab"> element,
+  // but we also include it here for the reset-all logic.
+  var _TAB_PERMISSIONS = {
+    'tab-dashboard': 'dashboard.read',
+    'tab-analysis': 'analysis.read',
+    'tab-quality': 'quality.read',
+    'tab-outliers': 'outliers.read',
+    'tab-clinical': 'clinical.read',
+    'tab-alerts': 'alerts.read',
+    'tab-hospitals': 'hospitals.read',
+    'tab-smart-analytics': 'smart_analytics.read',
+    'tab-rules': 'rules.read',
+    'tab-root-cause': 'root_cause.read',
+    'tab-audit': 'audit.read',
+    'tab-settings': 'settings.read',
+    'tab-admin': 'system.manage_users',
+  };
+
+  /** Show all tab-content panels (reset before applying per-user rules). */
+  function _showAllTabs() {
+    document.querySelectorAll('.tab-content').forEach(function(el) {
+      el.style.display = '';
+    });
+    document.querySelectorAll('.tab[data-tab]').forEach(function(el) {
+      el.style.display = '';
+    });
+  }
+
+  /** Build a role/permission badge string for the header. */
+  function _roleBadge(user) {
+    if (!user) return '';
+    var roles = user.roles || [];
+    var isSuper = user.is_superuser || (user.permissions && user.permissions.indexOf('*.*') !== -1);
+    if (isSuper) return ' [Superadmin]';
+    if (roles.indexOf('admin') !== -1) return ' [Admin]';
+    if (roles.indexOf('doctor') !== -1) return ' [Doctor]';
+    if (roles.length > 0) return ' [' + roles[0].charAt(0).toUpperCase() + roles[0].slice(1) + ']';
+    return '';
+  }
+
   window.applyPermissions = function() {
     var user = getUserInfo();
     if (!user) return;
-    var tabMap = {
-      'tab-dashboard': 'dashboard.read',
-      'tab-analysis': 'analysis.read',
-      'tab-quality': 'quality.read',
-      'tab-outliers': 'outliers.read',
-      'tab-clinical': 'clinical.read',
-      'tab-alerts': 'alerts.read',
-      'tab-hospitals': 'hospitals.read',
-      'tab-smart-analytics': 'smart_analytics.read',
-      'tab-rules': 'rules.read',
-      'tab-root-cause': 'root_cause.read',
-      'tab-audit': 'audit.read',
-      'tab-settings': 'settings.read',
-    };
-    Object.keys(tabMap).forEach(function(tabId) {
+
+    // 1) Reset — make every tab visible before applying restrictions.
+    //    This prevents stale visibility when switching users.
+    _showAllTabs();
+
+    // 2) Tab-content panels: hide if user lacks required permission.
+    Object.keys(_TAB_PERMISSIONS).forEach(function(tabId) {
       var el = document.getElementById(tabId);
-      if (el && !hasPermission(tabMap[tabId])) el.style.display = 'none';
+      if (el && !hasPermission(_TAB_PERMISSIONS[tabId])) el.style.display = 'none';
     });
+
+    // 3) data-requires on any element (covers the Admin tab <div class="tab">,
+    //    plus any future elements that need permission gating).
     document.querySelectorAll('[data-requires]').forEach(function(el) {
       if (!hasPermission(el.dataset.requires)) el.style.display = 'none';
     });
+
+    // 4) Header: show logout button, user name + role badge.
     var logoutBtn = document.getElementById('logout-btn');
     if (logoutBtn) logoutBtn.style.display = '';
     var userInfoEl = document.getElementById('user-info');
-    if (userInfoEl && user) userInfoEl.textContent = user.full_name || user.username;
+    if (userInfoEl && user) {
+      var displayName = user.full_name || user.username;
+      var badge = _roleBadge(user);
+      userInfoEl.textContent = displayName + badge;
+      // Color the badge
+      if (badge) {
+        var isSuper = user.is_superuser || (user.permissions && user.permissions.indexOf('*.*') !== -1);
+        userInfoEl.style.color = isSuper ? '#7c3aed' : '#1a237e';
+      }
+    }
   };
 
   // ---- Auth guard (run on page load) ----
