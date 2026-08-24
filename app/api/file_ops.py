@@ -306,15 +306,29 @@ async def upload_multiple_and_analyze(
 
 
 @router.post("/process-preview")
-def process_preview_file(filename: str = Query(...)):
+def process_preview_file(
+    filename: str = Query(...),
+    file: UploadFile = File(None),
+):
     """Start processing in background — returns task_id immediately.
 
     Frontend polls GET /tasks/{task_id} until status is "done".
+
+    Accepts an optional file re-upload: on Render the ephemeral disk may lose
+    the file between the preview and confirm steps, so the frontend re-sends
+    the file to guarantee availability.
     """
     upload_dir = UPLOAD_DIR
+    os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, filename)
+
+    # If the file is not on disk, accept it from the request body
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        if file is not None:
+            with open(file_path, "wb") as fobj:
+                shutil.copyfileobj(file.file, fobj)
+        else:
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
 
     task_id = create_task(f"process-preview:{filename}")
     t = threading.Thread(target=run_task, args=(task_id, _process_preview_worker, file_path), daemon=True)

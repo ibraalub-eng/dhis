@@ -84,7 +84,9 @@
             fill.style.width = '10%';
             txt.textContent = __('Processing file...');
             showLoader('Analyzing data...');
-            fetch(API() + '/analysis/process-preview?filename=' + encodeURIComponent(previewFileName), { method: 'POST' })
+            const _pfd = new FormData();
+                if (previewFiles && previewFiles[0]) _pfd.append('file', previewFiles[0]);
+                fetch(API() + '/analysis/process-preview?filename=' + encodeURIComponent(previewFileName), { method: 'POST', body: _pfd })
                 .then(r => { if (!r.ok) return r.text().then(t => { throw new Error(t); }); return r.json(); })
                 .then(resp => {
                 // Server returns {task_id, status} — poll until done
