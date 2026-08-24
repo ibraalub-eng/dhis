@@ -113,6 +113,7 @@ class IndicatorValue(Base):
     month = Column(String(7), nullable=False, index=True)
     value = Column(Float, nullable=True)
     source_file = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
     hospital = relationship("Hospital", back_populates="indicator_values")
     indicator = relationship("Indicator", back_populates="values")

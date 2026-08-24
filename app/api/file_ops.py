@@ -42,10 +42,11 @@ def list_saved_files(db: Session = Depends(get_db)):
             func.min(IndicatorValue.month).label("earliest_month"),
             func.max(IndicatorValue.month).label("latest_month"),
             func.count(func.distinct(IndicatorValue.hospital_id)).label("hospitals_count"),
+            func.min(IndicatorValue.created_at).label("uploaded_at"),
         )
         .filter(IndicatorValue.source_file.isnot(None), IndicatorValue.source_file != "")
         .group_by(IndicatorValue.source_file)
-        .order_by(func.max(IndicatorValue.month).desc())
+        .order_by(func.min(IndicatorValue.created_at).desc())
         .all()
     )
 
@@ -61,13 +62,21 @@ def list_saved_files(db: Session = Depends(get_db)):
                 size_kb = round(os.path.getsize(fpath) / 1024, 1)
             except OSError:
                 pass
+        uploaded_at = None
+        if row.uploaded_at:
+            uploaded_at = row.uploaded_at.isoformat()
+
+        # Estimate file size: ~50 bytes per record (hospital + indicator + month + value)
+        est_size_kb = round(row.records_in_db * 0.05, 1) if not on_disk else size_kb
+
         files.append({
             "filename": fname,
-            "size_kb": size_kb,
+            "size_kb": est_size_kb,
             "on_disk": on_disk,
             "records_in_db": row.records_in_db,
             "hospitals_count": row.hospitals_count,
             "months": f"{row.earliest_month} – {row.latest_month}" if row.earliest_month else "",
+            "uploaded_at": uploaded_at,
         })
     return files
 
