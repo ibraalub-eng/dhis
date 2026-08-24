@@ -2,6 +2,23 @@
 (function() {
   var API_BASE = document.getElementById('apiBase') ? document.getElementById('apiBase').value : '';
 
+  // ---- Auto-inject auth header into ALL fetch calls ----
+  var _origFetch = window.fetch;
+  window.fetch = function(url, opts) {
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    // Only add token for API calls (not static assets or login/refresh)
+    var urlStr = typeof url === 'string' ? url : (url.url || '');
+    var isApiCall = urlStr.indexOf('/auth/login') === -1 && urlStr.indexOf('/auth/refresh') === -1;
+    if (isApiCall) {
+      var token = localStorage.getItem('access_token');
+      if (token && !opts.headers['Authorization']) {
+        opts.headers['Authorization'] = 'Bearer ' + token;
+      }
+    }
+    return _origFetch.call(window, url, opts);
+  };
+
   // ---- Token management ----
   window.getAccessToken = function() { return localStorage.getItem('access_token'); };
   window.getRefreshToken = function() { return localStorage.getItem('refresh_token'); };
