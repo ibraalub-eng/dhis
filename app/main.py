@@ -486,7 +486,7 @@ class CachedStaticFiles(StaticFiles):
             response.headers["Cache-Control"] = "no-store"
         else:
             # JS, CSS, images, fonts — cache for 1 year (invalidated by ?v=)
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            response.headers["Cache-Control"] = "public, max-age=31536000"
         return response
 
 
