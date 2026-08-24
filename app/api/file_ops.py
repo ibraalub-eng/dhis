@@ -328,13 +328,13 @@ def process_preview_file(
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, filename)
 
-    # If the file is not on disk, accept it from the request body
-    if not os.path.exists(file_path):
-        if file is not None:
-            with open(file_path, "wb") as fobj:
-                shutil.copyfileobj(file.file, fobj)
-        else:
-            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+    # Always save from the request body if provided (more reliable on ephemeral disks)
+    if file is not None:
+        file.file.seek(0)
+        with open(file_path, "wb") as fobj:
+            shutil.copyfileobj(file.file, fobj)
+    elif not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {filename}. Please re-upload the file.")
 
     task_id = create_task(f"process-preview:{filename}")
     t = threading.Thread(target=run_task, args=(task_id, _process_preview_worker, file_path), daemon=True)

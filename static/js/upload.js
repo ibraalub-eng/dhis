@@ -11,6 +11,7 @@
         let previewFilePath = null;
         let previewFiles = null;
         let previewFileName = null;
+        let previewFileBytes = null;  // store raw bytes for re-upload
         const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
         dropZone.addEventListener('click', () => fileInput.click());
@@ -56,6 +57,10 @@
             const fd = new FormData();
             fd.append('file', files[0]);
             previewFiles = files;
+            // Read file bytes into memory for reliable re-upload on Render
+            const reader = new FileReader();
+            reader.onload = function() { previewFileBytes = new Uint8Array(reader.result); };
+            reader.readAsArrayBuffer(files[0]);
             setStatus('loading', 'Reading file: ' + files[0].name + '...');
             fetch(API() + '/upload/preview', { method: 'POST', body: fd }).then(async r => {
                 if (!r.ok) {
@@ -98,7 +103,14 @@
             txt.textContent = __('Processing file...');
             showLoader('Analyzing data...');
             const _pfd = new FormData();
-                if (previewFiles && previewFiles[0]) _pfd.append('file', previewFiles[0]);
+                // Use stored bytes for reliable re-upload (file object may be stale on ephemeral disk)
+                if (previewFileBytes && previewFileName) {
+                    const ext = previewFileName.split('.').pop().toLowerCase();
+                    const blob = new Blob([previewFileBytes], { type: 'application/octet-stream' });
+                    _pfd.append('file', blob, previewFileName);
+                } else if (previewFiles && previewFiles[0]) {
+                    _pfd.append('file', previewFiles[0]);
+                }
                 fetch(API() + '/analysis/process-preview?filename=' + encodeURIComponent(previewFileName), { method: 'POST', body: _pfd })
                 .then(r => { if (!r.ok) return r.text().then(t => { throw new Error(t); }); return r.json(); })
                 .then(resp => {
@@ -167,6 +179,7 @@
             previewFilePath = null;
             previewFiles = null;
             previewFileName = null;
+            previewFileBytes = null;
             fileInput.value = '';
         }
 

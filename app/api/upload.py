@@ -129,6 +129,7 @@ def preview_excel(file: UploadFile = File(...), db: Session = Depends(get_db), u
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
     file_path = os.path.join(upload_dir, file.filename)
+    file.file.seek(0)
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     try:
