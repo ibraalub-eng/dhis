@@ -282,6 +282,15 @@ def _ensure_admin_user(session):
             session.commit()
             print("[startup] Superadmin role assigned to admin user.")
 
+        # Ensure superadmin role has ALL permissions
+        if sa_role and not sa_role.permissions:
+            from app.models import Permission
+            all_perms = session.query(Permission).all()
+            if all_perms:
+                sa_role.permissions = all_perms
+                session.commit()
+                print(f"[startup] Assigned {len(all_perms)} permissions to superadmin role.")
+
         print("[startup] Admin user verified.")
     except Exception as e:
         print(f"[startup] Admin user check/seed error: {e}")

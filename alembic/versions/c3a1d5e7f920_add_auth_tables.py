@@ -134,6 +134,13 @@ def upgrade() -> None:
             'smart_analytics.generate_report', 'hospitals.read', 'clinical.read', 'alerts.read'
         )
     """)
+    # superadmin: ALL permissions
+    op.execute("""
+        INSERT INTO role_permissions (role_id, permission_id)
+        SELECT r.id, p.id FROM roles r, permissions p
+        WHERE r.name = 'superadmin'
+    """)
+
     # viewer: all *.read
     op.execute("""
         INSERT INTO role_permissions (role_id, permission_id)
