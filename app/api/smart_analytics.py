@@ -11,6 +11,7 @@ from app.cache import cache
 from app.database import get_db
 from app.engine.smart import run_smart_analytics
 from app.engine.smart.schemas import SmartAnalyticsResult
+import threading
 from app.core.deps import require_permission
 
 router = APIRouter(prefix="/smart", tags=["Smart Analytics"], dependencies=[Depends(require_permission("smart_analytics.read"))])
@@ -196,47 +197,70 @@ def _healthy_hospitals(db: Session, month: str, anomalies: list) -> list:
     return _sanitize(rows[:5])
 
 
+def _compute_smart_data(db: Session, month: str) -> dict:
+    """Heavy computation — runs in background thread."""
+    from app.database import SessionLocal
+    bg_db = SessionLocal()
+    try:
+        result = run_smart_analytics(bg_db, month)
+        response = _envelope(result)
+
+        try:
+            response["data"]["healthy_hospitals"] = _healthy_hospitals(
+                bg_db, month, response["data"]["anomalies"]
+            )
+        except Exception as e:
+            logger.warning(f"healthy_hospitals failed for {month}: {e}")
+            response["data"]["healthy_hospitals"] = []
+
+        from app.engine.smart.lag_analysis import run_lag_analysis, run_early_warnings
+        try:
+            lag_results = run_lag_analysis(bg_db, month)
+            response["data"]["lag_analysis"] = _sanitize(lag_results)
+        except Exception as e:
+            logger.warning(f"lag_analysis failed for {month}: {e}")
+            response["data"]["lag_analysis"] = {}
+            lag_results = {}
+
+        try:
+            response["data"]["early_warnings"] = _sanitize(run_early_warnings(bg_db, month, lag_results))
+        except Exception as e:
+            logger.warning(f"early_warnings failed for {month}: {e}")
+            response["data"]["early_warnings"] = []
+
+        cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
+        cache.set(cache_key, response, ttl=1800)
+        logger.info(f"[smart] Computation complete for {month} — cached for 30min")
+        return response
+    finally:
+        bg_db.close()
+
+
 def _get_smart_data(db: Session, month: str) -> dict:
     """Full smart-analysis envelope for a month, memoized per-month.
 
-    Every endpoint that needs per-month results (overview, slices, trend,
-    drilldown, timeline) goes through this helper so the 7-engine pipeline
-    runs at most once per month instead of once per endpoint/per loop.
+    If cached, returns immediately. If not cached, kicks off background
+    computation and returns an empty response so the frontend can poll.
     """
     cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    result = run_smart_analytics(db, month)
-    response = _envelope(result)
-
-    try:
-        response["data"]["healthy_hospitals"] = _healthy_hospitals(
-            db, month, response["data"]["anomalies"]
-        )
-    except Exception as e:
-        logger.warning(f"healthy_hospitals failed for {month}: {e}")
-        response["data"]["healthy_hospitals"] = []
-
-    from app.engine.smart.lag_analysis import run_lag_analysis, run_early_warnings
-    try:
-        lag_results = run_lag_analysis(db, month)
-        response["data"]["lag_analysis"] = _sanitize(lag_results)
-    except Exception as e:
-        logger.warning(f"lag_analysis failed for {month}: {e}")
-        response["data"]["lag_analysis"] = {}
-        lag_results = {}
-
-    try:
-        response["data"]["early_warnings"] = _sanitize(run_early_warnings(db, month, lag_results))
-    except Exception as e:
-        logger.warning(f"early_warnings failed for {month}: {e}")
-        response["data"]["early_warnings"] = []
-
-    cache.set(cache_key, response, ttl=1800)
-    return response
-
-
+    # Kick off background computation
+    t = threading.Thread(target=_compute_smart_data, args=(db, month), daemon=True)
+    t.start()
+    # Return empty envelope so caller gets a fast response
+    return {
+        "month": month,
+        "generated_at": datetime.utcnow().isoformat(),
+        "hospitals_count": 0,
+        "computing": True,
+        "data": {
+            "kpi": {}, "anomalies": [], "clusters": [],
+            "correlations": [], "lag_analysis": {},
+            "early_warnings": [], "healthy_hospitals": [],
+        },
+    }
 @router.get("/months")
 def smart_months(db: Session = Depends(get_db)):
     """قائمة الأشهر المتاحة للتحليل الذكي (نفس مصدر analysis/months)."""
