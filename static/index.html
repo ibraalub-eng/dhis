@@ -57,7 +57,7 @@
 
     <div class="container" id="main-content" role="main">
         <!-- Upload Card -->
-        <div class="card">
+        <div class="card" data-requires="data.upload">
             <h2 data-i18n="Smart Data Entry">إدخال البيانات الذكي</h2>
             <!-- Step indicator -->
             <div id="uploadSteps" style="display:flex;gap:0.3rem;margin-bottom:1rem;font-size:0.78rem;align-items:center;">
@@ -99,7 +99,7 @@
         </div>
 
         <!-- Saved Files Card -->
-        <div class="card" id="savedFilesCard">
+        <div class="card" id="savedFilesCard" data-requires="data.upload">
             <h2 data-i18n="Previously Uploaded Files">الملفات المرفوعة سابقاً
                 <span id="savedCount" class="count-badge" style="font-size:0.75rem;"></span>
                 <button class="btn btn-sm btn-outline" onclick="refreshSavedFiles()" style="float:right;font-size:0.75rem;" data-i18n="Refresh">تحديث</button>
