@@ -140,6 +140,16 @@
           </div>
         </div>
 
+        <!-- Role Visibility Matrix -->
+        <div id="adminVisibilityMatrix" style="margin-top:1.5rem;padding:1rem;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border-default);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+            <h3 style="color:var(--accent-purple);margin:0;">🛡️ Role UI Visibility Matrix</h3>
+            <button class="btn btn-sm btn-outline" onclick="loadVisibilityMatrix()" style="font-size:0.72rem;">↻ Refresh</button>
+          </div>
+          <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.8rem;">Shows which tabs each role can see. Green = visible, Red = hidden.</p>
+          <div id="visMatrixBody" style="overflow-x:auto;"><div style="text-align:center;padding:1rem;color:var(--text-muted);">Loading...</div></div>
+        </div>
+
         <!-- Create/Edit User Modal -->
         <div id="adminUserModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center;">
           <div style="background:white;border-radius:10px;padding:1.5rem;width:420px;max-width:94%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
@@ -216,6 +226,63 @@
       '</div>';
   }
   };
+
+  // ---- Visibility Matrix ----
+  window.loadVisibilityMatrix = async function() {
+    var el = document.getElementById('visMatrixBody');
+    if (!el) return;
+    try {
+      var data = await api('/admin/visibility-matrix');
+      if (!data || data._error || data._forbidden) {
+        el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--accent-red);">Failed to load matrix</div>';
+        return;
+      }
+      var tabs = data.tabs || {};
+      var roles = data.roles || [];
+      var tabIds = Object.keys(tabs);
+      if (tabIds.length === 0 || roles.length === 0) {
+        el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text-muted);">No data</div>';
+        return;
+      }
+      var html = '<table style="width:100%;border-collapse:collapse;font-size:0.78rem;">';
+      // Header row
+      html += '<thead><tr style="border-bottom:2px solid var(--border-default);">';
+      html += '<th style="padding:0.4rem 0.6rem;text-align:left;position:sticky;left:0;background:var(--bg-elevated);z-index:1;min-width:140px;">Role</th>';
+      tabIds.forEach(function(tid) {
+        html += '<th style="padding:0.4rem;text-align:center;min-width:80px;white-space:nowrap;" title="' + esc(tabs[tid].permission) + '">' + esc(tabs[tid].label.split(' ').slice(1).join(' ')) + '</th>';
+      });
+      html += '<th style="padding:0.4rem;text-align:center;min-width:50px;">Count</th>';
+      html += '</tr></thead><tbody>';
+      // Role rows
+      roles.forEach(function(r) {
+        var visibleCount = 0;
+        var isSuper = r.is_superuser;
+        tabIds.forEach(function(tid) { if (r.tab_access[tid]) visibleCount++; });
+        var rowBg = isSuper ? 'background:rgba(106,27,154,0.05);' : '';
+        html += '<tr style="border-bottom:1px solid var(--border-default);' + rowBg + '">';
+        html += '<td style="padding:0.4rem 0.6rem;font-weight:600;position:sticky;left:0;background:var(--bg-elevated);z-index:1;">';
+        html += esc(r.name);
+        if (r.is_system) html += ' <span style="font-size:0.65rem;color:var(--text-muted);">(system)</span>';
+        if (isSuper) html += ' <span style="font-size:0.65rem;color:#6a1b9a;">★</span>';
+        html += '</td>';
+        tabIds.forEach(function(tid) {
+          var has = r.tab_access[tid];
+          var cellStyle = has
+            ? 'color:#2e7d32;background:rgba(46,125,50,0.08);'
+            : 'color:var(--accent-red);background:rgba(244,67,54,0.06);';
+          html += '<td style="padding:0.4rem;text-align:center;' + cellStyle + 'font-weight:600;">' + (has ? '✅' : '❌') + '</td>';
+        });
+        html += '<td style="padding:0.4rem;text-align:center;font-weight:600;color:' + (visibleCount === tabIds.length ? '#2e7d32' : visibleCount === 0 ? 'var(--accent-red)' : 'var(--text-primary)') + ';">' + visibleCount + '/' + tabIds.length + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      el.innerHTML = html;
+    } catch(e) {
+      el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--accent-red);">Error: ' + esc(e.message) + '</div>';
+    }
+  };
+  // Auto-load when admin panel opens
+  setTimeout(function() { if (document.getElementById('visMatrixBody')) loadVisibilityMatrix(); }, 500);
 
   function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 

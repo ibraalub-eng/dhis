@@ -236,3 +236,48 @@ def update_user_hospitals(user_id: int, req: dict, db: Session = Depends(get_db)
 def list_permissions(db: Session = Depends(get_db)):
     perms = db.query(Permission).order_by(Permission.codename).all()
     return {"permissions": [{"id": p.id, "codename": p.codename, "description": p.description} for p in perms]}
+
+
+# --- Role Visibility Matrix ---
+
+# Tab definitions: tab_id -> (label, required_permission)
+_TAB_DEFS = {
+    "dashboard": ("📊 Dashboard", "dashboard.read"),
+    "analysis": ("📈 Analysis", "analysis.read"),
+    "quality": ("✅ Quality", "quality.read"),
+    "outliers": ("⚠️ Outliers", "outliers.read"),
+    "clinical": ("🏥 Clinical", "clinical.read"),
+    "alerts": ("🔔 Alerts", "alerts.read"),
+    "hospitals": ("🏢 Hospitals", "hospitals.read"),
+    "smart_analytics": ("🛡️ Smart Analytics", "smart_analytics.read"),
+    "rules": ("📋 Rules", "rules.read"),
+    "root_cause": ("🔍 Root Cause", "root_cause.read"),
+    "audit": ("📝 Audit", "audit.read"),
+    "settings": ("⚙️ Settings", "settings.read"),
+    "admin": ("👤 Admin", "system.manage_users"),
+}
+
+
+@router.get("/visibility-matrix")
+def get_visibility_matrix(db: Session = Depends(get_db)):
+    """Return a matrix of roles × tabs showing which tabs each role can see."""
+    roles = db.query(Role).order_by(Role.id).all()
+    result = {"tabs": {}, "roles": []}
+    for tab_id, (label, perm) in _TAB_DEFS.items():
+        result["tabs"][tab_id] = {"label": label, "permission": perm}
+    for role in roles:
+        perm_codes = {p.codename for p in role.permissions}
+        is_super = role.is_system and role.name == "superadmin"
+        tab_access = {}
+        for tab_id, (_, perm) in _TAB_DEFS.items():
+            tab_access[tab_id] = is_super or ("*.*" in perm_codes) or (perm in perm_codes)
+        result["roles"].append({
+            "id": role.id,
+            "name": role.name,
+            "description": role.description,
+            "is_system": role.is_system,
+            "is_superuser": is_super,
+            "permission_count": len(perm_codes),
+            "tab_access": tab_access,
+        })
+    return result
