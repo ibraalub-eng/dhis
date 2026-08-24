@@ -1,3 +1,60 @@
+/* ── Design Tokens (Dark Analytics) ────────────────────── */
+:root {
+  /* Surfaces */
+  --bg-base: #0F1117;
+  --bg-surface: #1A1D27;
+  --bg-surface-hover: #222632;
+  --bg-elevated: #252A36;
+  --bg-input: #161921;
+
+  /* Borders */
+  --border-default: #2A2E3B;
+  --border-focus: #4F8CFF;
+
+  /* Text */
+  --text-primary: #E8EAED;
+  --text-secondary: #9AA0AC;
+  --text-muted: #5C6370;
+
+  /* Accent palette */
+  --accent-blue: #4F8CFF;
+  --accent-teal: #2DD4BF;
+  --accent-purple: #A78BFA;
+  --accent-orange: #FB923C;
+  --accent-red: #F87171;
+  --accent-green: #4ADE80;
+  --accent-yellow: #FACC15;
+  --accent-pink: #F472B6;
+
+  /* Severity */
+  --severity-critical-text: #F87171;
+  --severity-critical-bg: rgba(248,113,113,0.12);
+  --severity-critical-border: rgba(248,113,113,0.3);
+  --severity-warning-text: #FB923C;
+  --severity-warning-bg: rgba(251,146,60,0.12);
+  --severity-warning-border: rgba(251,146,60,0.3);
+  --severity-success-text: #4ADE80;
+  --severity-success-bg: rgba(74,222,128,0.12);
+  --severity-success-border: rgba(74,222,128,0.3);
+  --severity-info-text: #4F8CFF;
+  --severity-info-bg: rgba(79,140,255,0.12);
+  --severity-info-border: rgba(79,140,255,0.3);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.5);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.6);
+  --glow-blue: 0 0 16px rgba(79,140,255,0.15);
+
+  /* Gradients */
+  --header-gradient: linear-gradient(135deg, #0D0F18, #1A1D27);
+  --page-bg: #0F1117;
+
+  /* Chart */
+  --chart-primary: #2DD4BF;
+  --chart-secondary: #A78BFA;
+  --chart-grid: #2A2E3B;
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #f0f2f5 0%, #f5f6fa 100%); color: #333; line-height: 1.5; min-height:100vh; }
 .header { background: linear-gradient(135deg, #0d1b6b, #1a237e, #283593); color: white; padding: 1.2rem 2rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 12px rgba(0,0,0,0.12); position:sticky; top:0; z-index:100; }
