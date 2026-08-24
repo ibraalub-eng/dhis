@@ -5,13 +5,20 @@
 
   async function api(path, opts) {
     var token = getAccessToken();
+    if (!token) { showLoginPage(); return null; }
     opts = opts || {};
     opts.headers = opts.headers || {};
     opts.headers['Authorization'] = 'Bearer ' + token;
     opts.headers['Content-Type'] = 'application/json';
-    var resp = await fetch(API_BASE + path, opts);
-    if (resp.status === 401) { showLoginPage(); return null; }
-    return resp.json();
+    try {
+      var resp = await fetch(API_BASE + path, opts);
+      if (resp.status === 401) { showLoginPage(); return null; }
+      if (resp.status === 403) { return { _forbidden: true, detail: 'Access denied — admin only' }; }
+      if (!resp.ok) { return { _error: true, detail: 'Server error (' + resp.status + ')' }; }
+      try { return await resp.json(); } catch(e) { return { _error: true, detail: 'Invalid server response' }; }
+    } catch(e) {
+      return { _error: true, detail: 'Network error' };
+    }
   }
 
   window.loadAdminPanel = async function() {
@@ -23,6 +30,18 @@
     var rolesData = await api('/admin/roles');
     var permsData = await api('/admin/permissions');
     if (!usersData || !rolesData || !permsData) return;
+
+    // Handle API errors (403, 500, network)
+    var firstErr = [usersData, rolesData, permsData].find(function(d) { return d && (d._forbidden || d._error); });
+    if (firstErr) {
+      var errTitle = firstErr._forbidden ? 'Access Denied' : 'Error';
+      container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
+        '<h3 style="color:#c62828;margin-bottom:0.5rem;">' + errTitle + '</h3>' +
+        '<p style="color:#666;">' + (firstErr.detail || 'Cannot load admin panel') + '</p>' +
+        '<p style="color:#888;font-size:0.82rem;">You need superadmin privileges to access this section.</p>' +
+        '</div>';
+      return;
+    }
 
     var users = usersData.users || [];
     var roles = rolesData.roles || [];
