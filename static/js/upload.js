@@ -13,11 +13,12 @@
         let previewFileName = null;
         let previewFileBytes = null;  // store raw bytes for re-upload
         const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
+        const ALLOWED_EXTS = ['.xlsx', '.xls', '.csv', '.xlsm', '.xlsb'];
 
         dropZone.addEventListener('click', () => fileInput.click());
         dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
         dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-        dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if(e.dataTransfer.files.length) showPreview(e.dataTransfer.files); });
+        dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if(e.dataTransfer.files.length) { var f = e.dataTransfer.files[0]; var ext3 = '.' + f.name.split('.').pop().toLowerCase(); if (ALLOWED_EXTS.indexOf(ext3) === -1) { setStatus('error', f.name + ': Unsupported file type (' + ext3 + '). Allowed: ' + ALLOWED_EXTS.join(', ')); return; } showPreview(e.dataTransfer.files); } });
         fileInput.addEventListener('change', () => { if(fileInput.files.length) showPreview(fileInput.files); });
         // Show file names on selection
         fileInput.addEventListener('input', () => {
@@ -25,10 +26,15 @@
             if (fileInput.files.length) {
                 list.classList.remove('hidden');
                 list.innerHTML = Array.from(fileInput.files).map(f => {
-                    const tooLarge = f.size > MAX_FILE_SIZE;
-                    const sizeStr = (f.size / 1024).toFixed(1) + ' KB';
-                    const warnStr = tooLarge ? ' ⚠️ exceeds 20 MB limit' : '';
-                    const warnColor = tooLarge ? '#dc2626' : '#999';
+                    var ext2 = '.' + f.name.split('.').pop().toLowerCase();
+                    var tooLarge = f.size > MAX_FILE_SIZE;
+                    var badType = ALLOWED_EXTS.indexOf(ext2) === -1;
+                    var sizeStr = (f.size / 1024).toFixed(1) + ' KB';
+                    var warns = [];
+                    if (badType) warns.push('⚠️ unsupported type (' + ext2 + ')');
+                    if (tooLarge) warns.push('⚠️ exceeds 20 MB');
+                    var warnStr = warns.length ? ' ' + warns.join(', ') : '';
+                    var warnColor = (badType || tooLarge) ? '#dc2626' : '#999';
                     return '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;">' +
                         '<span style="color:#3f51b5;">📄</span><span>' + f.name + '</span>' +
                         '<span style="color:' + warnColor + ';font-size:0.75rem;">(' + sizeStr + warnStr + ')</span></div>';
@@ -52,6 +58,14 @@
                 const sizeMB = (files[0].size / (1024 * 1024)).toFixed(1);
                 setStatus('error', files[0].name + ': ' + sizeMB + ' MB exceeds the ' + (MAX_FILE_SIZE / (1024 * 1024)) + ' MB limit. Please choose a smaller file.');
                 return;
+            }
+            // Reject disallowed file types
+            if (files[0]) {
+                var ext = '.' + files[0].name.split('.').pop().toLowerCase();
+                if (ALLOWED_EXTS.indexOf(ext) === -1) {
+                    setStatus('error', files[0].name + ': Unsupported file type (' + ext + '). Allowed: ' + ALLOWED_EXTS.join(', '));
+                    return;
+                }
             }
             updateStep(2);
             const fd = new FormData();
