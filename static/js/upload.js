@@ -11,7 +11,7 @@
         let previewFilePath = null;
         let previewFiles = null;
         let previewFileName = null;
-        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+        const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
 
         dropZone.addEventListener('click', () => fileInput.click());
         dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
@@ -26,7 +26,7 @@
                 list.innerHTML = Array.from(fileInput.files).map(f => {
                     const tooLarge = f.size > MAX_FILE_SIZE;
                     const sizeStr = (f.size / 1024).toFixed(1) + ' KB';
-                    const warnStr = tooLarge ? ' ⚠️ exceeds 10 MB limit' : '';
+                    const warnStr = tooLarge ? ' ⚠️ exceeds 20 MB limit' : '';
                     const warnColor = tooLarge ? '#dc2626' : '#999';
                     return '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;">' +
                         '<span style="color:#3f51b5;">📄</span><span>' + f.name + '</span>' +
