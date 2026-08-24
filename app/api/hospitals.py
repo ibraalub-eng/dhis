@@ -17,6 +17,7 @@ def list_hospitals(
     limit: int = Query(100, ge=1, le=1000),
     include_inactive: bool = Query(False, description="Include inactive hospitals"),
     db: Session = Depends(get_db),
+    user=Depends(require_permission("hospitals.read")),
 ):
     cache_key = cache.make_key("hospitals:list", skip=skip, limit=limit, include_inactive=include_inactive)
     cached = cache.get(cache_key)
@@ -46,6 +47,18 @@ def list_hospitals(
                 result.append(d)
         return result
     q = db.query(Hospital)
+
+    # Filter by user's assigned hospitals (if any)
+    if user and not user.is_superuser:
+        from app.models import user_hospitals
+        user_hospital_ids = db.query(user_hospitals.c.hospital_id).filter(
+            user_hospitals.c.user_id == user.id
+        ).subquery()
+        # If user has specific hospitals assigned, filter to only those
+        assigned_count = db.query(user_hospitals).filter(user_hospitals.c.user_id == user.id).count()
+        if assigned_count > 0:
+            q = q.filter(Hospital.id.in_(db.query(user_hospital_ids)))
+
     if not include_inactive:
         q = q.filter(Hospital.is_active.is_(True))
     hospitals = q.offset(skip).limit(limit).all()
@@ -114,7 +127,7 @@ def clear_hospital_data(
 ):
     """Clear indicator values for a hospital (optionally filtered by month).
     Also clears quality scores, validation results, and clinical results."""
-    from app.models import IndicatorValue, QualityScore, ValidationResult, ClinicalResult
+    from app.models import IndicatorValue, QualityScore, ValidationResult, ClinicalInsight
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital not found")
@@ -122,13 +135,13 @@ def clear_hospital_data(
     q_iv = db.query(IndicatorValue).filter(IndicatorValue.hospital_id == hospital_id)
     q_qs = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id)
     q_vr = db.query(ValidationResult).filter(ValidationResult.hospital_id == hospital_id)
-    q_cr = db.query(ClinicalResult).filter(ClinicalResult.hospital_id == hospital_id)
+    q_cr = db.query(ClinicalInsight).filter(ClinicalInsight.hospital_id == hospital_id)
 
     if month:
         q_iv = q_iv.filter(IndicatorValue.month == month)
         q_qs = q_qs.filter(QualityScore.month == month)
         q_vr = q_vr.filter(ValidationResult.month == month)
-        q_cr = q_cr.filter(ClinicalResult.month == month)
+        q_cr = q_cr.filter(ClinicalInsight.month == month)
 
     iv_count = q_iv.delete(synchronize_session=False)
     qs_count = q_qs.delete(synchronize_session=False)
@@ -147,13 +160,13 @@ def clear_hospital_data(
 def clear_all_data(db: Session = Depends(get_db)):
     """Nuclear option: clear ALL indicator data, quality scores, validation results.
     Hospitals remain but become inactive."""
-    from app.models import IndicatorValue, QualityScore, ValidationResult, ClinicalResult
+    from app.models import IndicatorValue, QualityScore, ValidationResult, ClinicalInsight
     from sqlalchemy import func as sa_func
 
     iv_count = db.query(IndicatorValue).delete(synchronize_session=False)
     qs_count = db.query(QualityScore).delete(synchronize_session=False)
     vr_count = db.query(ValidationResult).delete(synchronize_session=False)
-    cr_count = db.query(ClinicalResult).delete(synchronize_session=False)
+    cr_count = db.query(ClinicalInsight).delete(synchronize_session=False)
 
     # Mark all hospitals as inactive since they have no data
     db.query(Hospital).update({Hospital.is_active: False}, synchronize_session=False)

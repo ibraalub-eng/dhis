@@ -316,6 +316,13 @@ class Role(Base):
     permissions = relationship("Permission", secondary=role_permissions, backref="roles")
 
 
+user_hospitals = Table(
+    "user_hospitals", Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("hospital_id", Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -328,6 +335,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     roles = relationship("Role", secondary=user_roles, backref="users")
+    hospitals = relationship("Hospital", secondary=user_hospitals, backref="users")
 
 
 class RefreshToken(Base):

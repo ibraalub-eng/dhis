@@ -27,7 +27,7 @@
   window.loadAdminPanel = async function() {
     var container = document.getElementById('tab-admin');
     if (!container) return;
-    container.innerHTML = '<div style="padding:1rem;color:#888;">Loading...</div>';
+    container.innerHTML = '<div style="padding:1rem;color:var(--text-muted);">Loading...</div>';
     try {
 
     var usersData = await api('/admin/users');
@@ -35,8 +35,8 @@
     var permsData = await api('/admin/permissions');
     if (!usersData || !rolesData || !permsData) {
       container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
-        '<h3 style="color:#c62828;margin-bottom:0.5rem;">Authentication Required</h3>' +
-        '<p style="color:#666;">Please log in again to access the Admin panel.</p>' +
+        '<h3 style="color:var(--accent-red);margin-bottom:0.5rem;">Authentication Required</h3>' +
+        '<p style="color:var(--text-secondary);">Please log in again to access the Admin panel.</p>' +
         '</div>';
       return;
     }
@@ -46,9 +46,9 @@
     if (firstErr) {
       var errTitle = firstErr._forbidden ? 'Access Denied' : 'Error';
       container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
-        '<h3 style="color:#c62828;margin-bottom:0.5rem;">' + errTitle + '</h3>' +
-        '<p style="color:#666;">' + (firstErr.detail || 'Cannot load admin panel') + '</p>' +
-        '<p style="color:#888;font-size:0.82rem;">You need superadmin privileges to access this section.</p>' +
+        '<h3 style="color:var(--accent-red);margin-bottom:0.5rem;">' + errTitle + '</h3>' +
+        '<p style="color:var(--text-secondary);">' + (firstErr.detail || 'Cannot load admin panel') + '</p>' +
+        '<p style="color:var(--text-muted);font-size:0.82rem;">You need superadmin privileges to access this section.</p>' +
         '</div>';
       return;
     }
@@ -60,13 +60,13 @@
     container.innerHTML = `
       <div style="padding:1rem;">
         <h2 style="color:#6a1b9a;margin-bottom:0.5rem;">User Management</h2>
-        <p style="font-size:0.82rem;color:#666;margin-bottom:1rem;">Create, edit, and deactivate user accounts. Assign roles to control access.</p>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Create, edit, and deactivate user accounts. Assign roles to control access.</p>
 
         <div style="display:flex;gap:1.5rem;flex-wrap:wrap;">
           <!-- Users -->
           <div style="flex:2;min-width:400px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-              <h3 style="color:#1a237e;margin:0;">Users (${users.length})</h3>
+              <h3 style="color:var(--accent-blue);margin:0;">Users (${users.length})</h3>
               <button class="btn btn-sm" onclick="showCreateUserModal()">+ New User</button>
             </div>
             <div style="overflow-x:auto;">
@@ -86,12 +86,13 @@
                     <tr style="border-bottom:1px solid #f0f0f0;${!u.is_active ? 'opacity:0.5;' : ''}">
                       <td style="padding:0.4rem;font-weight:600;">${esc(u.username)}</td>
                       <td style="padding:0.4rem;">${esc(u.full_name)}</td>
-                      <td style="padding:0.4rem;color:#666;">${esc(u.email)}</td>
+                      <td style="padding:0.4rem;color:var(--text-secondary);">${esc(u.email)}</td>
                       <td style="padding:0.4rem;">${u.roles.map(r => '<span style="background:#ede7f6;color:#6a1b9a;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;margin-right:0.2rem;">' + esc(r.name) + '</span>').join('')}</td>
-                      <td style="padding:0.4rem;">${u.is_active ? '<span style="color:#2e7d32;">Active</span>' : '<span style="color:#c62828;">Inactive</span>'}</td>
+                      <td style="padding:0.4rem;">${u.is_active ? '<span style="color:#2e7d32;">Active</span>' : '<span style="color:var(--accent-red);">Inactive</span>'}</td>
                       <td style="padding:0.4rem;">
                         <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})" style="font-size:0.72rem;">Edit</button>
-                        ${u.is_active ? '<button class="btn btn-sm btn-outline" onclick="deactivateUser(' + u.id + ')" style="font-size:0.72rem;color:#c62828;margin-left:0.2rem;">Deactivate</button>' : ''}
+                        <button class="btn btn-sm btn-outline" onclick="assignHospitals(${u.id}, '${esc(u.username)}')" style="font-size:0.72rem;color:#1565c0;margin-left:0.2rem;">Hospitals</button>
+                        ${u.is_active ? '<button class="btn btn-sm btn-outline" onclick="deactivateUser(' + u.id + ')" style="font-size:0.72rem;color:var(--accent-red);margin-left:0.2rem;">Deactivate</button>' : ''}
                       </td>
                     </tr>
                   `).join('')}
@@ -103,7 +104,7 @@
           <!-- Roles -->
           <div style="flex:1;min-width:250px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-              <h3 style="color:#1a237e;margin:0;">Roles (${roles.length})</h3>
+              <h3 style="color:var(--accent-blue);margin:0;">Roles (${roles.length})</h3>
               <button class="btn btn-sm" onclick="showCreateRoleModal()">+ New Role</button>
             </div>
             <div style="overflow-x:auto;">
@@ -119,12 +120,12 @@
                 <tbody>
                   ${roles.map(r => `
                     <tr style="border-bottom:1px solid #f0f0f0;">
-                      <td style="padding:0.4rem;font-weight:600;">${esc(r.name)}${r.is_system ? ' <span style="font-size:0.7rem;color:#888;">(system)</span>' : ''}</td>
+                      <td style="padding:0.4rem;font-weight:600;">${esc(r.name)}${r.is_system ? ' <span style="font-size:0.7rem;color:var(--text-muted);">(system)</span>' : ''}</td>
                       <td style="padding:0.4rem;">${r.user_count}</td>
-                      <td style="padding:0.4rem;font-size:0.75rem;color:#666;">${r.permission_ids.length} perms</td>
+                      <td style="padding:0.4rem;font-size:0.75rem;color:var(--text-secondary);">${r.permission_ids.length} perms</td>
                       <td style="padding:0.4rem;">
-                        ${r.name === 'superadmin' ? '<span style="font-size:0.72rem;color:#888;">System</span>' : '<button class="btn btn-sm btn-outline" onclick="editRole(${r.id})" style="font-size:0.72rem;">Edit</button>'}
-                        ${!r.is_system ? '<button class="btn btn-sm btn-outline" onclick="deleteRole(' + r.id + ')" style="font-size:0.72rem;color:#c62828;margin-left:0.2rem;">Delete</button>' : ''}
+                        ${r.name === 'superadmin' ? '<span style="font-size:0.72rem;color:var(--text-muted);">System</span>' : '<button class="btn btn-sm btn-outline" onclick="editRole(${r.id})" style="font-size:0.72rem;">Edit</button>'}
+                        ${!r.is_system ? '<button class="btn btn-sm btn-outline" onclick="deleteRole(' + r.id + ')" style="font-size:0.72rem;color:var(--accent-red);margin-left:0.2rem;">Delete</button>' : ''}
                       </td>
                     </tr>
                   `).join('')}
@@ -132,9 +133,9 @@
               </table>
             </div>
 
-            <h3 style="color:#1a237e;margin:1rem 0 0.5rem;">Available Permissions (${perms.length})</h3>
-            <div style="max-height:200px;overflow-y:auto;background:#f8f9fa;border-radius:6px;padding:0.5rem;font-size:0.78rem;">
-              ${perms.map(p => '<div style="padding:0.15rem 0;"><strong style="color:#4338ca;">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:#888;">— ' + esc(p.description) + '</span>' : '') + '</div>').join('')}
+            <h3 style="color:var(--accent-blue);margin:1rem 0 0.5rem;">Available Permissions (${perms.length})</h3>
+            <div style="max-height:200px;overflow-y:auto;background:var(--bg-elevated);border-radius:6px;padding:0.5rem;font-size:0.78rem;">
+              ${perms.map(p => '<div style="padding:0.15rem 0;"><strong style="color:#4338ca;">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:var(--text-muted);">— ' + esc(p.description) + '</span>' : '') + '</div>').join('')}
             </div>
           </div>
         </div>
@@ -142,28 +143,28 @@
         <!-- Create/Edit User Modal -->
         <div id="adminUserModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center;">
           <div style="background:white;border-radius:10px;padding:1.5rem;width:420px;max-width:94%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
-            <h3 id="adminModalTitle" style="color:#1a237e;margin:0 0 1rem;">New User</h3>
+            <h3 id="adminModalTitle" style="color:var(--accent-blue);margin:0 0 1rem;">New User</h3>
             <input type="hidden" id="adminEditUserId">
             <div style="margin-bottom:0.8rem;">
               <label style="font-size:0.82rem;font-weight:600;">Username</label>
-              <input id="adminUsername" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;" ${window._adminEditMode ? 'readonly style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;background:#f5f5f5;"' : ''}>
+              <input id="adminUsername" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" ${window._adminEditMode ? 'readonly style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;background:var(--bg-elevated);"' : ''}>
             </div>
             <div style="margin-bottom:0.8rem;">
               <label style="font-size:0.82rem;font-weight:600;">Full Name</label>
-              <input id="adminFullName" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;">
+              <input id="adminFullName" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;">
             </div>
             <div style="margin-bottom:0.8rem;">
               <label style="font-size:0.82rem;font-weight:600;">Email</label>
-              <input id="adminEmail" type="email" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;">
+              <input id="adminEmail" type="email" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;">
             </div>
             <div style="margin-bottom:0.8rem;">
-              <label style="font-size:0.82rem;font-weight:600;">Password <span id="adminPassHint" style="font-weight:normal;color:#888;"></span></label>
-              <input id="adminPassword" type="password" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;">
+              <label style="font-size:0.82rem;font-weight:600;">Password <span id="adminPassHint" style="font-weight:normal;color:var(--text-muted);"></span></label>
+              <input id="adminPassword" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;">
             </div>
             <div style="margin-bottom:0.8rem;">
               <label style="font-size:0.82rem;font-weight:600;">Roles</label>
-              <div id="adminRoleCheckboxes" style="max-height:120px;overflow-y:auto;border:1px solid #c7d2fe;border-radius:6px;padding:0.4rem;">
-                ${roles.map(r => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-role-cb" value="' + r.id + '"> ' + esc(r.name) + (r.is_system ? ' <span style="color:#888;font-size:0.7rem;">(system)</span>' : '') + '</label>').join('')}
+              <div id="adminRoleCheckboxes" style="max-height:120px;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.4rem;">
+                ${roles.map(r => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-role-cb" value="' + r.id + '"> ' + esc(r.name) + (r.is_system ? ' <span style="color:var(--text-muted);font-size:0.7rem;">(system)</span>' : '') + '</label>').join('')}
               </div>
             </div>
             <div id="adminModalError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
@@ -178,15 +179,15 @@
         <!-- Role Editor Modal -->
         <div id="adminRoleModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center;">
           <div style="background:white;border-radius:10px;padding:1.5rem;width:480px;max-width:94%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
-            <h3 id="roleModalTitle" style="color:#1a237e;margin:0 0 1rem;">New Role</h3>
+            <h3 id="roleModalTitle" style="color:var(--accent-blue);margin:0 0 1rem;">New Role</h3>
             <input type="hidden" id="adminEditRoleId">
             <div style="margin-bottom:0.8rem;">
               <label style="font-size:0.82rem;font-weight:600;">Role Name</label>
-              <input id="adminRoleName" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;" placeholder="e.g. data_entry">
+              <input id="adminRoleName" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="e.g. data_entry">
             </div>
             <div style="margin-bottom:0.8rem;">
               <label style="font-size:0.82rem;font-weight:600;">Description</label>
-              <input id="adminRoleDesc" style="width:100%;padding:0.4rem;border:1px solid #c7d2fe;border-radius:6px;box-sizing:border-box;" placeholder="Optional description">
+              <input id="adminRoleDesc" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Optional description">
             </div>
             <div style="margin-bottom:0.8rem;">
               <label style="font-size:0.82rem;font-weight:600;">Permissions</label>
@@ -194,8 +195,8 @@
                 <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('#adminPermCheckboxes input').forEach(function(c){c.checked=true})" style="font-size:0.72rem;">Select All</button>
                 <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('#adminPermCheckboxes input').forEach(function(c){c.checked=false})" style="font-size:0.72rem;">Clear All</button>
               </div>
-              <div id="adminPermCheckboxes" style="max-height:200px;overflow-y:auto;border:1px solid #c7d2fe;border-radius:6px;padding:0.4rem;">
-                ${perms.map(p => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-perm-cb" value="' + p.id + '"> <strong style="color:#4338ca;">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:#888;font-size:0.75rem;">— ' + esc(p.description) + '</span>' : '') + '</label>').join('')}
+              <div id="adminPermCheckboxes" style="max-height:200px;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.4rem;">
+                ${perms.map(p => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-perm-cb" value="' + p.id + '"> <strong style="color:#4338ca;">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:var(--text-muted);font-size:0.75rem;">— ' + esc(p.description) + '</span>' : '') + '</label>').join('')}
               </div>
             </div>
             <div id="adminRoleModalError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
@@ -209,8 +210,8 @@
     `;
   } catch(e) {
     container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
-      '<h3 style="color:#c62828;margin-bottom:0.5rem;">Error Loading Admin Panel</h3>' +
-      '<p style="color:#666;">' + (e.message || 'An unexpected error occurred') + '</p>' +
+      '<h3 style="color:var(--accent-red);margin-bottom:0.5rem;">Error Loading Admin Panel</h3>' +
+      '<p style="color:var(--text-secondary);">' + (e.message || 'An unexpected error occurred') + '</p>' +
       '<button class="btn btn-sm" onclick="loadAdminPanel()" style="margin-top:0.5rem;">Retry</button>' +
       '</div>';
   }

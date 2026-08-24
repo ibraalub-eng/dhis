@@ -197,6 +197,39 @@ def delete_role(role_id: int, db: Session = Depends(get_db)):
     return {"success": True}
 
 
+# --- User Hospital Assignments ---
+
+@router.get("/users/{user_id}/hospitals")
+def get_user_hospitals(user_id: int, db: Session = Depends(get_db)):
+    """Get hospitals assigned to a user. Empty list = all hospitals (no restriction)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    hospitals = [{"id": h.id, "name": h.name} for h in user.hospitals]
+    return {"user_id": user_id, "username": user.username, "hospitals": hospitals, "is_restricted": len(hospitals) > 0}
+
+
+@router.put("/users/{user_id}/hospitals")
+def update_user_hospitals(user_id: int, req: dict, db: Session = Depends(get_db)):
+    """Update hospitals assigned to a user.
+    Pass {"hospital_ids": [1,2,3]} to restrict, or {"hospital_ids": []} to allow all.
+    Superusers always see all hospitals regardless of assignment."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_superuser:
+        return {"message": "Superusers always see all hospitals.", "hospital_ids": []}
+
+    hospital_ids = req.get("hospital_ids", [])
+    if hospital_ids:
+        hospitals = db.query(Hospital).filter(Hospital.id.in_(hospital_ids)).all()
+        user.hospitals = hospitals
+    else:
+        user.hospitals = []
+    db.commit()
+    return {"user_id": user_id, "username": user.username, "hospital_count": len(user.hospitals), "message": f"Assigned {len(user.hospitals)} hospitals to {user.username}"}
+
+
 # --- Permissions ---
 
 @router.get("/permissions")
