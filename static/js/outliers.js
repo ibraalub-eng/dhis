@@ -169,7 +169,7 @@
 
         // ── Rule Failures Tab ──────────────────────────────────────
         export function loadRuleFailures() {
-            if (!document.getElementById('ruleFailuresContainer') && !document.getElementById('ruleFailuresBody')) return;
+            if (!document.getElementById('ruleFailTbody')) return;
             const hosp = document.getElementById('ruleFailHospitalFilter').value;
             const mon = document.getElementById('ruleFailMonthFilter').value;
             const sev = document.getElementById('ruleFailSeverityFilter').value;
