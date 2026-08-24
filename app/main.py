@@ -317,6 +317,43 @@ def _ensure_admin_user(session):
                 session.commit()
                 print(f"[startup] Added {len(new_perms)} new permissions to admin role.")
 
+        # Ensure superadmin user exists (separate from admin)
+        sa_user = session.query(User).filter(User.username == "superadmin").first()
+        if sa_user is None:
+            from app.core.security import hash_password
+            sa_user = User(
+                username="superadmin", email="superadmin@health.local",
+                full_name="Super Administrator",
+                password_hash=hash_password(os.getenv("ADMIN_PASSWORD", "admin123")),
+                is_active=True, is_superuser=True,
+            )
+            session.add(sa_user)
+            session.flush()
+            if sa_role:
+                sa_user.roles.append(sa_role)
+            session.commit()
+            print("[startup] Superadmin user created (username=superadmin, password=admin123).")
+
+        # Ensure test users exist for doctor and viewer roles
+        for uname, email, fname, rolename in [
+            ("doctor", "doctor@health.local", "Dr. Ahmed", "doctor"),
+            ("viewer", "viewer@health.local", "Viewer User", "viewer"),
+        ]:
+            if not session.query(User).filter(User.username == uname).first():
+                from app.core.security import hash_password
+                u = User(
+                    username=uname, email=email, full_name=fname,
+                    password_hash=hash_password("admin123"),
+                    is_active=True, is_superuser=False,
+                )
+                session.add(u)
+                session.flush()
+                role = session.query(Role).filter(Role.name == rolename).first()
+                if role:
+                    u.roles.append(role)
+                session.commit()
+                print(f"[startup] Test user created: {uname}/admin123 (role={rolename})")
+
         print("[startup] Admin user verified.")
     except Exception as e:
         print(f"[startup] Admin user check/seed error: {e}")
