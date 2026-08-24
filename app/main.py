@@ -297,6 +297,31 @@ def _ensure_admin_user(session):
 
 
 @asynccontextmanager
+def _deactivate_hospitals_without_data(session):
+    """Mark hospitals as inactive if they have no indicator values loaded."""
+    from app.models import Hospital, IndicatorValue
+    from sqlalchemy import func
+
+    # Get hospital IDs that have at least one indicator value
+    hospitals_with_data = set(
+        row[0] for row in (
+            session.query(IndicatorValue.hospital_id)
+            .distinct()
+            .all()
+        )
+    )
+
+    all_hospitals = session.query(Hospital).all()
+    deactivated = 0
+    for h in all_hospitals:
+        if h.is_active and h.id not in hospitals_with_data:
+            h.is_active = False
+            deactivated += 1
+
+    if deactivated:
+        print(f"[startup] Deactivated {deactivated} hospitals with no indicator data")
+
+
 async def lifespan(app: FastAPI):
     global _startup_done
     from app.database import _db_ready
@@ -351,6 +376,12 @@ async def lifespan(app: FastAPI):
                     print(f"[startup] Applied metadata to {updated} hospitals")
             except Exception as e:
                 print(f"[startup] Hospital metadata seeding skipped: {e}")
+
+            # Auto-deactivate hospitals that have no indicator data
+            try:
+                _deactivate_hospitals_without_data(session)
+            except Exception as e:
+                print(f"[startup] Auto-inactive check skipped: {e}")
 
             session.commit()  # ensure clean state
 
