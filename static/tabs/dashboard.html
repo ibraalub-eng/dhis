@@ -25,7 +25,7 @@
             <canvas class="sparkline" id="sparkAvgScore" height="24"></canvas>
         </div>
         <div class="card summary-card">
-            <div class="value" id="dashAlerts" style="color:#c62828;">-</div>
+            <div class="value" id="dashAlerts" style="color:var(--accent-red);">-</div>
             <div class="label">Active Alerts</div>
         </div>
     </div>
@@ -35,14 +35,14 @@
         <div class="card"><h2>Confidence Distribution</h2><canvas id="confidenceChart"></canvas></div>
         <div class="card"><h2>Quality Components</h2><canvas id="radarChart"></canvas></div>
     </div>
-    <div class="card" style="margin-top:1.5rem;"><h2>Quality Score Heatmap <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:0.5rem;">Hospital × Month</span></h2>
+    <div class="card" style="margin-top:1.5rem;"><h2>Quality Score Heatmap <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:0.5rem;">Hospital × Month</span></h2>
         <div style="overflow-x:auto;" id="heatmapContainer"></div>
     </div>
 </div>
 
 <!-- Section 2: Hospital Ranking -->
 <div class="card" style="margin-top:1.5rem;">
-    <h2>Hospital Performance Ranking <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:0.5rem;">Click a row for details</span></h2>
+    <h2>Hospital Performance Ranking <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:0.5rem;">Click a row for details</span></h2>
     <div style="overflow-x:auto;">
         <table id="rankingTable" class="ranking-table">
             <thead>

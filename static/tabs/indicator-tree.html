@@ -1,30 +1,30 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
                         <div>
                             <h2 style="margin:0;">Indicator Tree</h2>
-                            <span style="font-size:0.82rem;color:#888;">Browse indicators hierarchically with values</span>
+                            <span style="font-size:0.82rem;color:var(--text-muted);">Browse indicators hierarchically with values</span>
                         </div>
                     </div>
                     <div class="card" style="padding:0.6rem 0.8rem;">
                         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.4rem;">
                             <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                                <label style="font-size:0.75rem;color:#666;">Hospital:</label>
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
                                 <select id="treeHospitalSelect" style="font-size:0.78rem;padding:0.2rem 0.4rem;"></select>
-                                <label style="font-size:0.75rem;color:#666;">Month:</label>
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
                                 <select id="treeMonthSelect" style="font-size:0.78rem;padding:0.2rem 0.4rem;"></select>
                                 <button class="btn btn-sm" onclick="loadIndicatorTree()" style="font-size:0.75rem;padding:0.2rem 0.6rem;">Load Tree</button>
                                 <button class="btn btn-sm btn-outline" id="treeSaveBtn" onclick="saveTreeConfig()" style="font-size:0.72rem;padding:0.2rem 0.5rem;display:none;">Save Config</button>
                             </div>
                             <div style="display:flex;align-items:center;gap:0.4rem;">
-                                <span id="treeSummary" style="font-size:0.75rem;color:#888;"></span>
-                                <span id="treeLoading" class="hidden" style="font-size:0.75rem;color:#888;"><span class="spinner"></span></span>
+                                <span id="treeSummary" style="font-size:0.75rem;color:var(--text-muted);"></span>
+                                <span id="treeLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
                             </div>
                         </div>
                         <div style="display:flex;gap:0.4rem;margin-bottom:0.4rem;">
                             <button class="btn btn-sm btn-outline" onclick="expandAllTree()" style="padding:0.2rem 0.5rem;font-size:0.72rem;">Expand All</button>
                             <button class="btn btn-sm btn-outline" onclick="collapseAllTree()" style="padding:0.2rem 0.5rem;font-size:0.72rem;">Collapse All</button>
                         </div>
-                        <div id="treeContainer" style="max-height:600px;overflow-y:auto;font-size:0.85rem;border:1px solid #e0e0e0;border-radius:4px;padding:0.5rem;">
-                            <div style="text-align:center;padding:2rem 1rem;color:#888;">
+                        <div id="treeContainer" style="max-height:600px;overflow-y:auto;font-size:0.85rem;border:1px solid var(--border-default);border-radius:4px;padding:0.5rem;">
+                            <div style="text-align:center;padding:2rem 1rem;color:var(--text-muted);">
                                 <div style="font-size:1.5rem;margin-bottom:0.3rem;opacity:0.3;">&#127795;</div>
                                 <p style="margin:0;font-size:0.82rem;">Select a hospital and month, then click Load Tree.</p>
                             </div>

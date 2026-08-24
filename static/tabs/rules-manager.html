@@ -1,7 +1,7 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
                         <div>
                             <h2 style="margin:0;">Rules Manager</h2>
-                            <span style="font-size:0.82rem;color:#888;">Drag to reorder, toggle to enable/disable for analytics control</span>
+                            <span style="font-size:0.82rem;color:var(--text-muted);">Drag to reorder, toggle to enable/disable for analytics control</span>
                         </div>
                         <div style="display:flex;align-items:center;gap:0.4rem;">
                             <span id="rulesManagerCount" class="count-badge" style="font-size:0.72rem;"></span>
@@ -12,7 +12,7 @@
                     <div class="card" style="padding:0.6rem 0.8rem;">
                         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
                             <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                                <label style="font-size:0.75rem;color:#666;">Type:</label>
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">Type:</label>
                                 <select id="rulesTypeFilter" onchange="loadRulesManager()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
                                     <option value="">All</option>
                                     <option value="LOGIC">Logic</option>
@@ -20,7 +20,7 @@
                                     <option value="BENCHMARK">Benchmark</option>
                                     <option value="DATA_QUALITY">Data Quality</option>
                                 </select>
-                                <label style="font-size:0.75rem;color:#666;">Severity:</label>
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">Severity:</label>
                                 <select id="rulesSeverityFilter" onchange="loadRulesManager()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
                                     <option value="">All</option>
                                     <option value="CRITICAL">Critical</option>
@@ -28,7 +28,7 @@
                                     <option value="MEDIUM">Medium</option>
                                     <option value="LOW">Low</option>
                                 </select>
-                                <label style="font-size:0.75rem;color:#666;">Status:</label>
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">Status:</label>
                                 <select id="rulesEnabledFilter" onchange="loadRulesManager()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
                                     <option value="">All</option>
                                     <option value="true">Enabled</option>
@@ -36,8 +36,8 @@
                                 </select>
                             </div>
                             <div style="display:flex;align-items:center;gap:0.4rem;">
-                                <span id="rulesManagerFilteredCount" style="font-size:0.72rem;color:#888;"></span>
-                                <span id="rulesLoading" class="hidden" style="font-size:0.72rem;color:#888;"><span class="spinner"></span></span>
+                                <span id="rulesManagerFilteredCount" style="font-size:0.72rem;color:var(--text-muted);"></span>
+                                <span id="rulesLoading" class="hidden" style="font-size:0.72rem;color:var(--text-muted);"><span class="spinner"></span></span>
                             </div>
                         </div>
                         <div id="rulesTableContainer" style="max-height:500px;overflow-y:auto;font-size:0.82rem;">
@@ -56,14 +56,14 @@
                             <tbody id="rulesTbody"></tbody>
                         </table>
                     </div>
-                    <div style="margin-top:0.8rem;font-size:0.75rem;color:#888;border-top:1px solid #eee;padding-top:0.5rem;">
+                    <div style="margin-top:0.8rem;font-size:0.75rem;color:var(--text-muted);border-top:1px solid var(--border-default);padding-top:0.5rem;">
                         <span>Drag <strong>⠿</strong> to reorder rules. Disabled rules are skipped during analysis.</span>
                     </div>
                 </div>
                 <div class="card" id="rulesExprHelp" style="margin-top:1rem;">
                     <h2 onclick="toggleExprHelp()" style="cursor:pointer;user-select:none;">
                         &#x25B6; Expression Types Reference
-                        <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:0.5rem;">Click to expand</span>
+                        <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:0.5rem;">Click to expand</span>
                     </h2>
                     <div id="exprHelpContent" style="display:none;margin-top:0.8rem;font-size:0.82rem;line-height:1.6;">
                         <table style="font-size:0.82rem;">
@@ -84,7 +84,7 @@
                                 <tr><td><code>all_zero</code></td><td>FAIL if ALL listed codes are zero</td><td><code>codes[]</code></td><td><code>{"codes":["2","3","4","5","6","7","8","10","11","16","17"]}</code></td></tr>
                             </tbody>
                         </table>
-                        <div style="margin-top:0.8rem;font-size:0.78rem;color:#888;border-top:1px solid #eee;padding-top:0.5rem;">
+                        <div style="margin-top:0.8rem;font-size:0.78rem;color:var(--text-muted);border-top:1px solid var(--border-default);padding-top:0.5rem;">
                             <strong>Example Params Templates:</strong><br>
                             <code id="exprExampleJson">No expression selected</code>
                         </div>

@@ -1,18 +1,18 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
                         <div>
                             <h2 style="margin:0;">Smart Alert Dashboard</h2>
-                            <span style="font-size:0.82rem;color:#888;">Real-time severity overview & rule failures</span>
+                            <span style="font-size:0.82rem;color:var(--text-muted);">Real-time severity overview & rule failures</span>
                         </div>
                         <div style="display:flex;gap:0.5rem;align-items:center;" id="alertSummaryBar"></div>
                     </div>
 
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
                         <div class="card" style="padding:0.6rem 0.8rem;">
-                            <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:#333;">Top Hospitals by Alerts</h4>
+                            <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:var(--text-primary);">Top Hospitals by Alerts</h4>
                             <div id="alertTopHospitals" style="font-size:0.8rem;"></div>
                         </div>
                         <div class="card" style="padding:0.6rem 0.8rem;">
-                            <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:#333;">Recent Critical Alerts</h4>
+                            <h4 style="margin:0 0 0.5rem 0;font-size:0.85rem;color:var(--text-primary);">Recent Critical Alerts</h4>
                             <div id="alertCriticalList" style="max-height:220px;overflow-y:auto;font-size:0.8rem;"></div>
                         </div>
                     </div>
@@ -20,19 +20,19 @@
                     <!-- Rule Failures (merged from Rule Failures tab) -->
                     <div class="card" style="padding:0.6rem 0.8rem;">
                         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
-                            <h3 style="margin:0;font-size:0.95rem;">Rule Failures <span id="ruleFailCount" style="font-size:0.75rem;color:#888;"></span></h3>
+                            <h3 style="margin:0;font-size:0.95rem;">Rule Failures <span id="ruleFailCount" style="font-size:0.75rem;color:var(--text-muted);"></span></h3>
                             <div id="ruleFailSummary" style="display:flex;gap:0.4rem;flex-wrap:wrap;"></div>
                         </div>
                         <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-                            <label style="font-size:0.75rem;color:#666;">Hospital:</label>
+                            <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
                             <select id="ruleFailHospitalFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
-                            <label style="font-size:0.75rem;color:#666;">Month:</label>
+                            <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
                             <select id="ruleFailMonthFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
-                            <label style="font-size:0.75rem;color:#666;">Severity:</label>
+                            <label style="font-size:0.75rem;color:var(--text-secondary);">Severity:</label>
                             <select id="ruleFailSeverityFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select>
-                            <label style="font-size:0.75rem;color:#666;">Type:</label>
+                            <label style="font-size:0.75rem;color:var(--text-secondary);">Type:</label>
                             <select id="ruleFailTypeFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option><option value="LOGIC">Logic</option><option value="CLINICAL">Clinical</option><option value="STATISTICAL">Statistical</option><option value="TREND">Trend</option></select>
-                            <span id="ruleFailLoading" class="hidden" style="font-size:0.75rem;color:#888;"><span class="spinner"></span></span>
+                            <span id="ruleFailLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
                         </div>
                         <div style="max-height:500px;overflow-y:auto;">
                             <table id="ruleFailTable">

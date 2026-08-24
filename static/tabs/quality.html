@@ -1,23 +1,23 @@
             <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
                 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
                     <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-                        <label style="font-size:0.78rem;color:#666;">Hospital:</label>
+                        <label style="font-size:0.78rem;color:var(--text-secondary);">Hospital:</label>
                         <select id="qualityHospitalFilter" onchange="_saveUIState('quality');filterQualityReports()" style="font-size:0.8rem;padding:0.25rem 0.4rem;">
                             <option value="all">All Hospitals</option>
                         </select>
-                        <label style="font-size:0.78rem;color:#666;">Month:</label>
+                        <label style="font-size:0.78rem;color:var(--text-secondary);">Month:</label>
                         <select id="qualityMonthFilter" onchange="_saveUIState('quality');filterQualityReports()" style="font-size:0.8rem;padding:0.25rem 0.4rem;">
                             <option value="all">All Months</option>
                         </select>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.5rem;">
-                        <span id="qualityCount" style="font-size:0.78rem;color:#888;"></span>
-                        <span id="qualityLoading" class="hidden" style="font-size:0.78rem;color:#1565c0;"><span class="spinner"></span></span>
+                        <span id="qualityCount" style="font-size:0.78rem;color:var(--text-muted);"></span>
+                        <span id="qualityLoading" class="hidden" style="font-size:0.78rem;color:var(--accent-blue);"><span class="spinner"></span></span>
                     </div>
                 </div>
             </div>
             <div id="reportsGrid" class="reports-grid" style="min-height:80px;">
-                <div class="card" style="text-align:center;padding:2rem 1.5rem;color:#888;grid-column:1/-1;">
+                <div class="card" style="text-align:center;padding:2rem 1.5rem;color:var(--text-muted);grid-column:1/-1;">
                     <div style="font-size:1.5rem;margin-bottom:0.3rem;opacity:0.3;">&#128203;</div>
                     <p style="margin:0;font-size:0.85rem;">Loading reports...</p>
                 </div>

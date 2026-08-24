@@ -1,17 +1,17 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
                         <div>
                             <h2 style="margin:0;">Audit & Verification</h2>
-                            <span style="font-size:0.82rem;color:#888;">Step-by-step calculation verification and data integrity checks</span>
+                            <span style="font-size:0.82rem;color:var(--text-muted);">Step-by-step calculation verification and data integrity checks</span>
                         </div>
                     </div>
                     <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
                         <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-                            <label style="font-size:0.75rem;color:#666;">Hospital:</label>
+                            <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
                             <select id="auditHospitalSelect" style="font-size:0.8rem;padding:0.25rem 0.4rem;"><option value="">Select hospital</option></select>
-                            <label style="font-size:0.75rem;color:#666;">Month:</label>
+                            <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
                             <select id="auditMonthSelect" style="font-size:0.8rem;padding:0.25rem 0.4rem;"><option value="">Select month</option></select>
-                            <button class="btn btn-sm" onclick="loadAudit()" id="auditBtn" style="background:#d32f2f;color:#fff;border:none;padding:0.3rem 0.8rem;border-radius:4px;cursor:pointer;font-size:0.78rem;">Generate Audit</button>
-                            <span id="auditLoading" class="hidden" style="font-size:0.75rem;color:#888;"><span class="spinner"></span></span>
+                            <button class="btn btn-sm" onclick="loadAudit()" id="auditBtn" style="background:var(--accent-red);color:white;border:none;padding:0.3rem 0.8rem;border-radius:4px;cursor:pointer;font-size:0.78rem;">Generate Audit</button>
+                            <span id="auditLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
                         </div>
                     </div>
                     <div id="auditResults"></div>
