@@ -10,7 +10,7 @@ from app.core.deps import get_current_user, require_permission
 from app.core.security import hash_password
 from app.models import User, Role, Permission
 
-router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_permission("users.manage"))])
+router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_permission("system.manage_users"))])
 
 
 # --- Schemas ---

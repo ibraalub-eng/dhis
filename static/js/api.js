@@ -10,7 +10,7 @@
                 if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + await res.text());
                 return res.json();
             });
-            if (!noCache) _apiCache.set(path, promise);
+            if (!noCache) promise.then(data => _apiCache.set(path, Promise.resolve(data)), () => _apiCache.delete(path));
             return promise;
         }
         export async function apiPost(path, data) {
