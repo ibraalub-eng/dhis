@@ -106,6 +106,63 @@ def toggle_hospital_active(hospital_id: int, db: Session = Depends(get_db)):
     return {"id": hospital.id, "name": hospital.name, "is_active": hospital.is_active}
 
 
+@router.put("/{hospital_id}/clear-data")
+def clear_hospital_data(
+    hospital_id: int,
+    month: str = Query(None, description="If set, only clear this month. Otherwise clear ALL data."),
+    db: Session = Depends(get_db),
+):
+    """Clear indicator values for a hospital (optionally filtered by month).
+    Also clears quality scores, validation results, and clinical results."""
+    from app.models import IndicatorValue, QualityScore, ValidationResult, ClinicalResult
+    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+
+    q_iv = db.query(IndicatorValue).filter(IndicatorValue.hospital_id == hospital_id)
+    q_qs = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id)
+    q_vr = db.query(ValidationResult).filter(ValidationResult.hospital_id == hospital_id)
+    q_cr = db.query(ClinicalResult).filter(ClinicalResult.hospital_id == hospital_id)
+
+    if month:
+        q_iv = q_iv.filter(IndicatorValue.month == month)
+        q_qs = q_qs.filter(QualityScore.month == month)
+        q_vr = q_vr.filter(ValidationResult.month == month)
+        q_cr = q_cr.filter(ClinicalResult.month == month)
+
+    iv_count = q_iv.delete(synchronize_session=False)
+    qs_count = q_qs.delete(synchronize_session=False)
+    vr_count = q_vr.delete(synchronize_session=False)
+    cr_count = q_cr.delete(synchronize_session=False)
+
+    db.commit()
+    cache.invalidate()
+    msg = f"Cleared {iv_count} indicator values, {qs_count} quality scores, {vr_count} validation results, {cr_count} clinical results"
+    if month:
+        msg += f" for {month}"
+    return {"hospital_id": hospital_id, "hospital_name": hospital.name, "message": msg}
+
+
+@router.delete("/clear-all-data")
+def clear_all_data(db: Session = Depends(get_db)):
+    """Nuclear option: clear ALL indicator data, quality scores, validation results.
+    Hospitals remain but become inactive."""
+    from app.models import IndicatorValue, QualityScore, ValidationResult, ClinicalResult
+    from sqlalchemy import func as sa_func
+
+    iv_count = db.query(IndicatorValue).delete(synchronize_session=False)
+    qs_count = db.query(QualityScore).delete(synchronize_session=False)
+    vr_count = db.query(ValidationResult).delete(synchronize_session=False)
+    cr_count = db.query(ClinicalResult).delete(synchronize_session=False)
+
+    # Mark all hospitals as inactive since they have no data
+    db.query(Hospital).update({Hospital.is_active: False}, synchronize_session=False)
+
+    db.commit()
+    cache.invalidate()
+    return {"message": f"Cleared ALL data: {iv_count} indicator values, {qs_count} quality scores, {vr_count} validation results, {cr_count} clinical results. All hospitals marked inactive."}
+
+
 @router.get("/data-status")
 def hospital_data_status(db: Session = Depends(get_db)):
     """Show data status for every hospital — helps diagnose missing results.

@@ -104,6 +104,7 @@ function renderHospitalsTable(filtered, statusMap) {
             '<td style="text-align:center;padding:0.4rem;">' + statusHtml + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="editHospital(' + h.id + ')" style="margin-right:0.3rem;">Edit</button>' +
+            '<button class="btn btn-sm btn-outline" onclick="clearHospitalData(' + h.id + ', '' + esc(h.name).replace(/'/g, "'") + '')" style="color:#d97706;margin-right:0.3rem;">Clear Data</button>' +
             '<button class="btn btn-sm btn-outline" onclick="deleteHospital(' + h.id + ')" style="color:#c62828;">Delete</button></td></tr>';
     });
     html += '</tbody></table>';
@@ -492,6 +493,34 @@ function deleteFacilityType(id) {
     apiDelete('/facility-types/' + id).then(() => loadFacilityTypes()).catch(err => alert('Failed: ' + err));
 }
 window.deleteFacilityType = deleteFacilityType;
+
+// ── Clear Data ──────────────────────────────────────────────
+
+function clearHospitalData(id, name) {
+    if (!confirm('Clear ALL indicator data for ' + name + '?
+
+This will remove indicator values, quality scores, validation results, and clinical results.
+
+The hospital will become inactive. You can re-upload data later.')) return;
+    apiPut('/hospitals/' + id + '/clear-data').then(res => {
+        alert(res.message || 'Data cleared.');
+        loadHospitalsList();
+    }).catch(err => alert('Failed: ' + err));
+}
+window.clearHospitalData = clearHospitalData;
+
+function clearAllData() {
+    if (!confirm('⚠️ NUCLEAR OPTION: Clear ALL indicator data for ALL hospitals?
+
+This will remove everything. All hospitals will become inactive.
+You can re-upload data after clearing.')) return;
+    if (!confirm('Are you REALLY sure? This cannot be undone.')) return;
+    apiDelete('/hospitals/clear-all-data').then(res => {
+        alert(res.message || 'All data cleared.');
+        loadHospitalsList();
+    }).catch(err => alert('Failed: ' + err));
+}
+window.clearAllData = clearAllData;
 
 // ── Export CSV ─────────────────────────────────────────────────
 
