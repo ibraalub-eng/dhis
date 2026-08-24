@@ -243,11 +243,13 @@
   window.saveAdminUser = async function() {
     var errEl = document.getElementById('adminModalError');
     var editId = document.getElementById('adminEditUserId').value;
+    var checkedRoles = document.querySelectorAll('.admin-role-cb:checked');
+    var roleIds = Array.from(checkedRoles).map(function(c) { return parseInt(c.value); });
     var body = {
       username: document.getElementById('adminUsername').value,
       full_name: document.getElementById('adminFullName').value,
       email: document.getElementById('adminEmail').value,
-      var checkedRoles = document.querySelectorAll('.admin-role-cb:checked'); var roleIds = Array.from(checkedRoles).map(function(c) { return parseInt(c.value); }); role_ids: roleIds,
+      role_ids: roleIds,
     };
     var pw = document.getElementById('adminPassword').value;
     if (pw) body.password = pw;
