@@ -433,7 +433,7 @@
         }
 
         export async function deleteRule(ruleId, code) {
-            if (!confirm('Delete rule ' + code + '? This cannot be undone.')) return;
+            if (!await confirmDestructive({ title: 'Delete Rule', message: 'Delete rule <strong>' + code + '</strong>? This cannot be undone.', okLabel: 'Delete' })) return;
             try {
                 const res = await fetch(API() + '/rules/' + ruleId, { method: 'DELETE' });
                 if (!res.ok) throw new Error(await res.text());

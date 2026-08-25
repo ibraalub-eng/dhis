@@ -275,8 +275,8 @@ function editHospital(id) {
 }
 window.editHospital = editHospital;
 
-function deleteHospital(id) {
-    if (!confirm('Delete this hospital? This cannot be undone.')) return;
+async function deleteHospital(id) {
+    if (!await confirmDestructive({ title: 'Delete Hospital', message: 'Delete this hospital? This cannot be undone.', okLabel: 'Delete' })) return;
     apiDelete('/hospitals/' + id).then(() => loadHospitalsList()).catch(err => alert('Failed: ' + err));
 }
 window.deleteHospital = deleteHospital;
@@ -318,8 +318,8 @@ function editGovernorate(id) {
 }
 window.editGovernorate = editGovernorate;
 
-function deleteGovernorate(id) {
-    if (!confirm('Delete this governorate? Only possible if no hospitals are linked.')) return;
+async function deleteGovernorate(id) {
+    if (!await confirmDestructive({ title: 'Delete Governorate', message: 'Delete this governorate? Only possible if no hospitals are linked.', okLabel: 'Delete' })) return;
     apiDelete('/governorates/' + id).then(() => loadGovernorates()).catch(err => alert('Failed: ' + err));
 }
 window.deleteGovernorate = deleteGovernorate;
@@ -356,8 +356,8 @@ function editHospitalType(id) {
 }
 window.editHospitalType = editHospitalType;
 
-function deleteHospitalType(id) {
-    if (!confirm('Delete this hospital type? Only possible if no hospitals are linked.')) return;
+async function deleteHospitalType(id) {
+    if (!await confirmDestructive({ title: 'Delete Hospital Type', message: 'Delete this hospital type? Only possible if no hospitals are linked.', okLabel: 'Delete' })) return;
     apiDelete('/hospital-types/' + id).then(() => loadHospitalTypes()).catch(err => alert('Failed: ' + err));
 }
 window.deleteHospitalType = deleteHospitalType;
@@ -447,8 +447,8 @@ function editOwnership(id) {
 }
 window.editOwnership = editOwnership;
 
-function deleteOwnership(id) {
-    if (!confirm('Delete this facility ownership? Only possible if no hospitals are linked.')) return;
+async function deleteOwnership(id) {
+    if (!await confirmDestructive({ title: 'Delete Ownership', message: 'Delete this facility ownership? Only possible if no hospitals are linked.', okLabel: 'Delete' })) return;
     apiDelete('/facility-ownerships/' + id).then(() => loadOwnerships()).catch(err => alert('Failed: ' + err));
 }
 window.deleteOwnership = deleteOwnership;
@@ -538,28 +538,28 @@ function editFacilityType(id) {
 }
 window.editFacilityType = editFacilityType;
 
-function deleteFacilityType(id) {
-    if (!confirm('Delete this facility type? Only possible if no hospitals are linked.')) return;
+async function deleteFacilityType(id) {
+    if (!await confirmDestructive({ title: 'Delete Facility Type', message: 'Delete this facility type? Only possible if no hospitals are linked.', okLabel: 'Delete' })) return;
     apiDelete('/facility-types/' + id).then(() => loadFacilityTypes()).catch(err => alert('Failed: ' + err));
 }
 window.deleteFacilityType = deleteFacilityType;
 
 // ── Clear Data ──────────────────────────────────────────────
 
-function clearHospitalData(id, name) {
-    if (!confirm('Clear ALL indicator data for ' + name + '?\n\nThis will remove indicator values, quality scores, validation results, and clinical results.\n\nThe hospital will become inactive. You can re-upload data later.')) return;
+async function clearHospitalData(id, name) {
+    if (!await confirmDestructive({ title: 'Clear Hospital Data', message: 'Clear ALL indicator data for <strong>' + name + '</strong>?', details: 'This will remove indicator values, quality scores, validation results, and clinical results. The hospital will become inactive.', okLabel: 'Clear Data' })) return;
     apiPut('/hospitals/' + id + '/clear-data').then(res => {
-        alert(res.message || 'Data cleared.');
+        if (res.message) alert(res.message);
         loadHospitalsList();
     }).catch(err => alert('Failed: ' + err));
 }
 window.clearHospitalData = clearHospitalData;
 
-function clearAllData() {
-    if (!confirm('⚠️ NUCLEAR OPTION: Clear ALL indicator data for ALL hospitals?\n\nThis will remove everything. All hospitals will become inactive.\nYou can re-upload data after clearing.')) return;
-    if (!confirm('Are you REALLY sure? This cannot be undone.')) return;
+async function clearAllData() {
+    if (!await confirmDestructive({ title: 'Nuclear Option', message: 'Clear ALL indicator data for ALL hospitals?', details: 'This will remove everything. All hospitals will become inactive. You can re-upload data after clearing.', okLabel: 'Clear Everything' })) return;
+    if (!await confirmDestructive({ title: 'Final Confirmation', message: 'Are you REALLY sure? This cannot be undone.', confirmText: 'DELETE' })) return;
     apiDelete('/hospitals/clear-all-data').then(res => {
-        alert(res.message || 'All data cleared.');
+        if (res.message) alert(res.message);
         loadHospitalsList();
     }).catch(err => alert('Failed: ' + err));
 }

@@ -5,6 +5,53 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
         import { esc } from './tree.js';
         import { _saveUIState, _restoreUIState, SwitchTab, _tabInited } from './main.js';
 
+        // ── Progressive Disclosure: auto-wrap <h3> in collapsible sections ──
+        function initCollapsibleSections() {
+            document.querySelectorAll('.settings-section').forEach(section => {
+                // Skip if already processed
+                if (section.querySelector('.settings-section-header')) return;
+                const h3s = section.querySelectorAll('h3');
+                if (h3s.length < 2) return; // Only wrap if 2+ sections
+
+                // Add collapse icon to each h3
+                h3s.forEach((h3, i) => {
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'settings-collapsible' + (i === 0 ? ' open' : '');
+                    wrapper.style.marginTop = i === 0 ? '0' : '0.6rem';
+
+                    // Create clickable header
+                    const header = document.createElement('button');
+                    header.className = 'settings-section-header';
+                    header.innerHTML = h3.innerHTML + '<span class="section-arrow">▶</span>';
+                    header.addEventListener('click', function() {
+                        wrapper.classList.toggle('open');
+                    });
+
+                    // Wrap the h3 and its following siblings until next h3 or end
+                    h3.replaceWith(header);
+                    wrapper.appendChild(header);
+
+                    // Collect siblings until next h3
+                    let next = header.nextElementSibling;
+                    const body = document.createElement('div');
+                    body.className = 'settings-section-body';
+                    while (next && next.tagName !== 'H3' && !next.querySelector('h3')) {
+                        const el = next;
+                        next = next.nextElementSibling;
+                        body.appendChild(el);
+                    }
+                    wrapper.appendChild(body);
+
+                    // Insert before the next h3 or append to section
+                    if (next) {
+                        section.insertBefore(wrapper, next);
+                    } else {
+                        section.appendChild(wrapper);
+                    }
+                });
+            });
+        }
+
         // ── Rules Manager ─────────────────────────────────────────
         export let rulesManagerData = [];
         let rulesSortCol = null, rulesSortAsc = true;
@@ -1299,6 +1346,7 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
         }
 
         export function loadAllSettings() {
+            setTimeout(initCollapsibleSections, 100);
             const loadingEl = document.getElementById('settingsLoading');
             if (!loadingEl) return; // التبويب لم يُحمَّل
             loadingEl.classList.remove('hidden');

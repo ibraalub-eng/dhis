@@ -550,14 +550,14 @@ window._adminAssignHospitals = function(id, btn) {
     closeRoleModal(); loadAdminPanel();
   };
   window.deleteRole = async function(roleId) {
-    if (!confirm('Delete this role? Users with this role will lose its permissions.')) return;
+    if (!await confirmDestructive({ title: 'Delete Role', message: 'Delete this role? Users with this role will lose its permissions.', okLabel: 'Delete' })) return;
     var resp = await api('/admin/roles/' + roleId, { method: 'DELETE' });
     if (resp && resp.detail) { alert(resp.detail); return; }
     loadAdminPanel();
   };
 
   window.deactivateUser = async function(userId) {
-    if (!confirm('Deactivate this user? They will not be able to log in.')) return;
+    if (!await confirmDestructive({ title: 'Deactivate User', message: 'Deactivate this user? They will not be able to log in.', okLabel: 'Deactivate' })) return;
     await api('/admin/users/' + userId, { method: 'DELETE' });
     loadAdminPanel();
   };

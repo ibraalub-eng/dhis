@@ -887,3 +887,165 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .tb-clickable:hover td:first-child::before {
   opacity: 1;
 }
+
+/* ── Confirm Modal ──────────────────────────────────── */
+.cm-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.cm-overlay.cm-visible {
+  display: flex;
+}
+.cm-dialog {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  max-width: 420px;
+  width: 92%;
+  animation: cm-slide-in 0.2s ease-out;
+}
+@keyframes cm-slide-in {
+  from { opacity: 0; transform: translateY(-20px) scale(0.95); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.cm-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.2rem 1.5rem 0;
+}
+.cm-icon { font-size: 1.5rem; }
+.cm-title { font-size: 1.1rem; font-weight: 700; }
+.cm-body {
+  padding: 0.8rem 1.5rem 0;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.cm-body p { margin: 0 0 0.6rem; }
+.cm-details {
+  background: var(--bg-input);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  border-left: 3px solid var(--accent-blue);
+}
+.cm-confirm-input input {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  margin-top: 0.4rem;
+  box-sizing: border-box;
+}
+.cm-confirm-input input:focus {
+  outline: none;
+  border-color: var(--accent-red);
+  box-shadow: 0 0 0 2px rgba(239,68,68,0.2);
+}
+.cm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 1rem 1.5rem 1.2rem;
+}
+.cm-btn {
+  padding: 0.5rem 1.2rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border-default);
+  transition: all 0.15s;
+}
+.cm-cancel {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+.cm-cancel:hover {
+  background: var(--bg-input);
+}
+.cm-ok {
+  background: var(--accent-blue);
+  color: white;
+  border-color: var(--accent-blue);
+}
+.cm-ok:hover {
+  filter: brightness(1.1);
+}
+.cm-ok:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.cm-btn-danger {
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+}
+.cm-btn-danger:hover {
+  filter: brightness(1.1);
+}
+.cm-btn-warning {
+  background: var(--accent-orange);
+  border-color: var(--accent-orange);
+}
+.cm-btn-warning:hover {
+  filter: brightness(1.1);
+}
+
+/* ── Settings Collapsible Sections ──────────────────── */
+.settings-section {
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  margin-bottom: 0.8rem;
+  overflow: hidden;
+}
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8rem 1rem;
+  cursor: pointer;
+  background: var(--bg-surface);
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  transition: background 0.15s;
+  user-select: none;
+}
+.settings-section-header:hover {
+  background: var(--bg-input);
+}
+.settings-section-header .section-icon {
+  font-size: 1.1rem;
+}
+.settings-section-header .section-arrow {
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+}
+.settings-section.open .settings-section-header .section-arrow {
+  transform: rotate(90deg);
+}
+.settings-section-body {
+  display: none;
+  padding: 0.8rem 1rem 1rem;
+  border-top: 1px solid var(--border-default);
+}
+.settings-section.open .settings-section-body {
+  display: block;
+}
