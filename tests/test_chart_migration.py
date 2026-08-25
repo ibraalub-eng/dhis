@@ -43,8 +43,8 @@ class TestChartUtilsExists:
     def test_chart_colors_defined(self):
         content = _read("static/js/chart-utils.js")
         assert "CHART_COLORS" in content
-        assert "#0d9488" in content  # teal primary
-        assert "#7c3aed" in content  # secondary purple
+        assert "--accent-teal" in content  # primary via CSS var
+        assert "--accent-purple" in content  # secondary via CSS var
 
     def test_ci_band_plugin_defined(self):
         content = _read("static/js/chart-utils.js")
@@ -54,7 +54,7 @@ class TestChartUtilsExists:
 
     def test_ci_band_color_includes_alpha(self):
         content = _read("static/js/chart-utils.js")
-        assert "rgba(124,58,237,0.12)" in content or "rgba" in content
+        assert "ciBand" in content and ("rgba" in content or "severity-info-bg" in content)
 
     def test_exports_on_window(self):
         content = _read("static/js/chart-utils.js")

@@ -204,7 +204,7 @@ export function renderLagAnalysis(lag) {
       const sig = significant[i] && significant[i][j];
       const lagVal = bestLags[i] && bestLags[i][j];
       if (v === null || v === undefined) return '<td style="text-align:center;color:var(--text-muted);">—</td>';
-      const bg = sig ? (Math.abs(v) >= 0.6 ? 'background:#fef2f2;' : 'background:#fffbeb;') : '';
+      const bg = sig ? (Math.abs(v) >= 0.6 ? 'background:var(--severity-critical-bg);' : 'background:var(--severity-warning-bg);') : '';
       const lagBadge = lagVal ? `<span style="font-size:0.65rem;color:var(--text-muted);">${lagVal}${_t('m')}</span> ` : '';
       return `<td style="text-align:center;${bg}">${lagBadge}${_fmtNum(v, 2)}</td>`;
     }).join('');

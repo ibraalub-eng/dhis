@@ -664,9 +664,9 @@ function loadHospitalsSettings() {
                                         c.chain_path.map((code, ci) => {
                                             const isRoot = ci === c.chain_path.length - 1;
                                             return '<span style="font-size:0.66rem;padding:1px 8px;border-radius:10px;font-weight:600;white-space:nowrap;' +
-                                                (isRoot ? 'background:#0d9488;color:#fff;' : 'background:#ccfbf1;color:#115e59;border:1px solid #99f6e4;') + '">' +
+                                                (isRoot ? 'background:var(--accent-teal);color:#fff;' : 'background:var(--severity-info-bg);color:var(--accent-teal);border:1px solid var(--accent-teal);') + '">' +
                                                 esc(code) + '</span>' +
-                                                (ci < c.chain_path.length - 1 ? '<span style="color:#0d9488;font-size:0.7rem;">&#8592;</span>' : '');
+                                                (ci < c.chain_path.length - 1 ? '<span style="color:var(--accent-teal);font-size:0.7rem;">&#8592;</span>' : '');
                                         }).join('') +
                                     '</div>' : '') +
                                 (c.chain_path_arabic ? '<div style="font-size:0.68rem;color:#0f766e;margin-bottom:0.3rem;">' + esc(c.chain_path_arabic) + '</div>' : '') +

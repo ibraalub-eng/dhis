@@ -71,8 +71,8 @@ export function renderKPIs(kpi, hospitalsCount) {
       <div class="smart-kpi-label">${_t('Hospitals with anomalies')}</div>
       <div class="smart-kpi-sub">${kpi.critical_count} ${_t('critical')} (${criticalPct}%) + ${kpi.warning_count} ${_t('warning')} (${warningPct}%)</div>
     </div>
-    <div class="smart-kpi-card" style="border-top-color:#3b82f6;" onclick="window._smartKPIGovernorates()">
-      <div class="smart-kpi-value" style="color:#3b82f6;">${kpi.affected_governorates}<span style="font-size:0.9rem;font-weight:400;color:var(--text-muted);">/${hospitalsCount > 0 ? Math.min(hospitalsCount, 5) : 5}</span></div>
+    <div class="smart-kpi-card" style="border-top-color:var(--accent-blue);" onclick="window._smartKPIGovernorates()">
+      <div class="smart-kpi-value" style="color:var(--accent-blue);">${kpi.affected_governorates}<span style="font-size:0.9rem;font-weight:400;color:var(--text-muted);">/${hospitalsCount > 0 ? Math.min(hospitalsCount, 5) : 5}</span></div>
       <div class="smart-kpi-label">${_t('Governorates with deviations')}</div>
       <div class="smart-kpi-sub">${_t('Contain warning or critical hospitals')}</div>
     </div>

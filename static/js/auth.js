@@ -316,10 +316,10 @@
     if (existing) existing.remove();
     var div = document.createElement('div');
     div.id = 'session-warning';
-    div.style.cssText = 'position:fixed;top:1rem;right:1rem;background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:1rem 1.2rem;box-shadow:0 4px 16px rgba(0,0,0,0.15);z-index:99999;max-width:380px;font-size:0.85rem;';
-    div.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;"><span style="font-size:1.2rem;">⏰</span><strong style="color:#856404;">Session Expiring</strong></div>' +
-      '<p style="margin:0 0 0.5rem;color:#856404;">Your session will expire in <strong>' + remaining + ' minutes</strong> due to inactivity.</p>' +
-      '<button onclick="window._extendSession()" style="background:#856404;color:white;border:none;border-radius:6px;padding:0.35rem 1rem;font-size:0.82rem;cursor:pointer;font-weight:600;">Keep me signed in</button>';
+    div.style.cssText = 'position:fixed;top:1rem;right:1rem;background:var(--severity-warning-bg);border:1px solid var(--accent-yellow);border-radius:10px;padding:1rem 1.2rem;box-shadow:var(--shadow-md);z-index:99999;max-width:380px;font-size:0.85rem;';
+    div.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;"><span style="font-size:1.2rem;">⏰</span><strong style="color:var(--accent-yellow);">Session Expiring</strong></div>' +
+      '<p style="margin:0 0 0.5rem;color:var(--text-primary);">Your session will expire in <strong>' + remaining + ' minutes</strong> due to inactivity.</p>' +
+      '<button onclick="window._extendSession()" style="background:var(--accent-yellow);color:var(--bg-base);border:none;border-radius:6px;padding:0.35rem 1rem;font-size:0.82rem;cursor:pointer;font-weight:600;">Keep me signed in</button>';
     document.body.appendChild(div);
   }
 
