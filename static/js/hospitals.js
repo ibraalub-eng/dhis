@@ -113,7 +113,7 @@ function renderHospitalsTable(filtered, statusMap) {
             '<td style="text-align:center;padding:0.4rem;">' + statusHtml + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="editHospital(' + h.id + ')" style="margin-right:0.3rem;">Edit</button>' +
-            '<button class="btn btn-sm btn-outline" onclick="clearHospitalData(' + h.id + ', '' + esc(h.name).replace(/'/g, "'") + '')" style="color:#d97706;margin-right:0.3rem;">Clear Data</button>' +
+            '<button class="btn btn-sm btn-outline" onclick="clearHospitalData(' + h.id + ', \x27' + esc(h.name).replace(/'/g, '\x27') + '\x27')" style="color:#d97706;margin-right:0.3rem;">Clear Data</button>' +
             '<button class="btn btn-sm btn-outline" onclick="deleteHospital(' + h.id + ')" style="color:var(--accent-red);">Delete</button></td></tr>';
     });
     html += '</tbody></table>';
