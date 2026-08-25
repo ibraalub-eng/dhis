@@ -1,4 +1,6 @@
         import { API, apiGet, apiPost, apiPut, clearApiCache } from './api.js';
+
+import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.js';
         import { __ } from './i18n.js';
         import { esc } from './tree.js';
         import { _saveUIState, _restoreUIState, SwitchTab, _tabInited } from './main.js';
@@ -923,50 +925,26 @@
             }).catch(() => {});
         }
 
+        let _rankingDt = null;
         function renderRankingTable() {
-            const tbody = document.getElementById('rankingBody');
-            if (!tbody) return;
-            const col = rankingSortCol;
-            const asc = rankingSortAsc;
-            const sorted = [...rankingData].sort((a, b) => {
-                const va = a[col], vb = b[col];
-                if (typeof va === 'string') return asc ? va.localeCompare(vb) : vb.localeCompare(va);
-                return asc ? (va - vb) : (vb - va);
-            });
-            sorted.forEach((r, i) => r.rank = i + 1);
-
-            tbody.innerHTML = sorted.map(r => {
-                const rc = r.avg_score >= 90 ? 'row-a' : r.avg_score >= 75 ? 'row-b' : r.avg_score >= 60 ? 'row-c' : 'row-d';
-                const ti = r.trend_direction === 'up' ? '\u25B2' : r.trend_direction === 'down' ? '\u25BC' : '\u2014';
-                const tc = 'trend-' + r.trend_direction;
-                return '<tr class="' + rc + '" onclick="showHospitalScorecard(' + r.id + ')">' +
-                    '<td>' + r.rank + '</td>' +
-                    '<td><strong>' + esc(r.name) + '</strong></td>' +
-                    '<td>' + r.avg_score + '%</td>' +
-                    '<td class="' + tc + '">' + ti + '</td>' +
-                    '<td>' + r.avg_clinical_rate + '%</td>' +
-                    '<td>' + r.confidence + '%</td>' +
-                    '<td>' + r.completeness + '%</td>' +
-                    '<td>' + r.consistency + '%</td>' +
-                    '<td>' + r.reports + '</td>' +
-                    '<td>' + (r.alerts > 0 ? '<span style="color:var(--accent-red);font-weight:600;">' + r.alerts + '</span>' : '0') + '</td>' +
-                '</tr>';
-            }).join('');
-
-            document.querySelectorAll('#rankingTable th.sortable').forEach(th => {
-                th.classList.remove('sort-asc', 'sort-desc');
-                if (th.dataset.col === col) th.classList.add(asc ? 'sort-asc' : 'sort-desc');
-            });
+            if (!_rankingDt) {
+                _rankingDt = new DataTable({ id: "rankingTable", pageSize: 25, defaultSort: "avg_score", defaultAsc: false });
+            }
+            _rankingDt.render([
+                { key: "rank", label: "#", width: "40px" },
+                { key: "name", label: "Hospital", render: r => "<strong>" + esc(r.name) + "</strong>", getValue: r => r.name },
+                { key: "avg_score", label: "Quality Score", render: r => scoreBadge(r.avg_score) },
+                { key: "trend_direction", label: "Trend", render: r => trendIcon(r.trend_direction), getValue: r => r.trend_direction === "up" ? 1 : r.trend_direction === "down" ? -1 : 0 },
+                { key: "avg_clinical_rate", label: "Clinical Rate", render: r => r.avg_clinical_rate + "%" },
+                { key: "confidence", label: "Confidence", render: r => confidenceBar(r.confidence) },
+                { key: "completeness", label: "Completeness", render: r => scoreBadge(r.completeness, { decimals: 0 }) },
+                { key: "consistency", label: "Consistency", render: r => scoreBadge(r.consistency, { decimals: 0 }) },
+                { key: "reports", label: "Reports", width: "60px" },
+                { key: 'alerts', label: 'Alerts', width: '60px', render: function(r) { var s = "color:var(--accent-red);font-weight:600;"; return r.alerts > 0 ? '<span style="' + s + '">' + r.alerts + '</span>' : '0'; } },
+            ], rankingData, { onRowClick: (row) => showHospitalScorecard(row.id) });
         }
 
-        document.addEventListener('click', function(e) {
-            const th = e.target.closest('#rankingTable th.sortable');
-            if (!th) return;
-            const col = th.dataset.col;
-            if (rankingSortCol === col) rankingSortAsc = !rankingSortAsc;
-            else { rankingSortCol = col; rankingSortAsc = false; }
-            renderRankingTable();
-        });
+        // DataTable handles its own sorting via click on headers
 
         // ── Hospital Scorecard ───────────────────────────────────
         export function showHospitalScorecard(hospitalId) {
