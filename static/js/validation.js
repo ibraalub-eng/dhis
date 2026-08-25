@@ -470,19 +470,30 @@ import { toastWarning } from './toast.js';
             const phM = '<option value="">' + __('All Months') + '</option>';
             hsel.innerHTML = phH;
             msel.innerHTML = phM;
-            apiGet('/hospitals/').then(data => {
-                const list = data.value || data || [];
+            // Load hospitals AND months in parallel
+            Promise.all([
+                apiGet('/hospitals/').catch(() => []),
+                apiGet('/analysis/months').catch(() => []),
+            ]).then(([hospData, monthsData]) => {
+                const list = hospData.value || hospData || [];
                 hsel.innerHTML = phH + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
+                // Always populate months from global list
+                const allMonths = Array.isArray(monthsData) ? monthsData : (monthsData.months || []);
+                if (allMonths.length) {
+                    msel.innerHTML = phM + allMonths.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                }
                 _restoreUIState('clinical');
+                // If a hospital was restored, filter months for it
                 if (hsel.value) {
-                    // Filter months for restored hospital
                     return apiGet('/config/month-settings?hospital_id=' + hsel.value).then(settings => {
                         const enabled = (settings.enabled_months || []).slice().sort();
-                        msel.innerHTML = phM + enabled.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                        if (enabled.length) {
+                            msel.innerHTML = phM + enabled.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                        }
+                        _restoreUIState('clinical');
                         if (hsel.value && msel.value) {
                             loadClinical();
                         } else if (hsel.value && enabled.length) {
-                            // لا يوجد شهر مستعاد → اختيار أحدث شهر متاح وعرضه تلقائياً
                             msel.value = enabled[enabled.length - 1];
                             loadClinical();
                         }
