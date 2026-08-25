@@ -360,6 +360,7 @@ function loadHospitalsSettings() {
                                     const label = context.dataset.label || '';
                                     const value = context.parsed.y;
                                     return label + ': ' + value.toFixed(1);
+            if (window.registerChart) window.registerChart(window._rcTimelineChartInstance);
                                 },
                                 afterBody: function(items) {
                                     const monthIndex = items[0].dataIndex;
@@ -1028,6 +1029,7 @@ function loadHospitalsSettings() {
                             scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
                         }
                     });
+            if (window.registerChart) window.registerChart(scorecardTrendInstance);
                 }
 
                 const ratesCtx = document.getElementById('scorecardRatesChart');
@@ -1117,6 +1119,7 @@ function loadHospitalsSettings() {
                             }
                         }
                     });
+            if (window.registerChart) window.registerChart(scorecardRatesInstance);
                 }
             }).catch(e => {
                 document.getElementById('modalBody').innerHTML = '<p style="color:var(--accent-red);">Error: ' + e.message + '</p>';
@@ -1174,6 +1177,7 @@ function loadHospitalsSettings() {
                         scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
                     }
                 });
+            if (window.registerChart) window.registerChart(trendChartInstance);
 
                 // Confidence distribution (donut)
                 if (confidenceChartInstance) confidenceChartInstance.destroy();
@@ -1196,6 +1200,7 @@ function loadHospitalsSettings() {
                         plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } }
                     }
                 });
+            if (window.registerChart) window.registerChart(confidenceChartInstance);
 
                 // Radar chart (quality components)
                 if (radarChartInstance) radarChartInstance.destroy();
@@ -1222,6 +1227,7 @@ function loadHospitalsSettings() {
                         plugins: { legend: { display: false } }
                     }
                 });
+            if (window.registerChart) window.registerChart(radarChartInstance);
 
                 if (data.quality_trend && data.quality_trend.length) {
                     const vals = data.quality_trend.map(d => d.score);

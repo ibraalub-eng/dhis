@@ -87,3 +87,48 @@ const ciBandPlugin = {
 if (typeof window !== 'undefined') {
   window.ciBandPlugin = ciBandPlugin;
 }
+
+// ── Chart Registry: tracks all Chart.js instances for theme refresh ──────
+const _chartRegistry = new Set();
+
+window.registerChart = function(chartInstance) {
+  _chartRegistry.add(chartInstance);
+};
+
+window.unregisterChart = function(chartInstance) {
+  _chartRegistry.delete(chartInstance);
+};
+
+window.refreshAllCharts = function() {
+  // Update CHART_COLORS from CSS variables
+  if (window.__refreshChartColors) window.__refreshChartColors();
+  // Update Plotly charts (smart analytics)
+  document.querySelectorAll('.js-plotly-plot, [id*="smart-"]').forEach(el => {
+    if (el.__plotly && typeof Plotly !== 'undefined') {
+      const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#94a3b8';
+      const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--border-default').trim() || '#334155';
+      Plotly.relayout(el, {
+        'font.color': textColor,
+        'xaxis.gridcolor': gridColor,
+        'yaxis.gridcolor': gridColor,
+        'paper.bgcolor': 'rgba(0,0,0,0)',
+        'plot.bgcolor': 'rgba(0,0,0,0)',
+      });
+    }
+  });
+  // Destroy and recreate Chart.js instances with new colors
+  _chartRegistry.forEach(chart => {
+    try {
+      if (chart && chart.canvas && chart.canvas.parentNode) {
+        const canvas = chart.canvas;
+        const parent = chart.canvas.parentNode;
+        const id = chart.canvas.id;
+        chart.destroy();
+        _chartRegistry.delete(chart);
+        // Dispatch event so owners can recreate
+        const evt = new CustomEvent('chartThemeChanged', { detail: { id, parent } });
+        document.dispatchEvent(evt);
+      }
+    } catch(e) { /* ignore */ }
+  });
+};
