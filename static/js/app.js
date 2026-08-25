@@ -5,7 +5,7 @@ import { confirmImport, cancelPreview, displayResults, filterPriorityTable, filt
 import { loadOutliers, loadRuleFailures } from './outliers.js';
 import { loadAlerts, updateAlertBadge } from './alerts.js';
 import { refreshSavedFiles, toggleAllSaved, analyzeSelectedSaved, analyzeSingleSaved, deleteSelectedSaved } from './saved_files.js';
-import { loadAllSettings, saveAllSettings, reanalyzeAll, showSettingsTab, saveAiSettings, loadAiSettings, onAiProviderChange, loadRulesManager, initRootCause, initDashboard, loadRootCause, loadDashboard, saveControlSettings, updateWeightDisplay, updateCfgDisplay, updateCfgVal, loadRankingTable, showHospitalScorecard, closeScorecard, goRootCause, renderRcTimelineChart } from './settings.js';
+import { loadAllSettings, saveAllSettings, reanalyzeAll, showSettingsTab, saveAiSettings, loadAiSettings, onAiProviderChange, loadRulesManager, initRootCause, initDashboard, loadRootCause, loadDashboard, updateWeightDisplay, updateCfgDisplay, updateCfgVal, loadRankingTable, showHospitalScorecard, closeScorecard, goRootCause, renderRcTimelineChart } from './settings.js';
 import { initTrends, initCompare, filterComparison, loadClinical, initClinical, openRootCauseForHospital, loadTrends, loadComparison, loadMLClusters, switchAnalysisMode, initAnalysis } from './validation.js';        import { runAnalysis, applyReportFilter, openBatchDetail, showRuleFailureDetail, showModal, closeModal } from './clinical.js';
 import { expandAllTree, collapseAllTree, initIndicatorTree, loadIndicatorTree, saveTreeConfig, esc } from './tree.js';
 import { _vbDragStart, _vbDragOver, _vbDragEnter, _vbDragLeave, _vbDrop, _vbRemoveFromZone, _vbOnPaletteSearch, _vbOnThresholdChange, _vbOnZThresholdChange, _vbOnFactorChange, ruleExprTemplate, toggleExprHelp, openRuleModal, closeRuleModal, saveRule, deleteRule } from './rules.js';
@@ -53,7 +53,6 @@ window.reanalyzeAll = reanalyzeAll;
 window.showSettingsTab = showSettingsTab;
 window.saveAiSettings = saveAiSettings;
 window.loadAiSettings = loadAiSettings;
-window.saveControlSettings = saveControlSettings;
 window.updateWeightDisplay = updateWeightDisplay;
 window.updateCfgDisplay = updateCfgDisplay;
 window.updateCfgVal = updateCfgVal;
