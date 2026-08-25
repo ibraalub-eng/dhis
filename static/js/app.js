@@ -113,6 +113,11 @@ window.downloadAuditJSON = downloadAuditJSON;
 window.downloadAuditCSV = downloadAuditCSV;
 window.loadHospitalsTab = loadHospitalsTab;
 
+window.updateBreadcrumb = updateBreadcrumb;
+window.skeletonCard = skeletonCard;
+window.skeletonTable = skeletonTable;
+window.skeletonChart = skeletonChart;
+
 // Bootstrap
 document.addEventListener('DOMContentLoaded', async () => {
   try {

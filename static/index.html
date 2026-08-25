@@ -163,7 +163,14 @@
                 <div class="tab" data-tab="smart-analytics" role="tab" aria-selected="false" aria-controls="tab-smart-analytics" tabindex="-1" style="color:var(--accent-blue);font-weight:600;" data-requires="smart_analytics.read">التحليل الذكي</div>
             </div>
 
-            <!-- Dashboard Tab -->
+                    <!-- Breadcrumb Navigation -->
+        <div id="breadcrumb" class="breadcrumb-bar" role="navigation" aria-label="breadcrumb">
+            <a class="bc-link" onclick="switchTab('dashboard')">&#x1F3E0; Dashboard</a>
+            <span class="bc-sep">&#x25B8;</span>
+            <span class="bc-current" id="bcCurrent">Dashboard</span>
+        </div>
+
+<!-- Dashboard Tab -->
         <div id="tab-dashboard" class="tab-content active" data-loaded="false" role="tabpanel" aria-labelledby="tab-dashboard" data-src="/static/tabs/dashboard.html">
         </div>
 
@@ -276,6 +283,14 @@
                     <button class="btn btn-sm" onclick="saveRule()">Save Rule</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Global Search (Ctrl+K) -->
+    <div id="searchOverlay" class="search-overlay" role="dialog" aria-label="Search">
+        <div class="search-box">
+            <input id="searchInput" type="text" placeholder="Search tabs, settings, hospitals..." autocomplete="off">
+            <div id="searchResults" class="search-results"></div>
         </div>
     </div>
 
