@@ -588,8 +588,13 @@ class CachedStaticFiles(StaticFiles):
         if path.endswith(".html"):
             response.headers["Cache-Control"] = "no-store"
         else:
-            # JS, CSS, images, fonts — cache for 1 year (invalidated by ?v=)
-            response.headers["Cache-Control"] = "public, max-age=31536000"
+            # JS modules imported inside other JS (e.g. hospitals.js via app.js)
+            # never get ?v= cache-busting, so we use no-cache to force revalidation.
+            # Static assets referenced in HTML get ?v= so they ARE fully cached.
+            if path.endswith(".js"):
+                response.headers["Cache-Control"] = "public, no-cache, must-revalidate"
+            else:
+                response.headers["Cache-Control"] = "public, max-age=31536000"
         return response
 
 
