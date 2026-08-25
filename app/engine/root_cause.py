@@ -375,22 +375,70 @@ def get_peer_historical_data(
 
     Returns dict of {hospital_name: [MonthDataPoint, ...]}
     """
+    import logging as _log
+    _dbg = _log.getLogger("peer_debug")
+
     hosp = session.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hosp or not hosp.hospital_type_id:
+    if not hosp:
+        _dbg.warning("Hospital %s not found", hospital_id)
         return {}
 
-    peers = session.query(Hospital.id, Hospital.name).filter(
-        Hospital.hospital_type_id == hosp.hospital_type_id,
-        Hospital.id != hospital_id,
-        Hospital.is_active.is_(True),
-    )
+    # Try peer matching with fallback strategies
+    peer_query = None
+    strategy = "none"
+
+    # 1. Same hospital_type_id
+    if hosp.hospital_type_id:
+        peer_query = session.query(Hospital.id, Hospital.name).filter(
+            Hospital.hospital_type_id == hosp.hospital_type_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        )
+        strategy = "type_id=%s" % hosp.hospital_type_id
+
+    # 2. Fallback: same facility_ownership_id
+    if not peer_query and hosp.facility_ownership_id:
+        peer_query = session.query(Hospital.id, Hospital.name).filter(
+            Hospital.facility_ownership_id == hosp.facility_ownership_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        )
+        strategy = "ownership_id=%s" % hosp.facility_ownership_id
+
+    # 3. Fallback: same governorate
+    if not peer_query and hosp.governorate_id:
+        peer_query = session.query(Hospital.id, Hospital.name).filter(
+            Hospital.governorate_id == hosp.governorate_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        )
+        strategy = "governorate_id=%s" % hosp.governorate_id
+
+    # 4. Last resort: all other active hospitals
+    if not peer_query:
+        peer_query = session.query(Hospital.id, Hospital.name).filter(
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        )
+        strategy = "all_active"
+
+    peer_ids = [p[0] for p in peer_query.all()]
+    _dbg.info("Hospital %s (%s) peers strategy=%s found=%d ids=%s",
+              hospital_id, hosp.name, strategy, len(peer_ids), peer_ids)
 
     peer_data = {}
-    for peer in peers:
-        history = get_historical_data(session, peer[0], indicator_code, months_back, month=month)
-        if history:
-            peer_data[peer[1]] = history
+    for pid, pname in [(p[0], p[1]) for p in session.query(Hospital.id, Hospital.name).filter(Hospital.id.in_(peer_ids)).all()]:
+        try:
+            history = get_historical_data(session, pid, indicator_code, months_back, month=month)
+            if history:
+                peer_data[pname] = history
+                _dbg.info("  Peer %s (%s): %d months of data", pid, pname, len(history))
+            else:
+                _dbg.info("  Peer %s (%s): no data for indicator %s", pid, pname, indicator_code)
+        except Exception as e:
+            _dbg.error("  Peer %s (%s) ERROR: %s", pid, pname, e)
 
+    _dbg.info("Total peers with data: %d / %d for indicator %s", len(peer_data), len(peer_ids), indicator_code)
     return peer_data
 
 

@@ -348,8 +348,11 @@ function loadHospitalsSettings() {
                 const avgPeers = withPeer.length
                     ? Math.round(withPeer.reduce((a, p) => a + (p.peer_count || 0), 0) / withPeer.length)
                     : 0;
-                textEl.textContent = 'الخط الصلب: قيمة المستشفى شهراً بشهر. الخط المتقطع: متوسط النظير. النطاق المظلل: فاصل ثقة 95% حول متوسط النظير.'
-                    + (avgPeers ? ` متوسط عدد النظير في الشهر: ${avgPeers} مستشفى.` : '');
+                if (avgPeers > 0) {
+                    textEl.innerHTML = 'الخط الصلب: قيمة المستشفى شهراً بشهر. الخط المتقطع: متوسط النظير. النطاق المظلل: فاصل ثقة 95% حول متوسط النظير. <strong>متوسط عدد النظير: ' + avgPeers + ' مستشفى</strong>';
+                } else {
+                    textEl.innerHTML = '⚠️ لا توجد بيانات نظير لهذا المستشفى. تم عرض قيمة المستشفى فقط. للمقارنة بالنظير, يجب تحديد حسب المستشفى بعمود معلومات النوع (نوع/الملكية/المحافظة).';
+                }
             }
         }
 
