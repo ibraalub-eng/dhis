@@ -203,8 +203,8 @@ def _compute_smart_data(db, month: str) -> dict:
     Always creates its own session (SessionLocal) to avoid
     issues with request-scoped sessions closing prematurely.
     """
-    from app.database import SessionLocal, engine as _eng
-    bg_db = SessionLocal(bind=_eng)
+    from app.database import SessionLocal
+    bg_db = SessionLocal()
     try:
         logger.info(f"[smart] Starting computation for {month}...")
         try:
@@ -212,6 +212,7 @@ def _compute_smart_data(db, month: str) -> dict:
             logger.info(f"[smart] Computation result for {month}: hospitals={result.hospitals_count} anomalies={len(result.anomalies)} clusters={len(result.clustering.clusters) if result.clustering else 0}")
         except Exception as e:
             logger.error(f"[smart] Computation FAILED for {month}: {e}", exc_info=True)
+            _compute_locks.pop(month, None)
             return
         response = _envelope(result)
 
@@ -243,6 +244,7 @@ def _compute_smart_data(db, month: str) -> dict:
         logger.info(f"[smart] Computation complete for {month} — cached for 30min")
         return response
     finally:
+        _compute_locks.pop(month, None)
         bg_db.close()
 
 
