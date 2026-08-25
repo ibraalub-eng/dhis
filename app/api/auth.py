@@ -126,6 +126,34 @@ def me(user=Depends(get_current_user)):
     }
 
 
+class ProfileUpdateRequest(BaseModel):
+    full_name: str = ""
+    email: str = ""
+
+
+@router.put("/me")
+def update_own_profile(req: ProfileUpdateRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Logged-in user updates their own profile (full name, email)."""
+    if req.full_name:
+        user.full_name = req.full_name.strip()
+    if req.email:
+        email = req.email.strip().lower()
+        # Check uniqueness
+        existing = db.query(User).filter(User.email == email, User.id != user.id).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already in use by another user")
+        user.email = email
+    db.commit()
+    db.refresh(user)
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "full_name": user.full_name,
+        "message": "Profile updated successfully"
+    }
+
+
 class SelfPasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str

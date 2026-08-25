@@ -970,6 +970,26 @@
 
                     <!-- Account / Change Password -->
                     <div id="settings-account" class="settings-section" style="display:none;">
+                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.8rem;">👤 My Profile</h3>
+                        <div style="max-width:450px;margin-bottom:1.5rem;">
+                            <div style="background:var(--bg-elevated);padding:1rem;border-radius:8px;border:1px solid var(--border-default);">
+                                <div style="margin-bottom:0.8rem;">
+                                    <label style="font-size:0.82rem;font-weight:600;">Username</label>
+                                    <input id="selfUsername" type="text" disabled style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;margin-top:0.3rem;background:var(--bg-surface-hover);color:var(--text-muted);">
+                                </div>
+                                <div style="margin-bottom:0.8rem;">
+                                    <label style="font-size:0.82rem;font-weight:600;">Full Name</label>
+                                    <input id="selfFullName" type="text" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;margin-top:0.3rem;" placeholder="Your full name">
+                                </div>
+                                <div style="margin-bottom:0.8rem;">
+                                    <label style="font-size:0.82rem;font-weight:600;">Email</label>
+                                    <input id="selfEmail" type="email" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;margin-top:0.3rem;" placeholder="your@email.com">
+                                </div>
+                                <div id="selfProfileError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                                <div id="selfProfileSuccess" style="display:none;color:#2e7d32;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                                <button class="btn" onclick="saveSelfProfile()" style="background:var(--accent-blue);color:white;">Save Profile</button>
+                            </div>
+                        </div>
                         <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.8rem;">🔑 Change Your Password</h3>
                         <div style="max-width:450px;">
                             <div style="background:var(--bg-elevated);padding:1rem;border-radius:8px;border:1px solid var(--border-default);">

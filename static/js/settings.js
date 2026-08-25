@@ -132,13 +132,67 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             });
             if (name === 'ai') loadAiSettings();
             if (name === 'hospitals') loadHospitalsSettings();
+            if (name === 'account') loadSelfProfile();
         }
 
 
 
         
         // Self password change
-        window.changeSelfPassword = async function() {
+        window.loadSelfProfile = async function() {
+    try {
+        var token = getAccessToken();
+        var resp = await fetch(API() + '/auth/me', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        if (!resp.ok) throw new Error('Failed to load profile');
+        var data = await resp.json();
+        var unEl = document.getElementById('selfUsername');
+        var nameEl = document.getElementById('selfFullName');
+        var emailEl = document.getElementById('selfEmail');
+        if (unEl) unEl.value = data.username || '';
+        if (nameEl) nameEl.value = data.full_name || '';
+        if (emailEl) emailEl.value = data.email || '';
+    } catch(e) {
+        console.error('loadSelfProfile error:', e);
+    }
+};
+
+window.saveSelfProfile = async function() {
+    var nameEl = document.getElementById('selfFullName');
+    var emailEl = document.getElementById('selfEmail');
+    var errEl = document.getElementById('selfProfileError');
+    var okEl = document.getElementById('selfProfileSuccess');
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+    var fullName = nameEl ? nameEl.value.trim() : '';
+    var email = emailEl ? emailEl.value.trim() : '';
+    if (!fullName) { errEl.textContent = 'Full name is required'; errEl.style.display = 'block'; return; }
+    if (!email) { errEl.textContent = 'Email is required'; errEl.style.display = 'block'; return; }
+    if (!/^[^@s]+@[^@s]+.[^@s]+$/.test(email)) { errEl.textContent = 'Invalid email format'; errEl.style.display = 'block'; return; }
+    try {
+        var token = getAccessToken();
+        var resp = await fetch(API() + '/auth/me', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ full_name: fullName, email: email })
+        });
+        var data = await resp.json();
+        if (!resp.ok) { errEl.textContent = data.detail || 'Failed to update profile'; errEl.style.display = 'block'; return; }
+        okEl.textContent = '✓ Profile updated successfully!';
+        okEl.style.display = 'block';
+        // Update stored user data
+        var stored = JSON.parse(localStorage.getItem('user') || '{}');
+        stored.full_name = data.full_name;
+        stored.email = data.email;
+        localStorage.setItem('user', JSON.stringify(stored));
+    } catch(e) {
+        errEl.textContent = 'Network error: ' + e.message;
+        errEl.style.display = 'block';
+    }
+};
+
+window.changeSelfPassword = async function() {
             var currentEl = document.getElementById('selfPwCurrent');
             var newEl = document.getElementById('selfPwNew');
             var confirmEl = document.getElementById('selfPwConfirm');
