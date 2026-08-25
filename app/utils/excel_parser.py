@@ -360,14 +360,17 @@ def normalize_data(df: pd.DataFrame) -> List[Dict]:
                     numeric_val = float(val)
                 except (ValueError, TypeError):
                     numeric_val = None
-            records.append(
-                {
+            rec = {
                     "hospital_name": hospital_name,
                     "indicator_code": code,
                     "month": month,
                     "value": numeric_val,
                 }
-            )
+            # Include org ID if column exists
+            raw_org = row.get("organisationunitid", row.get("OrganisationUnitID", ""))
+            if not pd.isna(raw_org) and str(raw_org).strip():
+                rec["organisation_unit_id"] = str(raw_org).strip()
+            records.append(rec)
     if not records:
         logger.warning(
             "No data records extracted. DataFrame shape: %s, Columns: %s",
@@ -377,21 +380,59 @@ def normalize_data(df: pd.DataFrame) -> List[Dict]:
 
 
 def import_data_to_db(records: List[Dict], session: Session, source_file: str = "") -> Tuple[int, int]:
-    hospitals_cache = {}
+    import re as _re
+    hospitals_cache = {}  # name -> id
+    org_id_cache = {}     # org_id -> id
+    fuzzy_cache = {}      # normalized_name -> Hospital
     indicators_cache = {}
     for ind in session.query(Indicator).all():
         indicators_cache[ind.code] = ind.id
     for hosp in session.query(Hospital).all():
         hospitals_cache[hosp.name] = hosp.id
+        if hosp.organisation_unit_id:
+            org_id_cache[str(hosp.organisation_unit_id).strip()] = hosp.id
+        # Build fuzzy lookup: lowercase, strip spaces/punctuation
+        normalized = _re.sub(r'[\s/\-]+', ' ', hosp.name.lower().strip())
+        fuzzy_cache[normalized] = hosp
+
+    def _find_hospital(name, org_id=None):
+        """Find hospital by org ID first, then exact name, then fuzzy match."""
+        # 1. Try org ID match
+        if org_id:
+            oid = str(org_id).strip()
+            if oid in org_id_cache:
+                return org_id_cache[oid]
+        # 2. Try exact name match
+        if name in hospitals_cache:
+            return hospitals_cache[name]
+        # 3. Try fuzzy name match
+        normalized = _re.sub(r'[\s/\-]+', ' ', name.lower().strip())
+        if normalized in fuzzy_cache:
+            h = fuzzy_cache[normalized]
+            hospitals_cache[name] = h.id  # cache for next time
+            return h.id
+        # 4. Try partial match
+        for fn, h in fuzzy_cache.items():
+            if normalized in fn or fn in normalized:
+                hospitals_cache[name] = h.id
+                return h.id
+        return None
+
     new_hospitals = 0
     processed = 0
     for rec in records:
         hosp_name = rec["hospital_name"]
-        if hosp_name not in hospitals_cache:
-            hosp = Hospital(name=hosp_name)
+        org_id = rec.get("organisation_unit_id", "")
+        hosp_id = _find_hospital(hosp_name, org_id)
+        if hosp_id is None:
+            hosp = Hospital(name=hosp_name, organisation_unit_id=str(org_id).strip() if org_id else None)
             session.add(hosp)
             session.flush()
             hospitals_cache[hosp_name] = hosp.id
+            if org_id:
+                org_id_cache[str(org_id).strip()] = hosp.id
+            normalized = _re.sub(r'[\s/\-]+', ' ', hosp_name.lower().strip())
+            fuzzy_cache[normalized] = hosp
             new_hospitals += 1
         indicator_code = rec["indicator_code"]
         if indicator_code not in indicators_cache:
