@@ -180,3 +180,95 @@ def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error saving AI settings: {str(e)}")
+
+
+@router.get("/database/preview")
+def preview_database_tables(db: Session = Depends(get_db)):
+    """List all tables with column info, row counts, and first 5 rows of preview data."""
+    from sqlalchemy import inspect as sa_inspect, text
+    try:
+        inspector = sa_inspect(db.get_bind())
+        tables = []
+        for table_name in sorted(inspector.get_table_names()):
+            columns = [col["name"] for col in inspector.get_columns(table_name)]
+            pk_cols = [col["name"] for col in inspector.get_pk_constraint(table_name).get("constrained_columns", [])]
+            # Count rows
+            try:
+                count = db.execute(text(f'SELECT COUNT(*) FROM "{table_name}"')).scalar() or 0
+            except Exception:
+                count = -1  # unknown
+            # Preview first 5 rows
+            preview = []
+            if count > 0:
+                try:
+                    rows = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT 5')).fetchall()
+                    for row in rows:
+                        row_dict = {}
+                        for i, col in enumerate(columns):
+                            val = row[i] if i < len(row) else None
+                            # Convert non-serializable types to string
+                            if val is not None and not isinstance(val, (int, float, str, bool)):
+                                val = str(val)
+                            row_dict[col] = val
+                        preview.append(row_dict)
+                except Exception:
+                    pass
+            tables.append({
+                "name": table_name,
+                "columns": columns,
+                "primary_keys": pk_cols,
+                "row_count": count,
+                "preview": preview,
+            })
+        return {"tables": tables, "total_tables": len(tables)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error previewing database: {str(e)}")
+
+
+@router.get("/database/export")
+def export_database(db: Session = Depends(get_db)):
+    """Export all tables and all data as JSON."""
+    from sqlalchemy import inspect as sa_inspect, text
+    from fastapi.responses import StreamingResponse
+    import json, datetime
+    try:
+        inspector = sa_inspect(db.get_bind())
+        export = {
+            "exported_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "engine": str(db.get_bind().url).split("@")[-1] if "@" in str(db.get_bind().url) else str(db.get_bind().url),
+            "tables": {},
+        }
+        total_rows = 0
+        for table_name in sorted(inspector.get_table_names()):
+            columns = [col["name"] for col in inspector.get_columns(table_name)]
+            try:
+                rows = db.execute(text(f'SELECT * FROM "{table_name}"')).fetchall()
+            except Exception:
+                rows = []
+            data = []
+            for row in rows:
+                row_dict = {}
+                for i, col in enumerate(columns):
+                    val = row[i] if i < len(row) else None
+                    if val is not None and not isinstance(val, (int, float, str, bool)):
+                        val = str(val)
+                    row_dict[col] = val
+                data.append(row_dict)
+            export["tables"][table_name] = {
+                "columns": columns,
+                "row_count": len(data),
+                "rows": data,
+            }
+            total_rows += len(data)
+        export["total_tables"] = len(export["tables"])
+        export["total_rows"] = total_rows
+        # Return as downloadable JSON
+        content_str = json.dumps(export, ensure_ascii=False, indent=2, default=str)
+        filename = "database_export_{}.json".format(datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S"))
+        return StreamingResponse(
+            iter([content_str]),
+            media_type="application/json",
+            headers={"Content-Disposition": f"attachment; filename={filename}"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error exporting database: {str(e)}")
