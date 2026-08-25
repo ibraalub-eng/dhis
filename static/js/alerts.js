@@ -61,7 +61,7 @@
                 let hhtml = '';
                 topH.forEach(h => {
                     const pct = (h.alert_count / maxCount * 100).toFixed(0);
-                    const barColor = h.alert_count >= 10 ? '#c62828' : '#e65100';
+                    const barColor = h.alert_count >= 10 ? 'var(--accent-red)' : 'var(--accent-orange)';
                     hhtml += '<div style="display:flex;align-items:center;gap:0.5rem;margin:0.3rem 0;">' +
                         '<span style="min-width:100px;font-size:0.78rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital) + '">' + esc(h.hospital) + '</span>' +
                         '<div style="flex:1;height:16px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +

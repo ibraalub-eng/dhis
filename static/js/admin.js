@@ -296,6 +296,72 @@ window._adminAssignHospitals = function(id, btn) {
               <p style="color:var(--text-muted);font-size:0.82rem;">Click Preview Tables to load.</p>
             </div>
           </div>
+        <!-- Control Tab -->
+        <div id="adminControlPanel" style="display:none;">
+          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Analysis Control</h2>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Configure analysis behavior, logging, and month toggles.</p>
+          <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
+            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
+                Controls how null/missing indicator values are handled during analysis and in the indicator tree.
+            </div>
+            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;">
+                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="cfg_auto_disable_null" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                    <div>
+                        <strong>Auto-disable null indicators</strong><br>
+                        <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, indicators with null values are treated as disabled.</span>
+                    </div>
+                </label>
+            </div>
+            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="cfg_structured_logging" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                    <div>
+                        <strong>Structured Logging</strong><br>
+                        <span style="font-size:0.8rem;color:var(--text-secondary);">Log all HTTP requests as JSON to stdout.</span>
+                    </div>
+                </label>
+                <div style="margin-top:0.6rem;">
+                    <span id="controlSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+                </div>
+            </div>
+            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="cfg_slow_query_logging" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                    <div>
+                        <strong>Slow Query Logging</strong><br>
+                        <span style="font-size:0.8rem;color:var(--text-secondary);">Log SQL queries taking over 1 second.</span>
+                    </div>
+                </label>
+            </div>
+            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="cfg_dev_hints" onchange="adminToggleDevHints(this.checked)" style="margin-top:0.2rem;width:18px;height:18px;">
+                    <div>
+                        <strong>Show Developer Hints</strong><br>
+                        <span style="font-size:0.8rem;color:var(--text-secondary);">Display source code references below each setting control.</span>
+                    </div>
+                </label>
+            </div>
+          </div>
+          <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);margin-top:1rem;">
+            <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Analysis Months</h3>
+            <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.8rem;">Toggle months on/off per hospital.</p>
+            <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.8rem;">
+                <label style="font-size:0.78rem;color:var(--text-secondary);">Hospital:</label>
+                <select id="monthHospitalSelect" onchange="onMonthHospitalChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"></select>
+            </div>
+            <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;">
+                <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(true)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Enable All</button>
+                <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(false)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Disable All</button>
+                <button class="btn btn-sm" onclick="adminSaveAllMonthSettings()" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Save</button>
+            </div>
+            <div id="monthToggleList" style="display:flex;flex-wrap:wrap;gap:0.5rem;"></div>
+            <div style="margin-top:0.5rem;">
+                <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+            </div>
+          </div>
+        </div>
         </div>
       </div>
     `;
@@ -677,6 +743,143 @@ window._adminAssignHospitals = function(id, btn) {
     fetch("/config/database/export").then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);var d=r.headers.get("Content-Disposition")||"";var m=d.match(/filename=\"?([^"]+)\"?/);return r.blob().then(function(b){return{blob:b,filename:m?m[1]:"export.json"};});}).then(function(r){
       var u=URL.createObjectURL(r.blob);var a=document.createElement("a");a.href=u;a.download=r.filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);if(s)s.textContent="Downloaded: "+r.filename;
     }).catch(function(e){if(s)s.textContent="Failed: "+e.message;}).finally(function(){if(btn)btn.disabled=false;});
+  };
+
+  // -- Control Settings Functions --
+  async function adminLoadControlSettings() {
+    try {
+      var data = await api("/config/control/settings");
+      if (data && !data._error) {
+        var cb = document.getElementById("cfg_auto_disable_null");
+        if (cb) cb.checked = !!data.auto_disable_null_indicators;
+        var logCb = document.getElementById("cfg_structured_logging");
+        if (logCb) logCb.checked = data.structured_logging_enabled !== false;
+        var sqCb = document.getElementById("cfg_slow_query_logging");
+        if (sqCb) sqCb.checked = data.slow_query_logging_enabled !== false;
+      }
+    } catch(e) {}
+    var enabled = localStorage.getItem("dev_hints_enabled") !== "false";
+    window._showDevHints = enabled;
+    var dhCb = document.getElementById("cfg_dev_hints");
+    if (dhCb) dhCb.checked = enabled;
+    adminLoadMonthToggles();
+  }
+  window.adminSaveControlSettings = function() {
+    var cb = document.getElementById("cfg_auto_disable_null");
+    var logCb = document.getElementById("cfg_structured_logging");
+    var sqCb = document.getElementById("cfg_slow_query_logging");
+    var val = cb ? cb.checked : false;
+    var logVal = logCb ? logCb.checked : true;
+    var sqVal = sqCb ? sqCb.checked : true;
+    var status = document.getElementById("controlSaveStatus");
+    if (status) { status.textContent = "Saving..."; status.style.color = "var(--accent-blue)"; }
+    api("/config/control/settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        auto_disable_null_indicators: val ? "true" : "false",
+        structured_logging_enabled: logVal ? "true" : "false",
+        slow_query_logging_enabled: sqVal ? "true" : "false"
+      })
+    }).then(function() {
+      if (status) { status.textContent = "✓ Saved"; status.style.color = "var(--accent-green)"; }
+    }).catch(function(e) {
+      if (status) { status.textContent = "✗ Error: " + e.message; status.style.color = "var(--accent-red)"; }
+    });
+  };
+  window.adminToggleDevHints = function(show) {
+    window._showDevHints = show;
+    localStorage.setItem("dev_hints_enabled", show ? "true" : "false");
+  };
+  async function adminLoadMonthToggles() {
+    try {
+      var hospitals = await api("/hospitals/");
+      var list = hospitals.filter(function(h) { return h.is_active !== false; });
+      var sel = document.getElementById("monthHospitalSelect");
+      if (list.length === 0 || !sel) return;
+      sel.innerHTML = list.map(function(h) { return "<option value=\"" + h.id + "\">" + h.name + "</option>"; }).join("");
+      var prevId = window._monthHospitalId;
+      if (prevId && list.some(function(h) { return h.id === prevId; })) {
+        sel.value = prevId;
+      } else {
+        window._monthHospitalId = list[0].id;
+        sel.value = list[0].id;
+      }
+      adminLoadMonthTogglesForHospital(parseInt(sel.value));
+    } catch(e) {}
+  }
+  async function adminLoadMonthTogglesForHospital(hospitalId) {
+    window._monthHospitalId = hospitalId;
+    try {
+      var months = await api("/analysis/months");
+      window._monthList = months;
+      try {
+        var settings = await api("/config/month-settings?hospital_id=" + hospitalId);
+        var enabled = Array.isArray(settings.enabled_months) ? settings.enabled_months : months;
+        window._monthSettings = {};
+        months.forEach(function(m) { window._monthSettings[m] = enabled.indexOf(m) >= 0; });
+      } catch(e2) {
+        window._monthSettings = {};
+        months.forEach(function(m) { window._monthSettings[m] = true; });
+      }
+      adminRenderMonthToggles();
+    } catch(e) {}
+  }
+  window.onMonthHospitalChange = function() {
+    var sel = document.getElementById("monthHospitalSelect");
+    if (sel && sel.value) adminLoadMonthTogglesForHospital(parseInt(sel.value));
+  };
+  window.onMonthToggleChange = function(month, checked) {
+    window._monthSettings[month] = checked;
+    adminRenderMonthToggles();
+  };
+  function adminRenderMonthToggles() {
+    var container = document.getElementById("monthToggleList");
+    if (!container || !window._monthList) return;
+    container.innerHTML = window._monthList.map(function(m) {
+      var enabled = window._monthSettings[m];
+      var bg = enabled ? "var(--severity-success-bg)" : "var(--severity-critical-bg)";
+      var border = enabled ? "var(--accent-green)" : "var(--accent-red)";
+      var label = enabled ? "Enabled" : "Disabled";
+      var icon = enabled ? "✓" : "✗";
+      return "<label style=\"display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.6rem;background:" + bg + ";border:1px solid " + border + ";border-radius:4px;cursor:pointer;font-size:0.82rem;\">" +
+        "<input type=\"checkbox\" value=\"" + m + "\" " + (enabled ? "checked" : "") + " onchange=\"onMonthToggleChange('" + m + "', this.checked)\" style=\"width:14px;height:14px;\">" +
+        "<span>" + m + "</span>" +
+        "<span style=\"font-size:0.65rem;color:" + (enabled ? "var(--accent-green)" : "var(--accent-red)") + ";font-weight:600;\">" + icon + " " + label + "</span></label>";
+    }).join("");
+  }
+  window.toggleAllAnalysisMonths = function(enabled) {
+    for (var m in window._monthSettings) {
+      window._monthSettings[m] = enabled;
+    }
+    adminRenderMonthToggles();
+  };
+  window.adminSaveAllMonthSettings = function() {
+    var hospitalId = window._monthHospitalId;
+    if (!hospitalId) {
+      var st = document.getElementById("monthSaveStatus");
+      if (st) { st.textContent = "✗ No hospital selected"; st.style.color = "var(--accent-red)"; }
+      return;
+    }
+    var st = document.getElementById("monthSaveStatus");
+    if (st) { st.textContent = "Saving..."; st.style.color = "var(--accent-blue)"; }
+    var promises = [];
+    for (var m in window._monthSettings) {
+      promises.push(api("/config/month-settings", {
+        method: "PUT",
+        body: JSON.stringify({ month: m, enabled: window._monthSettings[m], hospital_id: hospitalId })
+      }));
+    }
+    Promise.all(promises).then(function() {
+      if (st) {
+        var enabledCount = Object.values(window._monthSettings).filter(Boolean).length;
+        var totalCount = Object.keys(window._monthSettings).length;
+        st.textContent = "✓ Saved — " + enabledCount + "/" + totalCount + " months enabled";
+        st.style.color = "var(--accent-green)";
+        setTimeout(function() { st.textContent = ""; }, 5000);
+      }
+    }).catch(function(e) {
+      if (st) { st.textContent = "✗ Error: " + e.message; st.style.color = "var(--accent-red)"; }
+    });
   };
 
   // Close button for DB preview

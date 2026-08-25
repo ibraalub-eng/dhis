@@ -342,7 +342,7 @@
                     if (s.key_findings && s.key_findings.length) {
                         html += '<div style="margin:0.2rem 0;">';
                         s.key_findings.forEach(f => {
-                            html += '<div style="font-size:0.74rem;color:#555;padding:0.05rem 0;padding-left:0.6rem;">▸ ' + esc(f) + '</div>';
+                            html += '<div style="font-size:0.74rem;color:var(--text-secondary);padding:0.05rem 0;padding-left:0.6rem;">▸ ' + esc(f) + '</div>';
                         });
                         html += '</div>';
                     }
@@ -372,7 +372,7 @@
                         }
                         if (mp.mortality_preventability_signals?.length) {
                             mp.mortality_preventability_signals.forEach(sig => {
-                                html += '<div style="color:#555;padding:0.05rem 0;">⚠ ' + esc(sig) + '</div>';
+                                html += '<div style="color:var(--text-secondary);padding:0.05rem 0;">⚠ ' + esc(sig) + '</div>';
                             });
                         }
                         html += '</div>';
@@ -390,7 +390,7 @@
                             html += '<span style="font-size:0.65rem;font-weight:600;color:' + pColor + ';text-transform:uppercase;">' + rec.priority + '</span>';
                             html += '</div>';
                             if (rec.description) {
-                                html += '<div style="font-size:0.72rem;color:#555;margin:0.1rem 0;">' + esc(rec.description) + '</div>';
+                                html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin:0.1rem 0;">' + esc(rec.description) + '</div>';
                             }
                             if (rec.action_items?.length) {
                                 html += '<div style="font-size:0.7rem;color:var(--text-secondary);padding:0.1rem 0;">Actions: ' + esc(rec.action_items.join('; ')) + '</div>';
@@ -407,16 +407,16 @@
                     if (s.risk_assessment || s.morbidity_assessment) {
                         html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
                         html += '<summary style="cursor:pointer;color:var(--accent-blue);font-weight:600;font-size:0.76rem;">Assessments</summary>';
-                        if (s.overview) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:var(--bg-surface-hover);border-radius:2px;">' + esc(s.overview) + '</div>';
-                        if (s.risk_assessment) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fff3e008;border-left:2px solid var(--accent-orange);border-radius:2px;">' + esc(s.risk_assessment) + '</div>';
-                        if (s.morbidity_assessment) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fce4ec08;border-left:2px solid var(--accent-red);border-radius:2px;">' + esc(s.morbidity_assessment) + '</div>';
+                        if (s.overview) html += '<div style="font-size:0.74rem;color:var(--text-secondary);margin:0.15rem 0;padding:0.2rem 0.5rem;background:var(--bg-surface-hover);border-radius:2px;">' + esc(s.overview) + '</div>';
+                        if (s.risk_assessment) html += '<div style="font-size:0.74rem;color:var(--text-secondary);margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fff3e008;border-left:2px solid var(--accent-orange);border-radius:2px;">' + esc(s.risk_assessment) + '</div>';
+                        if (s.morbidity_assessment) html += '<div style="font-size:0.74rem;color:var(--text-secondary);margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fce4ec08;border-left:2px solid var(--accent-red);border-radius:2px;">' + esc(s.morbidity_assessment) + '</div>';
                         html += '</details>';
                     }
 
                     // ── All classification details ──
                     if (cls.length) {
                         html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
-                        html += '<summary style="cursor:pointer;color:#555;font-size:0.74rem;">All Classifications (' + cls.length + ' indicators)</summary>';
+                        html += '<summary style="cursor:pointer;color:var(--text-secondary);font-size:0.74rem;">All Classifications (' + cls.length + ' indicators)</summary>';
                         cls.forEach(c => {
                             html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.1rem 0.5rem;border-bottom:1px solid var(--border-default);">';
                             html += '<span style="color:var(--text-primary);">' + esc(c.rate_name) + '</span>';
@@ -445,7 +445,7 @@
                     } else {
                         inner = '<table style="font-size:0.8rem;"><thead><tr><th>Rule</th><th>Description</th><th>Severity</th><th>Type</th><th>Details</th></tr></thead><tbody>';
                         data.forEach(d => {
-                            const sevColor = d.severity === 'CRITICAL' ? '#b71c1c' : d.severity === 'HIGH' ? '#c62828' : d.severity === __('MEDIUM') ? '#e65100' : '#2e7d32';
+                            const sevColor = d.severity === 'CRITICAL' ? 'var(--accent-red)' : d.severity === 'HIGH' ? 'var(--accent-red)' : d.severity === __('MEDIUM') ? 'var(--accent-orange)' : 'var(--accent-green)';
                             inner += '<tr><td>' + d.rule_code + '</td><td>' + d.rule_description + '</td><td><span style="color:' + sevColor + ';">' + d.severity + '</span></td><td>' + (d.rule_type || '') + '</td><td style="font-size:0.75rem;">' + (d.details || '') + '</td></tr>';
                         });
                         inner += '</tbody></table>';

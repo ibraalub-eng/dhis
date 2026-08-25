@@ -10,7 +10,6 @@
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('trends')" id="stbtn-trends">Trends</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('rates')" id="stbtn-rates">Rate Benchmarks</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ai')" id="stbtn-ai" style="color:var(--accent-red);border-color:var(--accent-red);">AI Provider</button>
-                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('control')" id="stbtn-control">Control</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('hospitals')" id="stbtn-hospitals" style="color:var(--accent-blue);border-color:var(--accent-blue);">Hospitals</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ml')" id="stbtn-ml">ML Analysis</button>
 
@@ -864,78 +863,6 @@
 
                     <!-- Database Settings -->
 
-                    <!-- Control Settings -->
-                    <div id="settings-control" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Analysis Control</h3>
-                        <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
-                            Controls how null/missing indicator values are handled during analysis and in the indicator tree.
-                        </div>
-                        <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;max-width:700px;">
-                            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                                <input type="checkbox" id="cfg_auto_disable_null" onchange="saveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
-                                <div>
-                                    <strong>Auto-disable null indicators</strong><br>
-                                    <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, all indicators with null (missing) values for a hospital are treated as disabled. They will:</span>
-                                    <ul style="font-size:0.8rem;color:var(--text-secondary);margin:0.4rem 0 0 1.2rem;line-height:1.5;">
-                                        <li>Appear as disabled (&#x2717;) in the Hospital Indicator Tree</li>
-                                        <li>Be excluded from quality score completeness calculation</li>
-                                        <li>Be excluded from all analysis calculations</li>
-                                    </ul>
-                                </div>
-                            </label>
-                        </div>
-                        <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
-                            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                                <input type="checkbox" id="cfg_structured_logging" onchange="saveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
-                                <div>
-                                    <strong>Structured Logging</strong><br>
-                                    <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, all HTTP requests are logged as JSON to stdout with method, path, status, duration, and SQL count. Disable to reduce console output.</span>
-                                </div>
-                            </label>
-                            <div style="margin-top:0.6rem;">
-                                <span id="controlSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
-                            </div>
-                        </div>
-                        <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
-                            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                                <input type="checkbox" id="cfg_slow_query_logging" onchange="saveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
-                                <div>
-                                    <strong>Slow Query Logging</strong><br>
-                                    <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, any SQL query taking over 1 second is logged to the console with query text and duration. Useful for finding performance bottlenecks in production.</span>
-                                </div>
-                            </label>
-                        </div>
-                        <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
-                            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                                <input type="checkbox" id="cfg_dev_hints" onchange="toggleDevHints(this.checked)" style="margin-top:0.2rem;width:18px;height:18px;">
-                                <div>
-                                    <strong>Show Developer Hints</strong><br>
-                                    <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, displays source code file references and function names below each setting control. Disable before production deployment to hide internal implementation details.</span>
-                                </div>
-                            </label>
-                        </div>
-                        <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.6rem;flex-wrap:wrap;gap:0.5rem;">
-                                <div>
-                                    <strong>Analysis Months</strong>
-                                    <span style="font-size:0.8rem;color:var(--text-secondary);display:block;">Toggle months on/off per hospital. Disabled months are excluded from analysis, reports, and dashboard.</span>
-                                </div>
-                                <div style="display:flex;align-items:center;gap:0.4rem;">
-                                    <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
-                                    <select id="monthHospitalSelect" onchange="onMonthHospitalChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"></select>
-                                </div>
-                            </div>
-                            <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;">
-                                <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(true)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Enable All</button>
-                                <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(false)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Disable All</button>
-                                <button class="btn btn-sm" onclick="saveAllMonthSettings()" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Save</button>
-                            </div>
-                            <div id="monthToggleList" style="display:flex;flex-wrap:wrap;gap:0.5rem;"></div>
-                            <div style="margin-top:0.5rem;">
-                                <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
-                            </div>
-                        </div>
-                    </div>
                     <!-- Hospitals Management -->
                     <div id="settings-hospitals" class="settings-section" style="display:none;">
                         <div id="settingsHospitalsContent"></div>

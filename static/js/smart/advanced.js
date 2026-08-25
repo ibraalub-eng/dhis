@@ -161,8 +161,8 @@ export function renderCompositePatterns(patterns) {
       return `<span style="color:${stColor};">${_smartEscapeHtml(ind)} ${stLabel}</span>`;
     }).join(' + ');
     const hospList = hospitals.length
-      ? `<div style="margin-top:0.35rem;font-size:0.75rem;color:#64748b;">${hospitals.map(h => _smartEscapeHtml(h)).join(', ')}</div>`
-      : `<div style="margin-top:0.35rem;font-size:0.75rem;color:#94a3b8;">${count} ${_t('hospitals')}</div>`;
+      ? `<div style="margin-top:0.35rem;font-size:0.75rem;color:var(--text-muted);">${hospitals.map(h => _smartEscapeHtml(h)).join(', ')}</div>`
+      : `<div style="margin-top:0.35rem;font-size:0.75rem;color:var(--text-muted);">${count} ${_t('hospitals')}</div>`;
     return `<div class="smart-priority-item smart-priority-normal" style="border-left:3px solid ${p.lift > 2 ? '#ef4444' : p.lift > 1.5 ? '#f59e0b' : '#3b82f6'};">
       <div>
         <div class="smart-priority-name" style="font-weight:600;">${indicatorStatuses}</div>
@@ -198,9 +198,9 @@ export function renderLagAnalysis(lag) {
       const v = values[i] && values[i][j];
       const sig = significant[i] && significant[i][j];
       const lagVal = bestLags[i] && bestLags[i][j];
-      if (v === null || v === undefined) return '<td style="text-align:center;color:#94a3b8;">—</td>';
+      if (v === null || v === undefined) return '<td style="text-align:center;color:var(--text-muted);">—</td>';
       const bg = sig ? (Math.abs(v) >= 0.6 ? 'background:#fef2f2;' : 'background:#fffbeb;') : '';
-      const lagBadge = lagVal ? `<span style="font-size:0.65rem;color:#64748b;">${lagVal}${_t('m')}</span> ` : '';
+      const lagBadge = lagVal ? `<span style="font-size:0.65rem;color:var(--text-muted);">${lagVal}${_t('m')}</span> ` : '';
       return `<td style="text-align:center;${bg}">${lagBadge}${_fmtNum(v, 2)}</td>`;
     }).join('');
     return `<tr><td style="font-weight:600;white-space:nowrap;">${_smartEscapeHtml(smartTranslateFeature(metrics[i]))}</td>${cells}</tr>`;

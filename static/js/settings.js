@@ -115,7 +115,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         }
 
         export function showSettingsTab(name) {
-            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'database', 'control', 'hospitals', 'ml', 'account'].forEach(s => {
+            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'database', 'hospitals', 'ml', 'account'].forEach(s => {
                 const section = document.getElementById('settings-' + s);
                 if (section) section.style.display = s === name ? '' : 'none';
                 const btn = document.getElementById('stbtn-' + s);
@@ -131,8 +131,6 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 }
             });
             if (name === 'ai') loadAiSettings();
-
-            if (name === 'control') { loadControlSettings(); loadMonthToggles(); }
             if (name === 'hospitals') loadHospitalsSettings();
         }
 
@@ -1545,121 +1543,12 @@ function loadHospitalsSettings() {
                 if (document.getElementById('rcHospital') && document.getElementById('rcHospital').offsetParent !== null) {
                     initRootCause();
                 }
-                if (typeof loadMonthToggles === 'function') loadMonthToggles();
             }).catch(e => {
                 toastError('Error: ' + e.message);
             });
         };
 
         // ── Month Toggle Settings ──────────────────────────────────────────
-        window._monthSettings = {};
-        window._monthHospitalId = null;
-        window._monthList = [];
-
-        export function loadMonthToggles() {
-            apiGet('/hospitals/').then(hospitals => {
-                const list = hospitals.filter(h => h.is_active !== false);
-                const sel = document.getElementById('monthHospitalSelect');
-                if (list.length === 0 || !sel) return;
-                renderMonthHospitalSelector(list);
-                // Restore previously selected hospital if still in list
-                const prevId = window._monthHospitalId;
-                if (prevId && list.some(h => h.id === prevId)) {
-                    sel.value = prevId;
-                } else {
-                    window._monthHospitalId = list[0].id;
-                    sel.value = list[0].id;
-                }
-                loadMonthTogglesForHospital(parseInt(sel.value));
-            }).catch(() => {});
-        }
-
-        function renderMonthHospitalSelector(hospitals) {
-            const container = document.getElementById('monthHospitalSelect');
-            if (!container) return;
-            container.innerHTML = hospitals.map(h =>
-                '<option value="' + h.id + '">' + esc(h.name) + '</option>'
-            ).join('');
-            if (window._monthHospitalId) container.value = window._monthHospitalId;
-        }
-
-        function loadMonthTogglesForHospital(hospitalId) {
-            window._monthHospitalId = hospitalId;
-            apiGet('/analysis/months').then(months => {
-                window._monthList = months;
-                apiGet('/config/month-settings?hospital_id=' + hospitalId).then(settings => {
-                    const enabled = Array.isArray(settings.enabled_months) ? settings.enabled_months : months;
-                    window._monthSettings = {};
-                    months.forEach(m => { window._monthSettings[m] = enabled.includes(m); });
-                    renderMonthToggles();
-                }).catch(() => {
-                    window._monthSettings = {};
-                    months.forEach(m => { window._monthSettings[m] = true; });
-                    renderMonthToggles();
-                });
-            }).catch(() => {});
-        }
-
-        window.onMonthHospitalChange = function() {
-            const sel = document.getElementById('monthHospitalSelect');
-            if (sel && sel.value) loadMonthTogglesForHospital(parseInt(sel.value));
-        };
-
-        window.onMonthToggleChange = function(month, checked) {
-            window._monthSettings[month] = checked;
-            renderMonthToggles();
-        };
-
-        function renderMonthToggles() {
-            const container = document.getElementById('monthToggleList');
-            if (!container || !window._monthList) return;
-            container.innerHTML = window._monthList.map(m => {
-                const enabled = window._monthSettings[m];
-                const bg = enabled ? 'var(--severity-success-bg)' : 'var(--severity-critical-bg)';
-                const border = enabled ? 'var(--accent-green)' : 'var(--accent-red)';
-                const label = enabled ? 'Enabled' : 'Disabled';
-                const icon = enabled ? '\u2713' : '\u2717';
-                return '<label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.6rem;background:' + bg + ';border:1px solid ' + border + ';border-radius:4px;cursor:pointer;font-size:0.82rem;">' +
-                    '<input type="checkbox" value="' + m + '" ' + (enabled ? 'checked' : '') + ' onchange="onMonthToggleChange(\'' + m + '\', this.checked)" style="width:14px;height:14px;">' +
-                    '<span>' + m + '</span>' +
-                    '<span style="font-size:0.65rem;color:' + (enabled ? 'var(--accent-green)' : 'var(--accent-red)') + ';font-weight:600;">' + icon + ' ' + label + '</span></label>';
-            }).join('');
-        }
-
-        window.toggleAllAnalysisMonths = function(enabled) {
-            for (const m in window._monthSettings) {
-                window._monthSettings[m] = enabled;
-            }
-            renderMonthToggles();
-        };
-
-        window.saveAllMonthSettings = function() {
-            const hospitalId = window._monthHospitalId;
-            if (!hospitalId) {
-                const status = document.getElementById('monthSaveStatus');
-                if (status) { status.textContent = '\u2717 No hospital selected'; status.style.color = 'var(--accent-red)'; }
-                return;
-            }
-            const status = document.getElementById('monthSaveStatus');
-            if (status) { status.textContent = 'Saving...'; status.style.color = 'var(--accent-blue)'; }
-            const promises = [];
-            for (const m in window._monthSettings) {
-                promises.push(apiPut('/config/month-settings', { month: m, enabled: window._monthSettings[m], hospital_id: hospitalId }));
-            }
-            Promise.all(promises).then(() => {
-                clearApiCache();
-                if (status) {
-                    const enabledCount = Object.values(window._monthSettings).filter(Boolean).length;
-                    const totalCount = Object.keys(window._monthSettings).length;
-                    status.textContent = '\u2713 Saved \u2014 ' + enabledCount + '/' + totalCount + ' months enabled';
-                    status.style.color = 'var(--accent-green)';
-                    setTimeout(() => { status.textContent = ''; }, 5000);
-                }
-                if (typeof loadDashboard === 'function') loadDashboard();
-            }).catch(e => {
-                if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = 'var(--accent-red)'; }
-            });
-        };
 
         function renderRulesManager() {
             document.getElementById('rulesManagerCount').textContent = rulesManagerData.length + ' rule(s)';
@@ -1819,57 +1708,11 @@ function loadHospitalsSettings() {
             'missing': {title: 'FAIL if indicator has no value', text: 'Checks whether a critical indicator code is present in the data. FAIL if the indicator is missing (null/undefined). Takes a single code.'},
             'all_zero': {title: 'FAIL if ALL listed codes are zero', text: 'Checks if all key indicators are zero, suggesting the facility may not be operational or data is missing. Takes codes[] list.'},
         };
-        export function loadControlSettings() {
-            apiGet('/config/control/settings').then(data => {
-                const cb = document.getElementById('cfg_auto_disable_null');
-                if (cb) cb.checked = !!data.auto_disable_null_indicators;
-                const logCb = document.getElementById('cfg_structured_logging');
-                if (logCb) logCb.checked = data.structured_logging_enabled !== false;
-                const sqCb = document.getElementById('cfg_slow_query_logging');
-                if (sqCb) sqCb.checked = data.slow_query_logging_enabled !== false;
-            }).catch(() => {});
-            initDevHints();
-        }
 
-        export function saveControlSettings() {
-            const cb = document.getElementById('cfg_auto_disable_null');
-            const logCb = document.getElementById('cfg_structured_logging');
-            const sqCb = document.getElementById('cfg_slow_query_logging');
-            const val = cb ? cb.checked : false;
-            const logVal = logCb ? logCb.checked : true;
-            const sqVal = sqCb ? sqCb.checked : true;
-            const status = document.getElementById('controlSaveStatus');
-            if (status) { status.textContent = 'Saving...'; status.style.color = 'var(--accent-blue)'; }
-            apiPut('/config/control/settings', {
-                auto_disable_null_indicators: val ? 'true' : 'false',
-                structured_logging_enabled: logVal ? 'true' : 'false',
-                slow_query_logging_enabled: sqVal ? 'true' : 'false',
-            }).then(() => {
-                if (status) { status.textContent = '\u2713 Saved'; status.style.color = 'var(--accent-green)'; }
-            }).catch(e => {
-                if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = 'var(--accent-red)'; }
-            });
-        }
 
-        export function initDevHints() {
-            const enabled = localStorage.getItem('dev_hints_enabled') !== 'false';
-            window._showDevHints = enabled;
-            const cb = document.getElementById('cfg_dev_hints');
-            if (cb) cb.checked = enabled;
-            applyDevHintsVisibility();
-        }
 
-        export function toggleDevHints(show) {
-            window._showDevHints = show;
-            localStorage.setItem('dev_hints_enabled', show ? 'true' : 'false');
-            applyDevHintsVisibility();
-        }
 
-        function applyDevHintsVisibility() {
-            document.querySelectorAll('.dev-hint').forEach(function(el) {
-                el.style.display = window._showDevHints ? '' : 'none';
-            });
-        }
+
 
 
 // ---- Self Change Password ----
