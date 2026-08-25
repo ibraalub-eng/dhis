@@ -132,20 +132,6 @@ def _load_config(session: Session) -> Dict[str, Any]:
 
 def run_smart_analytics(session: Session, month: str) -> SmartAnalyticsResult:
     all_data = _load_hospital_data(session, month)
-    import logging
-    _lg = logging.getLogger(__name__)
-    _lg.warning(f"[smart-debug] _load_hospital_data returned {len(all_data)} hospitals for month={month}")
-    if not all_data:
-        _lg.warning(f"[smart-debug] No hospital data found. Checking indicator_values...")
-        from app.models import Hospital, IndicatorValue, Indicator
-        hosp_count = session.query(Hospital).filter(Hospital.is_active).count()
-        iv_count = session.query(IndicatorValue).filter(IndicatorValue.month == month).count()
-        ind_count = session.query(Indicator).count()
-        _lg.warning(f"[smart-debug] Active hospitals={hosp_count}, indicator_values for {month}={iv_count}, indicators={ind_count}")
-        if iv_count > 0:
-            sample = session.query(IndicatorValue).filter(IndicatorValue.month == month).limit(3).all()
-            for s in sample:
-                _lg.warning(f"[smart-debug] Sample IV: hosp_id={s.hospital_id} ind_id={s.indicator_id} value={s.value}")
     config = _load_config(session)
 
     enabled = config.get("enabled", 1.0) > 0.5
