@@ -262,34 +262,53 @@ def bulk_update_metadata(
             continue
 
         changed = False
+        def _lookup_type(name):
+            """Fuzzy match hospital type: try exact, then strip 'مستشفى' prefix."""
+            low = name.lower().strip()
+            if low in type_map:
+                return type_map[low]
+            # Strip prefix like 'مستشفى' from 'مستشفى عام' -> 'عام'
+            stripped = low.replace('مستشفى ', '').replace('مستشفية ', '').strip()
+            if stripped in type_map:
+                return type_map[stripped]
+            return None
+
         gov_name = entry.get("governorate", "")
-        if gov_name and not hosp.governorate_id and gov_name.lower() in gov_map:
-            hosp.governorate_id = gov_map[gov_name.lower()]
-            changed = True
+        if gov_name and gov_name.lower().strip() in gov_map:
+            new_gov = gov_map[gov_name.lower().strip()]
+            if hosp.governorate_id != new_gov:
+                hosp.governorate_id = new_gov
+                changed = True
 
         ht_name = entry.get("hospital_type", "")
-        if ht_name and not hosp.hospital_type_id and ht_name.lower() in type_map:
-            hosp.hospital_type_id = type_map[ht_name.lower()]
-            changed = True
+        if ht_name:
+            ht_id = _lookup_type(ht_name)
+            if ht_id and hosp.hospital_type_id != ht_id:
+                hosp.hospital_type_id = ht_id
+                changed = True
 
         own_name = entry.get("facility_ownership", "")
-        if own_name and not hosp.facility_ownership_id and own_name.lower() in own_map:
-            hosp.facility_ownership_id = own_map[own_name.lower()]
-            changed = True
+        if own_name and own_name.lower().strip() in own_map:
+            new_own = own_map[own_name.lower().strip()]
+            if hosp.facility_ownership_id != new_own:
+                hosp.facility_ownership_id = new_own
+                changed = True
 
         ft_name = entry.get("facility_type", "")
-        if ft_name and not hosp.facility_type_id and ft_name.lower() in ft_map:
-            hosp.facility_type_id = ft_map[ft_name.lower()]
-            changed = True
+        if ft_name and ft_name.lower().strip() in ft_map:
+            new_ft = ft_map[ft_name.lower().strip()]
+            if hosp.facility_type_id != new_ft:
+                hosp.facility_type_id = new_ft
+                changed = True
 
         org_id = entry.get("organisation_unit_id", "")
-        if org_id and not hosp.organisation_unit_id:
-            hosp.organisation_unit_id = org_id
+        if org_id and str(org_id).strip() and hosp.organisation_unit_id != str(org_id).strip():
+            hosp.organisation_unit_id = str(org_id).strip()
             changed = True
 
         address = entry.get("address", "")
-        if address and not hosp.address:
-            hosp.address = address
+        if address and address.strip() and hosp.address != address.strip():
+            hosp.address = address.strip()
             changed = True
 
         if changed:
