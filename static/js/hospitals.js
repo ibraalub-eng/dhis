@@ -547,11 +547,7 @@ window.deleteFacilityType = deleteFacilityType;
 // ── Clear Data ──────────────────────────────────────────────
 
 function clearHospitalData(id, name) {
-    if (!confirm('Clear ALL indicator data for ' + name + '?
-
-This will remove indicator values, quality scores, validation results, and clinical results.
-
-The hospital will become inactive. You can re-upload data later.')) return;
+    if (!confirm('Clear ALL indicator data for ' + name + '?\n\nThis will remove indicator values, quality scores, validation results, and clinical results.\n\nThe hospital will become inactive. You can re-upload data later.')) return;
     apiPut('/hospitals/' + id + '/clear-data').then(res => {
         alert(res.message || 'Data cleared.');
         loadHospitalsList();
@@ -560,10 +556,7 @@ The hospital will become inactive. You can re-upload data later.')) return;
 window.clearHospitalData = clearHospitalData;
 
 function clearAllData() {
-    if (!confirm('⚠️ NUCLEAR OPTION: Clear ALL indicator data for ALL hospitals?
-
-This will remove everything. All hospitals will become inactive.
-You can re-upload data after clearing.')) return;
+    if (!confirm('⚠️ NUCLEAR OPTION: Clear ALL indicator data for ALL hospitals?\n\nThis will remove everything. All hospitals will become inactive.\nYou can re-upload data after clearing.')) return;
     if (!confirm('Are you REALLY sure? This cannot be undone.')) return;
     apiDelete('/hospitals/clear-all-data').then(res => {
         alert(res.message || 'All data cleared.');
