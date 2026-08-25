@@ -115,7 +115,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         }
 
         export function showSettingsTab(name) {
-            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'database', 'control', 'hospitals', 'ml'].forEach(s => {
+            ['quality', 'confidence', 'thresholds', 'rules', 'clinical', 'risk', 'trends', 'rates', 'ai', 'database', 'control', 'hospitals', 'ml', 'account'].forEach(s => {
                 const section = document.getElementById('settings-' + s);
                 if (section) section.style.display = s === name ? '' : 'none';
                 const btn = document.getElementById('stbtn-' + s);
@@ -138,7 +138,43 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
 
 
 
-        function loadHospitalsSettings() {
+        
+        // Self password change
+        window.changeSelfPassword = async function() {
+            var currentEl = document.getElementById('selfPwCurrent');
+            var newEl = document.getElementById('selfPwNew');
+            var confirmEl = document.getElementById('selfPwConfirm');
+            var errEl = document.getElementById('selfPwError');
+            var okEl = document.getElementById('selfPwSuccess');
+            errEl.style.display = 'none';
+            okEl.style.display = 'none';
+            if (!currentEl.value) { errEl.textContent = 'Current password is required'; errEl.style.display = 'block'; return; }
+            if (!newEl.value || newEl.value.length < 6) { errEl.textContent = 'New password must be at least 6 characters'; errEl.style.display = 'block'; return; }
+            if (newEl.value !== confirmEl.value) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
+            try {
+                var token = (typeof getAccessToken === 'function') ? getAccessToken() : '';
+                var resp = await fetch('/auth/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                    body: JSON.stringify({ current_password: currentEl.value, new_password: newEl.value, confirm_password: confirmEl.value })
+                });
+                var data = await resp.json();
+                if (!resp.ok || data.detail) {
+                    errEl.textContent = data.detail || 'Failed to change password';
+                    errEl.style.display = 'block';
+                    return;
+                }
+                okEl.textContent = 'Password changed successfully!';
+                okEl.style.display = 'block';
+                currentEl.value = ''; newEl.value = ''; confirmEl.value = '';
+                setTimeout(function(){ okEl.style.display = 'none'; }, 3000);
+            } catch(e) {
+                errEl.textContent = 'Network error: ' + e.message;
+                errEl.style.display = 'block';
+            }
+        };
+
+function loadHospitalsSettings() {
             const container = document.getElementById('settingsHospitalsContent');
             if (!container) return;
             if (container.dataset.loaded === 'true') return;
