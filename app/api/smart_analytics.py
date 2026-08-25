@@ -198,9 +198,13 @@ def _healthy_hospitals(db: Session, month: str, anomalies: list) -> list:
 
 
 def _compute_smart_data(db, month: str) -> dict:
-    """Heavy computation — runs in background thread."""
-    from app.database import SessionLocal
-    bg_db = SessionLocal()
+    """Heavy computation — runs in background thread.
+    
+    Always creates its own session (SessionLocal) to avoid
+    issues with request-scoped sessions closing prematurely.
+    """
+    from app.database import SessionLocal, engine as _eng
+    bg_db = SessionLocal(bind=_eng)
     try:
         logger.info(f"[smart] Starting computation for {month}...")
         try:
@@ -243,51 +247,36 @@ def _compute_smart_data(db, month: str) -> dict:
 
 
 import threading as _threading
-_compute_locks = {}  # month -> Lock to prevent duplicate concurrent computations
+_compute_locks = {}  # month -> bool to track if computation is in progress
 
 
 def _get_smart_data(db: Session, month: str) -> dict:
     """Full smart-analysis envelope for a month, memoized per-month.
 
-    If cached, returns immediately. If not cached, runs computation
-    synchronously (with a per-month lock to prevent duplicates) and caches.
+    If cached, returns immediately. If not cached, kicks off background
+    computation and returns an empty response so the frontend can poll.
     """
     cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    # Prevent duplicate concurrent computations for the same month
-    if month not in _compute_locks:
-        _compute_locks[month] = _threading.Lock()
-    lock = _compute_locks[month]
-    if lock.locked():
-        # Another thread is already computing this month
-        return {
-            "month": month,
-            "generated_at": datetime.utcnow().isoformat(),
-            "hospitals_count": 0,
-            "computing": True,
-            "data": {
-                "kpi": {}, "anomalies": [], "clusters": [],
-                "correlations": [], "lag_analysis": {},
-                "early_warnings": [], "healthy_hospitals": [],
-            },
-        }
-    with lock:
-        result = _compute_smart_data(None, month)
-        if result is not None:
-            return result
-        # Computation failed — return empty envelope
-        return {
-            "month": month,
-            "generated_at": datetime.utcnow().isoformat(),
-            "hospitals_count": 0,
-            "data": {
-                "kpi": {}, "anomalies": [], "clusters": [],
-                "correlations": [], "lag_analysis": {},
-                "early_warnings": [], "healthy_hospitals": [],
-            },
-        }
+    # Kick off background computation (thread creates its own session)
+    if not _compute_locks.get(month):
+        _compute_locks[month] = True
+        t = threading.Thread(target=_compute_smart_data, args=(None, month), daemon=True)
+        t.start()
+    # Return empty envelope so caller gets a fast response
+    return {
+        "month": month,
+        "generated_at": datetime.utcnow().isoformat(),
+        "hospitals_count": 0,
+        "computing": True,
+        "data": {
+            "kpi": {}, "anomalies": [], "clusters": [],
+            "correlations": [], "lag_analysis": {},
+            "early_warnings": [], "healthy_hospitals": [],
+        },
+    }
 @router.get("/months")
 def smart_months(db: Session = Depends(get_db)):
     """قائمة الأشهر المتاحة للتحليل الذكي (نفس مصدر analysis/months)."""
