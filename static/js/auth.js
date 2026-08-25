@@ -238,6 +238,9 @@
       hideLoginPage();
       applyPermissions();
       _startInactivityTimer();
+      // Show the main app content (tabs, dashboard, etc.)
+      var rs = document.getElementById('resultsSection');
+      if (rs) rs.classList.remove('hidden');
       // Re-run full bootstrap (same as app.js DOMContentLoaded)
       if (typeof window.refreshSavedFiles === 'function') window.refreshSavedFiles();
       fetch(API_BASE + '/reports/').then(function(r) { return r.json(); }).then(function(reports) {
@@ -445,6 +448,8 @@
         hideLoginPage();
         applyPermissions();
         _startInactivityTimer();
+        var rs = document.getElementById('resultsSection');
+        if (rs) rs.classList.remove('hidden');
         return true;
       }
     } catch(e) {
@@ -462,6 +467,8 @@
           hideLoginPage();
           applyPermissions();
           _startInactivityTimer();
+          var rs = document.getElementById('resultsSection');
+          if (rs) rs.classList.remove('hidden');
           return true;
         }
       } catch(e) {}
