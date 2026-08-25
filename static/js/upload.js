@@ -171,7 +171,7 @@
                 } else if (previewFiles && previewFiles[0]) {
                     _pfd.append('file', previewFiles[0]);
                 }
-                fetch(API() + '/analysis/process-preview?filename=' + encodeURIComponent(previewFileName), { method: 'POST', body: _pfd })
+                authFetch(API() + '/analysis/process-preview?filename=' + encodeURIComponent(previewFileName), { method: 'POST', body: _pfd })
                 .then(r => { if (!r.ok) return r.text().then(t => { throw new Error(t); }); return r.json(); })
                 .then(resp => {
                 // Server returns {task_id, status} — poll until done
@@ -181,7 +181,7 @@
                 const maxPolls = 300; // 10 minutes max
                 let polls = 0;
                 const poll = () => {
-                    fetch(API() + '/tasks/' + taskId)
+                    authFetch(API() + '/tasks/' + taskId)
                         .then(r => r.json())
                         .then(task => {
                             if (task.status === 'done') {

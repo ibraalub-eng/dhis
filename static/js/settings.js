@@ -142,7 +142,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         window.loadSelfProfile = async function() {
     try {
         var token = getAccessToken();
-        var resp = await fetch(API() + '/auth/me', {
+        var resp = await authFetch(API() + '/auth/me', {
             headers: { 'Authorization': 'Bearer ' + token }
         });
         if (!resp.ok) throw new Error('Failed to load profile');
@@ -172,7 +172,7 @@ window.saveSelfProfile = async function() {
     if (!/^[^@s]+@[^@s]+.[^@s]+$/.test(email)) { errEl.textContent = 'Invalid email format'; errEl.style.display = 'block'; return; }
     try {
         var token = getAccessToken();
-        var resp = await fetch(API() + '/auth/me', {
+        var resp = await authFetch(API() + '/auth/me', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
             body: JSON.stringify({ full_name: fullName, email: email })
@@ -205,7 +205,7 @@ window.changeSelfPassword = async function() {
             if (newEl.value !== confirmEl.value) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
             try {
                 var token = (typeof getAccessToken === 'function') ? getAccessToken() : '';
-                var resp = await fetch('/auth/change-password', {
+                var resp = await authFetch('/auth/change-password', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
                     body: JSON.stringify({ current_password: currentEl.value, new_password: newEl.value, confirm_password: confirmEl.value })
@@ -231,7 +231,7 @@ function loadHospitalsSettings() {
             if (!container) return;
             if (container.dataset.loaded === 'true') return;
             container.dataset.loaded = 'true';
-            fetch('/static/tabs/hospitals.html').then(r => r.text()).then(html => {
+            authFetch('/static/tabs/hospitals.html').then(r => r.text()).then(html => {
                 container.innerHTML = html;
                 if (typeof window.loadHospitalsTab === 'function') {
                     window.loadHospitalsTab();
@@ -1489,7 +1489,7 @@ function loadHospitalsSettings() {
         }
 
         export function loadAiSettings() {
-            return fetch(API() + '/config/ai/settings').then(r => r.json()).then(cfg => {
+            return authFetch(API() + '/config/ai/settings').then(r => r.json()).then(cfg => {
                 document.getElementById('ai_enabled').value = cfg.ai_enabled || 'true';
                 document.getElementById('ai_provider').value = cfg.ai_provider || 'gemini';
                 document.getElementById('ai_api_key').value = cfg.ai_api_key || '';
@@ -1515,7 +1515,7 @@ function loadHospitalsSettings() {
             const status = document.getElementById('aiSaveStatus');
             status.textContent = 'Saving...';
             status.style.color = 'var(--accent-blue)';
-            fetch(API() + '/config/ai/settings', {
+            authFetch(API() + '/config/ai/settings', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(updates),
@@ -1562,7 +1562,7 @@ function loadHospitalsSettings() {
             const tbody = document.getElementById('rulesTbody');
             document.getElementById('rulesLoading').classList.remove('hidden');
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Loading rules...</td></tr>';
-            fetch(url)
+            authFetch(url)
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('rulesLoading').classList.add('hidden');
@@ -1647,7 +1647,7 @@ function loadHospitalsSettings() {
                     const toggleEl = this.querySelector('.tree-toggle');
                     if (toggleEl.classList.contains('loading')) return;
                     toggleEl.classList.add('loading');
-                    fetch(API() + '/rules/' + ruleId + '/toggle', { method: 'PUT' })
+                    authFetch(API() + '/rules/' + ruleId + '/toggle', { method: 'PUT' })
                         .then(r => r.json())
                         .then(data => {
                             toggleEl.textContent = data.enabled ? '✓' : '✗';
@@ -1709,7 +1709,7 @@ function loadHospitalsSettings() {
                     ids.forEach((id, i) => {
                         items.push({ id: id, sort_order: i });
                     });
-                    fetch(API() + '/rules/reorder', {
+                    authFetch(API() + '/rules/reorder', {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify({items: items}),
@@ -1795,7 +1795,7 @@ window.changeSelfPassword = async function() {
 
     try {
         var token = getAccessToken();
-        var resp = await fetch(API() + '/auth/change-password', {
+        var resp = await authFetch(API() + '/auth/change-password', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
             body: JSON.stringify({ current_password: cur, new_password: nw, confirm_password: cf })

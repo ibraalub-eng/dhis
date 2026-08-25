@@ -3,7 +3,7 @@
 
         // ── Alerts Tab (overview only; rule-failures table merged here) ──
         export function loadAlerts() {
-            fetch(API() + '/alerts/overview')
+            authFetch(API() + '/alerts/overview')
                 .then(r => {
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.json();

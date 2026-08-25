@@ -57,7 +57,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             document.getElementById('treeLoading').classList.remove('hidden');
             el.innerHTML = '';
             const summary = document.getElementById('treeSummary');
-            fetch(API() + '/hospitals/' + hospId + '/indicator-tree?month=' + month)
+            authFetch(API() + '/hospitals/' + hospId + '/indicator-tree?month=' + month)
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('treeLoading').classList.add('hidden');
@@ -119,7 +119,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             const btn = document.getElementById('treeReanalyzeBtn');
             if (btn) { btn.textContent = 'Analyzing...'; btn.disabled = true; }
             setStatus('loading', 'Re-analyzing ' + month + '...');
-            fetch(API() + '/hospitals/' + hospId + '/re-analyze?month=' + month + '&force=true', { method: 'POST' })
+            authFetch(API() + '/hospitals/' + hospId + '/re-analyze?month=' + month + '&force=true', { method: 'POST' })
                 .then(r => r.json())
                 .then(report => {
                     if (btn) { btn.textContent = __('Re-analyze'); btn.disabled = false; }
@@ -152,7 +152,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             const btn = document.getElementById('treeSaveBtn');
             btn.textContent = __('Saving...');
             btn.disabled = true;
-            fetch(API() + '/hospitals/' + hospId + '/save-tree-config?month=' + month, {
+            authFetch(API() + '/hospitals/' + hospId + '/save-tree-config?month=' + month, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ items: items }),
@@ -205,7 +205,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 if (!indicatorId) { toggle.classList.remove('loading'); toastWarning('Indicator ID not found.'); return; }
                 const url = API() + '/hospitals/' + hospitalId + '/indicators/' + indicatorId + '/toggle' +
                     (isParent ? '?cascade=true' : '');
-                fetch(url, { method: 'PUT' })
+                authFetch(url, { method: 'PUT' })
                     .then(r => r.json())
                     .then(data => {
                         node.is_enabled = data.is_enabled;

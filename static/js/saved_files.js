@@ -17,7 +17,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                     return;
                 }
             } catch(e) {}
-            fetch(API() + '/analysis/saved-files').then(r => {
+            authFetch(API() + '/analysis/saved-files').then(r => {
                 if (!r.ok) { throw new Error('HTTP ' + r.status); }
                 return r.json();
             }).then(files => {
@@ -70,13 +70,13 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             showLoader('Analyzing ' + filenames.length + ' file(s)...');
             try {
                 const params = filenames.map(f => 'filenames=' + encodeURIComponent(f)).join('&');
-                const res = await fetch(API() + '/analysis/analyze-saved?' + params, { method: 'POST' });
+                const res = await authFetch(API() + '/analysis/analyze-saved?' + params, { method: 'POST' });
                 if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + await res.text());
                 const data = await res.json();
                 uploadedData = data;
                 displayResults(data);
                 setStatus('ok', data.message || __('Analysis complete.'));
-                fetch(API() + '/alerts/overview').then(r => r.json()).then(d => {
+                authFetch(API() + '/alerts/overview').then(r => r.json()).then(d => {
                     updateAlertBadge(d);
                 }).catch(() => {});
                 refreshSavedFiles();
@@ -93,7 +93,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             const selected = Array.from(document.querySelectorAll('.saved-file-cb:checked')).map(cb => cb.value);
             if (!selected.length) { toastWarning(__('Select at least one file.')); return; }
             if (!await confirmDestructive({ title: 'Delete Files', message: 'Delete ' + selected.length + ' file(s) from disk?', details: 'Data in DB will NOT be removed.', okLabel: 'Delete' })) return;
-            fetch(API() + '/analysis/saved-files', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({filenames: selected}) })
+            authFetch(API() + '/analysis/saved-files', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({filenames: selected}) })
                 .then(r => r.json()).then(res => {
                     setStatus('ok', res.message || __('Deleted.'));
                     refreshSavedFiles();
@@ -104,7 +104,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         document.addEventListener('DOMContentLoaded', function() {
             refreshSavedFiles();
             // Show results section if cached reports exist
-            fetch(API() + '/reports/').then(r => r.json()).then(reports => {
+            authFetch(API() + '/reports/').then(r => r.json()).then(reports => {
                 if (reports && reports.length > 0) {
                     document.getElementById('resultsSection').classList.remove('hidden');
                 }

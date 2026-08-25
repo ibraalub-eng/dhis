@@ -11,7 +11,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         export async function loadIndicators() {
             if (_indicatorsCache.length > 0) return _indicatorsCache;
             try {
-                const res = await fetch(API() + '/hospitals/indicators');
+                const res = await authFetch(API() + '/hospitals/indicators');
                 _indicatorsCache = await res.json();
                 return _indicatorsCache;
             } catch(e) {
@@ -412,14 +412,14 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 let res;
                 if (ruleEditId) {
                     // Update existing
-                    res = await fetch(API() + '/rules/' + ruleEditId, {
+                    res = await authFetch(API() + '/rules/' + ruleEditId, {
                         method: 'PUT',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(body),
                     });
                 } else {
                     // Create new
-                    res = await fetch(API() + '/rules/', {
+                    res = await authFetch(API() + '/rules/', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
                         body: JSON.stringify(body),
@@ -436,7 +436,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         export async function deleteRule(ruleId, code) {
             if (!await confirmDestructive({ title: 'Delete Rule', message: 'Delete rule <strong>' + code + '</strong>? This cannot be undone.', okLabel: 'Delete' })) return;
             try {
-                const res = await fetch(API() + '/rules/' + ruleId, { method: 'DELETE' });
+                const res = await authFetch(API() + '/rules/' + ruleId, { method: 'DELETE' });
                 if (!res.ok) throw new Error(await res.text());
                 loadRulesManager();
             } catch(e) {

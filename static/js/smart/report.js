@@ -50,7 +50,7 @@ export async function exportSmartData() {
   const status = document.getElementById('smart-status');
   if (status) status.textContent = _t('Exporting data...');
   try {
-    const res = await fetch(url);
+    const res = await authFetch(url);
     if (!res.ok) {
       let detail = '';
       try { detail = (await res.json()).detail || ''; } catch (e) { /* ignore */ }

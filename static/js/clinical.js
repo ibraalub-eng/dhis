@@ -63,7 +63,7 @@
                 let url = API() + '/analysis/generate-report';
                 if (params.length) url += '?' + params.join('&');
                 try {
-                    const res = await fetch(url, { method: 'POST' });
+                    const res = await authFetch(url, { method: 'POST' });
                     const data = await res.json();
                     (data.reports || []).forEach(r => {
                         const key = r.hospital + '|' + r.month;
@@ -141,7 +141,7 @@
             bodyEl.innerHTML = '<div style="text-align:center;padding:2.5rem;color:var(--text-muted);"><span class="spinner spinner-lg"></span><br><span style="font-size:0.85rem;">' + __('Loading hospital details...') + '</span></div>';
             document.getElementById('detailModal').classList.add('show');
 
-            fetch(API() + '/clinical/' + hid + '?month=' + encodeURIComponent(month))
+            authFetch(API() + '/clinical/' + hid + '?month=' + encodeURIComponent(month))
                 .then(r => r.json())
                 .then(analysis => {
                     renderClinical(analysis, bodyEl);
@@ -435,7 +435,7 @@
         }
 
         export function showRuleFailureDetail(ruleCode, hospital, month) {
-            fetch(API() + '/analysis/rule-failures?rule_code=' + encodeURIComponent(ruleCode) + '&month=' + encodeURIComponent(month))
+            authFetch(API() + '/analysis/rule-failures?rule_code=' + encodeURIComponent(ruleCode) + '&month=' + encodeURIComponent(month))
                 .then(r => r.json())
                 .then(resp => {
                     const data = resp.data || resp;
