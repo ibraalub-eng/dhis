@@ -707,12 +707,16 @@ window._adminAssignHospitals = function(id, btn) {
     if(data.connected){
       var h="<span style=\"color:var(--accent-green)\">Connected to "+(data.engine||"PostgreSQL")+"</span><br>";
       h+="<div style=\"margin-top:0.5rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.5rem;\">";
-      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Hospitals</strong><br>"+(data.hospital_count||0)+" total ("+(data.active_count||0)+" active)</div>";
-      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Indicator Values</strong><br>"+(data.indicator_value_count||0).toLocaleString()+" records</div>";
-      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Quality Scores</strong><br>"+(data.quality_score_count||0).toLocaleString()+" records</div>";
-      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Indicators</strong><br>"+(data.indicator_count||0)+" configured</div>";
-      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Rules</strong><br>"+(data.rule_count||0)+" active</div>";
-      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Tables</strong><br>"+(data.table_count||0)+" created</div></div>";
+      var hosp=data.total_hospitals||data.hospital_count||0;var actv=data.active_hospitals||data.active_count||0;
+      var iv=data.total_indicator_values||data.indicator_value_count||0;var qs=data.total_quality_scores||data.quality_score_count||0;
+      var ind=data.total_indicators||data.indicator_count||0;var rul=data.total_rules||data.rule_count||0;
+      var tbl=(data.tables&&data.tables.length)||data.table_count||0;
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Hospitals</strong><br>"+hosp+" total ("+actv+" active)</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Indicator Values</strong><br>"+iv.toLocaleString()+" records</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Quality Scores</strong><br>"+qs.toLocaleString()+" records</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Indicators</strong><br>"+ind+" configured</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Rules</strong><br>"+rul+" active</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Tables</strong><br>"+tbl+" created</div></div>";
       el.innerHTML=h;
     }else{el.innerHTML="<span style=\"color:var(--accent-red)\">Not connected</span><br><span style=\"font-size:0.8rem;color:var(--text-muted)\">"+(data.error||"DATABASE_URL not set")+"</span>";}
   }
@@ -720,7 +724,8 @@ window._adminAssignHospitals = function(id, btn) {
   window.adminPreviewDb=function(){
     var ct=document.getElementById("adminDbPreviewContainer");var co=document.getElementById("adminDbPreviewContent");
     if(!ct||!co)return;ct.style.display="block";co.innerHTML="Loading...";
-    fetch("/config/database/preview").then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();}).then(function(data){
+    var tok=getAccessToken();var hdrs={"Authorization":"Bearer "+tok,"Content-Type":"application/json"};
+    fetch(API_BASE+"/config/database/preview",{headers:hdrs}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();}).then(function(data){
       if(!data.tables||!data.tables.length){co.innerHTML="<p style=\"color:var(--text-muted)\">No tables.</p>";return;}
       var h="<div style=\"margin-bottom:0.6rem;font-size:0.82rem;color:var(--text-secondary)\"><strong>"+data.total_tables+"</strong> tables found</div>";
       data.tables.forEach(function(t){
@@ -740,7 +745,8 @@ window._adminAssignHospitals = function(id, btn) {
   window.adminExportDb=function(){
     var s=document.getElementById("adminDbExportStatus");if(s)s.textContent="Preparing export...";
     var btn=document.getElementById("adminBtnExportDb");if(btn)btn.disabled=true;
-    fetch("/config/database/export").then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);var d=r.headers.get("Content-Disposition")||"";var m=d.match(/filename=\"?([^"]+)\"?/);return r.blob().then(function(b){return{blob:b,filename:m?m[1]:"export.json"};});}).then(function(r){
+    var tok=getAccessToken();var hdrs={"Authorization":"Bearer "+tok};
+    fetch(API_BASE+"/config/database/export",{headers:hdrs}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);var d=r.headers.get("Content-Disposition")||"";var m=d.match(/filename=\"?([^"]+)\"?/);return r.blob().then(function(b){return{blob:b,filename:m?m[1]:"export.json"};});}).then(function(r){
       var u=URL.createObjectURL(r.blob);var a=document.createElement("a");a.href=u;a.download=r.filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);if(s)s.textContent="Downloaded: "+r.filename;
     }).catch(function(e){if(s)s.textContent="Failed: "+e.message;}).finally(function(){if(btn)btn.disabled=false;});
   };

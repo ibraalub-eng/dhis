@@ -190,8 +190,12 @@ def preview_database_tables(db: Session = Depends(get_db)):
         inspector = sa_inspect(db.get_bind())
         tables = []
         for table_name in sorted(inspector.get_table_names()):
-            columns = [col["name"] for col in inspector.get_columns(table_name)]
-            pk_cols = [col["name"] for col in inspector.get_pk_constraint(table_name).get("constrained_columns", [])]
+            # Handle both dict-style and string-style column metadata
+            raw_cols = inspector.get_columns(table_name)
+            columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
+            pk_info = inspector.get_pk_constraint(table_name)
+            raw_pk = pk_info.get("constrained_columns", []) if isinstance(pk_info, dict) else []
+            pk_cols = [p if isinstance(p, str) else str(p) for p in raw_pk]
             # Count rows
             try:
                 count = db.execute(text(f'SELECT COUNT(*) FROM "{table_name}"')).scalar() or 0
@@ -207,7 +211,7 @@ def preview_database_tables(db: Session = Depends(get_db)):
                         for i, col in enumerate(columns):
                             val = row[i] if i < len(row) else None
                             # Convert non-serializable types to string
-                            if val is not None and not isinstance(val, (int, float, str, bool)):
+                            if val is not None and not isinstance(val, (int, float, str, bool, type(None))):
                                 val = str(val)
                             row_dict[col] = val
                         preview.append(row_dict)
@@ -240,9 +244,10 @@ def export_database(db: Session = Depends(get_db)):
         }
         total_rows = 0
         for table_name in sorted(inspector.get_table_names()):
-            columns = [col["name"] for col in inspector.get_columns(table_name)]
+            raw_cols = inspector.get_columns(table_name)
+            columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
             try:
-                rows = db.execute(text(f'SELECT * FROM "{table_name}"')).fetchall()
+                rows = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT 5000')).fetchall()
             except Exception:
                 rows = []
             data = []
@@ -250,7 +255,7 @@ def export_database(db: Session = Depends(get_db)):
                 row_dict = {}
                 for i, col in enumerate(columns):
                     val = row[i] if i < len(row) else None
-                    if val is not None and not isinstance(val, (int, float, str, bool)):
+                    if val is not None and not isinstance(val, (int, float, str, bool, type(None))):
                         val = str(val)
                     row_dict[col] = val
                 data.append(row_dict)
