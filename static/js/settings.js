@@ -72,7 +72,7 @@
                 if (!btn) return;
                 if (s === name) {
                     btn.className = 'btn btn-sm';
-                    btn.style.background = s === 'ai' ? '#d32f2f' : s === 'hospitals' ? '#1a237e' : '#1a237e';
+                    btn.style.background = s === 'ai' ? 'var(--accent-red)' : s === 'hospitals' ? 'var(--accent-blue)' : 'var(--accent-blue)';
                     btn.style.color = 'white';
                 } else {
                     btn.className = 'btn btn-sm btn-outline';
@@ -145,7 +145,7 @@
                     var isExpanded = false;
                     html += '<div class="db-table-card" style="margin-bottom:0.6rem;border:1px solid var(--border-default);border-radius:6px;overflow:hidden;">';
                     // Table header (clickable to expand/collapse)
-                    html += '<div onclick="var b=this.parentElement.querySelector('.db-table-body');b.style.display=b.style.display==='none'?'block':'none'" style="cursor:pointer;padding:0.5rem 0.7rem;background:var(--bg-surface-hover);display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;">';
+                    html += '<div onclick="var b=this.p.querySelector(\x27.db-table-body\x27));b.style.display=b.style.display===\x27none\x27?\x27block\x27:\x27none\x27" style="cursor:pointer;padding:0.5rem 0.7rem;background:var(--bg-surface-hover);display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;">';
                     html += '<span><strong style="color:var(--accent-blue);">' + table.name + '</strong>';
                     html += ' <span style="color:var(--text-muted);font-size:0.78rem;">(' + table.row_count + ' rows, ' + table.columns.length + ' cols)</span>';
                     if (table.primary_keys && table.primary_keys.length) {
@@ -269,7 +269,7 @@
                 return x.toFixed(1) + ',' + y.toFixed(1);
             });
             // القيم تاريخ لنسبة فشل القاعدة: انخفاض = تحسّن (أخضر)، ارتفاع = تدهور (أحمر)
-            const color = vals[vals.length - 1] < vals[0] ? '#0d9488' : 'var(--accent-red)';
+            const color = vals[vals.length - 1] < vals[0] ? 'var(--accent-teal)' : 'var(--accent-red)';
             const lastX = pts[pts.length - 1].split(',')[0];
             const lastY = pts[pts.length - 1].split(',')[1];
             return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="vertical-align:middle;">' +
@@ -508,7 +508,7 @@
                         if (impact > 0) {
                             const roiCol = roi >= 15 ? 'var(--accent-green)' : roi >= 8 ? 'var(--accent-orange)' : '#888';
                             const impactCol = impact >= 60 ? 'var(--accent-red)' : impact >= 30 ? 'var(--accent-orange)' : 'var(--accent-green)';
-                            const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:#f9a825;font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
+                            const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:var(--accent-yellow);font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
                                 '&#9679;'.repeat(effort) + '<span style="color:#ddd;">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
                             barHtml = '<div style="margin-top:0.3rem;">' +
                                 '<div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--text-muted);margin-bottom:1px;">' +
@@ -539,7 +539,7 @@
                 const prioAr = { critical: 'حرج', high: 'عالٍ', medium: 'متوسط', low: 'منخفض' };
                 const aiPrioLabel = p => (isAr && prioAr[p]) ? prioAr[p] : p;
                 if (d.ai_recommendations && d.ai_recommendations.length) {
-                    const priorityColors = {critical:'var(--accent-red)',high:'var(--accent-orange)',medium:'#f9a825',low:'#388e3c'};
+                    const priorityColors = {critical:'var(--accent-red)',high:'var(--accent-orange)',medium:'var(--accent-yellow)',low:'var(--accent-green)'};
                     d.ai_recommendations.forEach(r => {
                         const pCol = priorityColors[r.priority] || '#888';
                         const title = isAr ? (r.title_ar || r.title) : (r.title || r.title_ar);
@@ -572,7 +572,7 @@
                 rf.innerHTML = '';
                 if (d.top_rule_failures && d.top_rule_failures.length) {
                     rf.innerHTML = d.top_rule_failures.map(f => {
-                        const sev = f.severity === 'CRITICAL' ? 'var(--accent-red)' : f.severity === 'HIGH' ? 'var(--accent-orange)' : '#f9a825';
+                        const sev = f.severity === 'CRITICAL' ? 'var(--accent-red)' : f.severity === 'HIGH' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
                         return '<div style="padding:0.35rem 0;border-bottom:1px solid #f0f0f0;">' +
                             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
                                 '<span style="width:8px;height:8px;border-radius:50%;background:' + sev + ';flex-shrink:0;"></span>' +
@@ -590,7 +590,7 @@
                 if (d.quality_drivers && d.quality_drivers.length) {
                     qd.innerHTML = d.quality_drivers.map(q => {
                         const statusColor = q.status === 'good' ? 'var(--accent-green)' : q.status === 'needs_improvement' ? 'var(--accent-orange)' : 'var(--accent-red)';
-                        const barColor = q.status === 'good' ? '#4caf50' : q.status === 'needs_improvement' ? '#ff9800' : '#f44336';
+                        const barColor = q.status === 'good' ? 'var(--accent-green)' : q.status === 'needs_improvement' ? 'var(--accent-yellow)' : 'var(--accent-red)';
                         return '<div style="margin-bottom:0.5rem;">' +
                             '<div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:0.15rem;">' +
                                 '<span style="font-weight:600;">' + q.component + '</span>' +
@@ -609,7 +609,7 @@
                 cg.innerHTML = '';
                 if (d.confidence_gaps && d.confidence_gaps.length) {
                     cg.innerHTML = d.confidence_gaps.map(g => {
-                        const levelColor = g.level === 'CRITICAL' ? 'var(--accent-red)' : g.level === 'LOW' ? 'var(--accent-orange)' : '#f9a825';
+                        const levelColor = g.level === 'CRITICAL' ? 'var(--accent-red)' : g.level === 'LOW' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
                         return '<div style="padding:0.35rem 0;border-bottom:1px solid #f0f0f0;">' +
                             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
                                 '<span style="font-size:0.65rem;background:' + levelColor + ';color:#fff;padding:0 5px;border-radius:3px;font-weight:600;">' + g.level + '</span>' +
@@ -626,7 +626,7 @@
                 ap.innerHTML = '';
                 if (d.anomaly_patterns && d.anomaly_patterns.length) {
                     ap.innerHTML = d.anomaly_patterns.map(a => {
-                        const typeColor = a.pattern_type === 'severe' ? 'var(--accent-red)' : a.pattern_type === 'moderate' ? 'var(--accent-orange)' : '#f9a825';
+                        const typeColor = a.pattern_type === 'severe' ? 'var(--accent-red)' : a.pattern_type === 'moderate' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
                         const typeLabel = a.pattern_type === 'severe' ? 'Severe' : a.pattern_type === 'moderate' ? 'Moderate' : 'Mild';
                         return '<div style="padding:0.35rem 0;border-bottom:1px solid #f0f0f0;">' +
                             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
@@ -646,9 +646,9 @@
                     if (d.causal_chains && d.causal_chains.length) {
                         chainsEl.innerHTML = d.causal_chains.slice(0, 5).map(c => {
                             const pct = Math.round((c.confidence || 0) * 100);
-                            const confColor = c.confidence >= 0.7 ? '#0d9488' : c.confidence >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                            const confColor = c.confidence >= 0.7 ? 'var(--accent-teal)' : c.confidence >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
                             const prio = (c.implementation_priority || '').toUpperCase();
-                            const prioColor = prio === 'CRITICAL' ? 'var(--accent-red)' : prio === 'HIGH' ? 'var(--accent-orange)' : '#f9a825';
+                            const prioColor = prio === 'CRITICAL' ? 'var(--accent-red)' : prio === 'HIGH' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
                             return '<div style="padding:0.6rem;border:1px solid #99f6e4;border-radius:8px;margin-bottom:0.5rem;background:linear-gradient(135deg,#f0fdfa,#f8fafc);">' +
                                 '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">' +
                                     '<span style="font-weight:700;font-size:0.82rem;color:#134e4a;">' + esc(c.root_cause_arabic || c.root_cause) + '</span>' +
@@ -689,7 +689,7 @@
                     treeEl.innerHTML = '';
                     if (d.causal_tree && d.causal_tree.length) {
                         treeEl.innerHTML = d.causal_tree.slice(0, 12).map(n => {
-                            const sevColor = n.severity === 'CRITICAL' ? 'var(--accent-red)' : n.severity === 'HIGH' ? 'var(--accent-orange)' : n.severity === 'critical' ? 'var(--accent-red)' : n.severity === 'high' ? 'var(--accent-orange)' : '#0d9488';
+                            const sevColor = n.severity === 'CRITICAL' ? 'var(--accent-red)' : n.severity === 'HIGH' ? 'var(--accent-orange)' : n.severity === 'critical' ? 'var(--accent-red)' : n.severity === 'high' ? 'var(--accent-orange)' : 'var(--accent-teal)';
                             const trendArrow = n.trend === 'declining' ? '&#9660;' : n.trend === 'improving' ? '&#9650;' : '&#8212;';
                             return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
                                 '<span style="width:9px;height:9px;border-radius:50%;background:' + sevColor + ';flex-shrink:0;"></span>' +
@@ -716,7 +716,7 @@
                         peerEl.innerHTML = entries.slice(0, 10).map(c => {
                             const gap = c.gap_pct || 0;
                             const over = gap > 0;
-                            const color = Math.abs(gap) > 20 ? (over ? 'var(--accent-red)' : '#1565c0') : '#888';
+                            const color = Math.abs(gap) > 20 ? (over ? 'var(--accent-red)' : 'var(--accent-blue)') : 'var(--text-muted)';
                             const govs = (c.peer_governorate_counts || {});
                             const govParts = Object.entries(govs).sort((a, b) => b[1] - a[1])
                                 .map(g => g[0] + ' (' + g[1] + ')').join('، ');
@@ -870,7 +870,7 @@
                         '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
                         '<span style="font-size:0.75rem;color:var(--text-secondary);font-weight:500;">' + k.label + '</span>' +
                         '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? ' <span style="font-size:0.7rem;">' + k.unit + '</span>' : '') + '</span></div>' +
-                        (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:#ddd;border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + (pct >= 1 ? '#4caf50' : pct >= 0.75 ? '#ff9800' : '#f44336') + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:var(--text-muted);">target ' + k.target + '</span></div>' : '') +
+                        (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + (pct >= 1 ? 'var(--accent-green)' : pct >= 0.75 ? 'var(--accent-yellow)' : 'var(--accent-red)') + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:var(--text-muted);">target ' + k.target + '</span></div>' : '') +
                         '</div>';
                 }).join('');
             }).catch(() => {});
@@ -981,7 +981,7 @@
             modal.classList.add('show');
 
             apiGet('/dashboard/hospital-performance/' + hospitalId).then(d => {
-                const gradeColors = {A:'var(--accent-green)', B:'#1565c0', C:'var(--accent-orange)', D:'var(--accent-red)'};
+                const gradeColors = {A:'var(--accent-green)', B:'var(--accent-blue)', C:'var(--accent-orange)', D:'var(--accent-red)'};
                 const gc = gradeColors[d.grade] || '#888';
                 document.getElementById('modalTitle').innerHTML =
                     '<span class="scorecard-grade" style="background:' + gc + ';">' + d.grade + '</span>' + esc(d.name) +
@@ -1010,7 +1010,7 @@
                 html += '<div style="margin-top:1rem;"><h3>Recent Alerts</h3>';
                 if (d.last_alerts && d.last_alerts.length) {
                     html += d.last_alerts.map(a => {
-                        const sc = a.severity === 'CRITICAL' ? 'var(--accent-red)' : a.severity === 'HIGH' ? 'var(--accent-orange)' : '#f9a825';
+                        const sc = a.severity === 'CRITICAL' ? 'var(--accent-red)' : a.severity === 'HIGH' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
                         return '<div class="scorecard-alert">' +
                             '<span style="width:8px;height:8px;border-radius:50%;background:' + sc + ';flex-shrink:0;"></span>' +
                             '<span style="font-weight:600;font-size:0.7rem;color:' + sc + ';">' + a.severity + '</span>' +
@@ -1690,7 +1690,7 @@
             container.innerHTML = window._monthList.map(m => {
                 const enabled = window._monthSettings[m];
                 const bg = enabled ? 'var(--severity-success-bg)' : 'var(--severity-critical-bg)';
-                const border = enabled ? '#4caf50' : '#ef9a9a';
+                const border = enabled ? 'var(--accent-green)' : 'var(--accent-red)';
                 const label = enabled ? 'Enabled' : 'Disabled';
                 const icon = enabled ? '\u2713' : '\u2717';
                 return '<label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.6rem;background:' + bg + ';border:1px solid ' + border + ';border-radius:4px;cursor:pointer;font-size:0.82rem;">' +
@@ -1742,7 +1742,7 @@
                 filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">No rules found.</td></tr>';
                 return;
             }
-            const typeColors = {'LOGIC': '#1565c0', 'CLINICAL': '#6a1b9a', 'BENCHMARK': 'var(--accent-orange)', 'DATA_QUALITY': 'var(--accent-red)'};
+            const typeColors = {'LOGIC': 'var(--accent-blue)', 'CLINICAL': 'var(--accent-purple)', 'BENCHMARK': 'var(--accent-orange)', 'DATA_QUALITY': 'var(--accent-red)'};
             const sevClass = {'CRITICAL': 'badge-critical', 'HIGH': 'badge-high', 'MEDIUM': 'badge-medium', 'LOW': 'badge-low'};
             let html = '';
             rulesManagerData.forEach((r, idx) => {
