@@ -130,11 +130,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
+    // Show spinner while validating token
+    showLoader('Authenticating...');
+
     // Token exists — verify it via checkAuth (validates + refreshes if needed)
+    let authenticated = false;
     if (typeof checkAuth === 'function') {
-        const authenticated = await checkAuth();
-        if (!authenticated) return; // login page shown, stop init
+        authenticated = await checkAuth();
+    } else {
+        authenticated = true; // no auth module loaded, proceed anyway
     }
+
+    // Hide spinner
+    hideLoader();
+
+    if (!authenticated) return; // login page shown, stop init
 
     // Show the main app content (tabs, dashboard, etc.)
     const rs = document.getElementById('resultsSection');
