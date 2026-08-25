@@ -24,6 +24,13 @@
     }
   }
 
+
+window._adminChangePassword = function(id, btn) {
+    changePassword(id, btn.getAttribute('data-username'));
+};
+window._adminAssignHospitals = function(id, btn) {
+    assignHospitals(id, btn.getAttribute('data-username'));
+};
   window.loadAdminPanel = async function() {
     var container = document.getElementById('tab-admin');
     if (!container) return;
@@ -91,8 +98,8 @@
                       <td style="padding:0.4rem;">${u.is_active ? '<span style="color:#2e7d32;">Active</span>' : '<span style="color:var(--accent-red);">Inactive</span>'}</td>
                       <td style="padding:0.4rem;">
                         <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})" style="font-size:0.72rem;">Edit</button>
-                        <button class="btn btn-sm btn-outline" onclick="changePassword(${u.id}, '${esc(u.username)}')" style="font-size:0.72rem;color:#e65100;margin-left:0.2rem;">🔑 Password</button>
-                        <button class="btn btn-sm btn-outline" onclick="assignHospitals(${u.id}, '${esc(u.username)}')" style="font-size:0.72rem;color:#1565c0;margin-left:0.2rem;">Hospitals</button>
+                        <button class="btn btn-sm btn-outline" onclick="window._adminChangePassword(${u.id}, this)" data-username="${esc(u.username)}" style="font-size:0.72rem;color:#e65100;margin-left:0.2rem;">🔑 Password</button>
+                        <button class="btn btn-sm btn-outline" onclick="window._adminAssignHospitals(${u.id}, this)" data-username="${esc(u.username)}" style="font-size:0.72rem;color:#1565c0;margin-left:0.2rem;">Hospitals</button>
                         ${u.is_active ? '<button class="btn btn-sm btn-outline" onclick="deactivateUser(' + u.id + ')" style="font-size:0.72rem;color:var(--accent-red);margin-left:0.2rem;">Deactivate</button>' : ''}
                       </td>
                     </tr>

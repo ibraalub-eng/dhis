@@ -19,10 +19,10 @@
             const status = document.getElementById('weight_total_status');
             if (Math.abs(total - 1.0) < 0.01) {
                 status.textContent = '\u2713 OK';
-                status.style.color = '#2e7d32';
+                status.style.color = 'var(--accent-green)';
             } else {
                 status.textContent = '\u2717 Must be 1.0';
-                status.style.color = '#c62828';
+                status.style.color = 'var(--accent-red)';
             }
         }
 
@@ -39,10 +39,10 @@
                 const status = document.getElementById('cfgtotal_status_quality');
                 if (Math.abs(total - 1.0) < 0.01) {
                     status.textContent = '\u2713 OK';
-                    status.style.color = '#2e7d32';
+                    status.style.color = 'var(--accent-green)';
                 } else {
                     status.textContent = '\u2717 Must be 1.0';
-                    status.style.color = '#c62828';
+                    status.style.color = 'var(--accent-red)';
                 }
             }
         }
@@ -94,7 +94,7 @@
                 if (data.connected) {
                     el.innerHTML = `
                         <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.8rem;">
-                            <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#22c55e;"></span>
+                            <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--accent-green);"></span>
                             <strong>Connected</strong> to ${data.engine || 'PostgreSQL'}
                         </div>
                         <div style="line-height:2;">
@@ -104,10 +104,10 @@
                             <div>📋 <strong>${data.total_indicators}</strong> indicators configured</div>
                             <div>📐 <strong>${data.total_rules}</strong> validation rules</div>
                         </div>
-                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.78rem;color:var(--text-secondary);">
+                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid var(--border-default);font-size:0.78rem;color:var(--text-secondary);">
                             <strong>Tables:</strong> ${(data.tables || []).length} tables created
                         </div>
-                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid #e0e0e0;font-size:0.8rem;color:var(--text-secondary);">
+                        <div style="margin-top:0.8rem;padding-top:0.8rem;border-top:1px solid var(--border-default);font-size:0.8rem;color:var(--text-secondary);">
                             <strong>To change database:</strong>
                             <ol style="margin:0.3rem 0 0 1.2rem;">
                                 <li>Edit <code>.env</code> file → change <code>DATABASE_URL</code></li>
@@ -145,7 +145,7 @@
                     var isExpanded = false;
                     html += '<div class="db-table-card" style="margin-bottom:0.6rem;border:1px solid var(--border-default);border-radius:6px;overflow:hidden;">';
                     // Table header (clickable to expand/collapse)
-                    html += '<div onclick="this.parentElement.querySelector('.db-table-body').style.display = this.parentElement.querySelector('.db-table-body').style.display === 'none' ? 'block' : 'none'" style="cursor:pointer;padding:0.5rem 0.7rem;background:var(--bg-surface-hover);display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;">';
+                    html += '<div onclick="var b=this.parentElement.querySelector('.db-table-body');b.style.display=b.style.display==='none'?'block':'none'" style="cursor:pointer;padding:0.5rem 0.7rem;background:var(--bg-surface-hover);display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;">';
                     html += '<span><strong style="color:var(--accent-blue);">' + table.name + '</strong>';
                     html += ' <span style="color:var(--text-muted);font-size:0.78rem;">(' + table.row_count + ' rows, ' + table.columns.length + ' cols)</span>';
                     if (table.primary_keys && table.primary_keys.length) {
@@ -269,7 +269,7 @@
                 return x.toFixed(1) + ',' + y.toFixed(1);
             });
             // القيم تاريخ لنسبة فشل القاعدة: انخفاض = تحسّن (أخضر)، ارتفاع = تدهور (أحمر)
-            const color = vals[vals.length - 1] < vals[0] ? '#0d9488' : '#c62828';
+            const color = vals[vals.length - 1] < vals[0] ? '#0d9488' : 'var(--accent-red)';
             const lastX = pts[pts.length - 1].split(',')[0];
             const lastY = pts[pts.length - 1].split(',')[1];
             return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="vertical-align:middle;">' +
@@ -459,9 +459,9 @@
 
                 // ── KPI Banner ──
                 const qs = d.overall_quality_score || 0;
-                const qsColor = qs >= 80 ? '#2e7d32' : qs >= 50 ? '#e65100' : '#c62828';
+                const qsColor = qs >= 80 ? 'var(--accent-green)' : qs >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
                 const conf = d.overall_confidence || 0;
-                const confColor = conf >= 80 ? '#2e7d32' : conf >= 50 ? '#e65100' : '#c62828';
+                const confColor = conf >= 80 ? 'var(--accent-green)' : conf >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
                 const ci = d.critical_issues_count || 0;
                 document.getElementById('rcKpiBar').innerHTML =
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + qsColor + ';">' +
@@ -478,9 +478,9 @@
                             '<div style="width:' + Math.min(conf, 100) + '%;height:100%;background:' + confColor + ';border-radius:2px;"></div>' +
                         '</div>' +
                     '</div>' +
-                    '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + (ci > 0 ? '#c62828' : '#2e7d32') + ';">' +
+                    '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' +
                         '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">المشاكل الحرجة / Critical Issues</div>' +
-                        '<div style="font-size:2rem;font-weight:700;color:' + (ci > 0 ? '#c62828' : '#2e7d32') + ';">' + ci + '</div>' +
+                        '<div style="font-size:2rem;font-weight:700;color:' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' + ci + '</div>' +
                         '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">' + (ci > 0 ? 'يتطلب انتباهاً' : 'لا توجد مشاكل حرجة') + '</div>' +
                     '</div>';
 
@@ -498,16 +498,16 @@
                 if (d.priority_actions && d.priority_actions.length) {
                     d.priority_actions.forEach((a, i) => {
                         const isCritical = a.startsWith('[CRITICAL]');
-                        const color = isCritical ? '#c62828' : '#e65100';
+                        const color = isCritical ? 'var(--accent-red)' : 'var(--accent-orange)';
                         const icon = isCritical ? '\u26a0' : '\u26a1';
                         const det = detailByAction[a] || {};
                         const impact = Math.max(0, Math.min(100, det.impact || 0));
                         const effort = Math.max(1, Math.min(5, det.effort || 3));
                         const roi = det.roi || 0;
-                        let barHtml = '<div style="margin-top:0.2rem;font-size:0.62rem;color:#aaa;">— لا يوجد تقدير كمي</div>';
+                        let barHtml = '<div style="margin-top:0.2rem;font-size:0.62rem;color:var(--text-muted);">— لا يوجد تقدير كمي</div>';
                         if (impact > 0) {
-                            const roiCol = roi >= 15 ? '#2e7d32' : roi >= 8 ? '#e65100' : '#888';
-                            const impactCol = impact >= 60 ? '#c62828' : impact >= 30 ? '#e65100' : '#2e7d32';
+                            const roiCol = roi >= 15 ? 'var(--accent-green)' : roi >= 8 ? 'var(--accent-orange)' : '#888';
+                            const impactCol = impact >= 60 ? 'var(--accent-red)' : impact >= 30 ? 'var(--accent-orange)' : 'var(--accent-green)';
                             const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:#f9a825;font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
                                 '&#9679;'.repeat(effort) + '<span style="color:#ddd;">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
                             barHtml = '<div style="margin-top:0.3rem;">' +
@@ -539,7 +539,7 @@
                 const prioAr = { critical: 'حرج', high: 'عالٍ', medium: 'متوسط', low: 'منخفض' };
                 const aiPrioLabel = p => (isAr && prioAr[p]) ? prioAr[p] : p;
                 if (d.ai_recommendations && d.ai_recommendations.length) {
-                    const priorityColors = {critical:'#c62828',high:'#e65100',medium:'#f9a825',low:'#388e3c'};
+                    const priorityColors = {critical:'var(--accent-red)',high:'var(--accent-orange)',medium:'#f9a825',low:'#388e3c'};
                     d.ai_recommendations.forEach(r => {
                         const pCol = priorityColors[r.priority] || '#888';
                         const title = isAr ? (r.title_ar || r.title) : (r.title || r.title_ar);
@@ -554,7 +554,7 @@
                         card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.3rem;">' +
                             '<div style="display:flex;align-items:center;gap:0.3rem;flex-wrap:wrap;"><span class="rec-source rec-source-ai" title="AI-generated">&#9889;</span>' +
                             (catLabel ? '<span style="font-size:0.58rem;background:#eef2ff;color:#4338ca;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(catLabel) + '</span>' : '') +
-                            '<span style="font-weight:600;color:#333;">' + esc(title) + '</span></div>' +
+                            '<span style="font-weight:600;color:var(--text-primary);">' + esc(title) + '</span></div>' +
                             '<span style="font-size:0.6rem;background:' + pCol + ';color:#fff;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(aiPrioLabel(r.priority)) + '</span></div>' +
                             (desc ? '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.2rem;">' + esc(desc) + '</div>' : '') +
                             (rat ? '<div style="font-size:0.7rem;color:var(--text-muted);font-style:italic;margin-top:0.15rem;">' + esc(rat) + '</div>' : '') +
@@ -572,12 +572,12 @@
                 rf.innerHTML = '';
                 if (d.top_rule_failures && d.top_rule_failures.length) {
                     rf.innerHTML = d.top_rule_failures.map(f => {
-                        const sev = f.severity === 'CRITICAL' ? '#c62828' : f.severity === 'HIGH' ? '#e65100' : '#f9a825';
+                        const sev = f.severity === 'CRITICAL' ? 'var(--accent-red)' : f.severity === 'HIGH' ? 'var(--accent-orange)' : '#f9a825';
                         return '<div style="padding:0.35rem 0;border-bottom:1px solid #f0f0f0;">' +
                             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
                                 '<span style="width:8px;height:8px;border-radius:50%;background:' + sev + ';flex-shrink:0;"></span>' +
                                 '<span style="font-weight:600;font-size:0.78rem;">' + esc(f.rule_code) + '</span>' +
-                                '<span style="font-size:0.68rem;color:#999;">' + f.failure_rate + '%</span>' +
+                                '<span style="font-size:0.68rem;color:var(--text-muted);">' + f.failure_rate + '%</span>' +
                             '</div>' +
                             '<div style="font-size:0.72rem;color:var(--text-secondary);margin:0.1rem 0 0 1.2rem;">' + esc((f.description || f.primary_cause || '').slice(0, 90)) + '</div>' +
                             '</div>';
@@ -589,7 +589,7 @@
                 qd.innerHTML = '';
                 if (d.quality_drivers && d.quality_drivers.length) {
                     qd.innerHTML = d.quality_drivers.map(q => {
-                        const statusColor = q.status === 'good' ? '#2e7d32' : q.status === 'needs_improvement' ? '#e65100' : '#c62828';
+                        const statusColor = q.status === 'good' ? 'var(--accent-green)' : q.status === 'needs_improvement' ? 'var(--accent-orange)' : 'var(--accent-red)';
                         const barColor = q.status === 'good' ? '#4caf50' : q.status === 'needs_improvement' ? '#ff9800' : '#f44336';
                         return '<div style="margin-bottom:0.5rem;">' +
                             '<div style="display:flex;justify-content:space-between;font-size:0.78rem;margin-bottom:0.15rem;">' +
@@ -609,12 +609,12 @@
                 cg.innerHTML = '';
                 if (d.confidence_gaps && d.confidence_gaps.length) {
                     cg.innerHTML = d.confidence_gaps.map(g => {
-                        const levelColor = g.level === 'CRITICAL' ? '#c62828' : g.level === 'LOW' ? '#e65100' : '#f9a825';
+                        const levelColor = g.level === 'CRITICAL' ? 'var(--accent-red)' : g.level === 'LOW' ? 'var(--accent-orange)' : '#f9a825';
                         return '<div style="padding:0.35rem 0;border-bottom:1px solid #f0f0f0;">' +
                             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
                                 '<span style="font-size:0.65rem;background:' + levelColor + ';color:#fff;padding:0 5px;border-radius:3px;font-weight:600;">' + g.level + '</span>' +
                                 '<span style="font-weight:600;font-size:0.78rem;">' + esc((g.indicator_name || '').slice(0, 35)) + '</span>' +
-                                '<span style="font-size:0.68rem;color:#999;">' + g.confidence + '</span>' +
+                                '<span style="font-size:0.68rem;color:var(--text-muted);">' + g.confidence + '</span>' +
                             '</div>' +
                             '<div style="font-size:0.7rem;color:var(--text-secondary);margin:0.1rem 0 0 0;">Signal: ' + (g.weakest_signal || '') + ' | ' + esc((g.root_cause || '').slice(0, 90)) + '</div>' +
                             '</div>';
@@ -626,7 +626,7 @@
                 ap.innerHTML = '';
                 if (d.anomaly_patterns && d.anomaly_patterns.length) {
                     ap.innerHTML = d.anomaly_patterns.map(a => {
-                        const typeColor = a.pattern_type === 'severe' ? '#c62828' : a.pattern_type === 'moderate' ? '#e65100' : '#f9a825';
+                        const typeColor = a.pattern_type === 'severe' ? 'var(--accent-red)' : a.pattern_type === 'moderate' ? 'var(--accent-orange)' : '#f9a825';
                         const typeLabel = a.pattern_type === 'severe' ? 'Severe' : a.pattern_type === 'moderate' ? 'Moderate' : 'Mild';
                         return '<div style="padding:0.35rem 0;border-bottom:1px solid #f0f0f0;">' +
                             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
@@ -646,9 +646,9 @@
                     if (d.causal_chains && d.causal_chains.length) {
                         chainsEl.innerHTML = d.causal_chains.slice(0, 5).map(c => {
                             const pct = Math.round((c.confidence || 0) * 100);
-                            const confColor = c.confidence >= 0.7 ? '#0d9488' : c.confidence >= 0.5 ? '#e65100' : '#c62828';
+                            const confColor = c.confidence >= 0.7 ? '#0d9488' : c.confidence >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
                             const prio = (c.implementation_priority || '').toUpperCase();
-                            const prioColor = prio === 'CRITICAL' ? '#c62828' : prio === 'HIGH' ? '#e65100' : '#f9a825';
+                            const prioColor = prio === 'CRITICAL' ? 'var(--accent-red)' : prio === 'HIGH' ? 'var(--accent-orange)' : '#f9a825';
                             return '<div style="padding:0.6rem;border:1px solid #99f6e4;border-radius:8px;margin-bottom:0.5rem;background:linear-gradient(135deg,#f0fdfa,#f8fafc);">' +
                                 '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">' +
                                     '<span style="font-weight:700;font-size:0.82rem;color:#134e4a;">' + esc(c.root_cause_arabic || c.root_cause) + '</span>' +
@@ -689,7 +689,7 @@
                     treeEl.innerHTML = '';
                     if (d.causal_tree && d.causal_tree.length) {
                         treeEl.innerHTML = d.causal_tree.slice(0, 12).map(n => {
-                            const sevColor = n.severity === 'CRITICAL' ? '#c62828' : n.severity === 'HIGH' ? '#e65100' : n.severity === 'critical' ? '#c62828' : n.severity === 'high' ? '#e65100' : '#0d9488';
+                            const sevColor = n.severity === 'CRITICAL' ? 'var(--accent-red)' : n.severity === 'HIGH' ? 'var(--accent-orange)' : n.severity === 'critical' ? 'var(--accent-red)' : n.severity === 'high' ? 'var(--accent-orange)' : '#0d9488';
                             const trendArrow = n.trend === 'declining' ? '&#9660;' : n.trend === 'improving' ? '&#9650;' : '&#8212;';
                             return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
                                 '<span style="width:9px;height:9px;border-radius:50%;background:' + sevColor + ';flex-shrink:0;"></span>' +
@@ -698,7 +698,7 @@
                                 (n.history && n.history.length > 1
                                     ? '<span title="الاتجاه عبر الأشهر: ' + esc(n.history.map(h => h.month + ' = ' + h.value).join('، ')) + '">' + _rcSparkline(n.history) + '</span>'
                                     : '<span style="font-size:0.7rem;color:var(--text-muted);" title="الاتجاه عبر الأشهر">' + trendArrow + ' ' + esc(n.trend || '') + '</span>') +
-                                '<span style="margin-right:auto;font-size:0.65rem;color:#aaa;">' + esc(n.factor_type || '') + '</span>' +
+                                '<span style="margin-right:auto;font-size:0.65rem;color:var(--text-muted);">' + esc(n.factor_type || '') + '</span>' +
                             '</div>';
                         }).join('');
                     } else {
@@ -716,7 +716,7 @@
                         peerEl.innerHTML = entries.slice(0, 10).map(c => {
                             const gap = c.gap_pct || 0;
                             const over = gap > 0;
-                            const color = Math.abs(gap) > 20 ? (over ? '#c62828' : '#1565c0') : '#888';
+                            const color = Math.abs(gap) > 20 ? (over ? 'var(--accent-red)' : '#1565c0') : '#888';
                             const govs = (c.peer_governorate_counts || {});
                             const govParts = Object.entries(govs).sort((a, b) => b[1] - a[1])
                                 .map(g => g[0] + ' (' + g[1] + ')').join('، ');
@@ -727,7 +727,7 @@
                                     '<span style="font-size:0.7rem;color:' + color + ';font-weight:700;">' + (over ? '▲ +' : '▼ ') + Math.abs(gap).toFixed(1) + '%</span>' +
                                 '</div>' +
                                 '<div style="font-size:0.68rem;color:var(--text-muted);">المستشفى ' + c.hospital_value + ' مقابل متوسط النظير ' + c.peer_mean + ' (' + c.peer_count + ' مستشفى) — مئوية ' + c.hospital_percentile + ' | z=' + c.hospital_z_score + '</div>' +
-                                (govParts || types ? '<div style="font-size:0.66rem;color:#aaa;margin-top:0.1rem;">النظير: محافظات: ' + (govParts || '—') + ' | أنواع: ' + (types || '—') + '</div>' : '') +
+                                (govParts || types ? '<div style="font-size:0.66rem;color:var(--text-muted);margin-top:0.1rem;">النظير: محافظات: ' + (govParts || '—') + ' | أنواع: ' + (types || '—') + '</div>' : '') +
                             '</div>';
                         }).join('');
                     } else {
@@ -755,7 +755,7 @@
                         const cumVar = pca.cumulative_variance ?? 0;
                         html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem;">Cumulative variance explained: ' + (cumVar * 100).toFixed(0) + '%</div>';
                         if (!entries.length) {
-                            html += '<div style="font-size:0.72rem;color:#999;">No PCA data available.</div>';
+                            html += '<div style="font-size:0.72rem;color:var(--text-muted);">No PCA data available.</div>';
                         } else {
                             const maxVal = Math.max(...entries.map(e => e[1]), 0.01);
                             entries.forEach(([name, variance]) => {
@@ -863,7 +863,7 @@
                         ? (k.higher_is_better ? (pct >= 1 ? 'var(--severity-success-bg)' : pct >= 0.75 ? 'var(--severity-warning-bg)' : 'var(--severity-critical-bg)') : (pct <= 1 ? 'var(--severity-success-bg)' : 'var(--severity-critical-bg)'))
                         : 'var(--bg-surface-hover)';
                     const valColor = hasTarget
-                        ? (k.higher_is_better ? (pct >= 1 ? '#2e7d32' : pct >= 0.75 ? '#e65100' : '#c62828') : (pct <= 1 ? '#2e7d32' : '#c62828'))
+                        ? (k.higher_is_better ? (pct >= 1 ? 'var(--accent-green)' : pct >= 0.75 ? 'var(--accent-orange)' : 'var(--accent-red)') : (pct <= 1 ? 'var(--accent-green)' : 'var(--accent-red)'))
                         : '#555';
                     const barPct = Math.min(pct * 100, 100);
                     return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';">' +
@@ -981,13 +981,13 @@
             modal.classList.add('show');
 
             apiGet('/dashboard/hospital-performance/' + hospitalId).then(d => {
-                const gradeColors = {A:'#2e7d32', B:'#1565c0', C:'#e65100', D:'#c62828'};
+                const gradeColors = {A:'var(--accent-green)', B:'#1565c0', C:'var(--accent-orange)', D:'var(--accent-red)'};
                 const gc = gradeColors[d.grade] || '#888';
                 document.getElementById('modalTitle').innerHTML =
                     '<span class="scorecard-grade" style="background:' + gc + ';">' + d.grade + '</span>' + esc(d.name) +
                     ' <span style="font-size:0.72rem;font-weight:400;color:var(--text-muted);">\u2014 Hospital Scorecard</span>';
 
-                const qc = d.avg_score >= 75 ? '#2e7d32' : d.avg_score >= 50 ? '#e65100' : '#c62828';
+                const qc = d.avg_score >= 75 ? 'var(--accent-green)' : d.avg_score >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
                 let html = '<div class="scorecard-kpi-bar">' +
                     '<div class="scorecard-kpi-item" style="border-top-color:' + qc + ';background:#f0f8ff;">' +
                         '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Quality Score</div>' +
@@ -999,7 +999,7 @@
                     '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Consistency</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;">' + d.avg_consistency + '%</div></div>' +
                     '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Alerts</div>' +
-                        '<div style="font-size:1.1rem;font-weight:600;color:' + (d.total_alerts > 0 ? '#c62828' : '#2e7d32') + ';">' + d.total_alerts + '</div></div>' +
+                        '<div style="font-size:1.1rem;font-weight:600;color:' + (d.total_alerts > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' + d.total_alerts + '</div></div>' +
                 '</div>';
 
                 html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' +
@@ -1010,13 +1010,13 @@
                 html += '<div style="margin-top:1rem;"><h3>Recent Alerts</h3>';
                 if (d.last_alerts && d.last_alerts.length) {
                     html += d.last_alerts.map(a => {
-                        const sc = a.severity === 'CRITICAL' ? '#c62828' : a.severity === 'HIGH' ? '#e65100' : '#f9a825';
+                        const sc = a.severity === 'CRITICAL' ? 'var(--accent-red)' : a.severity === 'HIGH' ? 'var(--accent-orange)' : '#f9a825';
                         return '<div class="scorecard-alert">' +
                             '<span style="width:8px;height:8px;border-radius:50%;background:' + sc + ';flex-shrink:0;"></span>' +
                             '<span style="font-weight:600;font-size:0.7rem;color:' + sc + ';">' + a.severity + '</span>' +
                             '<span style="font-size:0.75rem;">' + esc(a.rule_code) + '</span>' +
                             '<span style="color:var(--text-muted);font-size:0.7rem;">' + esc(a.details) + '</span>' +
-                            '<span style="color:#aaa;font-size:0.65rem;margin-left:auto;">' + a.month + '</span>' +
+                            '<span style="color:var(--text-muted);font-size:0.65rem;margin-left:auto;">' + a.month + '</span>' +
                         '</div>';
                     }).join('');
                 } else {
@@ -1409,11 +1409,11 @@
                 return Promise.resolve();
             }).then(() => {
                 document.getElementById('settingsStatus').textContent = '\u2713 All settings saved';
-                document.getElementById('settingsStatus').style.color = '#2e7d32';
+                document.getElementById('settingsStatus').style.color = 'var(--accent-green)';
                 setTimeout(() => { document.getElementById('settingsStatus').textContent = ''; }, 3000);
             }).catch(e => {
                 document.getElementById('settingsStatus').textContent = '\u2717 Error: ' + e.message;
-                document.getElementById('settingsStatus').style.color = '#c62828';
+                document.getElementById('settingsStatus').style.color = 'var(--accent-red)';
             });
         }
 
@@ -1425,17 +1425,17 @@
             apiPost('/analysis/reanalyze-all?force=true').then(data => {
                 const statusEl = document.getElementById('settingsStatus');
                 statusEl.textContent = '\u2713 Re-analyzed ' + data.total_runs + ' combinations (' + data.hospitals_processed + ' hospitals, ' + data.months_processed + ' months)';
-                statusEl.style.color = '#2e7d32';
+                statusEl.style.color = 'var(--accent-green)';
                 if (data.errors && data.errors.length) {
                     statusEl.textContent += ' | Errors: ' + data.errors.length;
-                    statusEl.style.color = '#e65100';
+                    statusEl.style.color = 'var(--accent-orange)';
                 }
                 // Redirect to dashboard to show fresh data
                 switchTab('dashboard');
             }).catch(e => {
                 const statusEl = document.getElementById('settingsStatus');
                 statusEl.textContent = '\u2717 Error: ' + e.message;
-                statusEl.style.color = '#c62828';
+                statusEl.style.color = 'var(--accent-red)';
             }).finally(() => {
                 hideLoader();
                 btn.textContent = originalText;
@@ -1533,18 +1533,18 @@
             };
             const status = document.getElementById('aiSaveStatus');
             status.textContent = 'Saving...';
-            status.style.color = '#1565c0';
+            status.style.color = 'var(--accent-blue)';
             fetch(API() + '/config/ai/settings', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(updates),
             }).then(r => r.json()).then(() => {
                 status.textContent = '\u2713 Saved. AI config will be used on next analysis.';
-                status.style.color = '#2e7d32';
+                status.style.color = 'var(--accent-green)';
                 setTimeout(() => { status.textContent = ''; }, 4000);
             }).catch(e => {
                 status.textContent = '\u2717 Error: ' + e.message;
-                status.style.color = '#c62828';
+                status.style.color = 'var(--accent-red)';
             });
         }
 
@@ -1696,7 +1696,7 @@
                 return '<label style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.3rem 0.6rem;background:' + bg + ';border:1px solid ' + border + ';border-radius:4px;cursor:pointer;font-size:0.82rem;">' +
                     '<input type="checkbox" value="' + m + '" ' + (enabled ? 'checked' : '') + ' onchange="onMonthToggleChange(\'' + m + '\', this.checked)" style="width:14px;height:14px;">' +
                     '<span>' + m + '</span>' +
-                    '<span style="font-size:0.65rem;color:' + (enabled ? '#2e7d32' : '#c62828') + ';font-weight:600;">' + icon + ' ' + label + '</span></label>';
+                    '<span style="font-size:0.65rem;color:' + (enabled ? 'var(--accent-green)' : 'var(--accent-red)') + ';font-weight:600;">' + icon + ' ' + label + '</span></label>';
             }).join('');
         }
 
@@ -1711,11 +1711,11 @@
             const hospitalId = window._monthHospitalId;
             if (!hospitalId) {
                 const status = document.getElementById('monthSaveStatus');
-                if (status) { status.textContent = '\u2717 No hospital selected'; status.style.color = '#c62828'; }
+                if (status) { status.textContent = '\u2717 No hospital selected'; status.style.color = 'var(--accent-red)'; }
                 return;
             }
             const status = document.getElementById('monthSaveStatus');
-            if (status) { status.textContent = 'Saving...'; status.style.color = '#1565c0'; }
+            if (status) { status.textContent = 'Saving...'; status.style.color = 'var(--accent-blue)'; }
             const promises = [];
             for (const m in window._monthSettings) {
                 promises.push(apiPut('/config/month-settings', { month: m, enabled: window._monthSettings[m], hospital_id: hospitalId }));
@@ -1726,12 +1726,12 @@
                     const enabledCount = Object.values(window._monthSettings).filter(Boolean).length;
                     const totalCount = Object.keys(window._monthSettings).length;
                     status.textContent = '\u2713 Saved \u2014 ' + enabledCount + '/' + totalCount + ' months enabled';
-                    status.style.color = '#2e7d32';
+                    status.style.color = 'var(--accent-green)';
                     setTimeout(() => { status.textContent = ''; }, 5000);
                 }
                 if (typeof loadDashboard === 'function') loadDashboard();
             }).catch(e => {
-                if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }
+                if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = 'var(--accent-red)'; }
             });
         };
 
@@ -1742,7 +1742,7 @@
                 filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">No rules found.</td></tr>';
                 return;
             }
-            const typeColors = {'LOGIC': '#1565c0', 'CLINICAL': '#6a1b9a', 'BENCHMARK': '#e65100', 'DATA_QUALITY': '#c62828'};
+            const typeColors = {'LOGIC': '#1565c0', 'CLINICAL': '#6a1b9a', 'BENCHMARK': 'var(--accent-orange)', 'DATA_QUALITY': 'var(--accent-red)'};
             const sevClass = {'CRITICAL': 'badge-critical', 'HIGH': 'badge-high', 'MEDIUM': 'badge-medium', 'LOW': 'badge-low'};
             let html = '';
             rulesManagerData.forEach((r, idx) => {
@@ -1753,7 +1753,7 @@
                     ? '<span class="tree-toggle on" style="cursor:pointer;" title="Click to disable">✓</span>'
                     : '<span class="tree-toggle off" style="cursor:pointer;" title="Click to enable">✗</span>';
                 html += '<tr class="rule-row" draggable="true" data-id="' + r.id + '" data-code="' + esc(r.code) + '">' +
-                    '<td style="cursor:grab;color:#bbb;font-size:0.9rem;user-select:none;">⠿</td>' +
+                    '<td style="cursor:grab;color:var(--text-muted);font-size:0.9rem;user-select:none;">⠿</td>' +
                     '<td><code>' + esc(r.code) + '</code></td>' +
                     '<td>' + esc(r.name) + '</td>' +
                     '<td>' + typeB + '</td>' +
@@ -1913,15 +1913,15 @@
             const logVal = logCb ? logCb.checked : true;
             const sqVal = sqCb ? sqCb.checked : true;
             const status = document.getElementById('controlSaveStatus');
-            if (status) { status.textContent = 'Saving...'; status.style.color = '#1565c0'; }
+            if (status) { status.textContent = 'Saving...'; status.style.color = 'var(--accent-blue)'; }
             apiPut('/config/control/settings', {
                 auto_disable_null_indicators: val ? 'true' : 'false',
                 structured_logging_enabled: logVal ? 'true' : 'false',
                 slow_query_logging_enabled: sqVal ? 'true' : 'false',
             }).then(() => {
-                if (status) { status.textContent = '\u2713 Saved'; status.style.color = '#2e7d32'; }
+                if (status) { status.textContent = '\u2713 Saved'; status.style.color = 'var(--accent-green)'; }
             }).catch(e => {
-                if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = '#c62828'; }
+                if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = 'var(--accent-red)'; }
             });
         }
 
