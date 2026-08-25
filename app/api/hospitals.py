@@ -19,7 +19,7 @@ def list_hospitals(
     db: Session = Depends(get_db),
     user=Depends(require_permission("hospitals.read")),
 ):
-    cache_key = cache.make_key("hospitals:list", skip=skip, limit=limit, include_inactive=include_inactive)
+    cache_key = cache.make_key("hospitals:list", uid=getattr(user, "id", 0), skip=skip, limit=limit, include_inactive=include_inactive)
     cached = cache.get(cache_key)
     if cached:
         result = []
@@ -49,15 +49,12 @@ def list_hospitals(
     q = db.query(Hospital)
 
     # Filter by user's assigned hospitals (if any)
-    if user and not user.is_superuser:
-        from app.models import user_hospitals
-        user_hospital_ids = db.query(user_hospitals.c.hospital_id).filter(
-            user_hospitals.c.user_id == user.id
-        ).subquery()
-        # If user has specific hospitals assigned, filter to only those
-        assigned_count = db.query(user_hospitals).filter(user_hospitals.c.user_id == user.id).count()
-        if assigned_count > 0:
-            q = q.filter(Hospital.id.in_(db.query(user_hospital_ids)))
+    if user and not getattr(user, 'is_superuser', False):
+        from app.models import user_hospitals as _uh
+        from sqlalchemy import select as _sel
+        _assigned = [row[0] for row in db.execute(_sel(_uh.c.hospital_id).where(_uh.c.user_id == user.id)).fetchall()]
+        if _assigned:
+            q = q.filter(Hospital.id.in_(_assigned))
 
     if not include_inactive:
         q = q.filter(Hospital.is_active.is_(True))

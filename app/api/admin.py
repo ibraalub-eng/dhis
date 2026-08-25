@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.deps import get_current_user, require_permission
 from app.core.security import hash_password
-from app.models import User, Role, Permission
+from app.models import User, Role, Permission, Hospital
 
 router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_permission("system.manage_users"))])
 
