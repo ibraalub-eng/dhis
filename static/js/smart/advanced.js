@@ -27,18 +27,30 @@ export function initAdvancedTabs() {
 
 async function fetchSection(path, key, _retries) {
   if (_retries === undefined) _retries = 0;
-  const res = await apiSmartGet(path);
-  if (res && res.computing && _retries < 8) {
-    showSmartSectionEmpty(key, _t('Computing analysis...') + ' (' + (_retries + 1) + ')');
-    await new Promise(r => setTimeout(r, 3000));
-    return fetchSection(path, key, _retries + 1);
+  // Show spinner while fetching/computing
+  setSmartLoader(key, true);
+  try {
+    const res = await apiSmartGet(path);
+    if (res && res.computing && _retries < 8) {
+      showSmartSectionEmpty(key, _t('Computing analysis...') + ' (' + (_retries + 1) + '/8)');
+      setSmartLoader(key, true);
+      await new Promise(r => setTimeout(r, 3000));
+      return fetchSection(path, key, _retries + 1);
+    }
+    setSmartLoader(key, false);
+    if (res && res.empty) {
+      showSmartSectionEmpty(key, res.message || _t('No data for this period. Upload data and try again.'));
+    } else if (!res || res._error) {
+      showSmartSectionError(key, (res && res.detail) || _t('Failed to load data. Check server connection.'));
+    } else {
+      clearSmartSectionState(key);
+    }
+    return res;
+  } catch (e) {
+    setSmartLoader(key, false);
+    showSmartSectionError(key, e.message || _t('Network error. Please try again.'));
+    return null;
   }
-  if (res && res.empty) {
-    showSmartSectionEmpty(key, res.message || _t('No data'));
-  } else {
-    clearSmartSectionState(key);
-  }
-  return res;
 }
 
 export function loadClustersTab(month) {

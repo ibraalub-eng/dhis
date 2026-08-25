@@ -631,7 +631,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .smart-badge-warning { background: transparent; color: var(--accent-orange); border: 1px solid var(--severity-warning-border); }
 .smart-badge-normal { background: transparent; color: var(--accent-green); border: 1px solid var(--severity-success-border); }
 
-.smart-loader { display: none; text-align: center; padding: 1.2rem; color: var(--accent-purple); font-size: 0.85rem; font-weight: 600; }
+.smart-loader { display: none; text-align: center; padding: 1.5rem 1.2rem; color: var(--accent-purple); font-size: 0.85rem; font-weight: 600; border-radius: 8px; background: var(--bg-surface); border: 1px solid var(--border-default); margin: 0.5rem 0; }
+.smart-loader::before { content: ""; display: inline-block; width: 22px; height: 22px; border: 3px solid var(--border-default); border-top-color: var(--accent-purple); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 0.5rem; }
+.smart-loader.active { display: block; animation: fadeIn 0.2s ease; }
 .smart-loader.active { display: block; }
 .smart-error-banner { display: none; background: var(--severity-critical-bg); border: 1px solid var(--severity-critical-border); color: var(--accent-red); padding: 0.7rem 1rem; border-radius: 8px; font-size: 0.82rem; margin: 0.6rem 0; }
 .smart-error-banner.active { display: block; }
