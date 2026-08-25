@@ -1,6 +1,7 @@
         import { API } from './api.js';
         import { __ } from './i18n.js';
         import { EXPR_EXPLANATIONS, rulesManagerData, loadRulesManager } from './settings.js';
+import { toastSuccess, toastError, toastWarning } from './toast.js';
 
         let ruleEditId = null;
         let _indicatorsCache = [];
@@ -393,7 +394,7 @@
         export async function saveRule() {
             const code = document.getElementById('ruleEditCode').value.trim();
             const name = document.getElementById('ruleEditName').value.trim();
-            if (!code || !name) { alert(__('Code and Name are required.')); return; }
+            if (!code || !name) { toastWarning(__('Code and Name are required.')); return; }
             // Build params from visual builder
             const paramsRaw = _vbBuildParams();
             const body = {
@@ -428,7 +429,7 @@
                 closeRuleModal();
                 loadRulesManager();
             } catch(e) {
-                alert('Save failed: ' + e.message);
+                toastError('Save failed: ' + e.message);
             }
         }
 
@@ -439,7 +440,7 @@
                 if (!res.ok) throw new Error(await res.text());
                 loadRulesManager();
             } catch(e) {
-                alert('Delete failed: ' + e.message);
+                toastError('Delete failed: ' + e.message);
             }
         }
 

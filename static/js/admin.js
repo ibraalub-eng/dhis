@@ -1,4 +1,29 @@
 // admin.js — user management panel for superadmins.
+
+// Toast notifications (inline for non-module script)
+function _toastContainer() {
+  var c = document.getElementById('toast-container');
+  if (!c) { c = document.createElement('div'); c.id = 'toast-container'; c.style.cssText = 'position:fixed;top:1rem;right:1rem;z-index:99999;display:flex;flex-direction:column;gap:0.5rem;max-width:380px;pointer-events:none;'; document.body.appendChild(c); }
+  return c;
+}
+function toastSuccess(m) { _toastShow('success', m); }
+function toastError(m) { _toastShow('error', m); }
+function toastWarning(m) { _toastShow('warning', m); }
+function _toastShow(type, msg) {
+  var c = _toastContainer();
+  var icons = {success:'✅',error:'❌',warning:'⚠️'};
+  var colors = {success:{bg:'#f0fdf4',brd:'#86efac',txt:'#166534'},error:{bg:'#fef2f2',brd:'#fca5a5',txt:'#991b1b'},warning:{bg:'#fffbeb',brd:'#fcd34d',txt:'#92400e'}};
+  var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) colors = {success:{bg:'#14532d',brd:'#166534',txt:'#86efac'},error:{bg:'#7f1d1d',brd:'#991b1b',txt:'#fca5a5'},warning:{bg:'#78350f',brd:'#92400e',txt:'#fcd34d'}};
+  var co = colors[type] || colors.info;
+  var el = document.createElement('div');
+  el.style.cssText = 'pointer-events:auto;display:flex;align-items:flex-start;gap:0.5rem;padding:0.7rem 1rem;border-radius:10px;border-left:4px solid '+co.brd+';background:'+co.bg+';color:'+co.txt+';box-shadow:0 4px 16px rgba(0,0,0,0.15);font-size:0.85rem;animation:toast-in 0.3s ease-out;cursor:pointer;word-break:break-word;';
+  el.innerHTML = '<span style="font-size:1rem;flex-shrink:0;">'+(icons[type]||'')+'</span><span style="flex:1;">'+msg+'</span><span style="font-size:0.7rem;opacity:0.5;cursor:pointer;" onclick="this.parentElement.remove()">✕</span>';
+  el.addEventListener('click', function(){ el.remove(); });
+  c.appendChild(el);
+  setTimeout(function(){ if(el.parentElement){el.style.animation='toast-out 0.3s ease-in forwards';setTimeout(function(){el.remove();},300);} }, type==='error'?6000:3500);
+}
+
 (function() {
   var API_BASE = '';
   API_BASE = '';
@@ -552,7 +577,7 @@ window._adminAssignHospitals = function(id, btn) {
   window.deleteRole = async function(roleId) {
     if (!await confirmDestructive({ title: 'Delete Role', message: 'Delete this role? Users with this role will lose its permissions.', okLabel: 'Delete' })) return;
     var resp = await api('/admin/roles/' + roleId, { method: 'DELETE' });
-    if (resp && resp.detail) { alert(resp.detail); return; }
+    if (resp && resp.detail) { toastError(resp.detail); return; }
     loadAdminPanel();
   };
 

@@ -1,5 +1,6 @@
 import { apiGet, apiPut, apiDelete, apiPostJSON } from './api.js';
 import { esc } from './tree.js';
+import { toastSuccess, toastError, toastWarning } from './toast.js';
 
 window._clearHospData = function(id, btn) {
     const name = btn.getAttribute('data-hosp-name') || '';
@@ -250,7 +251,7 @@ window.closeHospModal = closeHospModal;
 
 function saveHospital() {
     const name = document.getElementById('hospFormName').value.trim();
-    if (!name) { alert('Name is required.'); return; }
+    if (!name) { toastWarning('Name is required.'); return; }
     const data = {
         name: name,
         region: '',
@@ -265,7 +266,7 @@ function saveHospital() {
     promise.then(() => {
         closeHospModal();
         loadHospitalsList();
-    }).catch(err => alert('Failed: ' + err));
+    }).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.saveHospital = saveHospital;
 
@@ -277,12 +278,12 @@ window.editHospital = editHospital;
 
 async function deleteHospital(id) {
     if (!await confirmDestructive({ title: 'Delete Hospital', message: 'Delete this hospital? This cannot be undone.', okLabel: 'Delete' })) return;
-    apiDelete('/hospitals/' + id).then(() => loadHospitalsList()).catch(err => alert('Failed: ' + err));
+    apiDelete('/hospitals/' + id).then(() => loadHospitalsList()).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.deleteHospital = deleteHospital;
 
 function toggleHospitalActive(id, active) {
-    apiPut('/hospitals/' + id + '/toggle-active').then(() => loadHospitalsList()).catch(err => alert('Failed: ' + err));
+    apiPut('/hospitals/' + id + '/toggle-active').then(() => loadHospitalsList()).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.toggleHospitalActive = toggleHospitalActive;
 
@@ -302,13 +303,13 @@ window.closeGovModal = closeGovModal;
 
 function saveGovernorate() {
     const name = document.getElementById('govFormName').value.trim();
-    if (!name) { alert('Name is required.'); return; }
+    if (!name) { toastWarning('Name is required.'); return; }
     const promise = _editGovId ? apiPut('/governorates/' + _editGovId, { name: name }) : apiPostJSON('/governorates/', { name: name });
     promise.then(() => {
         closeGovModal();
         loadGovernorates();
         loadHospitalsList();
-    }).catch(err => alert('Failed: ' + err));
+    }).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.saveGovernorate = saveGovernorate;
 
@@ -320,7 +321,7 @@ window.editGovernorate = editGovernorate;
 
 async function deleteGovernorate(id) {
     if (!await confirmDestructive({ title: 'Delete Governorate', message: 'Delete this governorate? Only possible if no hospitals are linked.', okLabel: 'Delete' })) return;
-    apiDelete('/governorates/' + id).then(() => loadGovernorates()).catch(err => alert('Failed: ' + err));
+    apiDelete('/governorates/' + id).then(() => loadGovernorates()).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.deleteGovernorate = deleteGovernorate;
 
@@ -340,13 +341,13 @@ window.closeTypeModal = closeTypeModal;
 
 function saveHospitalType() {
     const name = document.getElementById('typeFormName').value.trim();
-    if (!name) { alert('Name is required.'); return; }
+    if (!name) { toastWarning('Name is required.'); return; }
     const promise = _editTypeId ? apiPut('/hospital-types/' + _editTypeId, { name: name }) : apiPostJSON('/hospital-types/', { name: name });
     promise.then(() => {
         closeTypeModal();
         loadHospitalTypes();
         loadHospitalsList();
-    }).catch(err => alert('Failed: ' + err));
+    }).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.saveHospitalType = saveHospitalType;
 
@@ -358,7 +359,7 @@ window.editHospitalType = editHospitalType;
 
 async function deleteHospitalType(id) {
     if (!await confirmDestructive({ title: 'Delete Hospital Type', message: 'Delete this hospital type? Only possible if no hospitals are linked.', okLabel: 'Delete' })) return;
-    apiDelete('/hospital-types/' + id).then(() => loadHospitalTypes()).catch(err => alert('Failed: ' + err));
+    apiDelete('/hospital-types/' + id).then(() => loadHospitalTypes()).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.deleteHospitalType = deleteHospitalType;
 
@@ -431,13 +432,13 @@ window.closeOwnershipModal = closeOwnershipModal;
 
 function saveOwnership() {
     const name = document.getElementById('ownershipFormName').value.trim();
-    if (!name) { alert('Name is required.'); return; }
+    if (!name) { toastWarning('Name is required.'); return; }
     const promise = _editOwnId ? apiPut('/facility-ownerships/' + _editOwnId, { name: name }) : apiPostJSON('/facility-ownerships/', { name: name });
     promise.then(() => {
         closeOwnershipModal();
         loadOwnerships();
         loadHospitalsList();
-    }).catch(err => alert('Failed: ' + err));
+    }).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.saveOwnership = saveOwnership;
 
@@ -449,7 +450,7 @@ window.editOwnership = editOwnership;
 
 async function deleteOwnership(id) {
     if (!await confirmDestructive({ title: 'Delete Ownership', message: 'Delete this facility ownership? Only possible if no hospitals are linked.', okLabel: 'Delete' })) return;
-    apiDelete('/facility-ownerships/' + id).then(() => loadOwnerships()).catch(err => alert('Failed: ' + err));
+    apiDelete('/facility-ownerships/' + id).then(() => loadOwnerships()).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.deleteOwnership = deleteOwnership;
 
@@ -522,13 +523,13 @@ window.closeFacilityTypeModal = closeFacilityTypeModal;
 
 function saveFacilityType() {
     const name = document.getElementById('facilityTypeFormName').value.trim();
-    if (!name) { alert('Name is required.'); return; }
+    if (!name) { toastWarning('Name is required.'); return; }
     const promise = _editFacTypeId ? apiPut('/facility-types/' + _editFacTypeId, { name: name }) : apiPostJSON('/facility-types/', { name: name });
     promise.then(() => {
         closeFacilityTypeModal();
         loadFacilityTypes();
         loadHospitalsList();
-    }).catch(err => alert('Failed: ' + err));
+    }).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.saveFacilityType = saveFacilityType;
 
@@ -540,7 +541,7 @@ window.editFacilityType = editFacilityType;
 
 async function deleteFacilityType(id) {
     if (!await confirmDestructive({ title: 'Delete Facility Type', message: 'Delete this facility type? Only possible if no hospitals are linked.', okLabel: 'Delete' })) return;
-    apiDelete('/facility-types/' + id).then(() => loadFacilityTypes()).catch(err => alert('Failed: ' + err));
+    apiDelete('/facility-types/' + id).then(() => loadFacilityTypes()).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.deleteFacilityType = deleteFacilityType;
 
@@ -549,9 +550,9 @@ window.deleteFacilityType = deleteFacilityType;
 async function clearHospitalData(id, name) {
     if (!await confirmDestructive({ title: 'Clear Hospital Data', message: 'Clear ALL indicator data for <strong>' + name + '</strong>?', details: 'This will remove indicator values, quality scores, validation results, and clinical results. The hospital will become inactive.', okLabel: 'Clear Data' })) return;
     apiPut('/hospitals/' + id + '/clear-data').then(res => {
-        if (res.message) alert(res.message);
+        if (res.message) toastSuccess(res.message);
         loadHospitalsList();
-    }).catch(err => alert('Failed: ' + err));
+    }).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.clearHospitalData = clearHospitalData;
 
@@ -559,9 +560,9 @@ async function clearAllData() {
     if (!await confirmDestructive({ title: 'Nuclear Option', message: 'Clear ALL indicator data for ALL hospitals?', details: 'This will remove everything. All hospitals will become inactive. You can re-upload data after clearing.', okLabel: 'Clear Everything' })) return;
     if (!await confirmDestructive({ title: 'Final Confirmation', message: 'Are you REALLY sure? This cannot be undone.', confirmText: 'DELETE' })) return;
     apiDelete('/hospitals/clear-all-data').then(res => {
-        if (res.message) alert(res.message);
+        if (res.message) toastSuccess(res.message);
         loadHospitalsList();
-    }).catch(err => alert('Failed: ' + err));
+    }).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.clearAllData = clearAllData;
 
@@ -569,7 +570,7 @@ window.clearAllData = clearAllData;
 
 function exportHospitalsCSV() {
     if (!_hospitals.length) {
-        alert('No hospitals to export.');
+        toastWarning('No hospitals to export.');
         return;
     }
     const headers = ['ID', 'Name', 'OrgUnit ID', 'Ownership', 'Facility Type', 'Governorate', 'Type', 'Address', 'Status'];

@@ -1049,3 +1049,47 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .settings-section.open .settings-section-body {
   display: block;
 }
+
+/* ── Toast Animations ─────────────────────────────────── */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(100px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(100px); }
+}
+
+/* ── Empty State Component ────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  color: var(--text-muted);
+}
+.empty-state .empty-icon {
+  font-size: 3rem;
+  margin-bottom: 0.8rem;
+  opacity: 0.4;
+  line-height: 1;
+}
+.empty-state .empty-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+}
+.empty-state .empty-desc {
+  font-size: 0.82rem;
+  max-width: 320px;
+  line-height: 1.5;
+}
+.empty-state .empty-action {
+  margin-top: 1rem;
+}
+.empty-state .empty-action .btn {
+  font-size: 0.82rem;
+}

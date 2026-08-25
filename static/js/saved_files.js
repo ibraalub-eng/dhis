@@ -2,6 +2,7 @@
         import { __ } from './i18n.js';
         import { esc, setStatus } from './tree.js';
         import { updateAlertBadge } from './alerts.js';
+import { toastSuccess, toastError, toastWarning } from './toast.js';
 
         // ── Saved Files ────────────────────────────────────────────
         export function refreshSavedFiles() {
@@ -53,7 +54,7 @@
 
         export function analyzeSelectedSaved() {
             const selected = Array.from(document.querySelectorAll('.saved-file-cb:checked')).map(cb => cb.value);
-            if (!selected.length) { alert(__('Select at least one file.')); return; }
+            if (!selected.length) { toastWarning(__('Select at least one file.')); return; }
             runAnalyzeSaved(selected);
         }
 
@@ -90,7 +91,7 @@
 
         export async function deleteSelectedSaved() {
             const selected = Array.from(document.querySelectorAll('.saved-file-cb:checked')).map(cb => cb.value);
-            if (!selected.length) { alert(__('Select at least one file.')); return; }
+            if (!selected.length) { toastWarning(__('Select at least one file.')); return; }
             if (!await confirmDestructive({ title: 'Delete Files', message: 'Delete ' + selected.length + ' file(s) from disk?', details: 'Data in DB will NOT be removed.', okLabel: 'Delete' })) return;
             fetch(API() + '/analysis/saved-files', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({filenames: selected}) })
                 .then(r => r.json()).then(res => {

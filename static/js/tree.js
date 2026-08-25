@@ -1,6 +1,7 @@
         import { API, apiGet } from './api.js';
         import { __, currentLang, translations, translateDOM } from './i18n.js';
         import { _restoreUIState } from './main.js';
+import { toastSuccess, toastError, toastWarning } from './toast.js';
 
         // ── Indicator Tree ────────────────────────────────────────
         let currentTreeData = null;
@@ -179,7 +180,7 @@
                 .catch(e => {
                     btn.textContent = __('Save Config');
                     btn.disabled = false;
-                    alert('Save failed: ' + e.message);
+                    toastError('Save failed: ' + e.message);
                 });
         }
 
@@ -201,7 +202,7 @@
                 const indicatorId = node.indicator_id;
                 if (toggle.classList.contains('loading')) return;
                 toggle.classList.add('loading');
-                if (!indicatorId) { toggle.classList.remove('loading'); alert('Indicator ID not found.'); return; }
+                if (!indicatorId) { toggle.classList.remove('loading'); toastWarning('Indicator ID not found.'); return; }
                 const url = API() + '/hospitals/' + hospitalId + '/indicators/' + indicatorId + '/toggle' +
                     (isParent ? '?cascade=true' : '');
                 fetch(url, { method: 'PUT' })
@@ -212,7 +213,7 @@
                     })
                     .catch(e => {
                         toggle.classList.remove('loading');
-                        alert('Toggle failed: ' + e.message);
+                        toastError('Toggle failed: ' + e.message);
                     });
             };
 

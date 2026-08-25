@@ -4,6 +4,7 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
         import { __ } from './i18n.js';
         import { esc } from './tree.js';
         import { _saveUIState, _restoreUIState, SwitchTab, _tabInited } from './main.js';
+import { toastSuccess, toastError, toastWarning } from './toast.js';
 
         // ── Progressive Disclosure: auto-wrap <h3> in collapsible sections ──
         function initCollapsibleSections() {
@@ -1647,7 +1648,7 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
                 }
                 if (typeof loadMonthToggles === 'function') loadMonthToggles();
             }).catch(e => {
-                alert('Error: ' + e.message);
+                toastError('Error: ' + e.message);
             });
         };
 
@@ -1814,7 +1815,7 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
                         })
                         .catch(e => {
                             toggleEl.classList.remove('loading');
-                            alert('Toggle failed: ' + e.message);
+                            toastError('Toggle failed: ' + e.message);
                         });
                 });
             });
@@ -1869,7 +1870,7 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
                         body: JSON.stringify({items: items}),
                     }).then(r => r.json()).then(() => {
                         loadRulesManager();
-                    }).catch(err => alert('Reorder failed: ' + err.message));
+                    }).catch(err => toastError('Reorder failed: ' + err.message));
                 });
             });
         }

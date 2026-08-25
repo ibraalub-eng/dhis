@@ -2,6 +2,7 @@
         import { __ } from './i18n.js';
         import { _restoreUIState, _saveUIState } from './main.js';
         import { esc } from './tree.js';
+import { toastWarning } from './toast.js';
 
         // ── Merged Comparative Analysis (Trends + Comparison) ────
         export function switchAnalysisMode(mode) {
@@ -52,7 +53,7 @@
         export async function loadTrends() {
             _saveUIState('trends');
             const hid = document.getElementById('trendHospitalSelect').value;
-            if (!hid) { alert(__('Select a hospital')); return; }
+            if (!hid) { toastWarning(__('Select a hospital')); return; }
             const container = document.getElementById('qualityTrendContent');
             const analysisSection = document.getElementById('trendAnalysisSection');
             document.getElementById('trendLoading').classList.remove('hidden');
@@ -84,13 +85,13 @@
             const scores = data.data;
 
             // Direction indicators
-            const dirColor = data.trend_direction === 'improving' ? '#2e7d32' : data.trend_direction === 'declining' ? '#c62828' : '#e65100';
+            const dirColor = data.trend_direction === 'improving' ? 'var(--accent-green)' : data.trend_direction === 'declining' ? 'var(--accent-red)' : 'var(--accent-orange)';
             const dirArrow = data.trend_direction === 'improving' ? '&#9650;' : data.trend_direction === 'declining' ? '&#9660;' : '&#9654;';
 
             // Summary stats
             let changeHtml = '';
             if (data.change !== null) {
-                const changeColor = data.change >= 0 ? '#2e7d32' : '#c62828';
+                const changeColor = data.change >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
                 const changeArrow = data.change >= 0 ? '&#9650;' : '&#9660;';
                 changeHtml = `<span style="color:${changeColor};font-weight:700;">${changeArrow} ${Math.abs(data.change).toFixed(1)} pts</span>`;
             }
@@ -102,7 +103,7 @@
 
             // ── Interactive Plotly chart (replaces static SVG) ────
             window._qualityTrendData = data;
-            const currentColor = data.current_score >= 80 ? '#2e7d32' : data.current_score >= 50 ? '#e65100' : '#c62828';
+            const currentColor = data.current_score >= 80 ? 'var(--accent-green)' : data.current_score >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
 
             const pill = 'display:inline-flex;flex-direction:column;align-items:center;gap:0.15rem;padding:0.4rem 0.8rem;border-radius:6px;font-size:0.72rem;';
             container.innerHTML = `
@@ -273,7 +274,7 @@
                 const y = h - ((v - mn) / range) * h;
                 path += (i === 0 ? 'M' : 'L') + x.toFixed(1) + ',' + y.toFixed(1);
             });
-            const color = values[values.length-1] > values[0] ? '#e65100' : values[values.length-1] < values[0] ? '#1565c0' : '#2e7d32';
+            const color = values[values.length-1] > values[0] ? 'var(--accent-orange)' : values[values.length-1] < values[0] ? 'var(--accent-blue)' : 'var(--accent-green)';
             return '<svg width="' + w + '" height="' + h + '" style="vertical-align:middle;"><path d="' + path + '" fill="none" stroke="' + color + '" stroke-width="2"/></svg>';
         }
 
@@ -304,7 +305,7 @@
 
         export async function loadComparison() {
             const month = document.getElementById('compareMonthSelect').value;
-            if (!month) { alert(__('Select a month')); return; }
+            if (!month) { toastWarning(__('Select a month')); return; }
             document.getElementById('compareLoading').classList.remove('hidden');
             document.getElementById('compareEmpty').style.display = 'block';
             document.getElementById('compareEmpty').innerHTML = '<div style="font-size:1.3rem;margin-bottom:0.3rem;"><span class="spinner"></span></div><p style="margin:0;font-size:0.85rem;">Loading comparison...</p>';
@@ -521,8 +522,9 @@
             }
             const a = analysis;
             const s = a.summary;
-            const overallColor = s.overall_assessment.startsWith('CRITICAL') ? '#b71c1c' : s.overall_assessment.startsWith('ATTENTION') ? '#e65100' : '#2e7d32';
-            const overallLevel = overallColor === '#b71c1c' ? __('Critical') : overallColor === '#e65100' ? __('Attention') : __('Normal');
+            const _overallHex = s.overall_assessment.startsWith('CRITICAL') ? '#b71c1c' : s.overall_assessment.startsWith('ATTENTION') ? '#e65100' : '#2e7d32';
+            const overallColor = _overallHex === '#b71c1c' ? 'var(--accent-red)' : _overallHex === '#e65100' ? 'var(--accent-orange)' : 'var(--accent-green)';
+            const overallLevel = s.overall_assessment.startsWith('CRITICAL') ? __('Critical') : s.overall_assessment.startsWith('ATTENTION') ? __('Attention') : __('Normal');
             const recs = a.recommendations || [];
             const criticalRecs = recs.filter(r => (r.priority || '').toLowerCase() === 'critical');
             const highRecs = recs.filter(r => (r.priority || '').toLowerCase() === 'high');
@@ -539,7 +541,7 @@
             // ── أهم 3 مشاكل حرجة ──
             if (topIssues.length) {
                 html += '<div style="margin:0.6rem 0;padding:0.7rem 1rem;border-radius:8px;background:#b71c1c08;border:1px solid #b71c1c33;">';
-                html += '<div style="font-size:0.8rem;font-weight:700;color:#b71c1c;margin-bottom:0.35rem;">&#9888; ' + __('Critical issues — act first') + '</div>';
+                html += '<div style="font-size:0.8rem;font-weight:700;color:var(--accent-red);margin-bottom:0.35rem;">&#9888; ' + __('Critical issues — act first') + '</div>';
                 topIssues.forEach(rec => {
                     const p = (rec.priority || '').toLowerCase();
                     const pColor = p === 'critical' ? '#b71c1c' : '#c62828';

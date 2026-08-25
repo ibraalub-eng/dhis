@@ -1,5 +1,6 @@
 import { API, apiGet } from './api.js';
 import { esc } from './tree.js';
+import { toastWarning } from './toast.js';
 
 let _auditData = null;
 
@@ -33,7 +34,7 @@ export function initAudit() {
 export function loadAudit() {
     const hid = document.getElementById('auditHospitalSelect').value;
     const month = document.getElementById('auditMonthSelect').value;
-    if (!hid || !month) { alert('Please select hospital and month.'); return; }
+    if (!hid || !month) { toastWarning('Please select hospital and month.'); return; }
     document.getElementById('auditLoading').classList.remove('hidden');
     document.getElementById('auditBtn').disabled = true;
     const container = document.getElementById('auditResults');
@@ -89,7 +90,7 @@ function renderAudit() {
                 + ' = ' + esc((c.numerator_value || 0) + ' / ' + (c.denominator_value || 0))
                 + ' = <strong>' + (c.raw_rate != null ? Number(c.raw_rate).toFixed(2) : '--') + '</strong> ' + esc(c.unit || '');
             html += '</div>';
-            if (c.narrative) html += '<div style="font-size:0.7rem;color:#777;margin:0.1rem 0;">' + esc(c.narrative) + '</div>';
+            if (c.narrative) html += '<div style="font-size:0.7rem;color:var(--text-muted);margin:0.1rem 0;">' + esc(c.narrative) + '</div>';
             html += '</div>';
         });
     }
@@ -97,7 +98,7 @@ function renderAudit() {
     if (steps.quality_score) {
         html += '<div style="margin:0.5rem 0 0.3rem 0;font-weight:600;font-size:0.8rem;color:var(--text-primary);">Quality Score</div>';
         const qs = steps.quality_score;
-        const qsColor = qs.final_score != null ? (qs.final_score < 50 ? '#c62828' : qs.final_score < 70 ? '#e65100' : '#2e7d32') : '#888';
+        const qsColor = qs.final_score != null ? (qs.final_score < 50 ? 'var(--accent-red)' : qs.final_score < 70 ? 'var(--accent-orange)' : 'var(--accent-green)') : 'var(--text-muted)';
         html += '<div style="margin:0.3rem 0;padding:0.4rem 0.5rem;background:var(--bg-elevated);border-left:3px solid ' + qsColor + ';border-radius:3px;font-size:0.78rem;">';
         html += '<div style="display:flex;justify-content:space-between;align-items:center;"><strong>Final Score</strong><span style="font-weight:700;font-size:1rem;color:' + qsColor + ';">' + (qs.final_score != null ? Number(qs.final_score).toFixed(1) : '--') + '</span></div>';
         if (qs.components) {
@@ -178,7 +179,7 @@ function renderAudit() {
     if (da.completeness) {
         const comp = da.completeness;
         const pct = comp.total > 0 ? Math.round(comp.present / comp.total * 100) : 0;
-        const pctColor = pct >= 80 ? '#2e7d32' : pct >= 50 ? '#e65100' : '#c62828';
+        const pctColor = pct >= 80 ? 'var(--accent-green)' : pct >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
         html += '<div style="margin:0.3rem 0;font-weight:600;font-size:0.8rem;color:var(--text-primary);">Completeness <span style="font-weight:400;color:' + pctColor + ';">(' + pct + '%)</span></div>';
         html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem;">' + comp.present + ' / ' + comp.total + ' indicators present (' + comp.missing + ' missing)</div>';
 
