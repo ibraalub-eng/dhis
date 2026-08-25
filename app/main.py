@@ -426,10 +426,16 @@ async def lifespan(app: FastAPI):
 
             # Always ensure auth tables exist (migration may have partially failed)
             # Create a fresh session in case DDL changes were made
-            _ensure_auth_tables(session)
+            try:
+                _ensure_auth_tables(session)
+            except Exception as e:
+                print(f"[startup] Auth table creation error (non-fatal): {e}")
             session.close()
             session = SessionLocal()
-            _ensure_admin_user(session)
+            try:
+                _ensure_admin_user(session)
+            except Exception as e:
+                print(f"[startup] Admin user setup error (non-fatal): {e}")
 
             # Apply hospital metadata (OrgUnit ID, Ownership, Governorate, Type)
             # from scripts/hospital_metadata.json - safe to run every startup.
