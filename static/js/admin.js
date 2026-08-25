@@ -702,7 +702,7 @@ window._adminAssignHospitals = function(id, btn) {
   async function loadAdminDbStatus() {
     var el=document.getElementById("adminDbStatus");
     if(!el)return;el.innerHTML="Loading...";
-    var data=await api("/config/database/status");
+    var data=await api("/config/database-status");
     if(!data||data._error){el.innerHTML="<span style=\"color:var(--accent-red)\">Failed to load</span>";return;}
     if(data.connected){
       var h="<span style=\"color:var(--accent-green)\">Connected to "+(data.engine||"PostgreSQL")+"</span><br>";

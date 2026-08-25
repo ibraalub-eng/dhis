@@ -202,7 +202,11 @@ def _compute_smart_data(db: Session, month: str) -> dict:
     from app.database import SessionLocal
     bg_db = SessionLocal()
     try:
-        result = run_smart_analytics(bg_db, month)
+        try:
+            result = run_smart_analytics(bg_db, month)
+        except Exception as e:
+            logger.error(f"[smart] Computation FAILED for {month}: {e}", exc_info=True)
+            return
         response = _envelope(result)
 
         try:

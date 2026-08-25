@@ -38,7 +38,10 @@ export function _t(text) {
 
 export async function apiSmartGet(path) {
   const base = '';
-  const res = await fetch(base + path);
+  const headers = {};
+  const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  const res = await fetch(base + path, { headers });
   if (!res.ok) {
     let detail = '';
     try { detail = (await res.json()).detail || ''; } catch (e) { /* ignore */ }

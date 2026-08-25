@@ -25,12 +25,17 @@ export function initAdvancedTabs() {
   });
 }
 
-async function fetchSection(path, key) {
+async function fetchSection(path, key, _retries) {
+  if (_retries === undefined) _retries = 0;
   const res = await apiSmartGet(path);
+  if (res && res.computing && _retries < 8) {
+    showSmartSectionEmpty(key, _t('Computing analysis...') + ' (' + (_retries + 1) + ')');
+    await new Promise(r => setTimeout(r, 3000));
+    return fetchSection(path, key, _retries + 1);
+  }
   if (res && res.empty) {
     showSmartSectionEmpty(key, res.message || _t('No data'));
   } else {
-    // Clear any stale empty/error state when data IS available
     clearSmartSectionState(key);
   }
   return res;
