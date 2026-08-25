@@ -3,6 +3,7 @@
 
         // ── Alerts Tab (overview only; rule-failures table merged here) ──
         export function loadAlerts() {
+            var bar=document.getElementById("alertSummaryBar");if(bar)bar.innerHTML="<div style=\"text-align:center;padding:1rem;color:var(--text-muted);\"><span class=\"spinner\"></span> Loading...</div>";
             authFetch(API() + '/alerts/overview')
                 .then(r => {
                     if (!r.ok) throw new Error('HTTP ' + r.status);

@@ -72,6 +72,8 @@
             _tabInited.add(name);
             const src = targetContent.dataset.src;
             if (src && targetContent.dataset.loaded === 'false') {
+                // Show spinner while fetching tab content
+                targetContent.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;color:var(--text-muted);"><div class="spinner spinner-lg" style="margin-bottom:0.8rem;"></div><span style="font-size:0.9rem;">' + (__ ? __('Loading...') : 'Loading...') + '</span></div>';
                 fetch(src).then(r => {
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.text();

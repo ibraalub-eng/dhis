@@ -6,6 +6,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
 
         // ── Saved Files ────────────────────────────────────────────
         export function refreshSavedFiles() {
+            var tb=document.getElementById("savedFilesTbody");if(tb)tb.innerHTML="<tr><td colspan=\"5\" style=\"text-align:center;padding:1.5rem;color:var(--text-muted);\"><span class=\"spinner\"></span> Loading saved files...</td></tr>";
             // Skip if user lacks data.upload permission (doctor/viewer roles)
             try {
                 var userInfo = JSON.parse(localStorage.getItem('user_info') || sessionStorage.getItem('user_info') || '{}');
