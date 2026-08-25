@@ -82,6 +82,15 @@ export function openDrilldown(hospitalId) {
   const modal = document.getElementById('smart-drilldown-modal');
   if (!modal) return;
   modal.style.display = 'flex';
+  // Show loading state immediately
+  const nameEl = document.getElementById('smart-drilldown-name');
+  const textEl = document.getElementById('smart-drilldown-text');
+  const factorsEl = document.getElementById('smart-drilldown-factors');
+  const trendEl = document.getElementById('smart-trend-line');
+  if (nameEl) nameEl.textContent = hospitalId;
+  if (textEl) textEl.innerHTML = '<div style="text-align:center;padding:1.5rem;"><div class="spinner spinner-lg" style="margin:0 auto 0.5rem;display:block;"></div><span style="color:var(--accent-blue);">' + (_t('Loading analysis...') || 'Loading analysis...') + '</span></div>';
+  if (factorsEl) factorsEl.innerHTML = '';
+  if (trendEl) trendEl.innerHTML = '';
   apiSmartGet(`/smart/drilldown/${hospitalId}/${month}`).then(d => {
     if (d.empty || !d.anomaly) {
       document.getElementById('smart-drilldown-name').textContent = d.hospital_name || hospitalId;
