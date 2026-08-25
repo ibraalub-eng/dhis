@@ -10,7 +10,6 @@
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('trends')" id="stbtn-trends">Trends</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('rates')" id="stbtn-rates">Rate Benchmarks</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ai')" id="stbtn-ai" style="color:var(--accent-red);border-color:var(--accent-red);">AI Provider</button>
-                        <button class="btn btn-sm btn-outline" onclick="showSettingsTab('database')" id="stbtn-database">Database</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('control')" id="stbtn-control">Control</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('hospitals')" id="stbtn-hospitals" style="color:var(--accent-blue);border-color:var(--accent-blue);">Hospitals</button>
                         <button class="btn btn-sm btn-outline" onclick="showSettingsTab('ml')" id="stbtn-ml">ML Analysis</button>
@@ -864,32 +863,6 @@
                     </div>
 
                     <!-- Database Settings -->
-                    <div id="settings-database" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Database Connection</h3>
-                        <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
-                            Current database connection status. To change the database, edit the <code>DATABASE_URL</code> in the <code>.env</code> file and restart the server.
-                        </div>
-                        <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;max-width:700px;">
-                            <div id="dbStatus" style="font-size:0.85rem;line-height:1.8;">Loading...</div>
-                        </div>
-
-                        <!-- Table Preview & Export -->
-                        <div style="margin-top:1.2rem;display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-                            <button class="btn btn-sm" onclick="previewDatabaseTables()" id="btnPreviewDb">&#x1F50D; Preview Tables</button>
-                            <button class="btn btn-sm" onclick="exportDatabase()" id="btnExportDb" style="background:#22c55e;color:white;">&#x1F4E5; Export Full Database (JSON)</button>
-                            <span id="dbExportStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
-                        </div>
-
-                        <div id="dbPreviewContainer" style="margin-top:1rem;display:none;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-                                <h4 style="font-size:0.88rem;color:var(--text-primary);margin:0;">Database Tables Preview</h4>
-                                <button class="btn btn-sm btn-outline" onclick="document.getElementById('dbPreviewContainer').style.display='none'">&#x2716; Close</button>
-                            </div>
-                            <div id="dbPreviewContent" style="max-height:600px;overflow-y:auto;background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
-                                <p style="color:var(--text-muted);font-size:0.82rem;">Loading tables...</p>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- Control Settings -->
                     <div id="settings-control" class="settings-section" style="display:none;">

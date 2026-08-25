@@ -91,6 +91,14 @@ window._adminAssignHospitals = function(id, btn) {
 
     container.innerHTML = `
       <div style="padding:1rem;">
+        <!-- Admin Tab Bar -->
+        <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
+          <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
+        </div>
+
+        <!-- Users and Roles Tab -->
+        <div id="adminUsersPanel">
         <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">User Management</h2>
         <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Create, edit, and deactivate user accounts. Assign roles to control access.</p>
 
@@ -262,6 +270,30 @@ window._adminAssignHospitals = function(id, btn) {
             <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
               <button class="btn btn-sm btn-outline" onclick="closeRoleModal()">Cancel</button>
               <button class="btn btn-sm" onclick="saveRole()">Save Role</button>
+            </div>
+          </div>
+
+        </div> <!-- /adminUsersPanel -->
+
+        <!-- Database Tab -->
+        <div id="adminDatabasePanel" style="display:none;">
+          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Database</h2>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">View database connection status, preview tables, and export data.</p>
+          <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
+            <div id="adminDbStatus" style="font-size:0.85rem;line-height:1.8;">Loading...</div>
+          </div>
+          <div style="margin-top:1.2rem;display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+            <button class="btn btn-sm" onclick="adminPreviewDb()" id="adminBtnPreviewDb">Preview Tables</button>
+            <button class="btn btn-sm" onclick="adminExportDb()" id="adminBtnExportDb" style="background:#22c55e;color:white;">Export Full Database (JSON)</button>
+            <span id="adminDbExportStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+          </div>
+          <div id="adminDbPreviewContainer" style="margin-top:1rem;display:none;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+              <h4 style="font-size:0.88rem;color:var(--text-primary);margin:0;">Database Tables Preview</h4>
+              <button class="btn btn-sm btn-outline" id="adminDbCloseBtn">Close</button>
+            </div>
+            <div id="adminDbPreviewContent" style="max-height:600px;overflow-y:auto;background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
+              <p style="color:var(--text-muted);font-size:0.82rem;">Click Preview Tables to load.</p>
             </div>
           </div>
         </div>
@@ -586,4 +618,68 @@ window._adminAssignHospitals = function(id, btn) {
     await api('/admin/users/' + userId, { method: 'DELETE' });
     loadAdminPanel();
   };
+
+  // -- Admin Tab Switching
+  window.switchAdminTab = function(tab) {
+    document.querySelectorAll(".admin-tab-btn").forEach(function(btn){
+      btn.style.background="var(--bg-surface-hover)";
+      btn.style.color="var(--text-secondary)";
+    });
+    var ab=document.getElementById("atab-"+tab);
+    if(ab){ab.style.background="var(--accent-purple)";ab.style.color="white";}
+    var u=document.getElementById("adminUsersPanel");
+    var d=document.getElementById("adminDatabasePanel");
+    if(u)u.style.display=tab==="users"?"block":"none";
+    if(d)d.style.display=tab==="database"?"block":"none";
+    if(tab==="database"&&!window._adminDbLoaded){loadAdminDbStatus();window._adminDbLoaded=true;}
+  };
+  async function loadAdminDbStatus() {
+    var el=document.getElementById("adminDbStatus");
+    if(!el)return;el.innerHTML="Loading...";
+    var data=await api("/config/database/status");
+    if(!data||data._error){el.innerHTML="<span style=\"color:var(--accent-red)\">Failed to load</span>";return;}
+    if(data.connected){
+      var h="<span style=\"color:var(--accent-green)\">Connected to "+(data.engine||"PostgreSQL")+"</span><br>";
+      h+="<div style=\"margin-top:0.5rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.5rem;\">";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Hospitals</strong><br>"+(data.hospital_count||0)+" total ("+(data.active_count||0)+" active)</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Indicator Values</strong><br>"+(data.indicator_value_count||0).toLocaleString()+" records</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Quality Scores</strong><br>"+(data.quality_score_count||0).toLocaleString()+" records</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Indicators</strong><br>"+(data.indicator_count||0)+" configured</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Rules</strong><br>"+(data.rule_count||0)+" active</div>";
+      h+="<div style=\"background:var(--bg-surface-hover);padding:0.5rem;border-radius:6px;\"><strong style=\"color:var(--accent-blue)\">Tables</strong><br>"+(data.table_count||0)+" created</div></div>";
+      el.innerHTML=h;
+    }else{el.innerHTML="<span style=\"color:var(--accent-red)\">Not connected</span><br><span style=\"font-size:0.8rem;color:var(--text-muted)\">"+(data.error||"DATABASE_URL not set")+"</span>";}
+  }
+
+  window.adminPreviewDb=function(){
+    var ct=document.getElementById("adminDbPreviewContainer");var co=document.getElementById("adminDbPreviewContent");
+    if(!ct||!co)return;ct.style.display="block";co.innerHTML="Loading...";
+    fetch("/config/database/preview").then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();}).then(function(data){
+      if(!data.tables||!data.tables.length){co.innerHTML="<p style=\"color:var(--text-muted)\">No tables.</p>";return;}
+      var h="<div style=\"margin-bottom:0.6rem;font-size:0.82rem;color:var(--text-secondary)\"><strong>"+data.total_tables+"</strong> tables found</div>";
+      data.tables.forEach(function(t){
+        h+="<div style=\"margin-bottom:0.6rem;border:1px solid var(--border-default);border-radius:6px;overflow:hidden;\">";
+        h+="<div class=\"admin-db-table-toggle\" style=\"cursor:pointer;padding:0.5rem 0.7rem;background:var(--bg-surface-hover);display:flex;justify-content:space-between;align-items:center;\" onclick=\"var b=this.nextElementSibling;b.style.display=b.style.display===\x27none\x27?\x27block\x27:\x27none\x27\">";
+        h+="<span><strong style=\"color:var(--accent-blue)\">"+t.name+"</strong> ("+t.row_count+" rows, "+t.columns.length+" cols)</span>";
+        h+="<span style=\"color:var(--text-muted);font-size:0.75rem;\">▼ click</span></div><div style=\"display:none;padding:0.5rem;\">";
+        if(t.preview&&t.preview.length){
+          h+="<table style=\"font-size:0.75rem;width:100%;border-collapse:collapse;\"><thead><tr>"+t.columns.map(function(c){return "<th style=\"padding:0.3rem 0.5rem;border-bottom:2px solid var(--border-default);\">"+c+"</th>";}).join("")+"</tr></thead><tbody>";
+          t.preview.forEach(function(r){h+="<tr>"+t.columns.map(function(c){var v=r[c];if(v===null)v="<span style=\"color:var(--text-muted);font-style:italic;\">NULL</span>";return "<td style=\"padding:0.25rem 0.5rem;border-bottom:1px solid var(--border-default);\">"+v+"</td>";}).join("")+"</tr>";});
+          h+="</tbody></table>";if(t.row_count>5)h+="<div style=\"font-size:0.72rem;color:var(--text-muted)\">Showing 5 of "+t.row_count+"</div>";
+        }else h+="<div style=\"color:var(--text-muted)\">No data.</div>";
+        h+="</div></div>";});co.innerHTML=h;
+    }).catch(function(e){co.innerHTML="<p style=\"color:var(--accent-red)\">Error: "+e.message+"</p>";});
+  };
+
+  window.adminExportDb=function(){
+    var s=document.getElementById("adminDbExportStatus");if(s)s.textContent="Preparing export...";
+    var btn=document.getElementById("adminBtnExportDb");if(btn)btn.disabled=true;
+    fetch("/config/database/export").then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);var d=r.headers.get("Content-Disposition")||"";var m=d.match(/filename=\"?([^"]+)\"?/);return r.blob().then(function(b){return{blob:b,filename:m?m[1]:"export.json"};});}).then(function(r){
+      var u=URL.createObjectURL(r.blob);var a=document.createElement("a");a.href=u;a.download=r.filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);if(s)s.textContent="Downloaded: "+r.filename;
+    }).catch(function(e){if(s)s.textContent="Failed: "+e.message;}).finally(function(){if(btn)btn.disabled=false;});
+  };
+
+  // Close button for DB preview
+  var closeBtn=document.getElementById("adminDbCloseBtn");
+  if(closeBtn)closeBtn.onclick=function(){document.getElementById("adminDbPreviewContainer").style.display="none";};
 })();
