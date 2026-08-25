@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-js:
+    name: Validate JavaScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Syntax check all JS files
+        run: |
+          echo "Running JS syntax validation..."
+          ERRORS=0
+          for f in $(find static/js -name '*.js' -type f); do
+            TMPFILE=$(mktemp /tmp/precommit_XXXXXX.mjs)
+            cp "$f" "$TMPFILE"
+            OUTPUT=$(node --check "$TMPFILE" 2>&1)
+            STATUS=$?
+            rm -f "$TMPFILE"
+            if [ $STATUS -ne 0 ]; then
+              echo "SYNTAX ERROR in $f:"
+              echo "$OUTPUT" | head -5
+              echo ""
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+          if [ $ERRORS -gt 0 ]; then
+            echo "FAILED: $ERRORS file(s) have syntax errors."
+            exit 1
+          fi
+          echo "All JS files passed syntax validation."
+
+      - name: Validate ES module imports
+        run: node scripts/validate-imports.js
