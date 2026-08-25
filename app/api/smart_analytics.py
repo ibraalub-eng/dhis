@@ -197,13 +197,15 @@ def _healthy_hospitals(db: Session, month: str, anomalies: list) -> list:
     return _sanitize(rows[:5])
 
 
-def _compute_smart_data(db: Session, month: str) -> dict:
+def _compute_smart_data(db, month: str) -> dict:
     """Heavy computation — runs in background thread."""
     from app.database import SessionLocal
     bg_db = SessionLocal()
     try:
+        logger.info(f"[smart] Starting computation for {month}...")
         try:
             result = run_smart_analytics(bg_db, month)
+            logger.info(f"[smart] Computation result for {month}: hospitals={result.hospitals_count} anomalies={len(result.anomalies)} clusters={len(result.clustering.clusters) if result.clustering else 0}")
         except Exception as e:
             logger.error(f"[smart] Computation FAILED for {month}: {e}", exc_info=True)
             return
@@ -251,7 +253,7 @@ def _get_smart_data(db: Session, month: str) -> dict:
     if cached is not None:
         return cached
     # Kick off background computation
-    t = threading.Thread(target=_compute_smart_data, args=(db, month), daemon=True)
+    t = threading.Thread(target=_compute_smart_data, args=(None, month), daemon=True)
     t.start()
     # Return empty envelope so caller gets a fast response
     return {
