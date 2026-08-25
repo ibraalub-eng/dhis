@@ -66,7 +66,7 @@ window._adminAssignHospitals = function(id, btn) {
 
     container.innerHTML = `
       <div style="padding:1rem;">
-        <h2 style="color:#6a1b9a;margin-bottom:0.5rem;">User Management</h2>
+        <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">User Management</h2>
         <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Create, edit, and deactivate user accounts. Assign roles to control access.</p>
 
         <div style="display:flex;gap:1.5rem;flex-wrap:wrap;">
@@ -94,12 +94,12 @@ window._adminAssignHospitals = function(id, btn) {
                       <td style="padding:0.4rem;font-weight:600;">${esc(u.username)}</td>
                       <td style="padding:0.4rem;">${esc(u.full_name)}</td>
                       <td style="padding:0.4rem;color:var(--text-secondary);">${esc(u.email)}</td>
-                      <td style="padding:0.4rem;">${u.roles.map(r => '<span style="background:#ede7f6;color:#6a1b9a;padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;margin-right:0.2rem;">' + esc(r.name) + '</span>').join('')}</td>
-                      <td style="padding:0.4rem;">${u.is_active ? '<span style="color:#2e7d32;">Active</span>' : '<span style="color:var(--accent-red);">Inactive</span>'}</td>
+                      <td style="padding:0.4rem;">${u.roles.map(r => '<span style="background:var(--bg-surface-hover);color:var(--accent-purple);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;margin-right:0.2rem;">' + esc(r.name) + '</span>').join('')}</td>
+                      <td style="padding:0.4rem;">${u.is_active ? '<span style="color:var(--accent-green);">Active</span>' : '<span style="color:var(--accent-red);">Inactive</span>'}</td>
                       <td style="padding:0.4rem;">
                         <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})" style="font-size:0.72rem;">Edit</button>
-                        <button class="btn btn-sm btn-outline" onclick="window._adminChangePassword(${u.id}, this)" data-username="${esc(u.username)}" style="font-size:0.72rem;color:#e65100;margin-left:0.2rem;">🔑 Password</button>
-                        <button class="btn btn-sm btn-outline" onclick="window._adminAssignHospitals(${u.id}, this)" data-username="${esc(u.username)}" style="font-size:0.72rem;color:#1565c0;margin-left:0.2rem;">Hospitals</button>
+                        <button class="btn btn-sm btn-outline" onclick="window._adminChangePassword(${u.id}, this)" data-username="${esc(u.username)}" style="font-size:0.72rem;color:var(--accent-orange);margin-left:0.2rem;">🔑 Password</button>
+                        <button class="btn btn-sm btn-outline" onclick="window._adminAssignHospitals(${u.id}, this)" data-username="${esc(u.username)}" style="font-size:0.72rem;color:var(--accent-blue);margin-left:0.2rem;">Hospitals</button>
                         ${u.is_active ? '<button class="btn btn-sm btn-outline" onclick="deactivateUser(' + u.id + ')" style="font-size:0.72rem;color:var(--accent-red);margin-left:0.2rem;">Deactivate</button>' : ''}
                       </td>
                     </tr>
@@ -143,7 +143,7 @@ window._adminAssignHospitals = function(id, btn) {
 
             <h3 style="color:var(--accent-blue);margin:1rem 0 0.5rem;">Available Permissions (${perms.length})</h3>
             <div style="max-height:200px;overflow-y:auto;background:var(--bg-elevated);border-radius:6px;padding:0.5rem;font-size:0.78rem;">
-              ${perms.map(p => '<div style="padding:0.15rem 0;"><strong style="color:#4338ca;">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:var(--text-muted);">— ' + esc(p.description) + '</span>' : '') + '</div>').join('')}
+              ${perms.map(p => '<div style="padding:0.15rem 0;"><strong style="color:var(--accent-purple);">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:var(--text-muted);">— ' + esc(p.description) + '</span>' : '') + '</div>').join('')}
             </div>
           </div>
         </div>
@@ -155,7 +155,23 @@ window._adminAssignHospitals = function(id, btn) {
             <button class="btn btn-sm btn-outline" onclick="loadVisibilityMatrix()" style="font-size:0.72rem;">↻ Refresh</button>
           </div>
           <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.8rem;">Shows which tabs each role can see. Green = visible, Red = hidden.</p>
-          <div id="visMatrixBody" style="overflow-x:auto;"><div style="text-align:center;padding:1rem;color:var(--text-muted);">Loading...</div></div>
+          <div id="visMatrixBody"
+        <!-- Role Simulation Preview -->
+        <div id="roleSimulator" style="display:none;margin-top:1rem;border:2px solid var(--accent-blue);border-radius:8px;overflow:hidden;">
+            <div style="padding:0.6rem 0.8rem;background:var(--accent-blue);color:white;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-weight:600;font-size:0.85rem;">🎮 Role Simulator: <span id="simRoleName"></span></span>
+                <button onclick="document.getElementById('roleSimulator').style.display='none'" style="background:none;border:1px solid rgba(255,255,255,0.3);color:white;border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">✕ Close</button>
+            </div>
+            <div style="padding:0.8rem;background:var(--bg-elevated);">
+                <div style="margin-bottom:0.6rem;font-size:0.78rem;color:var(--text-secondary);">
+                    <strong>Permissions:</strong> <span id="simPermCount"></span> · <span id="simPermList" style="font-size:0.72rem;"></span>
+                </div>
+                <div style="margin-bottom:0.6rem;font-size:0.82rem;color:var(--text-primary);font-weight:600;">Simulated Tab Bar:</div>
+                <div id="simTabBar" style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.8rem;"></div>
+                <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">Visible tab content panels:</div>
+                <div id="simTabContent" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+            </div>
+        </div> style="overflow-x:auto;"><div style="text-align:center;padding:1rem;color:var(--text-muted);">Loading...</div></div>
         </div>
 
         <!-- Create/Edit User Modal -->
@@ -185,7 +201,7 @@ window._adminAssignHospitals = function(id, btn) {
                 ${roles.map(r => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-role-cb" value="' + r.id + '"> ' + esc(r.name) + (r.is_system ? ' <span style="color:var(--text-muted);font-size:0.7rem;">(system)</span>' : '') + '</label>').join('')}
               </div>
             </div>
-            <div id="adminModalError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+            <div id="adminModalError" style="display:none;color:var(--accent-red);font-size:0.82rem;margin-bottom:0.5rem;"></div>
             <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
               <button class="btn btn-sm btn-outline" onclick="closeAdminModal()">Cancel</button>
               <button class="btn btn-sm" id="adminSaveBtn" onclick="saveAdminUser()">Save</button>
@@ -214,10 +230,10 @@ window._adminAssignHospitals = function(id, btn) {
                 <button class="btn btn-sm btn-outline" onclick="document.querySelectorAll('#adminPermCheckboxes input').forEach(function(c){c.checked=false})" style="font-size:0.72rem;">Clear All</button>
               </div>
               <div id="adminPermCheckboxes" style="max-height:200px;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.4rem;">
-                ${perms.map(p => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-perm-cb" value="' + p.id + '"> <strong style="color:#4338ca;">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:var(--text-muted);font-size:0.75rem;">— ' + esc(p.description) + '</span>' : '') + '</label>').join('')}
+                ${perms.map(p => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-perm-cb" value="' + p.id + '"> <strong style="color:var(--accent-purple);">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:var(--text-muted);font-size:0.75rem;">— ' + esc(p.description) + '</span>' : '') + '</label>').join('')}
               </div>
             </div>
-            <div id="adminRoleModalError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+            <div id="adminRoleModalError" style="display:none;color:var(--accent-red);font-size:0.82rem;margin-bottom:0.5rem;"></div>
             <div style="display:flex;gap:0.5rem;justify-content:flex-end;">
               <button class="btn btn-sm btn-outline" onclick="closeRoleModal()">Cancel</button>
               <button class="btn btn-sm" onclick="saveRole()">Save Role</button>
@@ -267,16 +283,17 @@ window._adminAssignHospitals = function(id, btn) {
         var isSuper = r.is_superuser;
         tabIds.forEach(function(tid) { if (r.tab_access[tid]) visibleCount++; });
         var rowBg = isSuper ? 'background:rgba(106,27,154,0.05);' : '';
-        html += '<tr style="border-bottom:1px solid var(--border-default);' + rowBg + '">';
+        html += '<tr data-role-id="' + r.id + '" style="border-bottom:1px solid var(--border-default);' + rowBg + 'cursor:pointer;" onclick="simulateRole(' + r.id + ')">';
         html += '<td style="padding:0.4rem 0.6rem;font-weight:600;position:sticky;left:0;background:var(--bg-elevated);z-index:1;">';
         html += esc(r.name);
         if (r.is_system) html += ' <span style="font-size:0.65rem;color:var(--text-muted);">(system)</span>';
-        if (isSuper) html += ' <span style="font-size:0.65rem;color:#6a1b9a;">★</span>';
+        if (isSuper) html += ' <span style="font-size:0.65rem;color:var(--accent-purple);">★</span>';
+        html += ' <span style="font-size:0.65rem;color:var(--accent-blue);">▸ simulate</span>';
         html += '</td>';
         tabIds.forEach(function(tid) {
           var has = r.tab_access[tid];
           var cellStyle = has
-            ? 'color:#2e7d32;background:rgba(46,125,50,0.08);'
+            ? 'color:var(--accent-green);background:rgba(46,125,50,0.08);'
             : 'color:var(--accent-red);background:rgba(244,67,54,0.06);';
           html += '<td style="padding:0.4rem;text-align:center;' + cellStyle + 'font-weight:600;">' + (has ? '✅' : '❌') + '</td>';
         });
@@ -289,7 +306,68 @@ window._adminAssignHospitals = function(id, btn) {
       el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--accent-red);">Error: ' + esc(e.message) + '</div>';
     }
   };
-  // Auto-load when admin panel opens
+  
+  // Simulate a role -- show exactly which tabs it would see
+  window.simulateRole = function(roleId) {
+    var data = window._visMatrixData;
+    if (!data) return;
+    var role = data.roles.find(function(r) { return r.id === roleId; });
+    if (!role) return;
+    var tabs = data.tabs;
+    var tabIds = Object.keys(tabs);
+    var sim = document.getElementById('roleSimulator');
+    if (!sim) return;
+
+    sim.style.display = 'block';
+    document.getElementById('simRoleName').textContent = role.name + (role.is_superuser ? ' ★' : '') + (role.is_system ? ' (system)' : '');
+
+    var permCountVal = role.permission_count || 0;
+    document.getElementById('simPermCount').textContent = permCountVal + ' permission(s)';
+    document.getElementById('simPermList').textContent = role.is_superuser ? 'All permissions (*.*)' : permCountVal + ' granular permissions assigned';
+
+    var tabBarHtml = '';
+    var visibleTabs = [];
+    var tabStyles = {
+      'dashboard': { label: 'Dashboard' },
+      'quality': { label: 'Quality Reports' },
+      'analysis': { label: 'Comparative Analysis' },
+      'clinical': { label: 'Clinical Intelligence' },
+      'outliers': { label: 'Outliers' },
+      'alerts': { label: 'Alerts' },
+      'indicator-tree': { label: 'Indicator Tree' },
+      'rules-manager': { label: 'Rules Manager' },
+      'root-cause': { label: 'Root Cause' },
+      'audit': { label: 'Audit' },
+      'admin': { label: 'Admin' },
+      'settings': { label: 'Settings' },
+      'smart-analytics': { label: 'Smart Analytics' },
+    };
+    tabIds.forEach(function(tid) {
+      var has = role.tab_access[tid];
+      var ts = tabStyles[tid] || { label: tid };
+      if (has) {
+        visibleTabs.push(tid);
+        tabBarHtml += '<span style="padding:0.3rem 0.7rem;border-radius:6px;font-size:0.8rem;background:var(--accent-blue);color:white;">' + ts.label + '</span>';
+      } else {
+        tabBarHtml += '<span style="padding:0.3rem 0.7rem;border-radius:6px;font-size:0.8rem;background:var(--bg-surface);color:var(--text-muted);text-decoration:line-through;opacity:0.5;">' + ts.label + '</span>';
+      }
+    });
+    document.getElementById('simTabBar').innerHTML = tabBarHtml;
+
+    var contentHtml = '';
+    visibleTabs.forEach(function(tid) {
+      var ts = tabStyles[tid] || { label: tid };
+      contentHtml += '<span style="display:inline-block;padding:0.3rem 0.6rem;border-radius:6px;font-size:0.75rem;background:rgba(46,125,50,0.1);color:var(--accent-green);border:1px solid rgba(46,125,50,0.3);">✅ ' + ts.label + '</span>';
+    });
+    var hiddenCount = tabIds.length - visibleTabs.length;
+    if (hiddenCount > 0) {
+      contentHtml += '<span style="display:inline-block;padding:0.3rem 0.6rem;border-radius:6px;font-size:0.75rem;background:rgba(244,67,54,0.1);color:var(--accent-red);border:1px solid rgba(244,67,54,0.3);">❌ ' + hiddenCount + ' hidden</span>';
+    }
+    document.getElementById('simTabContent').innerHTML = contentHtml;
+    sim.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+
+// Auto-load when admin panel opens
   setTimeout(function() { if (document.getElementById('visMatrixBody')) loadVisibilityMatrix(); }, 500);
 
   // ---- Password Change ----
