@@ -49,8 +49,8 @@
                 '<span style="color:#7b1fa266;">Outliers</span>' +
                 '</span>';
             barHtml += '<span style="display:inline-flex;align-items:center;gap:0.3rem;border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;">' +
-                '<span style="font-weight:700;color:#333;">' + (data.total_alerts || 0) + '</span>' +
-                '<span style="color:#888;">Total</span>' +
+                '<span style="font-weight:700;color:var(--text-primary);">' + (data.total_alerts || 0) + '</span>' +
+                '<span style="color:var(--text-muted);">Total</span>' +
                 '</span>';
             document.getElementById('alertSummaryBar').innerHTML = barHtml;
 
@@ -63,8 +63,8 @@
                     const pct = (h.alert_count / maxCount * 100).toFixed(0);
                     const barColor = h.alert_count >= 10 ? '#c62828' : '#e65100';
                     hhtml += '<div style="display:flex;align-items:center;gap:0.5rem;margin:0.3rem 0;">' +
-                        '<span style="min-width:100px;font-size:0.78rem;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital) + '">' + esc(h.hospital) + '</span>' +
-                        '<div style="flex:1;height:16px;background:#f0f0f0;border-radius:3px;overflow:hidden;">' +
+                        '<span style="min-width:100px;font-size:0.78rem;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital) + '">' + esc(h.hospital) + '</span>' +
+                        '<div style="flex:1;height:16px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +
                         '<div style="width:' + pct + '%;height:100%;background:' + barColor + ';border-radius:3px;transition:width 0.3s;"></div>' +
                         '</div>' +
                         '<span style="min-width:2rem;text-align:right;font-weight:600;font-size:0.78rem;color:' + barColor + ';">' + h.alert_count + '</span>' +
@@ -72,7 +72,7 @@
                 });
                 document.getElementById('alertTopHospitals').innerHTML = hhtml;
             } else {
-                document.getElementById('alertTopHospitals').innerHTML = '<span style="color:#888;">No hospitals with alerts.</span>';
+                document.getElementById('alertTopHospitals').innerHTML = '<span style="color:var(--text-muted);">No hospitals with alerts.</span>';
             }
 
             // Recent critical alerts
@@ -81,11 +81,11 @@
             if (crit.length) {
                 critHtml = crit.map(r => '<div style="padding:0.35rem 0.5rem;border-left:3px solid #b71c1c;margin:0.25rem 0;background:#fef2f2;border-radius:3px;">' +
                     '<strong style="font-size:0.78rem;">' + esc(r.rule_code) + '</strong>' +
-                    '<span style="color:#888;font-size:0.72rem;"> | ' + esc(r.hospital) + ' | ' + esc(r.month) + '</span>' +
-                    '<div style="font-size:0.72rem;color:#555;margin-top:0.1rem;">' + esc(r.rule_description) + '</div>' +
+                    '<span style="color:var(--text-muted);font-size:0.72rem;"> | ' + esc(r.hospital) + ' | ' + esc(r.month) + '</span>' +
+                    '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.1rem;">' + esc(r.rule_description) + '</div>' +
                     '</div>').join('');
             } else {
-                critHtml = '<span style="color:#888;font-size:0.78rem;">No critical alerts</span>';
+                critHtml = '<span style="color:var(--text-muted);font-size:0.78rem;">No critical alerts</span>';
             }
             document.getElementById('alertCriticalList').innerHTML = critHtml;
         }

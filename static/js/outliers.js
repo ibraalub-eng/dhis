@@ -13,7 +13,7 @@
             if (mode === 'ml') {
                 if (!month) {
                     document.getElementById('outlierLoading').classList.add('hidden');
-                    document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:#888;">Select a month.</td></tr>';
+                    document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted);">Select a month.</td></tr>';
                     document.getElementById('outlierCount').textContent = '';
                     return;
                 }
@@ -23,18 +23,18 @@
                     document.getElementById('outlierCount').textContent = anomalies.length + ' hospital(s) analyzed';
                     const tbody = document.getElementById('outlierTbody');
                     if (!anomalies.length) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;">No ML anomaly data.</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No ML anomaly data.</td></tr>';
                         return;
                     }
                     tbody.innerHTML = anomalies.map(a => {
-                        const rowClass = a.is_outlier ? 'style="background:#fff3e0;"' : '';
+                        const rowClass = a.is_outlier ? 'style="background:var(--severity-warning-bg);"' : '';
                         return '<tr ' + rowClass + '>' +
                             '<td>' + esc(a.hospital_name) + '</td>' +
                             '<td>' + month + '</td>' +
                             '<td>Multi-variate</td>' +
                             '<td>' + (a.anomaly_score ? a.anomaly_score.toFixed(3) : '--') + '</td>' +
                             '<td>' + (a.is_outlier ? '<span class="badge badge-critical">Outlier</span>' : '<span class="badge badge-pass">Normal</span>') + '</td>' +
-                            '<td style="font-size:0.7rem;color:#888;">' + esc(Object.keys(a.contributing_features || {}).join(', ')) + '</td>' +
+                            '<td style="font-size:0.7rem;color:var(--text-muted);">' + esc(Object.keys(a.contributing_features || {}).join(', ')) + '</td>' +
                             '</tr>';
                     }).join('');
                 }).catch(err => {
@@ -47,7 +47,7 @@
             const hosp = document.getElementById('outlierHospitalFilter').value;
             const mon = document.getElementById('outlierMonthFilter').value;
             const rate = document.getElementById('outlierRateFilter').value;
-            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:#888;">Loading outliers...</td></tr>';
+            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
             let url = API() + '/analysis/outliers?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
@@ -96,7 +96,7 @@
             // Render table
             const tbody = document.getElementById('outlierTbody');
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#888;">No outliers found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(d => {
@@ -177,7 +177,7 @@
             const typ = document.getElementById('ruleFailTypeFilter').value;
             const loading = document.getElementById('ruleFailLoading');
             if (loading) loading.classList.remove('hidden');
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:#888;">Loading rule failures...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading rule failures...</td></tr>';
             let url = API() + '/analysis/rule-failures?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
@@ -230,7 +230,7 @@
             // Render
             const tbody = document.getElementById('ruleFailTbody');
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888;">No rule failures found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No rule failures found.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(d => {
@@ -243,7 +243,7 @@
                     '<td>' + esc(d.rule_description) + '</td>' +
                     '<td><span class="badge ' + sevBadge + '">' + esc(d.severity) + '</span></td>' +
                     '<td><span class="badge ' + typeBadge + '">' + esc(d.rule_type) + '</span></td>' +
-                    '<td style="font-size:0.8rem;color:#666;">' + esc(d.details).substring(0,80) + '</td>' +
+                    '<td style="font-size:0.8rem;color:var(--text-secondary);">' + esc(d.details).substring(0,80) + '</td>' +
                     '</tr>';
             }).join('');
             wireRuleFailSort();

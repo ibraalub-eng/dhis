@@ -72,7 +72,7 @@
             <div style="overflow-x:auto;">
               <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
                 <thead>
-                  <tr style="border-bottom:2px solid #e0e0e0;">
+                  <tr style="border-bottom:2px solid var(--border-default);">
                     <th style="padding:0.4rem;text-align:left;">Username</th>
                     <th style="padding:0.4rem;text-align:left;">Full Name</th>
                     <th style="padding:0.4rem;text-align:left;">Email</th>
@@ -83,7 +83,7 @@
                 </thead>
                 <tbody>
                   ${users.map(u => `
-                    <tr style="border-bottom:1px solid #f0f0f0;${!u.is_active ? 'opacity:0.5;' : ''}">
+                    <tr style="border-bottom:1px solid var(--border-default);${!u.is_active ? 'opacity:0.5;' : ''}">
                       <td style="padding:0.4rem;font-weight:600;">${esc(u.username)}</td>
                       <td style="padding:0.4rem;">${esc(u.full_name)}</td>
                       <td style="padding:0.4rem;color:var(--text-secondary);">${esc(u.email)}</td>
@@ -111,7 +111,7 @@
             <div style="overflow-x:auto;">
               <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
                 <thead>
-                  <tr style="border-bottom:2px solid #e0e0e0;">
+                  <tr style="border-bottom:2px solid var(--border-default);">
                     <th style="padding:0.4rem;text-align:left;">Role</th>
                     <th style="padding:0.4rem;text-align:left;">Users</th>
                     <th style="padding:0.4rem;text-align:left;">Permissions</th>
@@ -120,7 +120,7 @@
                 </thead>
                 <tbody>
                   ${roles.map(r => `
-                    <tr style="border-bottom:1px solid #f0f0f0;">
+                    <tr style="border-bottom:1px solid var(--border-default);">
                       <td style="padding:0.4rem;font-weight:600;">${esc(r.name)}${r.is_system ? ' <span style="font-size:0.7rem;color:var(--text-muted);">(system)</span>' : ''}</td>
                       <td style="padding:0.4rem;">${r.user_count}</td>
                       <td style="padding:0.4rem;font-size:0.75rem;color:var(--text-secondary);">${r.permission_ids.length} perms</td>
@@ -361,7 +361,7 @@
     document.getElementById('adminEditUserId').value = data.id;
     document.getElementById('adminUsername').value = data.username;
     document.getElementById('adminUsername').setAttribute('readonly', true);
-    document.getElementById('adminUsername').style.background = '#f5f5f5';
+    document.getElementById('adminUsername').style.background = 'var(--bg-elevated)';
     document.getElementById('adminFullName').value = data.full_name;
     document.getElementById('adminEmail').value = data.email;
     document.getElementById('adminPassword').value = '';

@@ -13,8 +13,8 @@
             t.style.display = mode === 'trend' ? '' : 'none';
             c.style.display = mode === 'compare' ? '' : 'none';
             const base = 'font-size:0.78rem;padding:0.25rem 0.8rem;cursor:pointer;border-radius:4px;';
-            const active = 'background:#1a237e;color:#fff;border:none;font-weight:600;';
-            const idle = 'background:white;color:#1a237e;border:1px solid #c7d2fe;font-weight:400;';
+            const active = 'background:var(--accent-blue);color:white;border:none;font-weight:600;';
+            const idle = 'background:var(--bg-surface);color:var(--accent-blue);border:1px solid var(--border-default);font-weight:400;';
             if (btnT) btnT.setAttribute('style', base + (mode === 'trend' ? active : idle));
             if (btnC) btnC.setAttribute('style', base + (mode === 'compare' ? active : idle));
             try { localStorage.setItem('analysisMode', mode); } catch(e) {}
@@ -56,7 +56,7 @@
             const container = document.getElementById('qualityTrendContent');
             const analysisSection = document.getElementById('trendAnalysisSection');
             document.getElementById('trendLoading').classList.remove('hidden');
-            container.innerHTML = '<div style="text-align:center;padding:2rem;color:#888;font-size:0.85rem;"><span class="spinner"></span> Loading trends...</div>';
+            container.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem;"><span class="spinner"></span> Loading trends...</div>';
             analysisSection.classList.add('hidden');
             try {
                 const [trendData, histData] = await Promise.all([
@@ -71,13 +71,13 @@
                 }
             } catch(e) {
                 document.getElementById('trendLoading').classList.add('hidden');
-                container.innerHTML = '<div class="card" style="text-align:center;padding:2rem;color:#c62828;font-size:0.85rem;">Error loading trends: ' + e.message + '</div>';
+                container.innerHTML = '<div class="card" style="text-align:center;padding:2rem;color:var(--accent-red);font-size:0.85rem;">Error loading trends: ' + e.message + '</div>';
             }
         }
 
         function renderQualityTrend(data, container) {
             if (!data.data || !data.data.length) {
-                container.innerHTML = '<div class="card" style="text-align:center;padding:2rem;color:#888;font-size:0.85rem;"><div style="font-size:1.5rem;margin-bottom:0.3rem;opacity:0.3;">&#128200;</div>No quality score history found for this hospital. Run analysis first.</div>';
+                container.innerHTML = '<div class="card" style="text-align:center;padding:2rem;color:var(--text-muted);font-size:0.85rem;"><div style="font-size:1.5rem;margin-bottom:0.3rem;opacity:0.3;">&#128200;</div>No quality score history found for this hospital. Run analysis first.</div>';
                 return;
             }
 
@@ -97,7 +97,7 @@
 
             let declineHtml = '';
             if (data.consecutive_declines > 0) {
-                declineHtml = `<span style="color:#c62828;font-weight:700;">&#9660; ${data.consecutive_declines} consecutive decline${data.consecutive_declines > 1 ? 's' : ''}</span>`;
+                declineHtml = `<span style="color:var(--accent-red);font-weight:700;">&#9660; ${data.consecutive_declines} consecutive decline${data.consecutive_declines > 1 ? 's' : ''}</span>`;
             }
 
             // ── Interactive Plotly chart (replaces static SVG) ────
@@ -117,14 +117,14 @@
                     </div>
                     <div style="${pill}background:#33311;border:1px solid #33344;min-width:80px;">
                         <span style="font-size:1.2rem;font-weight:700;color:#333;">${data.avg_score}</span>
-                        <span style="color:#888;">Average</span>
+                        <span style="color:var(--text-muted);">Average</span>
                     </div>
                     <div style="${pill}background:#2e7d3211;border:1px solid #2e7d3244;min-width:80px;">
                         <span style="font-size:1.2rem;font-weight:700;color:#2e7d32;">${data.max_score}</span>
                         <span style="color:#2e7d3288;">Best</span>
                     </div>
                     <div style="${pill}background:#c6282811;border:1px solid #c6282844;min-width:80px;">
-                        <span style="font-size:1.2rem;font-weight:700;color:#c62828;">${data.min_score}</span>
+                        <span style="font-size:1.2rem;font-weight:700;color:var(--accent-red);">${data.min_score}</span>
                         <span style="color:#c6282888;">Worst</span>
                     </div>
                     <div style="${pill}background:#e6510011;border:1px solid #e6510044;min-width:80px;">
@@ -132,13 +132,13 @@
                         <span style="color:#e6510088;">vs Last Month</span>
                     </div>
                 </div>
-                ${declineHtml ? `<div style="background:#ffebee;border:1px solid #ef9a9a;border-radius:4px;padding:0.4rem 0.8rem;margin-bottom:0.8rem;font-size:0.82rem;color:#c62828;">${declineHtml}</div>` : ''}
+                ${declineHtml ? `<div style="background:var(--severity-critical-bg);border:1px solid var(--severity-critical-border);border-radius:4px;padding:0.4rem 0.8rem;margin-bottom:0.8rem;font-size:0.82rem;color:var(--accent-red);">${declineHtml}</div>` : ''}
                 <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:0.4rem 0.6rem;">
                     <span style="font-size:0.78rem;color:#666;font-weight:600;">المقياس:</span>
-                    <button data-metric="score" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid #1a237e;background:#1a237e;color:#fff;font-weight:700;" onclick="switchQualityTrendMetric('score')">درجة الجودة</button>
-                    <button data-metric="completeness" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid #c7d2fe;background:#fff;color:#1a237e;" onclick="switchQualityTrendMetric('completeness')">الاكتمال</button>
-                    <button data-metric="rule_compliance" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid #c7d2fe;background:#fff;color:#1a237e;" onclick="switchQualityTrendMetric('rule_compliance')">الالتزام</button>
-                    <button data-metric="consistency" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid #c7d2fe;background:#fff;color:#1a237e;" onclick="switchQualityTrendMetric('consistency')">الاتساق</button>
+                    <button data-metric="score" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--accent-blue);background:var(--accent-blue);color:white;font-weight:700;" onclick="switchQualityTrendMetric('score')">درجة الجودة</button>
+                    <button data-metric="completeness" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('completeness')">الاكتمال</button>
+                    <button data-metric="rule_compliance" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('rule_compliance')">الالتزام</button>
+                    <button data-metric="consistency" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('consistency')">الاتساق</button>
                 </div>
                 <div id="qualityTrendPlot" style="width:100%;height:340px;"></div>
             `;
@@ -218,7 +218,7 @@
             Plotly.newPlot(el, traces, {
                 margin: { t: 20, b: 45, l: 45, r: 15 },
                 xaxis: { title: 'الشهر', tickangle: -35, gridcolor: '#f0f0f0' },
-                yaxis: { title: 'الدرجة (0-100)', range: [0, 100], gridcolor: '#f5f5f5', zeroline: false },
+                yaxis: { title: 'الدرجة (0-100)', range: [0, 100], gridcolor: 'rgba(128,128,128,0.2)', zeroline: false },
                 hovermode: 'x unified',
                 legend: { orientation: 'h', y: 1.08, x: 0 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
@@ -245,7 +245,7 @@
             const sDiv = document.getElementById('trendSummary');
             const tPill = 'display:inline-flex;align-items:center;gap:0.2rem;border-radius:4px;padding:0.15rem 0.5rem;font-size:0.7rem;';
             sDiv.innerHTML =
-                '<span style="' + tPill + 'background:#33311;border:1px solid #33344;"><span style="font-weight:700;color:#333;">' + summary.total_rates_analyzed + '</span><span style="color:#888;">Rates</span></span>' +
+                '<span style="' + tPill + 'background:#33311;border:1px solid #33344;"><span style="font-weight:700;color:#333;">' + summary.total_rates_analyzed + '</span><span style="color:var(--text-muted);">Rates</span></span>' +
                 '<span style="' + tPill + 'background:#e6510011;border:1px solid #e6510044;"><span style="font-weight:700;color:#e65100;">' + summary.increasing_trends + '</span><span style="color:#e6510066;">Increasing</span></span>' +
                 '<span style="' + tPill + 'background:#1565c011;border:1px solid #1565c044;"><span style="font-weight:700;color:#1565c0;">' + summary.decreasing_trends + '</span><span style="color:#1565c066;">Decreasing</span></span>' +
                 '<span style="' + tPill + 'background:#c6282811;border:1px solid #c6282844;"><span style="font-weight:700;color:#c62828;">' + summary.critical_trends + '</span><span style="color:#c6282866;">Critical</span></span>' +
@@ -323,7 +323,7 @@
                 filterComparison();
             } catch(e) {
                 document.getElementById('compareLoading').classList.add('hidden');
-                document.getElementById('compareEmpty').innerHTML = '<p style="color:#c62828;font-size:0.85rem;">Error: ' + e.message + '</p>';
+                document.getElementById('compareEmpty').innerHTML = '<p style="color:var(--accent-red);font-size:0.85rem;">Error: ' + e.message + '</p>';
             }
         }
 
@@ -338,7 +338,7 @@
                 }
                 const c = data.ml_clustering;
                 const colors = ['#2e7d32','#f57f17','#c62828','#1565c0','#6a1b9a','#00838f','#4e342e','#37474f','#558b2f','#e65100'];
-                let html = '<div class="card" style="padding:0.8rem;"><h3 style="font-size:0.9rem;margin:0 0 0.4rem;">Performance Clusters <span style="font-size:0.75rem;color:#888;font-weight:400;">(silhouette: ' + (c.silhouette_score ?? 0).toFixed(2) + ', k=' + c.k + ')</span></h3>';
+                let html = '<div class="card" style="padding:0.8rem;"><h3 style="font-size:0.9rem;margin:0 0 0.4rem;">Performance Clusters <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;">(silhouette: ' + (c.silhouette_score ?? 0).toFixed(2) + ', k=' + c.k + ')</span></h3>';
                 const groups = {};
                 c.clusters.forEach(cl => {
                     if (!groups[cl.cluster_id]) groups[cl.cluster_id] = [];
@@ -347,7 +347,7 @@
                 Object.keys(groups).sort().forEach(cid => {
                     const members = groups[cid];
                     const color = colors[parseInt(cid) % colors.length];
-                    html += '<div style="display:inline-block;margin:0.3rem;padding:0.4rem 0.6rem;border-radius:4px;border-left:4px solid ' + color + ';background:#fafafa;vertical-align:top;min-width:160px;">';
+                    html += '<div style="display:inline-block;margin:0.3rem;padding:0.4rem 0.6rem;border-radius:4px;border-left:4px solid ' + color + ';background:var(--bg-surface-hover);vertical-align:top;min-width:160px;">';
                     html += '<div style="font-size:0.78rem;font-weight:600;color:' + color + ';">Cluster ' + cid + ' (' + members.length + ')</div>';
                     members.forEach(m => {
                         html += '<div style="font-size:0.72rem;color:#555;margin:0.1rem 0;">' + esc(m.hospital_name) + ' <span style="color:#999;">(' + (m.distance_to_centroid ?? 0).toFixed(2) + ')</span></div>';
@@ -394,7 +394,7 @@
             const monthSel = document.getElementById('clinicalMonthSelect');
             if (!hospSel.value || !monthSel.value) {
                 document.getElementById('clinicalLoading').classList.add('hidden');
-                document.getElementById('clinicalResults').innerHTML = '<div class="card" style="text-align:center;padding:2rem 1.5rem;color:#888;"><div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128202;</div><p style="margin:0;font-size:0.85rem;">' + __('Select a hospital and month for detailed analysis.') + '</p></div>';
+                document.getElementById('clinicalResults').innerHTML = '<div class="card" style="text-align:center;padding:2rem 1.5rem;color:var(--text-muted);"><div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128202;</div><p style="margin:0;font-size:0.85rem;">' + __('Select a hospital and month for detailed analysis.') + '</p></div>';
                 return;
             }
             document.getElementById('clinicalLoading').classList.remove('hidden');
@@ -406,7 +406,7 @@
             } catch(e) {
                 document.getElementById('clinicalLoading').classList.add('hidden');
                 const errMsg = e.message.includes('404') ? __('No data for this hospital/month') : __('No clinical data available. Upload files first.');
-                document.getElementById('clinicalResults').innerHTML = '<p style="color:#888;text-align:center;padding:2rem;font-size:0.85rem;">' + errMsg + '</p>';
+                document.getElementById('clinicalResults').innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;font-size:0.85rem;">' + errMsg + '</p>';
             }
         }
 
@@ -572,7 +572,7 @@
             if (rp && rp.metrics && rp.metrics.length) {
                 const riskColor = rp.overall_risk_level === 'critical' ? '#b71c1c' : rp.overall_risk_level === 'high' ? '#c62828' : rp.overall_risk_level === 'moderate' ? '#e65100' : '#2e7d32';
                 const critCount = rp.metrics.filter(m => m.severity === 'critical' || m.severity === 'high').length;
-                html += '<details class="clinical-detail"><summary>' + __('Risk Profile') + ' ' + _badgeHtml(riskColor, rp.overall_risk_level.toUpperCase()) + (critCount ? ' <span style="font-weight:400;font-size:0.72rem;color:#c62828;">(' + critCount + ' critical/high)</span>' : '') + '</summary>';
+                html += '<details class="clinical-detail"><summary>' + __('Risk Profile') + ' ' + _badgeHtml(riskColor, rp.overall_risk_level.toUpperCase()) + (critCount ? ' <span style="font-weight:400;font-size:0.72rem;color:var(--accent-red);">(' + critCount + ' critical/high)</span>' : '') + '</summary>';
                 html += '<div class="clinical-table-wrap" style="max-height:250px;overflow-y:auto;"><table><thead><tr><th>' + __('Metric') + '</th><th>' + __('Value') + '</th><th>' + __('Severity') + '</th><th>' + __('Interpretation') + '</th></tr></thead><tbody>';
                 rp.metrics.forEach(m => {
                     const sevColor = m.severity === 'critical' ? '#b71c1c' : m.severity === 'high' ? '#c62828' : m.severity === 'moderate' ? '#e65100' : '#2e7d32';
@@ -626,7 +626,7 @@
                         html += '</ul>';
                     }
                     if (rec.triggered_by_rules && rec.triggered_by_rules.length) {
-                        html += '<div class="clinical-rec-rules"><span style="color:#888;">' + __('Triggered by:') + '</span> ';
+                        html += '<div class="clinical-rec-rules"><span style="color:var(--text-muted);">' + __('Triggered by:') + '</span> ';
                         rec.triggered_by_rules.forEach((rc, ri) => {
                             html += '<a href="#" onclick="showRuleFailureDetail(\'' + rc + '\',\'' + a.hospital + '\',\'' + a.month + '\');return false;" style="color:#1565c0;text-decoration:underline;">' + rc + '</a>';
                             if (ri < rec.triggered_by_rules.length - 1) html += ', ';

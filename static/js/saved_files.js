@@ -24,7 +24,7 @@
                 const actions = document.getElementById('savedActions');
                 document.getElementById('savedCount').textContent = files.length + ' file(s)';
                 if (!files.length) {
-                    container.innerHTML = '<p style="font-size:0.85rem;color:#888;">No saved files found.</p>';
+                    container.innerHTML = '<p style="font-size:0.85rem;color:var(--text-muted);">No saved files found.</p>';
                     actions.style.display = 'none';
                     return;
                 }

@@ -364,14 +364,14 @@
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + qsColor + ';">' +
                         '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">جودة البيانات / Quality</div>' +
                         '<div style="font-size:2rem;font-weight:700;color:' + qsColor + ';">' + qs + '</div>' +
-                        '<div style="height:4px;background:#e0e0e0;border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
+                        '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
                             '<div style="width:' + Math.min(qs, 100) + '%;height:100%;background:' + qsColor + ';border-radius:2px;"></div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + confColor + ';">' +
                         '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">الثقة / Confidence</div>' +
                         '<div style="font-size:2rem;font-weight:700;color:' + confColor + ';">' + conf + '</div>' +
-                        '<div style="height:4px;background:#e0e0e0;border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
+                        '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
                             '<div style="width:' + Math.min(conf, 100) + '%;height:100%;background:' + confColor + ';border-radius:2px;"></div>' +
                         '</div>' +
                     '</div>' +
@@ -493,7 +493,7 @@
                                 '<span style="font-weight:600;">' + q.component + '</span>' +
                                 '<span style="color:' + statusColor + ';font-weight:600;">' + q.value + '%</span>' +
                             '</div>' +
-                            '<div style="height:6px;background:#f0f0f0;border-radius:3px;overflow:hidden;">' +
+                            '<div style="height:6px;background:var(--bg-elevated);border-radius:3px;overflow:hidden;">' +
                                 '<div style="width:' + Math.min(q.value, 100) + '%;height:100%;background:' + barColor + ';border-radius:3px;transition:width 0.3s;"></div>' +
                             '</div>' +
                             '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.1rem;">Impact gap: ' + q.impact + ' pts &mdash; ' + (q.recommendation || '').slice(0, 60) + '</div>' +
@@ -757,8 +757,8 @@
                     const hasTarget = k.target != null;
                     const pct = hasTarget ? Math.min(k.value / k.target, 1) : 0.5;
                     const bg = hasTarget
-                        ? (k.higher_is_better ? (pct >= 1 ? '#e8f5e9' : pct >= 0.75 ? '#fff8e1' : '#ffebee') : (pct <= 1 ? '#e8f5e9' : '#ffebee'))
-                        : '#f5f5f5';
+                        ? (k.higher_is_better ? (pct >= 1 ? 'var(--severity-success-bg)' : pct >= 0.75 ? 'var(--severity-warning-bg)' : 'var(--severity-critical-bg)') : (pct <= 1 ? 'var(--severity-success-bg)' : 'var(--severity-critical-bg)'))
+                        : 'var(--bg-surface-hover)';
                     const valColor = hasTarget
                         ? (k.higher_is_better ? (pct >= 1 ? '#2e7d32' : pct >= 0.75 ? '#e65100' : '#c62828') : (pct <= 1 ? '#2e7d32' : '#c62828'))
                         : '#555';
@@ -1166,16 +1166,16 @@
                 }
                 const months = hm.months;
                 let html = '<table style="font-size:0.72rem;border-collapse:collapse;width:100%;"><thead><tr>' +
-                    '<th style="padding:0.3rem;text-align:left;position:sticky;left:0;background:#f5f5f5;z-index:1;">Hospital</th>';
+                    '<th style="padding:0.3rem;text-align:left;position:sticky;left:0;background:var(--bg-surface);z-index:1;">Hospital</th>';
                 months.forEach(m => { html += '<th style="padding:0.3rem;text-align:center;min-width:60px;">' + m + '</th>'; });
                 html += '<th style="padding:0.3rem;text-align:center;min-width:50px;">Avg</th></tr></thead><tbody>';
                 hm.data.forEach(d => {
                     const vals = months.map(m => d[m]).filter(v => v !== null);
                     const avg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '--';
-                    html += '<tr><td style="padding:0.2rem 0.4rem;font-weight:600;position:sticky;left:0;background:#fff;z-index:1;">' + d.hospital + '</td>';
+                    html += '<tr><td style="padding:0.2rem 0.4rem;font-weight:600;position:sticky;left:0;background:var(--bg-surface);z-index:1;">' + d.hospital + '</td>';
                     months.forEach(m => {
                         const v = d[m];
-                        if (v === null) { html += '<td style="text-align:center;padding:0.2rem;background:#f5f5f5;color:#ccc;">--</td>'; return; }
+                        if (v === null) { html += '<td style="text-align:center;padding:0.2rem;background:var(--bg-surface);color:var(--text-muted);">--</td>'; return; }
                         const pct = Math.min(v / 100, 1);
                         const r = Math.round(255 * (1 - pct));
                         const g = Math.round(255 * pct);
@@ -1586,7 +1586,7 @@
             if (!container || !window._monthList) return;
             container.innerHTML = window._monthList.map(m => {
                 const enabled = window._monthSettings[m];
-                const bg = enabled ? '#e8f5e9' : '#ffebee';
+                const bg = enabled ? 'var(--severity-success-bg)' : 'var(--severity-critical-bg)';
                 const border = enabled ? '#4caf50' : '#ef9a9a';
                 const label = enabled ? 'Enabled' : 'Disabled';
                 const icon = enabled ? '\u2713' : '\u2717';

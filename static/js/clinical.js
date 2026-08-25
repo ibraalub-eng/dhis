@@ -119,7 +119,7 @@
             _reportData = data;
             const container = document.getElementById('clinicalResults');
             if (!data.reports || !data.reports.length) {
-                container.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">' + __('No data found for the selected criteria.') + '</p>';
+                container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">' + __('No data found for the selected criteria.') + '</p>';
                 return;
             }
             applyReportFilter();
@@ -138,7 +138,7 @@
             if (!hid) return;
 
             titleEl.textContent = hosp + ' — ' + month;
-            bodyEl.innerHTML = '<div style="text-align:center;padding:2.5rem;color:#888;"><span class="spinner spinner-lg"></span><br><span style="font-size:0.85rem;">' + __('Loading hospital details...') + '</span></div>';
+            bodyEl.innerHTML = '<div style="text-align:center;padding:2.5rem;color:var(--text-muted);"><span class="spinner spinner-lg"></span><br><span style="font-size:0.85rem;">' + __('Loading hospital details...') + '</span></div>';
             document.getElementById('detailModal').classList.add('show');
 
             fetch(API() + '/clinical/' + hid + '?month=' + encodeURIComponent(month))
@@ -147,7 +147,7 @@
                     renderClinical(analysis, bodyEl);
                 })
                 .catch(err => {
-                    bodyEl.innerHTML = '<p style="color:#c62828;padding:1.5rem;">' + __('Failed to load details') + ': ' + err.message + '</p>';
+                    bodyEl.innerHTML = '<p style="color:var(--accent-red);padding:1.5rem;">' + __('Failed to load details') + ': ' + err.message + '</p>';
                 });
         }
 
@@ -163,20 +163,20 @@
         }
 
         function _riskColor(level) {
-            if (!level) return '#888';
+            if (!level) return 'var(--text-muted)';
             const l = level.toLowerCase();
-            if (l === 'critical') return '#b71c1c';
-            if (l === 'high') return '#c62828';
-            if (l === 'moderate') return '#e65100';
-            if (l === 'low') return '#2e7d32';
-            return '#888';
+            if (l === 'critical') return 'var(--accent-red)';
+            if (l === 'high') return 'var(--accent-red)';
+            if (l === 'moderate') return 'var(--accent-orange)';
+            if (l === 'low') return 'var(--accent-green)';
+            return 'var(--text-muted)';
         }
 
         function _scoreBadge(score) {
             if (!score) return '';
             const g = score === 'Good' || score === 'جيد';
             const m = score === 'Needs Improvement' || score === __('Needs Improvement');
-            const c = g ? '#2e7d32' : m ? '#e65100' : '#c62828';
+            const c = g ? 'var(--accent-green)' : m ? 'var(--accent-orange)' : 'var(--accent-red)';
             return '<span style="display:inline-block;font-size:0.72rem;font-weight:600;color:#fff;background:' + c + ';padding:0.1rem 0.5rem;border-radius:10px;">' + esc(score) + '</span>';
         }
 
@@ -206,7 +206,7 @@
             }
 
             if (!filtered.length) {
-                container.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">' + __('No reports match the selected filter.') + '</p>';
+                container.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">' + __('No reports match the selected filter.') + '</p>';
                 return;
             }
 
@@ -225,8 +225,8 @@
             });
 
             // شريط الأزمة: خلفية وحدود أوضح مع حدّ جانبي أحمر بارز — أول ما يُرى
-            let html = '<div style="margin:0.8rem 0 0.5rem 0;padding:0.7rem 0.9rem;background:#fff0f0;border:1px solid #e57373;border-left:4px solid #b71c1c;border-radius:6px;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;font-size:0.8rem;">';
-            html += '<strong style="color:#b71c1c;font-size:0.85rem;">' + __('Hospitals by risk') + ':</strong>';
+            let html = '<div style="margin:0.8rem 0 0.5rem 0;padding:0.7rem 0.9rem;background:var(--bg-surface-hover);border:1px solid var(--accent-red);border-left:4px solid var(--accent-red);border-radius:6px;display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;font-size:0.8rem;">';
+            html += '<strong style="color:var(--accent-red);font-size:0.85rem;">' + __('Hospitals by risk') + ':</strong>';
             riskOrder.forEach(lvl => {
                 const n = riskGroups[lvl].length;
                 if (n > 0) {
@@ -239,17 +239,17 @@
             const crisisHospitals = riskGroups.critical.length ? riskGroups.critical : (riskGroups.high.length ? riskGroups.high : []);
             if (crisisHospitals.length) {
                 const isCritical = riskGroups.critical.length > 0;
-                html += '<span style="width:100%;font-size:0.78rem;color:#b71c1c;">&#9888; <strong>' + (isCritical ? __('Critical hospitals') : __('High-risk hospitals')) + ':</strong> ' + esc(crisisHospitals.join(' · ')) + '</span>';
+                html += '<span style="width:100%;font-size:0.78rem;color:var(--accent-red);">&#9888; <strong>' + (isCritical ? __('Critical hospitals') : __('High-risk hospitals')) + ':</strong> ' + esc(crisisHospitals.join(' · ')) + '</span>';
             }
             html += '</div>';
 
-            html += '<div style="margin:0.5rem 0 0.8rem 0;padding:0.6rem 0.8rem;background:#f5f5f5;border-radius:6px;display:flex;gap:1rem;flex-wrap:wrap;font-size:0.82rem;">';
+            html += '<div style="margin:0.5rem 0 0.8rem 0;padding:0.6rem 0.8rem;background:var(--bg-elevated);border-radius:6px;display:flex;gap:1rem;flex-wrap:wrap;font-size:0.82rem;">';
             // العدد فقط بدل قائمة الأسماء — الأسماء في شريط الأزمة ورؤوس البطاقات
             html += '<span><strong>' + __('Hospitals') + ':</strong> ' + hospInFilter.length + '</span>';
             html += '<span><strong>' + __('Months') + ':</strong> ' + monthsInFilter.join(', ') + '</span>';
             html += '<span><strong>' + __('Showing') + ':</strong> ' + filtered.length + ' / ' + data.reports.length + '</span>';
             if (data.errors && data.errors.length) {
-                html += '<span style="color:#c62828;"><strong>' + __('Errors') + ':</strong> ' + data.errors.join('; ') + '</span>';
+                html += '<span style="color:var(--accent-red);"><strong>' + __('Errors') + ':</strong> ' + data.errors.join('; ') + '</span>';
             }
             html += '</div>';
 
@@ -295,11 +295,11 @@
                 const badgeColor = riskBadgeColors[worstLvl] || '#888';
                 const badgeLabel = riskBadgeLabels[worstLvl] || '';
                 html += '<div class="card" style="margin-bottom:0.8rem;padding:0.6rem 0.8rem;">';
-                html += '<h3 style="margin:0 0 0.5rem 0;color:#1a237e;font-size:0.95rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">' + esc(hospital);
+                html += '<h3 style="margin:0 0 0.5rem 0;color:var(--accent-blue);font-size:0.95rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">' + esc(hospital);
                 if (badgeLabel) {
                     html += '<span style="font-size:0.66rem;font-weight:700;color:#fff;background:' + badgeColor + ';border-radius:10px;padding:0.1rem 0.55rem;">' + badgeLabel + '</span>';
                 }
-                html += '<span style="font-weight:400;font-size:0.78rem;color:#888;">(' + reports.length + ')</span></h3>';
+                html += '<span style="font-weight:400;font-size:0.78rem;color:var(--text-muted);">(' + reports.length + ')</span></h3>';
 
                 reports.sort((a, b) => a.month.localeCompare(b.month)).forEach(r => {
                     const s = r.summary || {};
@@ -315,7 +315,7 @@
                     const smmRate = cls.find(c => c.indicator_code === 'rate_smm');
                     const nmrRate = cls.find(c => c.indicator_code === 'rate_nmr');
 
-                    html += '<div style="margin:0.4rem 0;padding:0.6rem 0.7rem;background:#fafafa;border-left:3px solid ' + _riskColor(rp.overall_risk_level) + ';border-radius:4px;">';
+                    html += '<div style="margin:0.4rem 0;padding:0.6rem 0.7rem;background:var(--bg-elevated);border-left:3px solid ' + _riskColor(rp.overall_risk_level) + ';border-radius:4px;">';
 
                     // ── Header row: month + score + risk + deliveries ──
                     html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.3rem;">';
@@ -324,9 +324,9 @@
                     html += _scoreBadge(score);
                     html += '</div>';
                     html += '<span style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">';
-                    html += '<span style="font-size:0.72rem;color:#888;">Deliveries: ' + deliveries + '</span>';
-                    if (cls.length) html += '<span style="font-size:0.72rem;color:#888;">' + cls.length + ' indicators</span>';
-                    html += '<a href="#" data-hosp="' + esc(r.hospital) + '" data-month="' + r.month + '" onclick="openBatchDetail(this);return false;" style="font-size:0.7rem;color:#1565c0;text-decoration:underline;white-space:nowrap;">' + __('Open Details') + '</a>';
+                    html += '<span style="font-size:0.72rem;color:var(--text-muted);">Deliveries: ' + deliveries + '</span>';
+                    if (cls.length) html += '<span style="font-size:0.72rem;color:var(--text-muted);">' + cls.length + ' indicators</span>';
+                    html += '<a href="#" data-hosp="' + esc(r.hospital) + '" data-month="' + r.month + '" onclick="openBatchDetail(this);return false;" style="font-size:0.7rem;color:var(--accent-blue);text-decoration:underline;white-space:nowrap;">' + __('Open Details') + '</a>';
                     html += '</span>';
                     html += '</div>';
 
@@ -356,7 +356,7 @@
                             bad.forEach(m => {
                                 const sevColor = _riskColor(m.severity);
                                 html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.1rem 0.6rem;background:' + sevColor + '08;border-left:2px solid ' + sevColor + ';margin:0.15rem 0;border-radius:2px;">';
-                                html += '<span style="color:#333;">' + esc(m.metric_name) + ': <strong>' + (m.value != null ? Number(m.value).toFixed(1) : '--') + m.unit + '</strong></span>';
+                                html += '<span style="color:var(--text-primary);">' + esc(m.metric_name) + ': <strong>' + (m.value != null ? Number(m.value).toFixed(1) : '--') + m.unit + '</strong></span>';
                                 html += '<span style="font-size:0.7rem;color:' + sevColor + ';font-weight:600;">' + m.severity + '</span>';
                                 html += '</div>';
                             });
@@ -368,7 +368,7 @@
                     if (mp.maternal_deaths > 0 || mp.mortality_preventability_signals?.length) {
                         html += '<div style="margin:0.2rem 0;padding:0.2rem 0.5rem;background:#b71c1c08;border-left:2px solid #b71c1c;border-radius:2px;font-size:0.74rem;">';
                         if (mp.maternal_deaths > 0) {
-                            html += '<div style="font-weight:600;color:#b71c1c;">Maternal Deaths: ' + mp.maternal_deaths + '</div>';
+                            html += '<div style="font-weight:600;color:var(--accent-red);">Maternal Deaths: ' + mp.maternal_deaths + '</div>';
                         }
                         if (mp.mortality_preventability_signals?.length) {
                             mp.mortality_preventability_signals.forEach(sig => {
@@ -381,22 +381,22 @@
                     // ── Recommendations ──
                     if (recs.length) {
                         html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
-                        html += '<summary style="cursor:pointer;color:#1a237e;font-weight:600;font-size:0.76rem;">Recommendations (' + recs.length + ')</summary>';
+                        html += '<summary style="cursor:pointer;color:var(--accent-blue);font-weight:600;font-size:0.76rem;">Recommendations (' + recs.length + ')</summary>';
                         recs.forEach(rec => {
                             const pColor = _riskColor(rec.priority);
                             html += '<div style="margin:0.2rem 0;padding:0.3rem 0.5rem;background:' + pColor + '06;border-left:2px solid ' + pColor + ';border-radius:2px;">';
                             html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.3rem;">';
-                            html += '<strong style="font-size:0.74rem;color:#333;">' + esc(rec.title) + '</strong>';
+                            html += '<strong style="font-size:0.74rem;color:var(--text-primary);">' + esc(rec.title) + '</strong>';
                             html += '<span style="font-size:0.65rem;font-weight:600;color:' + pColor + ';text-transform:uppercase;">' + rec.priority + '</span>';
                             html += '</div>';
                             if (rec.description) {
                                 html += '<div style="font-size:0.72rem;color:#555;margin:0.1rem 0;">' + esc(rec.description) + '</div>';
                             }
                             if (rec.action_items?.length) {
-                                html += '<div style="font-size:0.7rem;color:#666;padding:0.1rem 0;">Actions: ' + esc(rec.action_items.join('; ')) + '</div>';
+                                html += '<div style="font-size:0.7rem;color:var(--text-secondary);padding:0.1rem 0;">Actions: ' + esc(rec.action_items.join('; ')) + '</div>';
                             }
                             if (rec.data_reliable === false) {
-                                html += '<span style="font-size:0.65rem;color:#c62828;">⚠ Data may be unreliable</span>';
+                                html += '<span style="font-size:0.65rem;color:var(--accent-red);">⚠ Data may be unreliable</span>';
                             }
                             html += '</div>';
                         });
@@ -406,10 +406,10 @@
                     // ── Overview / risk assessment text ──
                     if (s.risk_assessment || s.morbidity_assessment) {
                         html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
-                        html += '<summary style="cursor:pointer;color:#1a237e;font-weight:600;font-size:0.76rem;">Assessments</summary>';
-                        if (s.overview) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#e8eaf608;border-radius:2px;">' + esc(s.overview) + '</div>';
-                        if (s.risk_assessment) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fff3e008;border-left:2px solid #e65100;border-radius:2px;">' + esc(s.risk_assessment) + '</div>';
-                        if (s.morbidity_assessment) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fce4ec08;border-left:2px solid #c62828;border-radius:2px;">' + esc(s.morbidity_assessment) + '</div>';
+                        html += '<summary style="cursor:pointer;color:var(--accent-blue);font-weight:600;font-size:0.76rem;">Assessments</summary>';
+                        if (s.overview) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:var(--bg-surface-hover);border-radius:2px;">' + esc(s.overview) + '</div>';
+                        if (s.risk_assessment) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fff3e008;border-left:2px solid var(--accent-orange);border-radius:2px;">' + esc(s.risk_assessment) + '</div>';
+                        if (s.morbidity_assessment) html += '<div style="font-size:0.74rem;color:#555;margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fce4ec08;border-left:2px solid var(--accent-red);border-radius:2px;">' + esc(s.morbidity_assessment) + '</div>';
                         html += '</details>';
                     }
 
@@ -418,8 +418,8 @@
                         html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
                         html += '<summary style="cursor:pointer;color:#555;font-size:0.74rem;">All Classifications (' + cls.length + ' indicators)</summary>';
                         cls.forEach(c => {
-                            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.1rem 0.5rem;border-bottom:1px solid #eee;">';
-                            html += '<span style="color:#333;">' + esc(c.rate_name) + '</span>';
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.1rem 0.5rem;border-bottom:1px solid var(--border-default);">';
+                            html += '<span style="color:var(--text-primary);">' + esc(c.rate_name) + '</span>';
                             html += '<span><span style="color:' + c.color + ';font-weight:600;">' + (c.value != null ? Number(c.value).toFixed(1) : '--') + '</span> <span style="font-size:0.7rem;color:' + c.color + ';">' + esc(c.label) + '</span></span>';
                             html += '</div>';
                         });
@@ -441,7 +441,7 @@
                     const data = resp.data || resp;
                     let inner = '';
                     if (!data.length) {
-                        inner = '<p style="color:#888;">No rule failure details found.</p>';
+                        inner = '<p style="color:var(--text-muted);">No rule failure details found.</p>';
                     } else {
                         inner = '<table style="font-size:0.8rem;"><thead><tr><th>Rule</th><th>Description</th><th>Severity</th><th>Type</th><th>Details</th></tr></thead><tbody>';
                         data.forEach(d => {

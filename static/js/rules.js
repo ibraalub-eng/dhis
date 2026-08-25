@@ -47,7 +47,7 @@
 
         function _vbZoneHTML(id, label, items, multi, emptyText) {
             let html = '<div class="vb-dropzone" id="' + id + '" ondragover="_vbDragOver(event)" ondragenter="_vbDragEnter(event)" ondragleave="_vbDragLeave(event)" ondrop="_vbDrop(event)">';
-            html += '<div class="vb-dropzone-label">' + label + (multi ? '' : ' <span style="font-weight:400;color:#999;font-size:0.7rem;">(' + __('drop here') + ')</span>') + '</div>';
+            html += '<div class="vb-dropzone-label">' + label + (multi ? '' : ' <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem;">(' + __('drop here') + ')</span>') + '</div>';
             if (items && items.length > 0) {
                 for (const code of items) {
                     const ind = _indicatorsCache.find(i => i.code === code);
@@ -226,7 +226,7 @@
 
         function _buildVBList(expr) {
             let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
-            html += '<div style="font-size:0.78rem;font-weight:600;color:#555;margin-bottom:0.4rem;">' + (expr === 'neg_check' ? __('Negative values check') : expr === 'decimal_check' ? __('Decimal values check') : __('All zero check')) + '</div>';
+            html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">' + (expr === 'neg_check' ? __('Negative values check') : expr === 'decimal_check' ? __('Decimal values check') : __('All zero check')) + '</div>';
             html += _vbZoneHTML('vb_zone_codes', __('Indicators'), _vbState.codes || [], true, __('Drop indicators here'));
             html += '</div>';
             return html;
@@ -343,10 +343,10 @@
             const h2 = document.querySelector('#rulesExprHelp h2');
             if (content.style.display === 'none') {
                 content.style.display = 'block';
-                h2.innerHTML = '&#x25BC; Expression Types Reference <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:0.5rem;">Click to collapse</span>';
+                h2.innerHTML = '&#x25BC; Expression Types Reference <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:0.5rem;">Click to collapse</span>';
             } else {
                 content.style.display = 'none';
-                h2.innerHTML = '&#x25B6; Expression Types Reference <span style="font-size:0.75rem;font-weight:400;color:#888;margin-left:0.5rem;">Click to expand</span>';
+                h2.innerHTML = '&#x25B6; Expression Types Reference <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:0.5rem;">Click to expand</span>';
             }
         }
 

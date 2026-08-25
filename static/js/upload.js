@@ -34,9 +34,9 @@
                     if (badType) warns.push('⚠️ unsupported type (' + ext2 + ')');
                     if (tooLarge) warns.push('⚠️ exceeds 20 MB');
                     var warnStr = warns.length ? ' ' + warns.join(', ') : '';
-                    var warnColor = (badType || tooLarge) ? '#dc2626' : '#999';
+                    var warnColor = (badType || tooLarge) ? 'var(--accent-red)' : 'var(--text-muted)';
                     return '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;">' +
-                        '<span style="color:#3f51b5;">📄</span><span>' + f.name + '</span>' +
+                        '<span style="color:var(--accent-blue);">📄</span><span>' + f.name + '</span>' +
                         '<span style="color:' + warnColor + ';font-size:0.75rem;">(' + sizeStr + warnStr + ')</span></div>';
                 }).join('');
             } else { list.classList.add('hidden'); list.innerHTML = ''; }
@@ -323,7 +323,7 @@
                 filterQualityReports();
             } catch(e) {
                 document.getElementById('qualityLoading').classList.add('hidden');
-                document.getElementById('reportsGrid').innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">Unable to load cached reports. Upload data first.</p>';
+                document.getElementById('reportsGrid').innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">Unable to load cached reports. Upload data first.</p>';
             }
         }
 
@@ -339,7 +339,7 @@
             const grid = document.getElementById('reportsGrid');
             grid.innerHTML = '';
             document.getElementById('qualityCount').textContent = filtered.length + ' report' + (filtered.length !== 1 ? 's' : '');
-            if (!filtered.length) { grid.innerHTML = '<p style="color:#888;text-align:center;padding:2rem;">No reports match the selected filters.</p>'; return; }
+            if (!filtered.length) { grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">No reports match the selected filters.</p>'; return; }
             filtered.forEach(r => {
                 const enabled = r.is_enabled !== false;
                 if (enabled) {
@@ -352,7 +352,7 @@
                     card.className = 'report-card ' + (score >= 80 ? 'good' : score >= 50 ? 'medium' : 'poor');
                     card.setAttribute('data-hospital', r.hospital);
                     card.setAttribute('data-month', r.month);
-                    card.innerHTML = '<h3>' + r.hospital + '</h3><div class="month">' + r.month + '</div><div class="score" style="color:' + scoreColor + '">' + score + '</div><div class="progress-bar"><div class="progress-bar-fill" style="width:' + score + '%;background:' + barColor + '"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:#666;">' + issueCount + ' issues &bull; ' + outlierCount + ' outliers</div>';
+                    card.innerHTML = '<h3>' + r.hospital + '</h3><div class="month">' + r.month + '</div><div class="score" style="color:' + scoreColor + '">' + score + '</div><div class="progress-bar"><div class="progress-bar-fill" style="width:' + score + '%;background:' + barColor + '"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:var(--text-secondary);">' + issueCount + ' issues &bull; ' + outlierCount + ' outliers</div>';
                     card.addEventListener('click', function() { showDetail(r.hospital, r.month); });
                     grid.appendChild(card);
                 } else {
@@ -398,7 +398,7 @@
                 currentAnomalies = report.anomaly_results || [];
                 renderDetail(body, report);
             } catch(e) {
-                body.innerHTML = '<p style="color:#c62828;">Error: ' + e.message + '</p>';
+                body.innerHTML = '<p style="color:var(--accent-red);">Error: ' + e.message + '</p>';
             }
         }
 
@@ -452,24 +452,24 @@
             let html = '<div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-bottom:0.8rem;">';
 
             html += '</div>';
-            html += '<div class="grid-2"><div style="text-align:center;"><div class="score-circle ' + scoreClass + '" style="margin:0 auto;">' + score + '</div><p style="font-size:0.85rem;color:#888;margin-top:0.5rem;">Data Quality Score</p><div class="grid-4" style="margin-top:1rem;"><div class="stat-box"><div class="value">' + (r.rule_compliance!==null?r.rule_compliance+'%':'--') + '</div><div class="label">Rule Compliance</div></div><div class="stat-box"><div class="value">' + (r.completeness!==null?r.completeness+'%':'--') + '</div><div class="label">Completeness</div></div><div class="stat-box"><div class="value">' + (r.consistency!==null?r.consistency+'%':'--') + '</div><div class="label">Consistency</div></div><div class="stat-box"><div class="value">' + (r.outlier_penalty!==null?r.outlier_penalty+'%':'--') + '</div><div class="label">Outlier Penalty</div></div></div></div><div><h3 style="font-size:0.95rem;color:#1a237e;margin-bottom:0.5rem;">Issues (' + (r.issues?r.issues.length:0) + ')</h3>';
-            if (r.issues && r.issues.length > 0) { html += '<ul class="issue-list">'; r.issues.forEach(i => { html += '<li>' + i + '</li>'; }); html += '</ul>'; } else { html += '<p style="color:#2e7d32;font-size:0.85rem;">No issues found</p>'; }
+            html += '<div class="grid-2"><div style="text-align:center;"><div class="score-circle ' + scoreClass + '" style="margin:0 auto;">' + score + '</div><p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;">Data Quality Score</p><div class="grid-4" style="margin-top:1rem;"><div class="stat-box"><div class="value">' + (r.rule_compliance!==null?r.rule_compliance+'%':'--') + '</div><div class="label">Rule Compliance</div></div><div class="stat-box"><div class="value">' + (r.completeness!==null?r.completeness+'%':'--') + '</div><div class="label">Completeness</div></div><div class="stat-box"><div class="value">' + (r.consistency!==null?r.consistency+'%':'--') + '</div><div class="label">Consistency</div></div><div class="stat-box"><div class="value">' + (r.outlier_penalty!==null?r.outlier_penalty+'%':'--') + '</div><div class="label">Outlier Penalty</div></div></div></div><div><h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Issues (' + (r.issues?r.issues.length:0) + ')</h3>';
+            if (r.issues && r.issues.length > 0) { html += '<ul class="issue-list">'; r.issues.forEach(i => { html += '<li>' + i + '</li>'; }); html += '</ul>'; } else { html += '<p style="color:var(--accent-green);font-size:0.85rem;">No issues found</p>'; }
             html += '</div></div>';
 
             if (r.confidence) {
                 const c = r.confidence;
                 const confClass = c.overall_confidence >= 80 ? 'score-good' : c.overall_confidence >= 50 ? 'score-medium' : 'score-poor';
                 const levelColors = {'HIGH':'#2e7d32','MEDIUM':'#e65100','LOW':'#c62828','CRITICAL':'#b71c1c'};
-                const levelBg = {'HIGH':'#e8f5e9','MEDIUM':'#fff3e0','LOW':'#ffebee','CRITICAL':'#fce4ec'};
-                html += '<div style="margin-top:1.5rem;border-top:2px solid #e8eaf6;padding-top:1rem;"><h3 style="color:#1a237e;">Confidence Score per Indicator</h3>';
+                const levelBg = {'HIGH':'var(--severity-success-bg)','MEDIUM':'var(--severity-warning-bg)','LOW':'var(--severity-critical-bg)','CRITICAL':'var(--severity-critical-bg)'};
+                html += '<div style="margin-top:1.5rem;border-top:2px solid #e8eaf6;padding-top:1rem;"><h3 style="color:var(--text-primary);">Confidence Score per Indicator</h3>';
                 html += '<div class="grid-2" style="align-items:center;">';
-                html += '<div style="text-align:center;"><div class="score-circle ' + confClass + '" style="margin:0 auto;width:90px;height:90px;font-size:1.6rem;">' + c.overall_confidence + '%</div><p style="font-size:0.85rem;color:#888;margin-top:0.5rem;">Overall Confidence</p><span class="badge" style="background:' + (levelBg[c.level]||'#eee') + ';color:' + (levelColors[c.level]||'#888') + ';font-size:0.8rem;padding:0.3rem 0.8rem;">' + c.level + '</span></div>';
+                html += '<div style="text-align:center;"><div class="score-circle ' + confClass + '" style="margin:0 auto;width:90px;height:90px;font-size:1.6rem;">' + c.overall_confidence + '%</div><p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;">Overall Confidence</p><span class="badge" style="background:' + (levelBg[c.level]||'#eee') + ';color:' + (levelColors[c.level]||'#888') + ';font-size:0.8rem;padding:0.3rem 0.8rem;">' + c.level + '</span></div>';
                 html += '<div>';
                 if (c.by_group) {
                     html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;font-size:0.8rem;">';
                     for (const [grp, val] of Object.entries(c.by_group)) {
                         const gc = val >= 80 ? '#2e7d32' : val >= 50 ? '#e65100' : '#c62828';
-                        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.2rem 0.5rem;background:#f5f5f5;border-radius:4px;"><span>' + grp + '</span><span style="font-weight:700;color:' + gc + ';">' + val + '%</span></div>';
+                        html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.2rem 0.5rem;background:var(--bg-surface-hover);border-radius:4px;"><span>' + grp + '</span><span style="font-weight:700;color:' + gc + ';">' + val + '%</span></div>';
                     }
                     html += '</div>';
                 }
@@ -487,17 +487,17 @@
                     html += '</div>';
                 }
                 if (c.priority_verify && c.priority_verify.length > 0) {
-                    html += '<div style="margin-top:0.8rem;"><h4 style="font-size:0.85rem;color:#c62828;margin-bottom:0.4rem;">Priority Verification (' + c.priority_verify.length + ')</h4>';
+                    html += '<div style="margin-top:0.8rem;"><h4 style="font-size:0.85rem;color:var(--accent-red);margin-bottom:0.4rem;">Priority Verification (' + c.priority_verify.length + ')</h4>';
                     html += '<table id="priorityTable" style="font-size:0.8rem;"><thead><tr><th>Indicator</th><th>Value</th><th>Confidence</th><th>Level</th><th>Recommendations</th></tr></thead><tbody>';
                     c.priority_verify.forEach(p => {
                         const pc = p.confidence >= 80 ? '#2e7d32' : p.confidence >= 50 ? '#e65100' : '#c62828';
                         const recs = (p.recommendations || []).join('; ');
-                        html += '<tr data-level="' + p.level + '"><td>' + p.indicator_name + '</td><td>' + (p.value !== null && p.value !== undefined ? p.value : '<span style="color:#c62828;">MISSING</span>') + '</td><td style="font-weight:700;color:' + pc + ';">' + p.confidence + '%</td><td><span class="badge badge-' + p.level.toLowerCase() + '">' + p.level + '</span></td><td style="font-size:0.75rem;color:#666;">' + recs + '</td></tr>';
+                        html += '<tr data-level="' + p.level + '"><td>' + p.indicator_name + '</td><td>' + (p.value !== null && p.value !== undefined ? p.value : '<span style="color:var(--accent-red);">MISSING</span>') + '</td><td style="font-weight:700;color:' + pc + ';">' + p.confidence + '%</td><td><span class="badge badge-' + p.level.toLowerCase() + '">' + p.level + '</span></td><td style="font-size:0.75rem;color:var(--text-secondary);">' + recs + '</td></tr>';
                     });
                     html += '</tbody></table></div>';
                 }
                 if (c.summary) {
-                    html += '<p style="margin-top:0.6rem;font-size:0.8rem;color:#555;font-style:italic;background:#f5f5f5;padding:0.5rem;border-radius:4px;">' + c.summary + '</p>';
+                    html += '<p style="margin-top:0.6rem;font-size:0.8rem;color:var(--text-secondary);font-style:italic;background:var(--bg-surface-hover);padding:0.5rem;border-radius:4px;">' + c.summary + '</p>';
                 }
                 html += '</div>';
             }
@@ -560,7 +560,7 @@
                 const typeB = '<span class="badge" style="background:'+tc+'22;color:'+tc+';border:1px solid '+tc+'44;">'+rt+'</span>';
                 html += '<tr><td>'+v.rule_code+'</td><td>'+v.rule_description+'</td><td>'+sB+'</td><td>'+sevB+'</td><td>'+typeB+'</td><td style="font-size:0.8rem;">'+(v.details||'')+'</td></tr>';
             });
-            if (!data.length) html = '<tr><td colspan="6" style="text-align:center;color:#888;">No matching results</td></tr>';
+            if (!data.length) html = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No matching results</td></tr>';
             tbody.innerHTML = html;
             const c = document.getElementById('valCount'); if (c) c.textContent = data.length;
         }
@@ -570,10 +570,10 @@
             let html = '';
             data.forEach(a => {
                 const isO = a.is_outlier;
-                const rs = isO ? 'style="background:#fff3e0;"':'';
+                const rs = isO ? 'style="background:var(--severity-warning-bg);"':'';
                 html += '<tr '+rs+'><td>'+a.rate_name+'</td><td>'+(a.value!==null&&a.value!==undefined?a.value.toFixed(2):'--')+'</td><td>'+(a.benchmark!==null&&a.benchmark!==undefined?a.benchmark.toFixed(2):'--')+'</td><td>'+(a.z_score!==null&&a.z_score!==undefined?a.z_score.toFixed(2):'--')+'</td><td>'+(isO?'<span class="badge badge-fail">YES</span>':'<span class="badge badge-pass">No</span>')+'</td></tr>';
             });
-            if (!data.length) html = '<tr><td colspan="5" style="text-align:center;color:#888;">No matching results</td></tr>';
+            if (!data.length) html = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">No matching results</td></tr>';
             tbody.innerHTML = html;
             const c = document.getElementById('anomCount'); if (c) c.textContent = data.length;
         }

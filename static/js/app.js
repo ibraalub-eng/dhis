@@ -115,8 +115,10 @@ window.loadHospitalsTab = loadHospitalsTab;
 
 // Bootstrap
 document.addEventListener('DOMContentLoaded', async () => {
-    // Auth guard — hard check for token BEFORE any data loading
-    const _token = localStorage.getItem('access_token');
+  try {
+    // Auth guard — check BOTH localStorage and sessionStorage for token
+    // (remember_me=false stores tokens in sessionStorage)
+    const _token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
     if (!_token) {
         // No token at all — show login page, stop all init
         const lp = document.getElementById('login-page');
@@ -134,13 +136,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!authenticated) return; // login page shown, stop init
     }
 
+    // Show the main app content (tabs, dashboard, etc.)
+    const rs = document.getElementById('resultsSection');
+    if (rs) rs.classList.remove('hidden');
+
     refreshSavedFiles();
-    fetch(API() + '/reports/').then(r => r.json()).then(reports => {
-        if (reports && reports.length > 0) {
-            document.getElementById('resultsSection')?.classList.remove('hidden');
-        }
-    }).catch(() => {});
     // Always start at dashboard
     localStorage.removeItem('lastTab');
     switchTab('dashboard');
+  } catch (err) {
+    console.error('[app] Bootstrap error:', err);
+    // Fallback: show login page if anything goes wrong
+    const lp = document.getElementById('login-page');
+    if (lp) lp.style.display = 'flex';
+  }
 });

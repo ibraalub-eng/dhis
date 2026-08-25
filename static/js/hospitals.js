@@ -22,8 +22,8 @@ export function loadHospitalsTab() {
 
 function switchHospSubtab(name) {
     document.querySelectorAll('.hosp-subtab').forEach(t => {
-        t.style.color = t.dataset.subtab === name ? '#1a237e' : '#888';
-        t.style.borderBottom = t.dataset.subtab === name ? '2px solid #1a237e' : '2px solid transparent';
+        t.style.color = t.dataset.subtab === name ? 'var(--accent-blue)' : 'var(--text-muted)';
+        t.style.borderBottom = t.dataset.subtab === name ? '2px solid var(--accent-blue)' : '2px solid transparent';
     });
     document.querySelectorAll('.hosp-subtab-content').forEach(d => d.style.display = 'none');
     document.getElementById('hospSub-' + name).style.display = '';
@@ -42,7 +42,7 @@ function loadHospitalsList() {
         renderHospitals();
     }).catch(function() {
         if (sp) sp.style.display = 'none';
-        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load hospitals.</div>'; }
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:var(--accent-red);">Failed to load hospitals.</div>'; }
     });
 }
 
@@ -62,7 +62,7 @@ function renderHospitals() {
     });
     const container = document.getElementById('hospList');
     if (!filtered.length) {
-        container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">No hospitals found.</div>';
+        container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);">No hospitals found.</div>';
         return;
     }
     // Fetch data status to show indicator/score counts
@@ -77,7 +77,7 @@ function renderHospitals() {
 
 function renderHospitalsTable(filtered, statusMap) {
     const container = document.getElementById('hospList');
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:#e8eaf6;">' +
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:var(--bg-elevated);">' +
         '<th style="text-align:left;padding:0.4rem;">Name</th>' +
         '<th style="text-align:left;padding:0.4rem;">OrgUnit ID</th>' +
         '<th style="text-align:left;padding:0.4rem;">Ownership</th>' +
@@ -96,25 +96,25 @@ function renderHospitalsTable(filtered, statusMap) {
         const monthCount = st ? st.months.length : 0;
         let dataHtml;
         if (ivCount === 0) {
-            dataHtml = '<span style="color:#c62828;font-weight:600;">No Data</span>';
+            dataHtml = '<span style="color:var(--accent-red);font-weight:600;">No Data</span>';
         } else {
             dataHtml = '<span style="color:#2e7d32;">' + ivCount + ' values</span>' +
-                '<br><span style="font-size:0.72rem;color:#888;">' + monthCount + ' months, ' + qsCount + ' scores</span>';
+                '<br><span style="font-size:0.72rem;color:var(--text-muted);">' + monthCount + ' months, ' + qsCount + ' scores</span>';
         }
         const statusHtml = '<input type="checkbox" ' + (h.is_active ? 'checked' : '') + ' onchange="toggleHospitalActive(' + h.id + ', this.checked)"> ' + (h.is_active ? 'Active' : 'Inactive');
-        html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
-            '<td style="padding:0.4rem;font-weight:600;">' + esc(h.name) + (h.address ? '<br><span style="font-size:0.72rem;color:#999;">' + esc(h.address) + '</span>' : '') + '</td>' +
-            '<td style="padding:0.4rem;color:#888;font-size:0.78rem;">' + esc(h.organisation_unit_id || '') + '</td>' +
-            '<td style="padding:0.4rem;color:#555;">' + esc(h.facility_ownership_name || '') + '</td>' +
-            '<td style="padding:0.4rem;color:#555;">' + esc(h.facility_type_name || '') + '</td>' +
-            '<td style="padding:0.4rem;color:#555;">' + esc(govName) + '</td>' +
-            '<td style="padding:0.4rem;color:#555;">' + esc(typeName) + '</td>' +
+        html += '<tr style="border-bottom:1px solid var(--border-default);">' +
+            '<td style="padding:0.4rem;font-weight:600;">' + esc(h.name) + (h.address ? '<br><span style="font-size:0.72rem;color:var(--text-muted);">' + esc(h.address) + '</span>' : '') + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-muted);font-size:0.78rem;">' + esc(h.organisation_unit_id || '') + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-secondary);">' + esc(h.facility_ownership_name || '') + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-secondary);">' + esc(h.facility_type_name || '') + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-secondary);">' + esc(govName) + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-secondary);">' + esc(typeName) + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' + dataHtml + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' + statusHtml + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="editHospital(' + h.id + ')" style="margin-right:0.3rem;">Edit</button>' +
             '<button class="btn btn-sm btn-outline" onclick="clearHospitalData(' + h.id + ', '' + esc(h.name).replace(/'/g, "'") + '')" style="color:#d97706;margin-right:0.3rem;">Clear Data</button>' +
-            '<button class="btn btn-sm btn-outline" onclick="deleteHospital(' + h.id + ')" style="color:#c62828;">Delete</button></td></tr>';
+            '<button class="btn btn-sm btn-outline" onclick="deleteHospital(' + h.id + ')" style="color:var(--accent-red);">Delete</button></td></tr>';
     });
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -134,27 +134,27 @@ function loadGovernorates() {
         populateGovDropdowns();
     }).catch(function() {
         if (sp) sp.style.display = 'none';
-        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load.</div>'; }
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:var(--accent-red);">Failed to load.</div>'; }
     });
 }
 
 function renderGovernorates() {
     const container = document.getElementById('govList');
     if (!_governorates.length) {
-        container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">No governorates yet.</div>';
+        container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);">No governorates yet.</div>';
         return;
     }
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:#e8eaf6;">' +
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:var(--bg-elevated);">' +
         '<th style="text-align:left;padding:0.4rem;">Name</th>' +
         '<th style="text-align:left;padding:0.4rem;">Created</th>' +
         '<th style="text-align:center;padding:0.4rem;">Actions</th></tr></thead><tbody>';
     _governorates.forEach(g => {
-        html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+        html += '<tr style="border-bottom:1px solid var(--border-default);">' +
             '<td style="padding:0.4rem;font-weight:600;">' + esc(g.name) + '</td>' +
-            '<td style="padding:0.4rem;color:#888;font-size:0.78rem;">' + (g.created_at || '') + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-muted);font-size:0.78rem;">' + (g.created_at || '') + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="editGovernorate(' + g.id + ')" style="margin-right:0.3rem;">Edit</button>' +
-            '<button class="btn btn-sm btn-outline" onclick="deleteGovernorate(' + g.id + ')" style="color:#c62828;">Delete</button></td></tr>';
+            '<button class="btn btn-sm btn-outline" onclick="deleteGovernorate(' + g.id + ')" style="color:var(--accent-red);">Delete</button></td></tr>';
     });
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -185,27 +185,27 @@ function loadHospitalTypes() {
         populateTypeDropdowns();
     }).catch(function() {
         if (sp) sp.style.display = 'none';
-        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load.</div>'; }
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:var(--accent-red);">Failed to load.</div>'; }
     });
 }
 
 function renderHospitalTypes() {
     const container = document.getElementById('typeList');
     if (!_types.length) {
-        container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">No hospital types yet.</div>';
+        container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);">No hospital types yet.</div>';
         return;
     }
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:#e8eaf6;">' +
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:var(--bg-elevated);">' +
         '<th style="text-align:left;padding:0.4rem;">Name</th>' +
         '<th style="text-align:left;padding:0.4rem;">Created</th>' +
         '<th style="text-align:center;padding:0.4rem;">Actions</th></tr></thead><tbody>';
     _types.forEach(t => {
-        html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+        html += '<tr style="border-bottom:1px solid var(--border-default);">' +
             '<td style="padding:0.4rem;font-weight:600;">' + esc(t.name) + '</td>' +
-            '<td style="padding:0.4rem;color:#888;font-size:0.78rem;">' + (t.created_at || '') + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-muted);font-size:0.78rem;">' + (t.created_at || '') + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="editHospitalType(' + t.id + ')" style="margin-right:0.3rem;">Edit</button>' +
-            '<button class="btn btn-sm btn-outline" onclick="deleteHospitalType(' + t.id + ')" style="color:#c62828;">Delete</button></td></tr>';
+            '<button class="btn btn-sm btn-outline" onclick="deleteHospitalType(' + t.id + ')" style="color:var(--accent-red);">Delete</button></td></tr>';
     });
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -372,27 +372,27 @@ function loadOwnerships() {
         populateOwnershipDropdowns();
     }).catch(function() {
         if (sp) sp.style.display = 'none';
-        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load.</div>'; }
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:var(--accent-red);">Failed to load.</div>'; }
     });
 }
 
 function renderOwnerships() {
     const container = document.getElementById('ownershipList');
     if (!_ownerships.length) {
-        container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">No facility ownerships yet.</div>';
+        container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);">No facility ownerships yet.</div>';
         return;
     }
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:#e8eaf6;">' +
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:var(--bg-elevated);">' +
         '<th style="text-align:left;padding:0.4rem;">Name</th>' +
         '<th style="text-align:left;padding:0.4rem;">Created</th>' +
         '<th style="text-align:center;padding:0.4rem;">Actions</th></tr></thead><tbody>';
     _ownerships.forEach(o => {
-        html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+        html += '<tr style="border-bottom:1px solid var(--border-default);">' +
             '<td style="padding:0.4rem;font-weight:600;">' + esc(o.name) + '</td>' +
-            '<td style="padding:0.4rem;color:#888;font-size:0.78rem;">' + (o.created_at || '') + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-muted);font-size:0.78rem;">' + (o.created_at || '') + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="editOwnership(' + o.id + ')" style="margin-right:0.3rem;">Edit</button>' +
-            '<button class="btn btn-sm btn-outline" onclick="deleteOwnership(' + o.id + ')" style="color:#c62828;">Delete</button></td></tr>';
+            '<button class="btn btn-sm btn-outline" onclick="deleteOwnership(' + o.id + ')" style="color:var(--accent-red);">Delete</button></td></tr>';
     });
     html += '</tbody></table>';
     container.innerHTML = html;
@@ -463,27 +463,27 @@ function loadFacilityTypes() {
         populateFacilityTypeDropdowns();
     }).catch(function() {
         if (sp) sp.style.display = 'none';
-        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:#c62828;">Failed to load.</div>'; }
+        if (ct) { ct.style.display = ''; ct.innerHTML = '<div style="padding:1rem;color:var(--accent-red);">Failed to load.</div>'; }
     });
 }
 
 function renderFacilityTypes() {
     const container = document.getElementById('facilityTypeList');
     if (!_facilityTypes.length) {
-        container.innerHTML = '<div style="padding:1rem;text-align:center;color:#888;">No facility types yet.</div>';
+        container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);">No facility types yet.</div>';
         return;
     }
-    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:#e8eaf6;">' +
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="background:var(--bg-elevated);">' +
         '<th style="text-align:left;padding:0.4rem;">Name</th>' +
         '<th style="text-align:left;padding:0.4rem;">Created</th>' +
         '<th style="text-align:center;padding:0.4rem;">Actions</th></tr></thead><tbody>';
     _facilityTypes.forEach(t => {
-        html += '<tr style="border-bottom:1px solid #f0f0f0;">' +
+        html += '<tr style="border-bottom:1px solid var(--border-default);">' +
             '<td style="padding:0.4rem;font-weight:600;">' + esc(t.name) + '</td>' +
-            '<td style="padding:0.4rem;color:#888;font-size:0.78rem;">' + (t.created_at || '') + '</td>' +
+            '<td style="padding:0.4rem;color:var(--text-muted);font-size:0.78rem;">' + (t.created_at || '') + '</td>' +
             '<td style="text-align:center;padding:0.4rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="editFacilityType(' + t.id + ')" style="margin-right:0.3rem;">Edit</button>' +
-            '<button class="btn btn-sm btn-outline" onclick="deleteFacilityType(' + t.id + ')" style="color:#c62828;">Delete</button></td></tr>';
+            '<button class="btn btn-sm btn-outline" onclick="deleteFacilityType(' + t.id + ')" style="color:var(--accent-red);">Delete</button></td></tr>';
     });
     html += '</tbody></table>';
     container.innerHTML = html;

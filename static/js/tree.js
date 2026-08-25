@@ -43,7 +43,7 @@
             let hospId = document.getElementById('treeHospitalSelect').value;
             let month = document.getElementById('treeMonthSelect').value;
             if (!hospId || !month) {
-                document.getElementById('treeContainer').innerHTML = '<div style="color:#888;padding:1rem;">' + __('Select a hospital and month') + '</div>';
+                document.getElementById('treeContainer').innerHTML = '<div style="color:var(--text-muted);padding:1rem;">' + __('Select a hospital and month') + '</div>';
                 return;
             }
             document.getElementById('treeSaveBtn').style.display = 'none';
@@ -68,7 +68,7 @@
                 })
                 .catch(e => {
                     document.getElementById('treeLoading').classList.add('hidden');
-                    el.innerHTML = '<div style="color:#a00;padding:1rem;">Error: ' + e.message + '</div>';
+                    el.innerHTML = '<div style="color:var(--accent-red);padding:1rem;">Error: ' + e.message + '</div>';
                 });
         }
 

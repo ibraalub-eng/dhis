@@ -83,7 +83,7 @@
                     if (typeof window.applyLang === 'function') window.applyLang();
                 }).catch(() => {
                     // لا نُهيّئ التبويب إذا فشل تحميل محتواه — عناصره غير موجودة
-                    targetContent.innerHTML = '<div style="padding:2rem;text-align:center;color:#b91c1c;font-size:0.9rem;">' +
+                    targetContent.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--accent-red);font-size:0.9rem;">' +
                         'تعذّر تحميل محتوى هذا التبويب (الخادم غير متاح). أعد المحاولة لاحقاً أو تأكد من تشغيل الخادم.' +
                         '</div>';
                 });
