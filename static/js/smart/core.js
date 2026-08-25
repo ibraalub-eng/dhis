@@ -37,7 +37,7 @@ export function _t(text) {
 }
 
 export async function apiSmartGet(path) {
-  const base = document.getElementById('apiBase')?.value || '';
+  const base = '';
   const res = await fetch(base + path);
   if (!res.ok) {
     let detail = '';

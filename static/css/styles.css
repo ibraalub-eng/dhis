@@ -392,14 +392,12 @@ body.rtl .filter-bar { direction:rtl; }
   .container { padding: 1rem; }
   .header { padding: 0.8rem 1rem; flex-wrap: wrap; gap: 0.5rem; }
   .header h1 { font-size: 1.1rem; }
-  .header #apiBase { width: 140px; }
   .reports-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
 }
 
 @media (max-width: 768px) {
   .header { flex-direction: column; align-items: flex-start; }
   .header > div:last-child { width: 100%; justify-content: space-between; }
-  .header #apiBase { width: 100%; }
   .container { padding: 0.75rem; }
   .card { padding: 0.9rem; }
   .card h2 { font-size: 0.95rem; }

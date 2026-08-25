@@ -1,6 +1,6 @@
 // auth.js — login page, token management, auth guard, permissions.
 (function() {
-  var API_BASE = document.getElementById('apiBase') ? document.getElementById('apiBase').value : '';
+  var API_BASE = '';
 
   // ---- Auto-inject auth header into ALL fetch calls ----
   var _origFetch = window.fetch;

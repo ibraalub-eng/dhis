@@ -1,7 +1,7 @@
 // admin.js — user management panel for superadmins.
 (function() {
   var API_BASE = '';
-  try { API_BASE = document.getElementById('apiBase').value; } catch(e) {}
+  API_BASE = '';
 
   async function api(path, opts) {
     var token = getAccessToken();

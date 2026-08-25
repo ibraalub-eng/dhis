@@ -45,7 +45,7 @@ export async function exportSmartData() {
   const scope = document.getElementById('smart-export-scope')?.value || 'current';
   const month = scope === 'all' ? 'all' : (smartState.month || '');
   const lang = reportLang();
-  const base = document.getElementById('apiBase')?.value || '';
+  const base = '';
   const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=${lang}`;
   const status = document.getElementById('smart-status');
   if (status) status.textContent = _t('Exporting data...');

@@ -1,4 +1,4 @@
-        export const API = () => document.getElementById('apiBase').value;
+        export const API = () => '';
         export let uploadedData = null;
 
         const _apiCache = new Map();
