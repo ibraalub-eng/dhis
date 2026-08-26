@@ -848,8 +848,11 @@ function loadHospitalsSettings() {
         let scorecardTrendInstance = null, scorecardRatesInstance = null;
 
         function renderKpiCards(hid) {
+            const dr = window._dashboardDateRange;
             let url = '/dashboard/kpi?';
             if (hid) url += 'hospital_id=' + hid + '&';
+            if (dr && dr.from) url += 'month_from=' + dr.from + '&';
+            if (dr && dr.to) url += 'month_to=' + dr.to + '&';
             apiGet(url).then(data => {
                 const container = document.getElementById('dashKpiCards');
                 container.innerHTML = (data.kpis || []).map(k => {
@@ -1025,8 +1028,11 @@ function loadHospitalsSettings() {
 
         export function loadRankingTable() {
             const hid = document.getElementById('dashHospital').value;
+            const dr = window._dashboardDateRange;
             let url = '/dashboard/ranking?';
-            if (hid) url += 'hospital_id=' + hid;
+            if (hid) url += 'hospital_id=' + hid + '&';
+            if (dr && dr.from) url += 'month_from=' + dr.from + '&';
+            if (dr && dr.to) url += 'month_to=' + dr.to;
             apiGet(url).then(data => {
                 rankingData = data || [];
                 renderRankingTable();
@@ -1247,7 +1253,8 @@ function loadHospitalsSettings() {
 
             let url = '/dashboard/overview?';
             if (hid) url += 'hospital_id=' + hid + '&';
-            if (dr && dr.from) url += 'month=' + dr.from + '&';
+            if (dr && dr.from) url += 'month_from=' + dr.from + '&';
+            if (dr && dr.to) url += 'month_to=' + dr.to + '&';
             if (yr) url += 'year=' + yr;
 
             apiGet(url).then(data => {

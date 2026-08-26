@@ -19,7 +19,14 @@ _MAIN_CLINICAL_RATES = {
 
 
 @router.get("/overview")
-def dashboard_overview(hospital_id: int | None = None, month: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
+def dashboard_overview(
+    hospital_id: int | None = None,
+    month: str | None = None,
+    month_from: str | None = None,
+    month_to: str | None = None,
+    year: str | None = None,
+    db: Session = Depends(get_db),
+):
     from app.api.analysis import get_enabled_months
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
@@ -31,20 +38,37 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     # silently ignored on SQLite (inflating the count with duplicate rows). Use a
     # portable subquery on the (hospital_id, month) pair instead.
     reports_q = db.query(QualityScore.hospital_id, QualityScore.month).distinct()
-    if enabled_months:
+    if hospital_id:
+        reports_q = reports_q.filter(QualityScore.hospital_id == hospital_id)
+    if month_from:
+        reports_q = reports_q.filter(QualityScore.month >= month_from)
+    if month_to:
+        reports_q = reports_q.filter(QualityScore.month <= month_to)
+    elif enabled_months:
         reports_q = reports_q.filter(QualityScore.month.in_(enabled_months))
     total_reports = reports_q.count()
 
     q = db.query(func.avg(QualityScore.score))
     if hospital_id:
         q = q.filter(QualityScore.hospital_id == hospital_id)
-    if enabled_months:
+    if month_from:
+        q = q.filter(QualityScore.month >= month_from)
+    if month_to:
+        q = q.filter(QualityScore.month <= month_to)
+    elif enabled_months:
         q = q.filter(QualityScore.month.in_(enabled_months))
     avg_score = round(q.scalar() or 0, 1)
 
-    alerts_total = db.query(ValidationResult).filter(
+    alerts_q = db.query(ValidationResult).filter(
         ValidationResult.status == "FAIL"
-    ).count()
+    )
+    if hospital_id:
+        alerts_q = alerts_q.filter(ValidationResult.hospital_id == hospital_id)
+    if month_from:
+        alerts_q = alerts_q.filter(ValidationResult.month >= month_from)
+    if month_to:
+        alerts_q = alerts_q.filter(ValidationResult.month <= month_to)
+    alerts_total = alerts_q.count()
 
     trend_q = db.query(
         QualityScore.month,
@@ -52,11 +76,15 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     )
     if hospital_id:
         trend_q = trend_q.filter(QualityScore.hospital_id == hospital_id)
-    if year:
+    if month_from:
+        trend_q = trend_q.filter(QualityScore.month >= month_from)
+    if month_to:
+        trend_q = trend_q.filter(QualityScore.month <= month_to)
+    elif year:
         if not re.match(r"^\d{4}$", str(year)):
             return {"error": "Invalid year format"}
         trend_q = trend_q.filter(QualityScore.month.like(f"{year}-%"))
-    if enabled_months:
+    elif enabled_months:
         trend_q = trend_q.filter(QualityScore.month.in_(enabled_months))
     trend_rows = trend_q.group_by(QualityScore.month).order_by(QualityScore.month.desc()).limit(12).all()
     trend_data = sorted(
@@ -75,7 +103,11 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     ).filter(
         Hospital.is_active.is_(True)
     )
-    if enabled_months:
+    if month_from:
+        comp_q = comp_q.filter(QualityScore.month >= month_from)
+    if month_to:
+        comp_q = comp_q.filter(QualityScore.month <= month_to)
+    elif enabled_months:
         comp_q = comp_q.filter(QualityScore.month.in_(enabled_months))
     comp = comp_q.group_by(Hospital.id, Hospital.name).order_by(
         func.avg(QualityScore.score).desc().nullslast()
@@ -98,6 +130,10 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     )
     if hospital_id:
         conf_q = conf_q.filter(ConfidenceScore.hospital_id == hospital_id)
+    if month_from:
+        conf_q = conf_q.filter(ConfidenceScore.month >= month_from)
+    if month_to:
+        conf_q = conf_q.filter(ConfidenceScore.month <= month_to)
     conf_dist = conf_q.group_by(ConfidenceScore.level).all()
     dist_map = {"CRITICAL": 0, "LOW": 0, "MEDIUM": 0, "HIGH": 0}
     for c in conf_dist:
@@ -111,7 +147,11 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     )
     if hospital_id:
         radar_q = radar_q.filter(QualityScore.hospital_id == hospital_id)
-    if month:
+    if month_from:
+        radar_q = radar_q.filter(QualityScore.month >= month_from)
+    if month_to:
+        radar_q = radar_q.filter(QualityScore.month <= month_to)
+    elif month:
         radar_q = radar_q.filter(QualityScore.month == month)
     elif enabled_months:
         radar_q = radar_q.filter(QualityScore.month.in_(enabled_months))
@@ -126,7 +166,11 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
     outlier_q = db.query(func.avg(func.abs(QualityScore.outlier_penalty)).label("avg_op"))
     if hospital_id:
         outlier_q = outlier_q.filter(QualityScore.hospital_id == hospital_id)
-    if month:
+    if month_from:
+        outlier_q = outlier_q.filter(QualityScore.month >= month_from)
+    if month_to:
+        outlier_q = outlier_q.filter(QualityScore.month <= month_to)
+    elif month:
         outlier_q = outlier_q.filter(QualityScore.month == month)
     elif enabled_months:
         outlier_q = outlier_q.filter(QualityScore.month.in_(enabled_months))
@@ -149,15 +193,19 @@ def dashboard_overview(hospital_id: int | None = None, month: str | None = None,
 
 
 @router.get("/kpi")
-def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, db: Session = Depends(get_db)):
+def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, month_from: str | None = None, month_to: str | None = None, db: Session = Depends(get_db)):
     from app.api.analysis import get_enabled_months
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
     base = db.query(QualityScore)
     if hospital_id:
         base = base.filter(QualityScore.hospital_id == hospital_id)
-    if month:
+    if month_from:
+        base = base.filter(QualityScore.month >= month_from)
+    if month_to:
+        base = base.filter(QualityScore.month <= month_to)
+    elif month:
         base = base.filter(QualityScore.month == month)
-    if enabled_months:
+    elif enabled_months:
         base = base.filter(QualityScore.month.in_(enabled_months))
 
     agg = base.with_entities(
@@ -176,6 +224,10 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, db: 
     cq = db.query(func.count(ConfidenceScore.id))
     if hospital_id:
         cq = cq.filter(ConfidenceScore.hospital_id == hospital_id)
+    if month_from:
+        cq = cq.filter(ConfidenceScore.month >= month_from)
+    if month_to:
+        cq = cq.filter(ConfidenceScore.month <= month_to)
     total_conf = cq.scalar() or 1
 
     cq_high = db.query(func.count(ConfidenceScore.id)).filter(
@@ -183,6 +235,10 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, db: 
     )
     if hospital_id:
         cq_high = cq_high.filter(ConfidenceScore.hospital_id == hospital_id)
+    if month_from:
+        cq_high = cq_high.filter(ConfidenceScore.month >= month_from)
+    if month_to:
+        cq_high = cq_high.filter(ConfidenceScore.month <= month_to)
     high_count = cq_high.scalar() or 0
     conf_high_pct = round((high_count / total_conf) * 100, 1)
 
@@ -206,7 +262,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, db: 
 
 
 @router.get("/ranking")
-def dashboard_ranking(hospital_id: int | None = None, db: Session = Depends(get_db)):
+def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = None, month_to: str | None = None, db: Session = Depends(get_db)):
     from app.api.analysis import get_enabled_months
     enabled_months = get_enabled_months(db)
 
@@ -215,7 +271,11 @@ def dashboard_ranking(hospital_id: int | None = None, db: Session = Depends(get_
     rows = []
     for h in hospitals:
         q = db.query(QualityScore).filter(QualityScore.hospital_id == h.id)
-        if enabled_months:
+        if month_from:
+            q = q.filter(QualityScore.month >= month_from)
+        if month_to:
+            q = q.filter(QualityScore.month <= month_to)
+        elif enabled_months:
             q = q.filter(QualityScore.month.in_(enabled_months))
         scores = q.order_by(QualityScore.month.asc()).all()
 
