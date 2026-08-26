@@ -188,7 +188,9 @@ window._adminAssignHospitals = function(id, btn) {
             <button class="btn btn-sm btn-outline" onclick="loadVisibilityMatrix()" style="font-size:0.72rem;">↻ Refresh</button>
           </div>
           <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.8rem;">Shows which tabs each role can see. Green = visible, Red = hidden.</p>
-          <div id="visMatrixBody"
+          <div id="visMatrixBody" style="overflow-x:auto;"><div style="text-align:center;padding:1rem;color:var(--text-muted);">Loading...</div></div>
+        </div>
+
         <!-- Role Simulation Preview -->
         <div id="roleSimulator" style="display:none;margin-top:1rem;border:2px solid var(--accent-blue);border-radius:8px;overflow:hidden;">
             <div style="padding:0.6rem 0.8rem;background:var(--accent-blue);color:white;display:flex;justify-content:space-between;align-items:center;">
@@ -204,7 +206,6 @@ window._adminAssignHospitals = function(id, btn) {
                 <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">Visible tab content panels:</div>
                 <div id="simTabContent" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
             </div>
-        </div> style="overflow-x:auto;"><div style="text-align:center;padding:1rem;color:var(--text-muted);">Loading...</div></div>
         </div>
 
         <!-- Create/Edit User Modal -->
