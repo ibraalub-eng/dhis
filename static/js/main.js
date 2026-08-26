@@ -94,12 +94,19 @@
             }
         }
         function _initTab(name) {
-            if (name === 'dashboard') window.initDashboard();
-            if (name === 'quality') window.loadQualityReports();
-            if (name === 'alerts') { window.loadAlerts(); window.loadRuleFailures(); }
-            if (name === 'outliers') window.loadOutliers();
-            if (name === 'settings') window.loadAllSettings();
-            if (name === 'root-cause') window.initRootCause();
+            function _tryInit(fn, retries) {
+                if (typeof fn === 'function' && fn.toString().indexOf('Module not loaded') === -1) {
+                    fn();
+                } else if (retries > 0) {
+                    setTimeout(function() { _tryInit(fn, retries - 1); }, 300);
+                }
+            }
+            if (name === 'dashboard') _tryInit(window.initDashboard, 10);
+            if (name === 'quality') _tryInit(window.loadQualityReports, 10);
+            if (name === 'alerts') { _tryInit(window.loadAlerts, 10); _tryInit(window.loadRuleFailures, 10); }
+            if (name === 'outliers') _tryInit(window.loadOutliers, 10);
+            if (name === 'settings') _tryInit(window.loadAllSettings, 10);
+            if (name === 'root-cause') _tryInit(window.initRootCause, 10);
             if (name === 'analysis') window.initAnalysis();
             if (name === 'clinical') { window.initClinical(); }
             if (name === 'indicator-tree') window.initIndicatorTree();
