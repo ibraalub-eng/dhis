@@ -192,39 +192,6 @@ window.saveSelfProfile = async function() {
     }
 };
 
-window.changeSelfPassword = async function() {
-            var currentEl = document.getElementById('selfPwCurrent');
-            var newEl = document.getElementById('selfPwNew');
-            var confirmEl = document.getElementById('selfPwConfirm');
-            var errEl = document.getElementById('selfPwError');
-            var okEl = document.getElementById('selfPwSuccess');
-            errEl.style.display = 'none';
-            okEl.style.display = 'none';
-            if (!currentEl.value) { errEl.textContent = 'Current password is required'; errEl.style.display = 'block'; return; }
-            if (!newEl.value || newEl.value.length < 6) { errEl.textContent = 'New password must be at least 6 characters'; errEl.style.display = 'block'; return; }
-            if (newEl.value !== confirmEl.value) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
-            try {
-                var token = (typeof getAccessToken === 'function') ? getAccessToken() : '';
-                var resp = await authFetch('/auth/change-password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-                    body: JSON.stringify({ current_password: currentEl.value, new_password: newEl.value, confirm_password: confirmEl.value })
-                });
-                var data = await resp.json();
-                if (!resp.ok || data.detail) {
-                    errEl.textContent = data.detail || 'Failed to change password';
-                    errEl.style.display = 'block';
-                    return;
-                }
-                okEl.textContent = 'Password changed successfully!';
-                okEl.style.display = 'block';
-                currentEl.value = ''; newEl.value = ''; confirmEl.value = '';
-                setTimeout(function(){ okEl.style.display = 'none'; }, 3000);
-            } catch(e) {
-                errEl.textContent = 'Network error: ' + e.message;
-                errEl.style.display = 'block';
-            }
-        };
 
 function loadHospitalsSettings() {
             const container = document.getElementById('settingsHospitalsContent');
@@ -1329,7 +1296,6 @@ function loadHospitalsSettings() {
                 const l = document.getElementById('settingsLoading');
                 if (l) l.classList.add('hidden');
             });
-            initDevHints();
         }
 
         export function saveAllSettings() {
@@ -1581,23 +1547,9 @@ function loadHospitalsSettings() {
             });
         }
 
-        export function loadHospitalToggles() {
-            apiGet('/hospitals/?include_inactive=true').then(hospitals => {
-                const container = document.getElementById('hospitalToggleList');
-                if (!container) return;
-                container.innerHTML = hospitals.map(h =>
-                    '<label style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0;border-bottom:1px solid #eee;cursor:pointer;">' +
-                    '<input type="checkbox" ' + (h.is_active ? 'checked' : '') + ' onchange="toggleHospital(' + h.id + ', this.checked)" style="width:16px;height:16px;">' +
-                    '<span style="font-size:0.82rem;">' + esc(h.name) + '</span>' +
-                    '</label>'
-                ).join('');
-            }).catch(() => {});
-        }
-
         window.toggleHospital = function(hospitalId, isActive) {
             apiPut('/hospitals/' + hospitalId + '/toggle-active', {}).then(() => {
                 clearApiCache();
-                loadHospitalToggles();
                 if (typeof loadDashboard === 'function') loadDashboard();
                 // Refresh hospital dropdowns in other visible tabs
                 if (document.getElementById('dashHospital') && document.getElementById('dashHospital').offsetParent !== null) {
@@ -1726,36 +1678,6 @@ function loadHospitalsSettings() {
             });
         }
 
-        export const PARAM_TEMPLATES = {
-            'ge': '{"parent": "2", "children": ["3", "4", "5"]}',
-            'eq': '{"parent": "2", "children": ["2.a", "2.b"]}',
-            'le': '{"child": "5.b.1", "parent": "5"}',
-            'le_sum': '{"child": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]}',
-            'benchmark_rate': '{"num_code": "5", "den_code": "2", "threshold": 80.0}',
-            'benchmark_low_rate': '{"num_code": "3", "den_code": "2", "threshold": 10.0}',
-            'cross_hospital_rate': '{"num_code": "6.f", "den_code": "6", "z_threshold": 2.5}',
-            'month_over': '{"code": "2", "factor": 2.0}',
-            'month_under': '{"code": "2", "factor": 0.5}',
-            'neg_check': '{"codes": ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]}',
-            'decimal_check': '{"codes": ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]}',
-            'missing': '{"code": "2"}',
-            'all_zero': '{"codes": ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]}',
-        };
-        export const PARAM_HINTS = {
-            'ge': 'parent indicator code + list of child codes',
-            'eq': 'parent indicator code + list of child codes',
-            'le': 'child code + parent code',
-            'le_sum': 'parent code + list of child codes',
-            'benchmark_rate': 'numerator code, denominator code, threshold %',
-            'benchmark_low_rate': 'numerator code, denominator code, threshold %',
-            'cross_hospital_rate': 'numerator code, denominator code, z_threshold',
-            'month_over': 'indicator code, factor (e.g. 2.0)',
-            'month_under': 'indicator code, factor (e.g. 0.5)',
-            'neg_check': 'list of indicator codes to check',
-            'decimal_check': 'list of indicator codes to check',
-            'missing': 'indicator code',
-            'all_zero': 'list of indicator codes to check',
-        };
         export const EXPR_EXPLANATIONS = {
             'ge': {title: 'parent >= sum(children)', text: 'FAILs when the parent indicator value is less than the sum of its child indicators. Use for aggregation checks like Total Deliveries >= NVD + Assisted + C-sections.'},
             'eq': {title: 'parent == sum(children)', text: 'FAILs when the parent value != sum of children. Use for exact equality checks like Male + Female + Unknown = Live Births.'},

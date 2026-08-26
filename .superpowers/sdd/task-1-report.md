@@ -1,49 +1,36 @@
-# Task 1 Report: Set Up Chart.js Dependencies
+# Task 1: Fix settings.js bugs and dead code
 
-## Status: DONE_WITH_CONCERNS
+## What was implemented
 
-## What I Found
+Deleted 5 blocks of dead/buggy code from `static/js/settings.js`:
 
-**Chart.js is already available globally.** No changes were needed.
+1. **Duplicate `changeSelfPassword`** — Removed the first definition (original lines 195–227). Kept the second definition (~line 1704) which includes "new password must be different from current" validation.
 
-### Current State of Dependencies
+2. **`initDevHints()` call** — Removed the call at (original) line 1332. This function was never defined in any JS file, causing a ReferenceError on every settings page load.
 
-In `static/index.html` (lines 7-8):
-```html
-<script src="/static/vendor/chart.umd.min.js"></script>
-<script src="/static/vendor/plotly.min.js"></script>
+3. **`loadHospitalToggles` function** — Removed the function definition (original lines 1584–1595) and the dangling call inside `toggleHospital` to prevent a ReferenceError.
+
+4. **`PARAM_TEMPLATES` export** — Removed the object definition (original lines 1729–1743). Never imported by any module.
+
+5. **`PARAM_HINTS` export** — Removed the object definition (original lines 1744–1758). Never imported by any module.
+
+## What was tested
+
+```
+python -m pytest tests/test_chart_migration.py tests/test_auth.py -q --tb=short
 ```
 
-Both libraries are loaded as local vendor files in the main HTML page, NOT as CDN links.
+**Result:** 72 passed, 5164 warnings in 38.95s
 
-### Discrepancies with Task Brief
+## Files changed
 
-| Assumption in Task Brief | Actual Codebase |
-|---|---|
-| Plotly.js CDN in `root-cause.html` | Local vendor file in `index.html` line 8 |
-| Chart.js CDN needs to be added | Already loaded in `index.html` line 7 |
-| Replace `<script src="https://cdn.plot.ly/plotly-latest.min.js">` | Actual: `<script src="/static/vendor/plotly.min.js">` |
-| Modify `static/tabs/root-cause.html` | `root-cause.html` is an HTML fragment with no script tags |
+| File | Action | Original lines |
+|------|--------|----------------|
+| `static/js/settings.js` | Modified | 195–227 (changeSelfPassword #1), 1332 (initDevHints call), 1550–1561 + 1566 (loadHospitalToggles def + call), 1681–1710 (PARAM_TEMPLATES + PARAM_HINTS) |
 
-### Why Plotly.js Cannot Be Removed Yet
+File reduced from 1824 lines to 1746 lines (78 lines removed).
 
-Plotly.js is used extensively across other features (43 `Plotly.*` calls in `static/js/`):
-- `smart-analytics.js` — geo maps, scatter plots, correlation heatmaps, feature importance, SHAP waterfalls, trend lines, etc.
-- `settings.js` — root cause timeline chart (the migration target)
-- `validation.js` — validation charts
+## Issues or concerns
 
-Removing the Plotly.js script tag would break all of these features. The root cause timeline is only one of many Plotly consumers.
-
-## Conclusion
-
-**Task 1 is already complete** — Chart.js v4.4.0 is loaded and available as `window.Chart`. No file changes or commits are needed.
-
-The subsequent migration tasks (rewriting `drawRcTimelineChart` in `settings.js` to use Chart.js instead of Plotly.js) will be the actual work. Those tasks should target `static/js/settings.js` lines 137-190, not `root-cause.html`.
-
-## Files Changed
-
-None.
-
-## Test Results
-
-N/A — no code changes made.
+- The `toggleHospital` function (line ~1550) still references `loadHospitalToggles` conceptually — the function is dead but `toggleHospital` remains exported. This is fine since the call was removed; `toggleHospital` still works for toggling hospital active status and refreshing other UI components.
+- The second `changeSelfPassword` at line 1704 uses `API()` prefix for the URL (`API() + '/auth/change-password'`) while the first used a bare path. The kept version is more robust.
