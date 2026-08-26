@@ -297,43 +297,49 @@
     <!-- Profile / Password Modal -->
     <div id="profileModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:none;align-items:center;justify-content:center;">
         <div style="background:var(--bg-surface);border:1px solid var(--border-default);border-radius:12px;padding:1.5rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
                 <h3 style="margin:0;font-size:1.1rem;color:var(--text-primary);">👤 Profile & Security</h3>
                 <button onclick="closeProfileModal()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">&times;</button>
             </div>
-            <!-- Profile Section -->
-            <div style="margin-bottom:1.2rem;">
-                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Username</label>
-                <input id="pm-username" type="text" disabled style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;background:var(--bg-surface-hover);color:var(--text-muted);">
+            <!-- Tab Bar -->
+            <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
+                <button id="pmTabProfile" class="pm-tab active" onclick="_pmSwitchTab('profile')" style="padding:0.5rem 1rem;border:none;background:none;font-weight:600;font-size:0.85rem;cursor:pointer;color:var(--accent-blue);border-bottom:2px solid var(--accent-blue);margin-bottom:-2px;">👤 Profile</button>
+                <button id="pmTabPassword" class="pm-tab" onclick="_pmSwitchTab('password')" style="padding:0.5rem 1rem;border:none;background:none;font-weight:600;font-size:0.85rem;cursor:pointer;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-2px;">🔑 Password</button>
             </div>
-            <div style="margin-bottom:1.2rem;">
-                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Full Name</label>
-                <input id="pm-fullname" type="text" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Your full name">
+            <!-- Profile Tab Content -->
+            <div id="pmTabContentProfile">
+                <div style="margin-bottom:1rem;">
+                    <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Username</label>
+                    <input id="pm-username" type="text" disabled style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;background:var(--bg-surface-hover);color:var(--text-muted);">
+                </div>
+                <div style="margin-bottom:1rem;">
+                    <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Full Name</label>
+                    <input id="pm-fullname" type="text" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Your full name">
+                </div>
+                <div style="margin-bottom:1rem;">
+                    <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Email</label>
+                    <input id="pm-email" type="email" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="your@email.com">
+                </div>
+                <div id="pm-profileError" style="display:none;color:var(--accent-red);font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                <div id="pm-profileSuccess" style="display:none;color:var(--accent-green);font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                <button id="pm-saveProfile" class="btn" style="background:var(--accent-blue);color:white;" onclick="_pmSaveProfile()">Save Profile</button>
             </div>
-            <div style="margin-bottom:1.2rem;">
-                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Email</label>
-                <input id="pm-email" type="email" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="your@email.com">
-            </div>
-            <div id="pm-profileError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
-            <div id="pm-profileSuccess" style="display:none;color:#2e7d32;font-size:0.82rem;margin-bottom:0.5rem;"></div>
-            <button id="pm-saveProfile" class="btn" style="background:var(--accent-blue);color:white;margin-bottom:1.5rem;" onclick="_pmSaveProfile()">Save Profile</button>
-            <!-- Password Section -->
-            <div style="border-top:2px solid var(--border-default);padding-top:1rem;">
-                <h4 style="font-size:0.9rem;color:var(--text-primary);margin-bottom:0.8rem;">🔑 Change Password</h4>
-                <div style="margin-bottom:0.8rem;">
+            <!-- Password Tab Content -->
+            <div id="pmTabContentPassword" style="display:none;">
+                <div style="margin-bottom:1rem;">
                     <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Current Password</label>
                     <input id="pm-pw-current" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Enter current password">
                 </div>
-                <div style="margin-bottom:0.8rem;">
+                <div style="margin-bottom:1rem;">
                     <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">New Password</label>
                     <input id="pm-pw-new" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Min 6 characters">
                 </div>
-                <div style="margin-bottom:0.8rem;">
+                <div style="margin-bottom:1rem;">
                     <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Confirm New Password</label>
                     <input id="pm-pw-confirm" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Repeat new password">
                 </div>
-                <div id="pm-pwError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
-                <div id="pm-pwSuccess" style="display:none;color:#2e7d32;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                <div id="pm-pwError" style="display:none;color:var(--accent-red);font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                <div id="pm-pwSuccess" style="display:none;color:var(--accent-green);font-size:0.82rem;margin-bottom:0.5rem;"></div>
                 <button id="pm-changePw" class="btn" style="background:#e65100;color:white;" onclick="_pmChangePw()">Change Password</button>
             </div>
         </div>

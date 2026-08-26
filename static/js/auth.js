@@ -513,6 +513,26 @@ window.openProfileModal = function() {
 window.closeProfileModal = function() {
     var modal = document.getElementById('profileModal');
     if (modal) modal.style.display = 'none';
+    // Reset to profile tab
+    _pmSwitchTab('profile');
+};
+
+window._pmSwitchTab = function(tab) {
+    var profileTab = document.getElementById('pmTabProfile');
+    var passwordTab = document.getElementById('pmTabPassword');
+    var profileContent = document.getElementById('pmTabContentProfile');
+    var passwordContent = document.getElementById('pmTabContentPassword');
+    if (tab === 'profile') {
+        if (profileTab) { profileTab.style.color = 'var(--accent-blue)'; profileTab.style.borderBottomColor = 'var(--accent-blue)'; }
+        if (passwordTab) { passwordTab.style.color = 'var(--text-muted)'; passwordTab.style.borderBottomColor = 'transparent'; }
+        if (profileContent) profileContent.style.display = '';
+        if (passwordContent) passwordContent.style.display = 'none';
+    } else {
+        if (profileTab) { profileTab.style.color = 'var(--text-muted)'; profileTab.style.borderBottomColor = 'transparent'; }
+        if (passwordTab) { passwordTab.style.color = 'var(--accent-blue)'; passwordTab.style.borderBottomColor = 'var(--accent-blue)'; }
+        if (profileContent) profileContent.style.display = 'none';
+        if (passwordContent) passwordContent.style.display = '';
+    }
 };
 // Close modal on Escape key
 document.addEventListener('keydown', function(e) {
