@@ -193,8 +193,67 @@ export class DataTable {
           const id = tr.dataset.id ? parseInt(tr.dataset.id) : null;
           const row = id != null ? self.rows.find(r => r.id === id) : null;
           if (row) self.onRowDblClick(row);
-        });
       });
-    }
+    });
   }
+}
+}
+
+// ── Standalone makeSortable ────────────────────────────────
+export function makeSortable(tableId, opts = {}) {
+  const table = document.getElementById(tableId);
+  if (!table) return;
+
+  const numericCols = new Set(opts.numericColumns || []);
+  let sortCol = opts.defaultSortCol ?? null;
+  let sortAsc = opts.defaultAsc ?? true;
+
+  const headers = table.querySelectorAll('thead th');
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+
+  headers.forEach((th, idx) => {
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      if (sortCol === idx) {
+        sortAsc = !sortAsc;
+      } else {
+        sortCol = idx;
+        sortAsc = true;
+      }
+      applySort();
+    });
+  });
+
+  function applySort() {
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    rows.sort((a, b) => {
+      const aCell = a.children[sortCol];
+      const bCell = b.children[sortCol];
+      let av = aCell ? aCell.textContent.trim() : '';
+      let bv = bCell ? bCell.textContent.trim() : '';
+
+      if (numericCols.has(sortCol)) {
+        const an = parseFloat(av.replace(/[^\d.\-]/g, '')) || 0;
+        const bn = parseFloat(bv.replace(/[^\d.\-]/g, '')) || 0;
+        return sortAsc ? an - bn : bn - an;
+      }
+
+      return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+
+    rows.forEach(r => tbody.appendChild(r));
+    updateHeaders();
+  }
+
+  function updateHeaders() {
+    headers.forEach((th, idx) => {
+      const arrow = idx === sortCol ? (sortAsc ? ' ▲' : ' ▼') : '';
+      const base = th.textContent.replace(/\s*[▲▼]\s*$/, '');
+      th.textContent = base + arrow;
+    });
+  }
+
+  if (sortCol != null) applySort();
 }
