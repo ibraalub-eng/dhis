@@ -169,7 +169,7 @@ window.saveSelfProfile = async function() {
     var email = emailEl ? emailEl.value.trim() : '';
     if (!fullName) { errEl.textContent = 'Full name is required'; errEl.style.display = 'block'; return; }
     if (!email) { errEl.textContent = 'Email is required'; errEl.style.display = 'block'; return; }
-    if (!/^[^@s]+@[^@s]+.[^@s]+$/.test(email)) { errEl.textContent = 'Invalid email format'; errEl.style.display = 'block'; return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'Invalid email format'; errEl.style.display = 'block'; return; }
     try {
         var token = getAccessToken();
         var resp = await authFetch(API() + '/auth/me', {
