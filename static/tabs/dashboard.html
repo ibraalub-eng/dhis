@@ -5,6 +5,12 @@
     <select id="dashYear" onchange="loadDashboard()">
         <option value="">All Years</option>
     </select>
+    <label data-i18n="from">من</label>
+    <input type="month" id="filter-from" style="max-width:180px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border-default);border-radius:6px;padding:0.3rem 0.5rem;font-size:0.78rem;">
+    <label data-i18n="to">إلى</label>
+    <input type="month" id="filter-to" style="max-width:180px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border-default);border-radius:6px;padding:0.3rem 0.5rem;font-size:0.78rem;">
+    <button onclick="window.applyDashboardFilter()" class="btn btn-primary" style="font-size:0.78rem;padding:0.3rem 0.7rem;" data-i18n="apply_filter">تطبيق</button>
+    <button onclick="window.resetDashboardFilter()" class="btn btn-secondary" style="font-size:0.78rem;padding:0.3rem 0.7rem;" data-i18n="reset">إعادة</button>
     <span id="dashLoading" class="status-loading hidden" style="padding:0.2rem 0.5rem;font-size:0.8rem;"><span class="spinner"></span> Loading...</span>
 </div>
 

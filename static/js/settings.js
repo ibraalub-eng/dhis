@@ -1218,10 +1218,12 @@ function loadHospitalsSettings() {
             _saveUIState('dashboard');
             const hid = document.getElementById('dashHospital').value;
             const yr = document.getElementById('dashYear').value;
+            const dr = window._dashboardDateRange;
             document.getElementById('dashLoading').style.display = 'inline';
 
             let url = '/dashboard/overview?';
             if (hid) url += 'hospital_id=' + hid + '&';
+            if (dr && dr.from) url += 'month=' + dr.from + '&';
             if (yr) url += 'year=' + yr;
 
             apiGet(url).then(data => {
@@ -1324,6 +1326,24 @@ function loadHospitalsSettings() {
                 console.error('Dashboard error:', e);
             });
         }
+
+        window.applyDashboardFilter = function() {
+            const fromEl = document.getElementById('filter-from');
+            const toEl = document.getElementById('filter-to');
+            const from = fromEl.value;
+            const to = toEl.value;
+            if (!from || !to) { toastWarning(__('Both From and To months are required.')); return; }
+            if (from > to) { toastWarning(__('From month must be before To month.')); return; }
+            window._dashboardDateRange = { from: from, to: to };
+            loadDashboard();
+        };
+
+        window.resetDashboardFilter = function() {
+            window._dashboardDateRange = null;
+            document.getElementById('filter-from').value = '';
+            document.getElementById('filter-to').value = '';
+            loadDashboard();
+        };
 
         function loadHeatmap(hospitalId, month) {
             let url = '/analysis/heatmap?';
