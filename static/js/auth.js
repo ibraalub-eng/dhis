@@ -187,6 +187,9 @@
 
   // ---- Login page ----
   window.showLoginPage = function() {
+    // Always hide any active loader overlay
+    var lo = document.getElementById('loaderOverlay');
+    if (lo) lo.classList.remove('active');
     var lp = document.getElementById('login-page');
     if (lp) lp.style.display = 'flex';
     var dc = document.querySelector('.dashboard-container') || document.querySelector('.header');
@@ -484,6 +487,10 @@ window.openProfileModal = function() {
     var modal = document.getElementById('profileModal');
     if (!modal) return;
     modal.style.display = 'flex';
+    // Focus first editable field
+    setTimeout(function() { var el = document.getElementById('pm-fullname'); if (el) el.focus(); }, 100);
+    // Click outside to close
+    modal.onclick = function(e) { if (e.target === modal) window.closeProfileModal(); };
     // Load current user data
     var user = window.getUserInfo ? window.getUserInfo() : null;
     if (!user) {
@@ -507,6 +514,13 @@ window.closeProfileModal = function() {
     var modal = document.getElementById('profileModal');
     if (modal) modal.style.display = 'none';
 };
+// Close modal on Escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        var modal = document.getElementById('profileModal');
+        if (modal && modal.style.display === 'flex') window.closeProfileModal();
+    }
+});
 
 function _fillProfileModal(data) {
     var un = document.getElementById('pm-username');

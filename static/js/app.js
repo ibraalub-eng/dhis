@@ -162,6 +162,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     switchTab('dashboard');
   } catch (err) {
     console.error('[app] Bootstrap error:', err);
+    hideLoader();
     // Fallback: show login page if anything goes wrong
     const lp = document.getElementById('login-page');
     if (lp) lp.style.display = 'flex';
