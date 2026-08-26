@@ -48,11 +48,11 @@
             const mon = document.getElementById('outlierMonthFilter').value;
             const rate = document.getElementById('outlierRateFilter').value;
             document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
-            let url = API() + '/analysis/outliers?';
+            let url = '/analysis/outliers?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
             if (rate) url += 'rate_name=' + encodeURIComponent(rate) + '&';
-            fetch(url).then(r => r.json()).then(data => {
+            apiGet(url).then(data => {
                 document.getElementById('outlierLoading').classList.add('hidden');
                 updateOutlierUI(data, hosp, mon, rate);
             }).catch(err => {
