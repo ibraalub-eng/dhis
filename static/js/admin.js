@@ -216,6 +216,19 @@ window._adminAssignHospitals = function(id, btn) {
             </div>
         </div>
 
+        <!-- Tab Order Manager -->
+        <div id="adminTabOrder" style="margin-top:1.5rem;padding:1rem;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border-default);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+            <h3 style="color:var(--accent-blue);margin:0;">📋 Tab Order</h3>
+            <div style="display:flex;gap:0.3rem;">
+              <button class="btn btn-sm btn-outline" onclick="resetTabOrder()" style="font-size:0.72rem;">↺ Reset</button>
+              <button class="btn btn-sm" onclick="saveTabOrder()" style="background:var(--accent-green);color:white;font-size:0.72rem;">💾 Save Order</button>
+            </div>
+          </div>
+          <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.6rem;">Drag to reorder tabs. Changes apply on next page load.</p>
+          <div id="tabOrderList"></div>
+        </div>
+
         <!-- Create/Edit User Modal -->
         <div id="adminUserModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center;">
           <div style="background:white;border-radius:10px;padding:1.5rem;width:420px;max-width:94%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
@@ -546,6 +559,7 @@ window._adminAssignHospitals = function(id, btn) {
 
 // Auto-load when admin panel opens
   setTimeout(function() { if (document.getElementById('visMatrixBody')) loadVisibilityMatrix(); }, 500);
+  setTimeout(function() { if (document.getElementById('tabOrderList')) loadTabOrder(); }, 500);
 
   // ---- Password Change ----
   window.changePassword = function(userId, username) {
@@ -945,4 +959,107 @@ window._adminAssignHospitals = function(id, btn) {
   // Close button for DB preview
   var closeBtn=document.getElementById("adminDbCloseBtn");
   if(closeBtn)closeBtn.onclick=function(){document.getElementById("adminDbPreviewContainer").style.display="none";};
+
+  // ── Tab Order Manager ──
+  var DEFAULT_TAB_ORDER = [
+    {id:'dashboard', label:'📊 Dashboard'},
+    {id:'quality', label:'📋 Quality Reports'},
+    {id:'analysis', label:'📈 Comparative Analysis'},
+    {id:'clinical', label:'🏥 Clinical Intelligence'},
+    {id:'outliers', label:'🔍 Outliers'},
+    {id:'alerts', label:'🚨 Alerts'},
+    {id:'indicator-tree', label:'🌲 Indicator Tree'},
+    {id:'rules-manager', label:'⚙️ Rules Manager'},
+    {id:'root-cause', label:'🎯 Root Cause'},
+    {id:'audit', label:'📜 Audit'},
+    {id:'admin', label:'👤 Admin'},
+    {id:'settings', label:'⚙️ Settings'},
+    {id:'smart-analytics', label:'🛡️ Smart Analytics'},
+  ];
+
+  window.loadTabOrder = function() {
+    var el = document.getElementById('tabOrderList');
+    if (!el) return;
+    var saved = localStorage.getItem('tab_order');
+    var order = saved ? JSON.parse(saved) : DEFAULT_TAB_ORDER.map(function(t) { return t.id; });
+    // Build a map from DEFAULT_TAB_ORDER for labels
+    var labelMap = {};
+    DEFAULT_TAB_ORDER.forEach(function(t) { labelMap[t.id] = t.label; });
+    var html = '';
+    order.forEach(function(tabId, idx) {
+      var label = labelMap[tabId] || tabId;
+      html += '<div draggable="true" data-tab-id="' + tabId + '" data-idx="' + idx + '"' +
+        ' style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.7rem;margin-bottom:0.3rem;' +
+        'background:var(--bg-surface);border:1px solid var(--border-default);border-radius:6px;cursor:grab;' +
+        'font-size:0.82rem;transition:border-color 0.15s;"' +
+        ' ondragstart="_tabDragStart(event)" ondragover="_tabDragOver(event)" ondrop="_tabDrop(event)"' +
+        ' ondragenter="this.style.borderColor=\'var(--accent-blue)\'" ondragleave="this.style.borderColor=\'var(--border-default)\'">' +
+        '<span style="color:var(--text-muted);font-size:0.7rem;min-width:20px;">⠿</span>' +
+        '<span style="flex:1;">' + label + '</span>' +
+        '<span style="font-size:0.7rem;color:var(--text-muted);">#' + (idx + 1) + '</span>' +
+        '</div>';
+    });
+    el.innerHTML = html;
+  };
+
+  var _dragTabId = null;
+  window._tabDragStart = function(e) {
+    _dragTabId = e.currentTarget.getAttribute('data-tab-id');
+    e.currentTarget.style.opacity = '0.4';
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  window._tabDragOver = function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+  window._tabDrop = function(e) {
+    e.preventDefault();
+    e.currentTarget.style.borderColor = 'var(--border-default)';
+    var targetId = e.currentTarget.getAttribute('data-tab-id');
+    if (_dragTabId === targetId) return;
+    var saved = localStorage.getItem('tab_order');
+    var order = saved ? JSON.parse(saved) : DEFAULT_TAB_ORDER.map(function(t) { return t.id; });
+    var fromIdx = order.indexOf(_dragTabId);
+    var toIdx = order.indexOf(targetId);
+    if (fromIdx === -1 || toIdx === -1) return;
+    order.splice(fromIdx, 1);
+    order.splice(toIdx, 0, _dragTabId);
+    localStorage.setItem('tab_order', JSON.stringify(order));
+    loadTabOrder();
+  };
+  // Reset opacity on drag end
+  document.addEventListener('dragend', function() {
+    document.querySelectorAll('[draggable]').forEach(function(el) { el.style.opacity = '1'; });
+  });
+
+  window.saveTabOrder = function() {
+    // Order is already saved in localStorage by drag-drop.
+    // Now apply it to the live tab bar.
+    applyTabOrder();
+    toastSuccess('Tab order saved! Reloading page to apply...');
+    setTimeout(function() { location.reload(); }, 1000);
+  };
+
+  window.resetTabOrder = function() {
+    localStorage.removeItem('tab_order');
+    loadTabOrder();
+    toastWarning('Tab order reset to default. Save and reload to apply.');
+  };
+
+  function applyTabOrder() {
+    var saved = localStorage.getItem('tab_order');
+    if (!saved) return;
+    var order = JSON.parse(saved);
+    var tabBar = document.querySelector('.tab-bar');
+    if (!tabBar) return;
+    order.forEach(function(tabId) {
+      var tab = tabBar.querySelector('.tab[data-tab="' + tabId + '"]');
+      if (tab) tabBar.appendChild(tab);
+    });
+  }
+  // Expose for main.js to call on load
+  window._applyTabOrder = applyTabOrder;
+
+  // Load tab order UI when admin panel loads
+  if (document.getElementById('tabOrderList')) loadTabOrder();
 })();

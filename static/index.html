@@ -39,6 +39,20 @@
     document.addEventListener('DOMContentLoaded', function() {
       var theme = document.documentElement.getAttribute('data-theme') || 'dark';
       document.getElementById('themeToggle').textContent = theme === 'dark' ? '🌙' : '☀️';
+      // Apply saved tab order
+      var savedOrder = localStorage.getItem('tab_order');
+      if (savedOrder) {
+        try {
+          var order = JSON.parse(savedOrder);
+          var tabBar = document.querySelector('.tab-bar');
+          if (tabBar) {
+            order.forEach(function(tabId) {
+              var tab = tabBar.querySelector('.tab[data-tab="' + tabId + '"]');
+              if (tab) tabBar.appendChild(tab);
+            });
+          }
+        } catch(e) {}
+      }
     });
     </script>
 </head>
