@@ -12,6 +12,7 @@
         let previewFiles = null;
         let previewFileName = null;
         let previewFileBytes = null;  // store raw bytes for re-upload
+        let pendingOverride = false;   // true if user confirmed overwrite of duplicate
         const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
         const ALLOWED_EXTS = ['.xlsx', '.xls', '.csv', '.xlsm', '.xlsb'];
 
@@ -67,16 +68,37 @@
                     return;
                 }
             }
+            // --- Duplicate check before preview ---
+            setStatus('loading', 'Checking for duplicates...');
+            var checkFd = new FormData();
+            checkFd.append('file', files[0]);
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', API() + '/upload/check-duplicate');
+            xhr.onload = function() {
+                var result;
+                try { result = JSON.parse(xhr.responseText); } catch(e) { result = null; }
+                if (result && result.is_duplicate) {
+                    showDuplicateModal(result, files);
+                } else {
+                    doPreviewUpload(files, false);
+                }
+            };
+            xhr.onerror = function() {
+                // Network error — proceed anyway with override=false
+                doPreviewUpload(files, false);
+            };
+            xhr.send(checkFd);
+        }
+
+        function doPreviewUpload(files, override) {
+            pendingOverride = !!override;
             updateStep(2);
             const fd = new FormData();
             fd.append('file', files[0]);
             previewFiles = files;
-            // Read file bytes into memory for reliable re-upload on Render
             const reader = new FileReader();
             reader.onload = function() { previewFileBytes = new Uint8Array(reader.result); };
             reader.readAsArrayBuffer(files[0]);
-
-            // Show upload progress bar
             const uploadProg = document.getElementById('uploadProgress');
             const uploadFill = document.getElementById('uploadProgressFill');
             const uploadTxt  = document.getElementById('uploadProgressText');
@@ -85,8 +107,6 @@
             uploadFill.style.background = '#3f51b5';
             uploadTxt.textContent = 'Uploading ' + files[0].name + '...';
             setStatus('loading', 'Uploading file: ' + files[0].name + '...');
-
-            // Use XHR instead of fetch to get upload progress events
             const xhr = new XMLHttpRequest();
             xhr.open('POST', API() + '/upload/preview');
             xhr.upload.onprogress = function(e) {
@@ -133,22 +153,49 @@
                 setStatus('err', 'Preview failed: Network error');
             };
             xhr.send(fd);
-                previewFilePath = data.file_path;
-                previewFileName = data.filename;
-                const hospitals = data.hospitals || [];
-                const months = data.months || [];
-                const sampleRows = data.sample_rows || [];
-                const totalRows = data.total_rows || sampleRows.length;
-                const area = document.getElementById('previewArea');
-                area.style.display = 'block';
-                document.getElementById('previewInfo').textContent = totalRows + ' rows | ' + hospitals.length + ' hospitals | ' + months.length + ' months';
-                // Build table
-                const cols = [__('Hospital'), 'Month', __('Indicator'), __('Value')];
-                let thead = '<tr>' + cols.map(c => '<th>' + c + '</th>').join('') + '</tr>';
-                let tbody = sampleRows.map(r => '<tr><td>' + esc(r.hospital) + '</td><td>' + esc(r.month) + '</td><td>' + esc(r.indicator) + '</td><td>' + (r.value !== null ? r.value : '<span style="color:red;">MISSING</span>') + '</td></tr>').join('');
-                document.querySelector('#previewTable thead').innerHTML = thead;
-                document.querySelector('#previewTable tbody').innerHTML = tbody;
+        }
 
+        function showDuplicateModal(result, files) {
+            // Create a styled duplicate confirmation modal
+            var existing = document.getElementById('duplicateModal');
+            if (existing) existing.remove();
+            var months = (result.existing_months || []).join(', ');
+            var hospitals = (result.existing_hospitals || []).join(', ');
+            var overlay = document.createElement('div');
+            overlay.id = 'duplicateModal';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;';
+            overlay.innerHTML = '<div style="background:var(--bg-surface);border:1px solid var(--border-default);border-radius:12px;padding:1.5rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">' +
+                '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:1rem;">' +
+                    '<span style="font-size:1.5rem;">⚠️</span>' +
+                    '<h3 style="margin:0;font-size:1.1rem;color:var(--text-primary);">Duplicate File Detected</h3>' +
+                '</div>' +
+                '<p style="font-size:0.9rem;color:var(--text-secondary);margin-bottom:0.8rem;">' +
+                    'File <strong>' + esc(result.existing_file) + '</strong> was already uploaded with <strong>' + result.existing_records + '</strong> records.' +
+                '</p>' +
+                '<div style="background:var(--bg-surface-hover);border-radius:6px;padding:0.7rem;margin-bottom:1rem;font-size:0.8rem;">' +
+                    '<div>📅 Months: ' + esc(months) + '</div>' +
+                    '<div>🏥 Hospitals: ' + esc(hospitals) + (result.existing_hospitals.length >= 10 ? ' (+more)' : '') + '</div>' +
+                '</div>' +
+                '<p style="font-size:0.85rem;color:var(--text-secondary);margin-bottom:1rem;">' +
+                    'Uploading again will <strong>replace all existing data</strong> from this file. Are you sure?' +
+                '</p>' +
+                '<div style="display:flex;gap:0.5rem;justify-content:flex-end;">' +
+                    '<button id="dupCancel" class="btn btn-outline" style="padding:0.5rem 1rem;">Cancel</button>' +
+                    '<button id="dupOverride" class="btn" style="padding:0.5rem 1rem;background:var(--accent-orange);color:white;">Override & Continue</button>' +
+                '</div>' +
+            '</div>';
+            document.body.appendChild(overlay);
+            document.getElementById('dupCancel').addEventListener('click', function() {
+                overlay.remove();
+                cancelPreview();
+            });
+            document.getElementById('dupOverride').addEventListener('click', function() {
+                overlay.remove();
+                doPreviewUpload(files, true);
+            });
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) { overlay.remove(); cancelPreview(); }
+            });
         }
 
         export function confirmImport() {
@@ -171,7 +218,9 @@
                 } else if (previewFiles && previewFiles[0]) {
                     _pfd.append('file', previewFiles[0]);
                 }
-                authFetch(API() + '/analysis/process-preview?filename=' + encodeURIComponent(previewFileName), { method: 'POST', body: _pfd })
+                var procUrl = API() + '/analysis/process-preview?filename=' + encodeURIComponent(previewFileName);
+                if (pendingOverride) procUrl += '&override=true';
+                authFetch(procUrl, { method: 'POST', body: _pfd })
                 .then(r => { if (!r.ok) return r.text().then(t => { throw new Error(t); }); return r.json(); })
                 .then(resp => {
                 // Server returns {task_id, status} — poll until done
@@ -240,7 +289,7 @@
             previewFiles = null;
             previewFileName = null;
             previewFileBytes = null;
-            previewFileBytes = null;
+            pendingOverride = false;
             fileInput.value = '';
         }
 

@@ -323,7 +323,9 @@ async def upload_multiple_and_analyze(
 @router.post("/process-preview")
 def process_preview_file(
     filename: str = Query(...),
+    override: bool = Query(False, description="Allow overwriting existing data"),
     file: UploadFile = File(None),
+    db: Session = Depends(get_db),
 ):
     """Start processing in background — returns task_id immediately.
 
@@ -344,6 +346,17 @@ def process_preview_file(
             shutil.copyfileobj(file.file, fobj)
     elif not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail=f"File not found: {filename}. Please re-upload the file.")
+
+    # If override, delete existing records for this file before reprocessing
+    if override:
+        try:
+            from app.models import IndicatorValue
+            deleted = db.query(IndicatorValue).filter(IndicatorValue.source_file == filename).delete()
+            db.commit()
+            logger.info(f"Override: deleted {deleted} existing records for {filename}")
+        except Exception as e:
+            logger.warning(f"Override delete failed for {filename}: {e}")
+            db.rollback()
 
     task_id = create_task(f"process-preview:{filename}")
     t = threading.Thread(target=run_task, args=(task_id, _process_preview_worker, file_path), daemon=True)
