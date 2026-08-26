@@ -187,7 +187,15 @@ window._adminAssignHospitals = function(id, btn) {
             <h3 style="color:var(--accent-purple);margin:0;">🛡️ Role UI Visibility Matrix</h3>
             <button class="btn btn-sm btn-outline" onclick="loadVisibilityMatrix()" style="font-size:0.72rem;">↻ Refresh</button>
           </div>
-          <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.8rem;">Shows which tabs each role can see. Green = visible, Red = hidden.</p>
+          <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.5rem;">Shows which tabs each role can see. Green = visible, Red = hidden. Click a role to simulate.</p>
+          <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;">
+            <span style="font-size:0.78rem;color:var(--text-secondary);line-height:2;">Filter:</span>
+            <button class="btn btn-sm vis-filter active" data-filter="all" onclick="filterVisMatrix('all',this)" style="font-size:0.72rem;">All Roles</button>
+            <button class="btn btn-sm btn-outline vis-filter" data-filter="full" onclick="filterVisMatrix('full',this)" style="font-size:0.72rem;">✅ Full Access</button>
+            <button class="btn btn-sm btn-outline vis-filter" data-filter="partial" onclick="filterVisMatrix('partial',this)" style="font-size:0.72rem;">🟡 Partial</button>
+            <button class="btn btn-sm btn-outline vis-filter" data-filter="none" onclick="filterVisMatrix('none',this)" style="font-size:0.72rem;">❌ No Access</button>
+            <button class="btn btn-sm btn-outline vis-filter" data-filter="superadmin" onclick="filterVisMatrix('superadmin',this)" style="font-size:0.72rem;">★ Superadmin</button>
+          </div>
           <div id="visMatrixBody" style="overflow-x:auto;"><div style="text-align:center;padding:1rem;color:var(--text-muted);">Loading...</div></div>
         </div>
 
@@ -385,50 +393,95 @@ window._adminAssignHospitals = function(id, btn) {
         el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--accent-red);">Failed to load matrix</div>';
         return;
       }
-      var tabs = data.tabs || {};
-      var roles = data.roles || [];
-      var tabIds = Object.keys(tabs);
-      if (tabIds.length === 0 || roles.length === 0) {
-        el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text-muted);">No data</div>';
-        return;
-      }
-      var html = '<table style="width:100%;border-collapse:collapse;font-size:0.78rem;">';
-      // Header row
-      html += '<thead><tr style="border-bottom:2px solid var(--border-default);">';
-      html += '<th style="padding:0.4rem 0.6rem;text-align:left;position:sticky;left:0;background:var(--bg-elevated);z-index:1;min-width:140px;">Role</th>';
-      tabIds.forEach(function(tid) {
-        html += '<th style="padding:0.4rem;text-align:center;min-width:80px;white-space:nowrap;" title="' + esc(tabs[tid].permission) + '">' + esc(tabs[tid].label.split(' ').slice(1).join(' ')) + '</th>';
-      });
-      html += '<th style="padding:0.4rem;text-align:center;min-width:50px;">Count</th>';
-      html += '</tr></thead><tbody>';
-      // Role rows
-      roles.forEach(function(r) {
-        var visibleCount = 0;
-        var isSuper = r.is_superuser;
-        tabIds.forEach(function(tid) { if (r.tab_access[tid]) visibleCount++; });
-        var rowBg = isSuper ? 'background:rgba(106,27,154,0.05);' : '';
-        html += '<tr data-role-id="' + r.id + '" style="border-bottom:1px solid var(--border-default);' + rowBg + 'cursor:pointer;" onclick="simulateRole(' + r.id + ')">';
-        html += '<td style="padding:0.4rem 0.6rem;font-weight:600;position:sticky;left:0;background:var(--bg-elevated);z-index:1;">';
-        html += esc(r.name);
-        if (r.is_system) html += ' <span style="font-size:0.65rem;color:var(--text-muted);">(system)</span>';
-        if (isSuper) html += ' <span style="font-size:0.65rem;color:var(--accent-purple);">★</span>';
-        html += ' <span style="font-size:0.65rem;color:var(--accent-blue);">▸ simulate</span>';
-        html += '</td>';
-        tabIds.forEach(function(tid) {
-          var has = r.tab_access[tid];
-          var cellStyle = has
-            ? 'color:var(--accent-green);background:rgba(46,125,50,0.08);'
-            : 'color:var(--accent-red);background:rgba(244,67,54,0.06);';
-          html += '<td style="padding:0.4rem;text-align:center;' + cellStyle + 'font-weight:600;">' + (has ? '✅' : '❌') + '</td>';
-        });
-        html += '<td style="padding:0.4rem;text-align:center;font-weight:600;color:' + (visibleCount === tabIds.length ? '#2e7d32' : visibleCount === 0 ? 'var(--accent-red)' : 'var(--text-primary)') + ';">' + visibleCount + '/' + tabIds.length + '</td>';
-        html += '</tr>';
-      });
-      html += '</tbody></table>';
-      el.innerHTML = html;
+      window._visMatrixData = data;
+      _renderVisMatrix(data, 'all');
     } catch(e) {
       el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--accent-red);">Error: ' + esc(e.message) + '</div>';
     }
+  };
+
+  function _renderVisMatrix(data, filter) {
+    var el = document.getElementById('visMatrixBody');
+    if (!el) return;
+    var tabs = data.tabs || {};
+    var roles = data.roles || [];
+    var tabIds = Object.keys(tabs);
+    if (tabIds.length === 0 || roles.length === 0) {
+      el.innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text-muted);">No data</div>';
+      return;
+    }
+    // Filter roles
+    var filtered = roles.filter(function(r) {
+      var count = 0;
+      tabIds.forEach(function(tid) { if (r.tab_access[tid]) count++; });
+      r._visibleCount = count;
+      r._isFull = count === tabIds.length;
+      r._isNone = count === 0;
+      r._isPartial = count > 0 && count < tabIds.length;
+      if (filter === 'all') return true;
+      if (filter === 'full') return r._isFull;
+      if (filter === 'partial') return r._isPartial;
+      if (filter === 'none') return r._isNone;
+      if (filter === 'superadmin') return r.is_superuser;
+      return true;
+    });
+    // Update filter button active states
+    document.querySelectorAll('.vis-filter').forEach(function(btn) {
+      if (btn.getAttribute('data-filter') === filter) {
+        btn.className = 'btn btn-sm vis-filter active';
+        btn.style.background = 'var(--accent-blue)';
+        btn.style.color = 'white';
+      } else {
+        btn.className = 'btn btn-sm btn-outline vis-filter';
+        btn.style.background = '';
+        btn.style.color = '';
+      }
+    });
+    var html = '';
+    if (filtered.length === 0) {
+      html = '<div style="text-align:center;padding:1rem;color:var(--text-muted);">No roles match this filter</div>';
+      el.innerHTML = html;
+      return;
+    }
+    html += '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.4rem;">Showing ' + filtered.length + ' of ' + roles.length + ' roles</div>';
+    html += '<table style="width:100%;border-collapse:collapse;font-size:0.78rem;">';
+    // Header row
+    html += '<thead><tr style="border-bottom:2px solid var(--border-default);">';
+    html += '<th style="padding:0.4rem 0.6rem;text-align:left;position:sticky;left:0;background:var(--bg-elevated);z-index:1;min-width:140px;">Role</th>';
+    tabIds.forEach(function(tid) {
+      html += '<th style="padding:0.4rem;text-align:center;min-width:80px;white-space:nowrap;" title="' + esc(tabs[tid].permission) + '">' + esc(tabs[tid].label.split(' ').slice(1).join(' ')) + '</th>';
+    });
+    html += '<th style="padding:0.4rem;text-align:center;min-width:50px;">Count</th>';
+    html += '</tr></thead><tbody>';
+    // Role rows
+    filtered.forEach(function(r) {
+      var visibleCount = r._visibleCount;
+      var isSuper = r.is_superuser;
+      var rowBg = isSuper ? 'background:rgba(106,27,154,0.05);' : '';
+      html += '<tr data-role-id="' + r.id + '" style="border-bottom:1px solid var(--border-default);' + rowBg + 'cursor:pointer;" onclick="simulateRole(' + r.id + ')">';
+      html += '<td style="padding:0.4rem 0.6rem;font-weight:600;position:sticky;left:0;background:var(--bg-elevated);z-index:1;">';
+      html += esc(r.name);
+      if (r.is_system) html += ' <span style="font-size:0.65rem;color:var(--text-muted);">(system)</span>';
+      if (isSuper) html += ' <span style="font-size:0.65rem;color:var(--accent-purple);">★</span>';
+      html += ' <span style="font-size:0.65rem;color:var(--accent-blue);">▸ simulate</span>';
+      html += '</td>';
+      tabIds.forEach(function(tid) {
+        var has = r.tab_access[tid];
+        var cellStyle = has
+          ? 'color:var(--accent-green);background:rgba(46,125,50,0.08);'
+          : 'color:var(--accent-red);background:rgba(244,67,54,0.06);';
+        html += '<td style="padding:0.4rem;text-align:center;' + cellStyle + 'font-weight:600;">' + (has ? '✅' : '❌') + '</td>';
+      });
+      html += '<td style="padding:0.4rem;text-align:center;font-weight:600;color:' + (visibleCount === tabIds.length ? '#2e7d32' : visibleCount === 0 ? 'var(--accent-red)' : 'var(--text-primary)') + ';">' + visibleCount + '/' + tabIds.length + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    el.innerHTML = html;
+  }
+
+  window.filterVisMatrix = function(filter, btn) {
+    if (!window._visMatrixData) return;
+    _renderVisMatrix(window._visMatrixData, filter);
   };
   
   // Simulate a role -- show exactly which tabs it would see
