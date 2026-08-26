@@ -838,7 +838,7 @@ function loadHospitalsSettings() {
                         ? (k.higher_is_better ? (pct >= 1 ? 'var(--accent-green)' : pct >= 0.75 ? 'var(--accent-orange)' : 'var(--accent-red)') : (pct <= 1 ? 'var(--accent-green)' : 'var(--accent-red)'))
                         : '#555';
                     const barPct = Math.min(pct * 100, 100);
-                    return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';">' +
+                    return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';cursor:pointer;" onclick="window.openKPIDrilldown(\'' + k.id + '\')">' +
                         '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
                         '<span style="font-size:0.75rem;color:var(--text-secondary);font-weight:500;">' + k.label + '</span>' +
                         '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? ' <span style="font-size:0.7rem;">' + k.unit + '</span>' : '') + '</span></div>' +
@@ -847,6 +847,120 @@ function loadHospitalsSettings() {
                 }).join('');
             }).catch(() => {});
         }
+
+        let _kpiDrilldownChart = null;
+        window.openKPIDrilldown = function(metric) {
+            const modal = document.getElementById('detailModal');
+            const titleEl = document.getElementById('modalTitle');
+            const bodyEl = document.getElementById('modalBody');
+            if (!modal || !titleEl || !bodyEl) return;
+
+            const metricLabels = {
+                quality_score: __('Quality Score'),
+                rule_compliance: __('Rule Compliance'),
+                completeness: __('Completeness'),
+                consistency: __('Consistency'),
+                conf_high: __('High Confidence'),
+                report_coverage: __('Report Coverage'),
+            };
+            const label = metricLabels[metric] || metric;
+
+            titleEl.textContent = label + ' — ' + __('Drilldown');
+            bodyEl.innerHTML =
+                '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:3rem 1rem;gap:0.9rem;">' +
+                '<span class="spinner spinner-lg"></span>' +
+                '<span style="color:var(--text-muted);font-size:0.85rem;">' + __('Loading details...') + '</span>' +
+                '</div>';
+            modal.classList.add('show');
+
+            const hid = document.getElementById('dashHospital').value;
+            const yr = document.getElementById('dashYear').value;
+            let kpiUrl = '/dashboard/kpi?';
+            if (hid) kpiUrl += 'hospital_id=' + hid + '&';
+            if (yr) kpiUrl += 'year=' + yr;
+
+            let overviewUrl = '/dashboard/overview?';
+            if (hid) overviewUrl += 'hospital_id=' + hid + '&';
+            if (yr) overviewUrl += 'year=' + yr;
+
+            Promise.all([apiGet(kpiUrl), apiGet(overviewUrl)]).then(([kpiData, overviewData]) => {
+                const kpi = (kpiData.kpis || []).find(function(k) { return k.id === metric; });
+                const trend = overviewData.quality_trend || [];
+                const radar = overviewData.radar_components || {};
+
+                let html = '';
+
+                if (kpi) {
+                    html += '<div class="scorecard-kpi-bar">' +
+                        '<div class="scorecard-kpi-item" style="border-top-color:var(--accent-blue);background:#f0f8ff;">' +
+                        '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">' + label + '</div>' +
+                        '<div style="font-size:1.5rem;font-weight:700;color:var(--accent-blue);">' + kpi.value + (kpi.unit ? ' ' + kpi.unit : '') + '</div></div>';
+                    if (kpi.target != null) {
+                        html += '<div class="scorecard-kpi-item">' +
+                            '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Target</div>' +
+                            '<div style="font-size:1.1rem;font-weight:600;">' + kpi.target + (kpi.unit ? ' ' + kpi.unit : '') + '</div></div>';
+                    }
+                    html += '</div>';
+                }
+
+                if (trend.length) {
+                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Quality Trend') + '</h3><canvas id="kpiDrilldownChart" style="height:200px;"></canvas></div>';
+                }
+
+                const componentKeys = Object.keys(radar);
+                if (componentKeys.length) {
+                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Component Breakdown') + '</h3>';
+                    html += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">';
+                    html += '<thead><tr><th style="text-align:left;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);">' + __('Component') + '</th>';
+                    html += '<th style="text-align:right;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);">' + __('Score') + '</th>';
+                    html += '<th style="text-align:left;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);width:40%;"></th></tr></thead><tbody>';
+                    componentKeys.forEach(function(key) {
+                        const val = radar[key];
+                        const col = val >= 80 ? 'var(--accent-green)' : val >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                        html += '<tr>' +
+                            '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);font-weight:500;">' + esc(key) + '</td>' +
+                            '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);text-align:right;font-weight:700;color:' + col + ';">' + val + '%</td>' +
+                            '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);"><div style="height:6px;background:var(--border-default);border-radius:3px;"><div style="width:' + val + '%;height:6px;background:' + col + ';border-radius:3px;"></div></div></td>' +
+                            '</tr>';
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                bodyEl.innerHTML = html || '<p style="color:var(--text-muted);padding:1rem;">' + __('No details available.') + '</p>';
+
+                if (trend.length) {
+                    const trendCtx = document.getElementById('kpiDrilldownChart');
+                    if (trendCtx) {
+                        if (_kpiDrilldownChart) { _kpiDrilldownChart.destroy(); _kpiDrilldownChart = null; }
+                        _kpiDrilldownChart = new Chart(trendCtx, {
+                            type: 'line',
+                            data: {
+                                labels: trend.map(function(d) { return d.month; }),
+                                datasets: [{
+                                    label: label,
+                                    data: trend.map(function(d) { return d.score; }),
+                                    borderColor: '#3f51b5',
+                                    backgroundColor: 'rgba(63,81,181,0.1)',
+                                    fill: true,
+                                    tension: 0.3,
+                                    pointRadius: 4,
+                                }]
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                resizeDelay: 200,
+                                plugins: { legend: { display: false } },
+                                scales: { y: { min: 0, max: 100, ticks: { callback: function(v) { return v + '%'; } } } }
+                            }
+                        });
+                        if (window.registerChart) window.registerChart(_kpiDrilldownChart);
+                    }
+                }
+            }).catch(function() {
+                bodyEl.innerHTML = '<p style="color:var(--accent-red);padding:1.5rem;">' + __('Failed to load details.') + '</p>';
+            });
+        };
 
         function renderSparkline(canvasId, dataPoints, color) {
             const canvas = document.getElementById(canvasId);
