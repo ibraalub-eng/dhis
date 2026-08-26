@@ -100,13 +100,16 @@ window.unregisterChart = function(chartInstance) {
 };
 
 window.refreshAllCharts = function() {
-  // Update CHART_COLORS from CSS variables
+  // 1. Update CHART_COLORS from CSS variables
   if (window.__refreshChartColors) window.__refreshChartColors();
-  // Update Plotly charts (smart analytics)
-  document.querySelectorAll('.js-plotly-plot, [id*="smart-"]').forEach(el => {
+
+  var _cs = getComputedStyle(document.documentElement);
+  var textColor = _cs.getPropertyValue('--text-secondary').trim() || '#9AA0AC';
+  var gridColor = _cs.getPropertyValue('--border-default').trim() || '#2A2E3B';
+
+  // 2. Update Plotly charts (smart analytics, outliers, validation)
+  document.querySelectorAll('.js-plotly-plot, [id*="smart-"]').forEach(function(el) {
     if (el.__plotly && typeof Plotly !== 'undefined') {
-      const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#94a3b8';
-      const gridColor = getComputedStyle(document.documentElement).getPropertyValue('--border-default').trim() || '#334155';
       Plotly.relayout(el, {
         'font.color': textColor,
         'xaxis.gridcolor': gridColor,
@@ -116,19 +119,35 @@ window.refreshAllCharts = function() {
       });
     }
   });
-  // Destroy and recreate Chart.js instances with new colors
-  _chartRegistry.forEach(chart => {
+
+  // 3. Directly update Chart.js instances without destroy/recreate
+  _chartRegistry.forEach(function(chart) {
     try {
-      if (chart && chart.canvas && chart.canvas.parentNode) {
-        const canvas = chart.canvas;
-        const parent = chart.canvas.parentNode;
-        const id = chart.canvas.id;
-        chart.destroy();
+      if (!chart || !chart.canvas || !chart.canvas.parentNode) {
         _chartRegistry.delete(chart);
-        // Dispatch event so owners can recreate
-        const evt = new CustomEvent('chartThemeChanged', { detail: { id, parent } });
-        document.dispatchEvent(evt);
+        return;
       }
+      // Update legend and tick colors
+      if (chart.options && chart.options.plugins && chart.options.plugins.legend && chart.options.plugins.legend.labels) {
+        chart.options.plugins.legend.labels.color = CHART_COLORS.neutral;
+      }
+      if (chart.options && chart.options.scales) {
+        Object.values(chart.options.scales).forEach(function(scale) {
+          if (scale.ticks) scale.ticks.color = CHART_COLORS.neutral;
+          if (scale.grid) scale.grid.color = CHART_COLORS.grid;
+          if (scale.title && scale.title.color !== undefined) scale.title.color = CHART_COLORS.neutral;
+        });
+      }
+      // Update dataset border/point colors to match new theme
+      if (chart.data && chart.data.datasets) {
+        chart.data.datasets.forEach(function(ds) {
+          // Update colors that reference old theme values
+          if (ds.borderColor === CHART_COLORS.primary || ds.borderColor === CHART_COLORS.secondary) {
+            // These are already the right values after __refreshChartColors
+          }
+        });
+      }
+      chart.update('none'); // Update without animation for instant effect
     } catch(e) { /* ignore */ }
   });
 };

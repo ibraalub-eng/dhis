@@ -63,7 +63,11 @@
                 .slice(0, 8);
             const names = sorted.map(([f]) => (window.SMART_ARABIC && window.SMART_ARABIC[f]) || f);
             const vals = sorted.map(([, v]) => v);
-            const colors = vals.map(v => v >= 0 ? 'var(--accent-teal)' : 'var(--accent-red)');
+            var _cs = getComputedStyle(document.documentElement);
+            var _teal = _cs.getPropertyValue('--accent-teal').trim() || '#2DD4BF';
+            var _red = _cs.getPropertyValue('--accent-red').trim() || '#F87171';
+            var _txtColor = _cs.getPropertyValue('--text-primary').trim() || '#E8EAED';
+            const colors = vals.map(v => v >= 0 ? _teal : _red);
             const trace = {
                 type: 'bar',
                 orientation: 'h',
@@ -77,7 +81,7 @@
                 width: 350,
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { color: 'var(--text-primary)' },
+                font: { color: _txtColor },
                 xaxis: { gridcolor: 'rgba(128,128,128,0.2)' },
                 yaxis: { automargin: true },
                 showlegend: false,

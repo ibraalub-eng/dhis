@@ -2,7 +2,8 @@
         import { __ } from './i18n.js';
         import { _restoreUIState, _saveUIState } from './main.js';
         import { esc } from './tree.js';
-import { toastWarning } from './toast.js';
+        import { toastWarning } from './toast.js';
+        import { makeSortable } from './table-utils.js';
 
         // ── Merged Comparative Analysis (Trends + Comparison) ────
         export function switchAnalysisMode(mode) {
@@ -216,15 +217,17 @@ import { toastWarning } from './toast.js';
                 });
             }
 
+            var _tColor = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#9AA0AC';
+            var _gColor = getComputedStyle(document.documentElement).getPropertyValue('--border-default').trim() || '#2A2E3B';
             Plotly.newPlot(el, traces, {
                 margin: { t: 20, b: 45, l: 45, r: 15 },
-                xaxis: { title: 'الشهر', tickangle: -35, gridcolor: '#f0f0f0' },
+                xaxis: { title: 'الشهر', tickangle: -35, gridcolor: _gColor },
                 yaxis: { title: 'الدرجة (0-100)', range: [0, 100], gridcolor: 'rgba(128,128,128,0.2)', zeroline: false },
                 hovermode: 'x unified',
                 legend: { orientation: 'h', y: 1.08, x: 0 },
                 paper_bgcolor: 'rgba(0,0,0,0)',
                 plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { family: 'Segoe UI, Tahoma, Arial, sans-serif', size: 12 },
+                font: { family: 'Segoe UI, Tahoma, Arial, sans-serif', size: 12, color: _tColor },
             }, { displayModeBar: true, responsive: true });
         }
 
@@ -262,6 +265,7 @@ import { toastWarning } from './toast.js';
                 const findings = t.findings.length ? t.findings.slice(0,2).join('; ') : '-';
                 tbody.innerHTML += '<tr><td>' + t.rate_name + '<br>' + sparkline + '</td><td>' + dirBadge + '</td><td>' + sevBadge + '</td><td>' + (t.slope_pct >= 0 ? '+' : '') + t.slope_pct.toFixed(1) + '%</td><td>' + t.cv.toFixed(1) + '%</td><td>' + (t.last_vs_mean_pct_change >= 0 ? '+' : '') + t.last_vs_mean_pct_change.toFixed(1) + '%</td><td>' + t.consecutive_count + ' ' + t.consecutive_direction + '</td><td style="font-size:0.8rem;max-width:200px;">' + findings + '</td></tr>';
             });
+            makeSortable('trendTable', { numericColumns: [3, 4, 5, 6] });
         }
 
         function renderSparkline(values) {
@@ -448,6 +452,7 @@ import { toastWarning } from './toast.js';
                 const labelClass = c.comparison_label.includes('critically') ? 'badge-critical' : c.comparison_label.includes('significantly') ? 'badge-high' : c.comparison_label.includes('above') ? 'badge-medium' : c.comparison_label.includes('below') ? 'badge-low' : 'badge-pass';
                 tbody.innerHTML += '<tr><td>' + c.hospital + '</td><td>' + c.rate_name + '</td><td>' + c.value.toFixed(2) + '</td><td>' + c.benchmark.toFixed(2) + '</td><td>' + (c.deviation_pct >= 0 ? '+' : '') + c.deviation_pct.toFixed(1) + '%</td><td>' + c.percentile_rank.toFixed(0) + '</td><td><span class="badge ' + labelClass + '">' + c.comparison_label + '</span></td></tr>';
             });
+            makeSortable('compareTable', { numericColumns: [2, 3, 4, 5] });
         }
 
         // Clinical Intelligence
