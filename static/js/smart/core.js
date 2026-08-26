@@ -36,19 +36,7 @@ export function _t(text) {
   return smartArabic[text] || text;
 }
 
-export async function apiSmartGet(path) {
-  const base = '';
-  const headers = {};
-  const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
-  if (token) headers['Authorization'] = 'Bearer ' + token;
-  const res = await fetch(base + path, { headers });
-  if (!res.ok) {
-    let detail = '';
-    try { detail = (await res.json()).detail || ''; } catch (e) { /* ignore */ }
-    throw new Error(detail || ('HTTP ' + res.status));
-  }
-  return res.json();
-}
+export { apiGet as apiSmartGet } from '../api.js';
 
 export function smartShowLoading() {
   const el = document.getElementById('smart-loading-overlay');
