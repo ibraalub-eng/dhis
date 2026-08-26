@@ -30,26 +30,12 @@ export function trendIcon(direction) {
   return '<span class="tb-trend tb-stable">●</span>';
 }
 
-// ── Severity Pill ────────────────────────────────────────
-export function severityPill(severity) {
-  const s = (severity || '').toUpperCase();
-  const cls = s === 'CRITICAL' ? 'tb-sev-crit' : s === 'HIGH' ? 'tb-sev-high' : s === 'MEDIUM' ? 'tb-sev-med' : 'tb-sev-low';
-  return `<span class="tb-pill ${cls}">${s || 'N/A'}</span>`;
-}
-
 // ── Confidence Bar ───────────────────────────────────────
 export function confidenceBar(value) {
   if (value == null) return '<span class="tb-badge tb-na">N/A</span>';
   const v = Math.min(100, Math.max(0, parseFloat(value)));
   const color = v >= 80 ? 'var(--accent-green)' : v >= 60 ? 'var(--accent-blue)' : v >= 40 ? 'var(--accent-orange)' : 'var(--accent-red)';
   return `<div class="tb-conf-bar"><div class="tb-conf-fill" style="width:${v}%;background:${color};"></div><span class="tb-conf-val">${v.toFixed(1)}</span></div>`;
-}
-
-// ── Active/Inactive Pill ─────────────────────────────────
-export function activePill(isActive) {
-  return isActive
-    ? '<span class="tb-pill tb-active">Active</span>'
-    : '<span class="tb-pill tb-inactive">Inactive</span>';
 }
 
 // ── DataTable Class ──────────────────────────────────────
