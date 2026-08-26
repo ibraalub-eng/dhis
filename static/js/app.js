@@ -250,6 +250,9 @@ window.addEventListener('unhandledrejection', function(e) {
 
     showLoader('Authenticating...');
 
+    // Safety: always hide loader after 5s even if checkAuth hangs
+    var _loaderTimeout = setTimeout(function() { hideLoader(); }, 5000);
+
     let authenticated = false;
     if (typeof checkAuth === 'function') {
         authenticated = await checkAuth();
@@ -257,6 +260,7 @@ window.addEventListener('unhandledrejection', function(e) {
         authenticated = true;
     }
 
+    clearTimeout(_loaderTimeout);
     hideLoader();
 
     if (!authenticated) return;
