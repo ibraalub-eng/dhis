@@ -1,3 +1,17 @@
+                    <div class="filter-bar" id="alertFilterBar" style="display:none;gap:0.75rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap;">
+                        <select id="alert-severity-filter" class="form-select" onchange="window.filterAlerts()" style="font-size:0.78rem;padding:0.3rem 0.5rem;">
+                            <option value="all" data-i18n="all_severities">جميع المستويات</option>
+                            <option value="CRITICAL" data-i18n="critical">حرج</option>
+                            <option value="HIGH" data-i18n="high">عالي</option>
+                            <option value="MEDIUM" data-i18n="medium">متوسط</option>
+                            <option value="LOW" data-i18n="low">منخفض</option>
+                        </select>
+                        <select id="alert-hospital-filter" class="form-select" onchange="window.filterAlerts()" style="font-size:0.78rem;padding:0.3rem 0.5rem;">
+                            <option value="all" data-i18n="all_hospitals">جميع المستشفيات</option>
+                        </select>
+                        <input type="text" id="alert-search" class="form-input" placeholder="بحث..." data-i18n-placeholder="search" oninput="window.filterAlerts()" style="max-width:200px;font-size:0.78rem;padding:0.3rem 0.5rem;">
+                    </div>
+
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
                         <div>
                             <h2 style="margin:0;">Smart Alert Dashboard</h2>

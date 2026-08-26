@@ -10,8 +10,12 @@
                     return r.json();
                 })
                 .then(data => {
+                    window._alertData = data;
                     renderAlertOverview(data);
                     updateAlertBadge(data);
+                    populateAlertHospitalFilter(data);
+                    var fb = document.getElementById('alertFilterBar');
+                    if (fb) fb.style.display = 'flex';
                 })
                 .catch(err => {
                     const bar = document.getElementById('alertSummaryBar');
@@ -19,6 +23,51 @@
                         '<span style="color:red;">Failed: ' + err.message + '</span>';
                 });
         }
+
+        function populateAlertHospitalFilter(data) {
+            var sel = document.getElementById('alert-hospital-filter');
+            if (!sel) return;
+            var hospitals = [];
+            var topH = data.top_hospitals || [];
+            topH.forEach(function(h) { if (h.hospital && hospitals.indexOf(h.hospital) === -1) hospitals.push(h.hospital); });
+            var crit = data.recent_critical || [];
+            crit.forEach(function(r) { if (r.hospital && hospitals.indexOf(r.hospital) === -1) hospitals.push(r.hospital); });
+            hospitals.sort();
+            sel.innerHTML = '<option value="all">جميع المستشفيات</option>';
+            hospitals.forEach(function(name) {
+                var opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                sel.appendChild(opt);
+            });
+        }
+        window.populateAlertHospitalFilter = populateAlertHospitalFilter;
+
+        window.filterAlerts = function() {
+            var data = window._alertData;
+            if (!data) return;
+            var sev = (document.getElementById('alert-severity-filter') || {}).value || 'all';
+            var hosp = (document.getElementById('alert-hospital-filter') || {}).value || 'all';
+            var q = ((document.getElementById('alert-search') || {}).value || '').toLowerCase().trim();
+
+            var filtered = Object.assign({}, data);
+
+            if (sev !== 'all' || hosp !== 'all' || q) {
+                var crit = data.recent_critical || [];
+                var filteredCrit = crit.filter(function(r) {
+                    if (sev !== 'all' && r.severity && r.severity.toUpperCase() !== sev.toUpperCase()) return false;
+                    if (hosp !== 'all' && r.hospital !== hosp) return false;
+                    if (q) {
+                        var text = ((r.rule_code || '') + ' ' + (r.rule_description || '') + ' ' + (r.hospital || '')).toLowerCase();
+                        if (text.indexOf(q) === -1) return false;
+                    }
+                    return true;
+                });
+                filtered = Object.assign({}, data, { recent_critical: filteredCrit });
+            }
+
+            renderAlertOverview(filtered);
+        };
 
         export function updateAlertBadge(data) {
             const badge = document.getElementById('alertBadge');
