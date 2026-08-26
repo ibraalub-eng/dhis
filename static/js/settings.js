@@ -621,10 +621,10 @@ function loadHospitalsSettings() {
                             const confColor = c.confidence >= 0.7 ? 'var(--accent-teal)' : c.confidence >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
                             const prio = (c.implementation_priority || '').toUpperCase();
                             const prioColor = prio === 'CRITICAL' ? 'var(--accent-red)' : prio === 'HIGH' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
-                            return '<div style="padding:0.6rem;border:1px solid #99f6e4;border-radius:8px;margin-bottom:0.5rem;background:linear-gradient(135deg,#f0fdfa,#f8fafc);">' +
+                            return '<div style="padding:0.6rem;border:1px solid var(--accent-teal);border-radius:8px;margin-bottom:0.5rem;background:var(--bg-elevated);">' +
                                 '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">' +
-                                    '<span style="font-weight:700;font-size:0.82rem;color:#134e4a;">' + esc(c.root_cause_arabic || c.root_cause) + '</span>' +
-                                    '<span style="font-size:0.65rem;background:' + prioColor + ';color:#fff;padding:1px 8px;border-radius:10px;white-space:nowrap;font-weight:600;">' + esc(prio) + '</span>' +
+                                    '<span style="font-weight:700;font-size:0.82rem;color:var(--accent-teal);">' + esc(c.root_cause_arabic || c.root_cause) + '</span>' +
+                                    '<span style="font-size:0.65rem;background:' + prioColor + ';padding:1px 8px;border-radius:10px;white-space:nowrap;font-weight:600;">' + esc(prio) + '</span>' +
                                 '</div>' +
                                 (c.chain_path && c.chain_path.length > 1
                                     ? '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.2rem;margin:0.35rem 0;direction:rtl;" title="سلسلة السبب والنتيجة الكاملة (الأعمق ← الأحدث)">' +
@@ -734,7 +734,7 @@ function loadHospitalsSettings() {
                                 const pct = (variance / maxVal * 100).toFixed(0);
                                 html += '<div style="display:flex;align-items:center;gap:0.3rem;margin:0.15rem 0;">';
                                 html += '<span style="width:120px;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(name) + '">' + esc(name) + '</span>';
-                                html += '<div style="flex:1;height:14px;background:#eee;border-radius:3px;"><div style="height:100%;width:' + pct + '%;background:#1a237e;border-radius:3px;"></div></div>';
+                                html += '<div style="flex:1;height:14px;background:var(--border-default);border-radius:3px;"><div style="height:100%;width:' + pct + '%;background:var(--accent-blue);border-radius:3px;"></div></div>';
                                 html += '<span style="width:40px;text-align:right;font-size:0.7rem;color:var(--text-secondary);">' + (variance * 100).toFixed(0) + '%</span>';
                                 html += '</div>';
                             });
