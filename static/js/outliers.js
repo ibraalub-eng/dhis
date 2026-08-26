@@ -2,6 +2,57 @@
         import { __ } from './i18n.js';
         import { esc } from './tree.js';
 
+        // ── CSV Export Utility ────────────────────────────────────
+        function downloadCSV(filename, headers, rows) {
+            const csvContent = [headers.join(','), ...rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(','))].join('\n');
+            const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename; a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function todayStr() {
+            return new Date().toISOString().slice(0, 10);
+        }
+
+        export function exportOutliersCSV() {
+            const data = window._lastOutlierData;
+            if (!data || !data.length) return;
+            const headers = ['Hospital', 'Month', 'Indicator', 'Z-Score', 'Severity', 'Features'];
+            const rows = data.map(d => {
+                const features = d.contributing_features
+                    ? Object.entries(d.contributing_features).map(([k, v]) => k + ':' + Number(v).toFixed(3)).join('; ')
+                    : '';
+                return [
+                    d.hospital || d.hospital_name || '',
+                    d.month || '',
+                    d.rate_name || 'Multi-variate',
+                    d.z_score !== null && d.z_score !== undefined ? Number(d.z_score).toFixed(3) : (d.anomaly_score ? Number(d.anomaly_score).toFixed(3) : ''),
+                    d.is_outlier !== undefined ? (d.is_outlier ? 'Outlier' : 'Normal') : '',
+                    features
+                ];
+            });
+            downloadCSV('outliers_' + todayStr() + '.csv', headers, rows);
+        }
+
+        export function exportRuleFailuresCSV() {
+            const data = window._lastRuleFailureData;
+            if (!data || !data.length) return;
+            const headers = ['Hospital', 'Rule Code', 'Description', 'Severity', 'Indicator', 'Failed Months'];
+            const rows = data.map(d => {
+                return [
+                    d.hospital || '',
+                    d.rule_code || '',
+                    d.rule_description || '',
+                    d.severity || '',
+                    d.rule_type || '',
+                    d.details || ''
+                ];
+            });
+            downloadCSV('rule_failures_' + todayStr() + '.csv', headers, rows);
+        }
+
         // ── SHAP Waterfall Chart ──────────────────────────────────
         function renderSHAPWaterfall(containerId, features) {
             if (!features || !Object.keys(features).length || typeof Plotly === 'undefined') return;
@@ -52,6 +103,7 @@
                 apiGet('/analysis/ml?month=' + month).then(data => {
                     document.getElementById('outlierLoading').classList.add('hidden');
                     const anomalies = (data && data.ml_anomalies) || [];
+                    window._lastOutlierData = anomalies;
                     document.getElementById('outlierCount').textContent = anomalies.length + ' hospital(s) analyzed';
                     const tbody = document.getElementById('outlierTbody');
                     if (!anomalies.length) {
@@ -100,6 +152,7 @@
 
         function updateOutlierUI(resp, currentHosp, currentMon, currentRate) {
             const data = resp.data || resp;
+            window._lastOutlierData = data;
             const total = resp.total || data.length;
             document.getElementById('outlierCount').textContent = total + ' outlier(s)';
             // Summary
@@ -234,6 +287,7 @@
 
         function updateRuleFailUI(resp, currentHosp, currentMon) {
             const data = resp.data || resp;
+            window._lastRuleFailureData = data;
             const total = resp.total || data.length;
             document.getElementById('ruleFailCount').textContent = total + ' failure(s)';
             // Summary

@@ -2,7 +2,7 @@ import { API, apiGet, apiPost, apiPut, uploadedData, clearApiCache } from './api
 import { toggleLang, __, translateDOM, currentLang } from './i18n.js';
 import { _saveUIState, _restoreUIState, showLoader, hideLoader, SwitchTab, switchTab, _tabInited } from './main.js';
 import { confirmImport, cancelPreview, displayResults, filterPriorityTable, filterQualityReports, rerenderVal, rerenderAnom, loadQualityReports } from './upload.js';
-import { loadOutliers, loadRuleFailures } from './outliers.js';
+import { loadOutliers, loadRuleFailures, exportOutliersCSV, exportRuleFailuresCSV } from './outliers.js';
 import { loadAlerts, updateAlertBadge } from './alerts.js';
 import { refreshSavedFiles, toggleAllSaved, analyzeSelectedSaved, analyzeSingleSaved, deleteSelectedSaved } from './saved_files.js';
 import { loadAllSettings, saveAllSettings, reanalyzeAll, showSettingsTab, saveAiSettings, loadAiSettings, onAiProviderChange, loadRulesManager, initRootCause, initDashboard, loadRootCause, loadDashboard, updateWeightDisplay, updateCfgDisplay, updateCfgVal, loadRankingTable, showHospitalScorecard, closeScorecard, goRootCause, renderRcTimelineChart } from './settings.js';
@@ -47,6 +47,8 @@ window.loadOutliers = loadOutliers;
 window.updateAlertBadge = updateAlertBadge;
 window.loadAlerts = loadAlerts;
 window.loadRuleFailures = loadRuleFailures;
+window.exportOutliersCSV = exportOutliersCSV;
+window.exportRuleFailuresCSV = exportRuleFailuresCSV;
 window.loadAllSettings = loadAllSettings;
 window.saveAllSettings = saveAllSettings;
 window.reanalyzeAll = reanalyzeAll;
