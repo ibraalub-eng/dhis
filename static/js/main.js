@@ -98,26 +98,28 @@
             }
         }
         function _initTab(name) {
-            function _tryInit(fn, retries) {
+            // Always read from window[name] so we get the latest replacement
+            function _tryInit(name, retries) {
+                var fn = window[name];
                 if (typeof fn === 'function' && fn.toString().indexOf('Module not loaded') === -1) {
                     fn();
                 } else if (retries > 0) {
-                    setTimeout(function() { _tryInit(fn, retries - 1); }, 300);
+                    setTimeout(function() { _tryInit(name, retries - 1); }, 300);
                 }
             }
-            if (name === 'dashboard') _tryInit(window.initDashboard, 10);
-            if (name === 'quality') _tryInit(window.loadQualityReports, 10);
-            if (name === 'alerts') { _tryInit(window.loadAlerts, 10); _tryInit(window.loadRuleFailures, 10); }
-            if (name === 'outliers') _tryInit(window.loadOutliers, 10);
-            if (name === 'settings') _tryInit(window.loadAllSettings, 10);
-            if (name === 'root-cause') _tryInit(window.initRootCause, 10);
-            if (name === 'analysis') window.initAnalysis();
-            if (name === 'clinical') { window.initClinical(); }
-            if (name === 'indicator-tree') window.initIndicatorTree();
-            if (name === 'rules-manager') window.loadRulesManager();
-            if (name === 'audit') window.initAudit();
-            if (name === 'smart-analytics') window.initSmartAnalytics();
-            if (name === 'admin' && typeof window.loadAdminPanel === 'function') window.loadAdminPanel();
+            if (name === 'dashboard') _tryInit('initDashboard', 10);
+            if (name === 'quality') _tryInit('loadQualityReports', 10);
+            if (name === 'alerts') { _tryInit('loadAlerts', 10); _tryInit('loadRuleFailures', 10); }
+            if (name === 'outliers') _tryInit('loadOutliers', 10);
+            if (name === 'settings') _tryInit('loadAllSettings', 10);
+            if (name === 'root-cause') _tryInit('initRootCause', 10);
+            if (name === 'analysis') _tryInit('initAnalysis', 10);
+            if (name === 'clinical') _tryInit('initClinical', 10);
+            if (name === 'indicator-tree') _tryInit('initIndicatorTree', 10);
+            if (name === 'rules-manager') _tryInit('loadRulesManager', 10);
+            if (name === 'audit') _tryInit('initAudit', 10);
+            if (name === 'smart-analytics') _tryInit('initSmartAnalytics', 10);
+            if (name === 'admin') _tryInit('loadAdminPanel', 10);
         }
 
         window._retryTab = function(name) {

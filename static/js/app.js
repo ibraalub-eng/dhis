@@ -264,7 +264,16 @@ window.addEventListener('unhandledrejection', function(e) {
     const rs = document.getElementById('resultsSection');
     if (rs) rs.classList.remove('hidden');
 
-    refreshSavedFiles();
+    // Call function when module loads (retry up to 30 times = ~3s)
+    function _whenReady(fn, name, retries) {
+        retries = retries || 30;
+        if (typeof fn === 'function' && fn.toString().indexOf('Module not loaded') === -1) {
+            fn();
+        } else if (retries > 0) {
+            setTimeout(function() { _whenReady(fn, name, retries - 1); }, 100);
+        }
+    }
+    _whenReady(refreshSavedFiles, 'refreshSavedFiles');
     localStorage.removeItem('lastTab');
     switchTab('dashboard');
   } catch (err) {
