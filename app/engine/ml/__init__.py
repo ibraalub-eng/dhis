@@ -56,6 +56,8 @@ def _clustering_to_dict(cr: ClusteringResult) -> dict:
             for c in cr.clusters
         ],
         "features_used": cr.features_used,
+        "pca_coordinates": cr.pca_coordinates,
+        "pca_explained_variance": cr.pca_explained_variance,
     }
 
 

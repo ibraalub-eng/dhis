@@ -16,6 +16,8 @@ class ClusteringResult:
     silhouette_score: Optional[float]
     centroids: List[Dict[str, float]]
     features_used: List[str]
+    pca_coordinates: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    pca_explained_variance: List[float] = field(default_factory=list)
 
 
 @dataclass

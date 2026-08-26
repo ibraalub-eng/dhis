@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import silhouette_score
+from sklearn.decomposition import PCA
 
 from .schemas import HospitalCluster, ClusteringResult
 
@@ -78,10 +79,24 @@ def cluster_hospitals(
 
     sil = float(best_score) if best_score > 0 else None
 
+    # Compute PCA coordinates for biplot visualization
+    pca_coords = []
+    explained_variance = []
+    pca_coord_dict = {}
+    if X_scaled.shape[0] >= 2 and X_scaled.shape[1] >= 2:
+        n_pca = min(2, X_scaled.shape[0], X_scaled.shape[1])
+        pca = PCA(n_components=n_pca, random_state=42)
+        coords = pca.fit_transform(X_scaled)
+        explained_variance = [round(float(v), 4) for v in pca.explained_variance_ratio_]
+        for i, h in enumerate(hospital_names):
+            pca_coord_dict[h] = {"x": round(float(coords[i, 0]), 4), "y": round(float(coords[i, 1]), 4)}
+
     return ClusteringResult(
         clusters=clusters,
         k=best_k,
         silhouette_score=sil,
         centroids=centroids,
         features_used=features,
+        pca_coordinates=pca_coord_dict,
+        pca_explained_variance=explained_variance,
     )

@@ -340,6 +340,12 @@ import { toastWarning } from './toast.js';
                 const c = data.ml_clustering;
                 const colors = ['#2e7d32','#f57f17','#c62828','#1565c0','#6a1b9a','#00838f','#4e342e','#37474f','#558b2f','#e65100'];
                 let html = '<div class="card" style="padding:0.8rem;"><h3 style="font-size:0.9rem;margin:0 0 0.4rem;">Performance Clusters <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;">(silhouette: ' + (c.silhouette_score ?? 0).toFixed(2) + ', k=' + c.k + ')</span></h3>';
+
+                const pcaCoords = c.pca_coordinates;
+                if (pcaCoords && Object.keys(pcaCoords).length > 0) {
+                    html += '<div id="pca-biplot" style="width:100%;height:400px;"></div>';
+                }
+
                 const groups = {};
                 c.clusters.forEach(cl => {
                     if (!groups[cl.cluster_id]) groups[cl.cluster_id] = [];
@@ -359,7 +365,63 @@ import { toastWarning } from './toast.js';
                 html += '</div>';
                 container.innerHTML = html;
                 container.style.display = '';
+
+                if (pcaCoords && Object.keys(pcaCoords).length > 0) {
+                    renderPCABiplot('pca-biplot', pcaCoords, c.pca_explained_variance, c.clusters);
+                }
             }).catch(() => { container.style.display = 'none'; });
+        }
+
+        function renderPCABiplot(containerId, pcaCoordinates, explainedVariance, clusterData) {
+            if (!pcaCoordinates || Object.keys(pcaCoordinates).length === 0) return;
+            const clusterColors = ['#4F8CFF', '#A78BFA', '#F472B6', '#2DD4BF', '#FB923C', '#06B6D4', '#84CC16'];
+            const clusterLookup = {};
+            if (clusterData) {
+                clusterData.forEach(cl => { clusterLookup[cl.hospital_name] = cl.cluster_id; });
+            }
+            const grouped = {};
+            Object.entries(pcaCoordinates).forEach(([name, coord]) => {
+                const cid = clusterLookup[name] != null ? clusterLookup[name] : 0;
+                if (!grouped[cid]) grouped[cid] = [];
+                grouped[cid].push({ x: coord.x, y: coord.y, _name: name });
+            });
+            const datasets = Object.entries(grouped).map(([cid, points]) => ({
+                label: 'Cluster ' + cid,
+                data: points,
+                backgroundColor: clusterColors[parseInt(cid) % clusterColors.length],
+                pointRadius: 6,
+                pointHoverRadius: 8,
+            }));
+            const pc1Var = explainedVariance && explainedVariance[0] ? (explainedVariance[0] * 100).toFixed(1) : '?';
+            const pc2Var = explainedVariance && explainedVariance[1] ? (explainedVariance[1] * 100).toFixed(1) : '?';
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '<canvas style="width:100%;height:100%;"></canvas>';
+            const canvas = container.querySelector('canvas');
+            const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#ccc';
+            new Chart(canvas, {
+                type: 'scatter',
+                data: { datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    const pt = ctx.raw;
+                                    return pt._name + ' (Cluster ' + ctx.dataset.label.replace('Cluster ', '') + ') — PC1: ' + pt.x.toFixed(2) + ', PC2: ' + pt.y.toFixed(2);
+                                }
+                            }
+                        },
+                        legend: { position: 'top', labels: { font: { size: 10 }, color: textColor } },
+                    },
+                    scales: {
+                        x: { title: { display: true, text: 'PC1 (' + pc1Var + '%)', color: textColor }, grid: { color: 'rgba(128,128,128,0.2)' }, ticks: { color: textColor } },
+                        y: { title: { display: true, text: 'PC2 (' + pc2Var + '%)', color: textColor }, grid: { color: 'rgba(128,128,128,0.2)' }, ticks: { color: textColor } },
+                    },
+                }
+            });
         }
 
         export function filterComparison() {
