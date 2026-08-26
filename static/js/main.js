@@ -83,10 +83,14 @@
                     _initTab(name);
                     // Re-apply translations to newly loaded content
                     if (typeof window.applyLang === 'function') window.applyLang();
-                }).catch(() => {
-                    // لا نُهيّئ التبويب إذا فشل تحميل محتواه — عناصره غير موجودة
-                    targetContent.innerHTML = '<div style="padding:2rem;text-align:center;color:var(--accent-red);font-size:0.9rem;">' +
-                        'تعذّر تحميل محتوى هذا التبويب (الخادم غير متاح). أعد المحاولة لاحقاً أو تأكد من تشغيل الخادم.' +
+                }).catch((err) => {
+                    targetContent.dataset.loaded = 'false';
+                    _tabInited.delete(name);
+                    targetContent.innerHTML = '<div style="padding:2rem;text-align:center;">' +
+                        '<div style="font-size:1.5rem;margin-bottom:0.5rem;">⚠️</div>' +
+                        '<div style="color:var(--accent-red);font-size:0.9rem;font-weight:600;margin-bottom:0.3rem;">Tab Failed to Load</div>' +
+                        '<div style="color:var(--text-muted);font-size:0.78rem;margin-bottom:1rem;">' + (err.message || 'Network error') + '</div>' +
+                        '<button class="btn btn-sm" onclick="window._retryTab(\'' + name + '\')" style="background:var(--accent-blue);color:white;">↻ Retry</button>' +
                         '</div>';
                 });
             } else {
@@ -116,7 +120,13 @@
             if (name === 'admin' && typeof window.loadAdminPanel === 'function') window.loadAdminPanel();
         }
 
-        
+        window._retryTab = function(name) {
+            var targetContent = document.getElementById('tab-' + name);
+            if (!targetContent) return;
+            targetContent.dataset.loaded = 'false';
+            _tabInited.delete(name);
+            switchTab(name);
+        };
 
         // -- Skeleton Loading Component --
         export function skeletonCard(lines){var n=lines||4;var h='<div class="skeleton-card"><div class="skeleton skeleton-title"></div>';for(var i=0;i<n;i++){var w=i===n-1?'short':(i%3===0?'medium':'');h+='<div class="skeleton skeleton-line "+w+"></div>';}return h+'</div>';}
