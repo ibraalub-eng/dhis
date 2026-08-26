@@ -14,7 +14,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 const h3s = section.querySelectorAll('h3');
                 if (h3s.length < 2) return; // Only wrap if 2+ sections
 
-                // Add collapse icon to each h3
+                // Add collapse icon to each h3 — first open, rest collapsed
                 h3s.forEach((h3, i) => {
                     const wrapper = document.createElement('div');
                     wrapper.className = 'settings-collapsible' + (i === 0 ? ' open' : '');
@@ -49,6 +49,30 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                     } else {
                         section.appendChild(wrapper);
                     }
+                });
+
+                // Second pass: wrap setting item groups in collapsible sub-panels
+                section.querySelectorAll('.settings-section-body').forEach(body => {
+                    const items = body.querySelectorAll(':scope > div[style*="background:var(--bg-elevated)"]');
+                    if (items.length < 2) return;
+                    items.forEach((item, idx) => {
+                        const label = item.querySelector('label');
+                        const title = label ? label.textContent.trim() : 'Setting ' + (idx + 1);
+                        const subWrap = document.createElement('div');
+                        subWrap.className = 'settings-sub-item' + (idx === 0 ? ' open' : '');
+                        const subHeader = document.createElement('button');
+                        subHeader.className = 'settings-sub-header';
+                        subHeader.innerHTML = '<span style="font-size:0.75rem;">▶</span> ' + title;
+                        subHeader.addEventListener('click', function() {
+                            subWrap.classList.toggle('open');
+                        });
+                        const subBody = document.createElement('div');
+                        subBody.className = 'settings-sub-body';
+                        subBody.appendChild(item.cloneNode(true));
+                        subWrap.appendChild(subHeader);
+                        subWrap.appendChild(subBody);
+                        item.replaceWith(subWrap);
+                    });
                 });
             });
         }

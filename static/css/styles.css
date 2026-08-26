@@ -1181,3 +1181,50 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 #user-info { transition: opacity 0.2s; }
 #user-info:hover { opacity: 0.8; text-decoration: underline; }
+
+/* ── Settings Sub-Item Collapsibles ─────────────────── */
+.settings-sub-item {
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  margin-bottom: 0.4rem;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.settings-sub-item.open {
+  border-color: var(--accent-blue);
+}
+.settings-sub-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  background: var(--bg-surface);
+  border: none;
+  width: 100%;
+  text-align: left;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  transition: background 0.15s;
+}
+.settings-sub-header:hover {
+  background: var(--bg-input);
+}
+.settings-sub-header span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  transition: transform 0.2s;
+  display: inline-block;
+}
+.settings-sub-item.open .settings-sub-header span {
+  transform: rotate(90deg);
+}
+.settings-sub-body {
+  display: none;
+  padding: 0.5rem 0.7rem;
+  border-top: 1px solid var(--border-default);
+}
+.settings-sub-item.open .settings-sub-body {
+  display: block;
+}
