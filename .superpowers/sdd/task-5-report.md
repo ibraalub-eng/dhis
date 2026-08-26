@@ -1,27 +1,39 @@
-## Task 5: Update renderRcTimeline Function — Report
+# Task 5: SHAP Waterfall Charts in Outlier Cards
 
-**Status:** DONE
+## What Was Implemented
 
-### What Was Implemented
+Replaced the plain-text rendering of `contributing_features` in ML anomaly cards with Plotly horizontal bar charts showing SHAP values.
 
-No code changes were needed. The `renderRcTimeline` (line 255) and `renderRcTimelineChart` (line 286) functions in `static/js/settings.js` already exactly match the task specification. Both functions were already updated to use Chart.js patterns as part of the Task 4 commit (`085e901 feat: migrate timeline chart from Plotly.js to Chart.js`).
+### Changes
 
-### Verification
+**`static/js/outliers.js`:**
+1. Added `renderSHAPWaterfall(containerId, features)` function that:
+   - Takes a container element ID and a `{feature: shap_value}` object
+   - Sorts features by absolute SHAP value (descending), takes top 8
+   - Creates a Plotly horizontal bar chart with:
+     - Y-axis: feature names (translated via `window.SMART_ARABIC` if available)
+     - X-axis: SHAP values
+     - Bar colors: `var(--accent-teal)` for positive, `var(--accent-red)` for negative
+     - Layout: transparent backgrounds, dark-theme-compatible, margins `{l:120,r:10,t:5,b:30}`, height 200, width 350
+     - No legend, no modebar
+   - Handles empty/missing features gracefully (no chart rendered)
+   - Checks `typeof Plotly === 'undefined'` before rendering (Plotly is globally available via `index.html`)
 
-- `renderRcTimeline()` (lines 255-284): Already uses `window._rcTimelineChartInstance.destroy()` and calls `drawRcTimelineChart()`
-- `renderRcTimelineChart()` (lines 286-293): Already uses `drawRcTimelineChart()` and updates `_rcTimelineSelCode`
-- No Plotly references remain in `settings.js`
+2. Modified the ML anomaly card rendering to:
+   - Replace the comma-text `<td>` with a `<div id="shap-{hospital_id}">` container
+   - After inserting card HTML, call `renderSHAPWaterfall()` for each anomaly with `contributing_features`
 
-### Files Changed
+## Testing
 
-None — code already matches the specification.
+- Ran `python -m pytest tests/test_chart_migration.py tests/test_auth.py -q --tb=short`
+- **Result: 72 passed** (all expected tests pass)
 
-### Test Results
+## Files Changed
 
-No dedicated unit tests exist for these functions (they are UI-bound). Manual verification confirms the functions match the task spec exactly.
+- `static/js/outliers.js` — added `renderSHAPWaterfall` function, replaced text rendering with Plotly chart containers
 
-### Self-Review
+## Notes
 
-- Completeness: All spec requirements are satisfied by existing code
-- Quality: Clean, matches patterns used elsewhere in the codebase
-- No concerns
+- Plotly.js is globally loaded via `<script src="/static/vendor/plotly.min.js">` in `index.html`
+- The function gracefully handles missing Plotly (no-op) and empty features (no chart)
+- Each chart has a unique container ID (`shap-{hospital_id}`) to avoid collisions

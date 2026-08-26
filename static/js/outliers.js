@@ -2,6 +2,38 @@
         import { __ } from './i18n.js';
         import { esc } from './tree.js';
 
+        // ── SHAP Waterfall Chart ──────────────────────────────────
+        function renderSHAPWaterfall(containerId, features) {
+            if (!features || !Object.keys(features).length || typeof Plotly === 'undefined') return;
+            const el = document.getElementById(containerId);
+            if (!el) return;
+            const sorted = Object.entries(features)
+                .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+                .slice(0, 8);
+            const names = sorted.map(([f]) => (window.SMART_ARABIC && window.SMART_ARABIC[f]) || f);
+            const vals = sorted.map(([, v]) => v);
+            const colors = vals.map(v => v >= 0 ? 'var(--accent-teal)' : 'var(--accent-red)');
+            const trace = {
+                type: 'bar',
+                orientation: 'h',
+                y: names,
+                x: vals,
+                marker: { color: colors },
+            };
+            const layout = {
+                margin: { l: 120, r: 10, t: 5, b: 30 },
+                height: 200,
+                width: 350,
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: 'var(--text-primary)' },
+                xaxis: { gridcolor: 'rgba(128,128,128,0.2)' },
+                yaxis: { automargin: true },
+                showlegend: false,
+            };
+            Plotly.newPlot(el, [trace], layout, { displayModeBar: false, responsive: true });
+        }
+
         // ── Outliers Tab ──────────────────────────────────────────
         export function loadOutliers() {
             const modeEl = document.getElementById('outlierMode');
@@ -34,9 +66,14 @@
                             '<td>Multi-variate</td>' +
                             '<td>' + (a.anomaly_score ? a.anomaly_score.toFixed(3) : '--') + '</td>' +
                             '<td>' + (a.is_outlier ? '<span class="badge badge-critical">Outlier</span>' : '<span class="badge badge-pass">Normal</span>') + '</td>' +
-                            '<td style="font-size:0.7rem;color:var(--text-muted);">' + esc(Object.keys(a.contributing_features || {}).join(', ')) + '</td>' +
+                            '<td><div id="shap-' + a.hospital_id + '" style="min-height:200px;"></div></td>' +
                             '</tr>';
                     }).join('');
+                    anomalies.forEach(a => {
+                        if (a.contributing_features && Object.keys(a.contributing_features).length) {
+                            renderSHAPWaterfall('shap-' + a.hospital_id, a.contributing_features);
+                        }
+                    });
                 }).catch(err => {
                     document.getElementById('outlierLoading').classList.add('hidden');
                     document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="color:red;">Error: ' + err.message + '</td></tr>';
