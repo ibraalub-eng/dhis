@@ -80,7 +80,7 @@
             <div class="subtitle" id="headerSubtitle" data-i18n="تحليل مؤشرات صحة الأم والوليد">تحليل مؤشرات صحة الأم والوليد</div>
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;">
-            <span id="user-info" style="font-size:0.8rem;color:var(--text-primary);font-weight:600;"></span>
+            <span id="user-info" style="font-size:0.8rem;color:var(--text-primary);font-weight:600;cursor:pointer;text-decoration:none;" onclick="openProfileModal()" title="Click to edit profile or change password"></span>
             <button id="logout-btn" onclick="handleLogout()" style="display:none;background:none;border:1px solid var(--accent-red);color:var(--accent-red);border-radius:6px;padding:0.3rem 0.7rem;font-size:0.78rem;cursor:pointer;" data-i18n="Logout">تسجيل الخروج</button>
             <button class="lang-btn" id="langToggle" onclick="toggleLang()">English</button>
             <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle light/dark mode">...</button>
@@ -291,6 +291,51 @@
         <div class="search-box">
             <input id="searchInput" type="text" placeholder="Search tabs, settings, hospitals..." autocomplete="off">
             <div id="searchResults" class="search-results"></div>
+        </div>
+    </div>
+
+    <!-- Profile / Password Modal -->
+    <div id="profileModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-surface);border:1px solid var(--border-default);border-radius:12px;padding:1.5rem;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                <h3 style="margin:0;font-size:1.1rem;color:var(--text-primary);">👤 Profile & Security</h3>
+                <button onclick="closeProfileModal()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">&times;</button>
+            </div>
+            <!-- Profile Section -->
+            <div style="margin-bottom:1.2rem;">
+                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Username</label>
+                <input id="pm-username" type="text" disabled style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;background:var(--bg-surface-hover);color:var(--text-muted);">
+            </div>
+            <div style="margin-bottom:1.2rem;">
+                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Full Name</label>
+                <input id="pm-fullname" type="text" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Your full name">
+            </div>
+            <div style="margin-bottom:1.2rem;">
+                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Email</label>
+                <input id="pm-email" type="email" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="your@email.com">
+            </div>
+            <div id="pm-profileError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+            <div id="pm-profileSuccess" style="display:none;color:#2e7d32;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+            <button id="pm-saveProfile" class="btn" style="background:var(--accent-blue);color:white;margin-bottom:1.5rem;" onclick="_pmSaveProfile()">Save Profile</button>
+            <!-- Password Section -->
+            <div style="border-top:2px solid var(--border-default);padding-top:1rem;">
+                <h4 style="font-size:0.9rem;color:var(--text-primary);margin-bottom:0.8rem;">🔑 Change Password</h4>
+                <div style="margin-bottom:0.8rem;">
+                    <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Current Password</label>
+                    <input id="pm-pw-current" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Enter current password">
+                </div>
+                <div style="margin-bottom:0.8rem;">
+                    <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">New Password</label>
+                    <input id="pm-pw-new" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Min 6 characters">
+                </div>
+                <div style="margin-bottom:0.8rem;">
+                    <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Confirm New Password</label>
+                    <input id="pm-pw-confirm" type="password" style="width:100%;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;box-sizing:border-box;" placeholder="Repeat new password">
+                </div>
+                <div id="pm-pwError" style="display:none;color:#c62826;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                <div id="pm-pwSuccess" style="display:none;color:#2e7d32;font-size:0.82rem;margin-bottom:0.5rem;"></div>
+                <button id="pm-changePw" class="btn" style="background:#e65100;color:white;" onclick="_pmChangePw()">Change Password</button>
+            </div>
         </div>
     </div>
 

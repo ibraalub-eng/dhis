@@ -1178,3 +1178,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 .search-result-item .sr-icon { font-size: 1rem; width: 24px; text-align: center; }
 .search-result-item .sr-kbd { margin-left: auto; }
+
+#user-info { transition: opacity 0.2s; }
+#user-info:hover { opacity: 0.8; text-decoration: underline; }

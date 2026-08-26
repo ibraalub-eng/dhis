@@ -478,3 +478,117 @@
     return false;
   };
 })();
+
+// ── Profile Modal ──────────────────────────────────────────
+window.openProfileModal = function() {
+    var modal = document.getElementById('profileModal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    // Load current user data
+    var user = window.getUserInfo ? window.getUserInfo() : null;
+    if (!user) {
+        // Fetch from API
+        var token = window.getAccessToken ? window.getAccessToken() : '';
+        fetch('/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
+            .then(function(r) { return r.json(); })
+            .then(function(data) { _fillProfileModal(data); })
+            .catch(function() {});
+    } else {
+        _fillProfileModal(user);
+    }
+    // Clear previous messages
+    var els = ['pm-profileError','pm-profileSuccess','pm-pwError','pm-pwSuccess'];
+    els.forEach(function(id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; });
+    // Clear password fields
+    ['pm-pw-current','pm-pw-new','pm-pw-confirm'].forEach(function(id) { var el = document.getElementById(id); if (el) el.value = ''; });
+};
+
+window.closeProfileModal = function() {
+    var modal = document.getElementById('profileModal');
+    if (modal) modal.style.display = 'none';
+};
+
+function _fillProfileModal(data) {
+    var un = document.getElementById('pm-username');
+    var fn = document.getElementById('pm-fullname');
+    var em = document.getElementById('pm-email');
+    if (un) un.value = data.username || '';
+    if (fn) fn.value = data.full_name || '';
+    if (em) em.value = data.email || '';
+}
+
+window._pmSaveProfile = function() {
+    var fnEl = document.getElementById('pm-fullname');
+    var emEl = document.getElementById('pm-email');
+    var errEl = document.getElementById('pm-profileError');
+    var okEl = document.getElementById('pm-profileSuccess');
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+    var fullName = fnEl ? fnEl.value.trim() : '';
+    var email = emEl ? emEl.value.trim() : '';
+    if (!fullName) { errEl.textContent = 'Full name is required'; errEl.style.display = 'block'; return; }
+    if (!email) { errEl.textContent = 'Email is required'; errEl.style.display = 'block'; return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'Invalid email format'; errEl.style.display = 'block'; return; }
+    var token = window.getAccessToken ? window.getAccessToken() : '';
+    fetch('/auth/me', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ full_name: fullName, email: email })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.detail) { errEl.textContent = data.detail; errEl.style.display = 'block'; return; }
+        okEl.textContent = '\u2713 Profile updated!';
+        okEl.style.display = 'block';
+        // Update header display
+        var userInfoEl = document.getElementById('user-info');
+        if (userInfoEl && data.full_name) {
+            var badge = '';
+            try {
+                var u = window.getUserInfo ? window.getUserInfo() : null;
+                if (u && u.roles) badge = ' [' + u.roles[0] + ']';
+            } catch(e) {}
+            userInfoEl.textContent = data.full_name + badge;
+        }
+        // Update stored user info
+        if (window.setUserInfo) {
+            var stored = window.getUserInfo ? window.getUserInfo() : {};
+            if (stored) { stored.full_name = data.full_name; stored.email = data.email; window.setUserInfo(stored); }
+        }
+    }).catch(function() {
+        errEl.textContent = 'Network error';
+        errEl.style.display = 'block';
+    });
+};
+
+window._pmChangePw = function() {
+    var curEl = document.getElementById('pm-pw-current');
+    var newEl = document.getElementById('pm-pw-new');
+    var cfEl  = document.getElementById('pm-pw-confirm');
+    var errEl = document.getElementById('pm-pwError');
+    var okEl  = document.getElementById('pm-pwSuccess');
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+    var cur = curEl ? curEl.value : '';
+    var nw  = newEl ? newEl.value : '';
+    var cf  = cfEl  ? cfEl.value  : '';
+    if (!cur) { errEl.textContent = 'Current password is required'; errEl.style.display = 'block'; return; }
+    if (!nw)  { errEl.textContent = 'New password is required'; errEl.style.display = 'block'; return; }
+    if (nw.length < 6) { errEl.textContent = 'Password must be at least 6 characters'; errEl.style.display = 'block'; return; }
+    if (nw === cur) { errEl.textContent = 'New password must be different from current'; errEl.style.display = 'block'; return; }
+    if (nw !== cf) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
+    var token = window.getAccessToken ? window.getAccessToken() : '';
+    fetch('/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ current_password: cur, new_password: nw, confirm_password: cf })
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (!data.success) { errEl.textContent = data.detail || 'Failed'; errEl.style.display = 'block'; return; }
+        okEl.textContent = '\u2713 Password changed successfully!';
+        okEl.style.display = 'block';
+        curEl.value = '';
+        newEl.value = '';
+        cfEl.value = '';
+    }).catch(function() {
+        errEl.textContent = 'Network error';
+        errEl.style.display = 'block';
+    });
+};
