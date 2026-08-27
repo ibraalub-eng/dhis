@@ -233,7 +233,7 @@ export async function renderComparison(scope) {
         x: peers.map(p => p.hospital_name),
         y: peers.map(p => p.percentile),
         type: 'bar',
-        marker: { color },
+        marker: { color: colors },
         text: peers.map(p => p.percentile.toFixed(1) + '%'),
         textposition: 'outside',
       }], { yaxis: { title: _t('Percentile'), rangemode: 'tozero' }, xaxis: { tickangle: -45, tickfont: { size: 9 } } });
