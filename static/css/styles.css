@@ -631,8 +631,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .smart-badge-warning { background: transparent; color: var(--accent-orange); border: 1px solid var(--severity-warning-border); }
 .smart-badge-normal { background: transparent; color: var(--accent-green); border: 1px solid var(--severity-success-border); }
 
-.smart-loader { display: none; text-align: center; padding: 1.5rem 1.2rem; color: var(--accent-purple); font-size: 0.85rem; font-weight: 600; border-radius: 8px; background: var(--bg-surface); border: 1px solid var(--border-default); margin: 0.5rem 0; }
-.smart-loader::before { content: ""; display: inline-block; width: 22px; height: 22px; border: 3px solid var(--border-default); border-top-color: var(--accent-purple); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 0.5rem; }
+.smart-loader { display: none; position: relative; overflow: hidden; padding: 0.5rem 0.8rem; color: var(--text-muted); font-size: 0.75rem; font-weight: 500; border-radius: 6px; background: var(--bg-surface); border: 1px solid var(--border-default); margin: 0.4rem 0; }
+.smart-loader::before { content: ""; display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border-default); border-top-color: var(--accent-purple); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 0.4rem; }
+.smart-loader::after { content: ""; position: absolute; bottom: 0; left: 0; height: 2px; width: 40%; background: linear-gradient(90deg, transparent, var(--accent-purple), transparent); animation: smart-progress 1.5s ease-in-out infinite; border-radius: 1px; }
+@keyframes smart-progress { 0% { left: -40%; } 100% { left: 100%; } }
 .smart-loader.active { display: block; animation: fadeIn 0.2s ease; }
 .smart-loader.active { display: block; }
 .smart-error-banner { display: none; background: var(--severity-critical-bg); border: 1px solid var(--severity-critical-border); color: var(--accent-red); padding: 0.7rem 1rem; border-radius: 8px; font-size: 0.82rem; margin: 0.6rem 0; }
