@@ -1034,7 +1034,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   background: var(--bg-input);
 }
 .settings-section-header .section-icon {
-  font-size: 1.1rem;
+  font-size: 1rem;
+  flex-shrink: 0;
 }
 .settings-section-header .section-arrow {
   margin-left: auto;

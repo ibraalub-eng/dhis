@@ -7,6 +7,20 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
 import { toastSuccess, toastError, toastWarning } from './toast.js';
 
         // ── Progressive Disclosure: auto-wrap <h3> in collapsible sections ──
+        const _SECTION_ICONS = {
+            'Quality Score': '📊', 'Outlier': '📈', 'Confidence Signal': '🎯',
+            'Confidence Level': '🎚️', 'Global Z-Score': '📐', 'Rule': '📏',
+            'Clinical': '🩺', 'Risk': '⚠️', 'Trend': '📉', 'Rate': '📈',
+            'Rate Benchmark': '📊', 'AI': '🤖', 'ML': '🧠', 'My Profile': '👤',
+            'Change': '🔑', 'Password': '🔑', 'Account': '👤'
+        };
+        function _findIcon(text) {
+            for (var key in _SECTION_ICONS) {
+                if (text.indexOf(key) !== -1) return _SECTION_ICONS[key];
+            }
+            return '⚙️';
+        }
+
         function initCollapsibleSections() {
             document.querySelectorAll('.settings-section').forEach(section => {
                 // Skip if already processed
@@ -21,10 +35,11 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                     wrapper.className = 'settings-collapsible' + (i === 0 ? ' open' : '');
                     wrapper.style.marginTop = i === 0 ? '0' : '0.6rem';
 
-                    // Create clickable header
+                    // Create clickable header with icon
+                    const icon = _findIcon(h3.textContent);
                     const header = document.createElement('button');
                     header.className = 'settings-section-header';
-                    header.innerHTML = h3.innerHTML + '<span class="section-arrow">▶</span>';
+                    header.innerHTML = '<span class="section-icon">' + icon + '</span> ' + h3.innerHTML + '<span class="section-arrow">▶</span>';
                     header.addEventListener('click', function() {
                         wrapper.classList.toggle('open');
                     });

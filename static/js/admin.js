@@ -891,8 +891,11 @@ window._adminAssignHospitals = function(id, btn) {
       if(!resp.ok)throw new Error("HTTP "+resp.status);
       var html=await resp.text();
       el.innerHTML=html;
-      if(typeof window.loadAllSettings==="function")window.loadAllSettings();
-      else if(typeof window.initCollapsibleSections==="function")window.initCollapsibleSections();
+      // Initialize collapsible sections after content is injected
+      setTimeout(function(){
+        if(typeof window.initCollapsibleSections==="function")window.initCollapsibleSections();
+        if(typeof window.loadAllSettings==="function")window.loadAllSettings();
+      }, 50);
     } catch(e) {
       el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load settings: '+e.message+'</div>';
     }
