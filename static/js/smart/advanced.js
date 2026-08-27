@@ -107,9 +107,43 @@ export function loadPatternsTab(month) {
 
 export function loadXGBoostTab(month) {
   return fetchSection(`/smart/xgboost/${month}`, 'xgboost').then(d => {
-    if (!d || d.empty) return;
+    if (!d) return;
+    // Even if empty, try to show the latest month's model info as fallback
+    if (d.empty) {
+      const c = document.getElementById('smart-xgboost-predictions');
+      if (c) c.innerHTML = `<div class="smart-empty-state">${_smartEscapeHtml(d.message || _t('No predictions for this month'))}</div>`;
+      // Try to load the latest month's model info as reference
+      _showLatestModelInfo(month);
+      return;
+    }
     renderXGBoost(d.xgboost || {});
   });
+}
+
+async function _showLatestModelInfo(currentMonth) {
+  try {
+    // Try the latest available month
+    const months = await apiSmartGet('/smart/months');
+    if (!months || !months.length) return;
+    const latest = months[months.length - 1];
+    if (latest === currentMonth) return; // Already tried this month
+    const d = await apiSmartGet(`/smart/xgboost/${latest}`);
+    if (d && !d.empty && d.xgboost) {
+      const c = document.getElementById('smart-xgboost-predictions');
+      if (c) {
+        const xgb = d.xgboost;
+        c.innerHTML = `<div class="smart-empty-state" style="margin-bottom:0.5rem;">
+          <div style="font-weight:600;margin-bottom:0.3rem;">${_t('Latest model')} (${_smartEscapeHtml(latest)})</div>
+          <div style="font-size:0.78rem;color:var(--text-muted);">${_smartEscapeHtml(xgb.accuracy_note || '')}</div>
+          <div style="font-size:0.78rem;margin-top:0.3rem;">
+            <span>${_t('R²')}: ${_fmtNum(xgb.model_r2, 3)}</span> · 
+            <span>${_t('MAE')}: ${_fmtNum(xgb.model_mae, 3)}</span> · 
+            <span>${_t('Trained on')}: ${xgb.training_months} ${_t('months')}, ${xgb.hospitals_trained} ${_t('hospitals')}</span>
+          </div>
+        </div>`;
+      }
+    }
+  } catch (e) { /* non-fatal */ }
 }
 
 export function loadFeatureImportanceTab(month) {
@@ -329,8 +363,20 @@ export function renderXGBoost(xgb) {
   if (!c) return;
   renderWalkForward(xgb);
   renderPredictedScatter(xgb);
-  if (!pred.length) { c.innerHTML = `<div class="smart-empty-state">${_t('Not enough predictions for this month')}</div>`; return; }
-  c.innerHTML = `<div class="smart-table-wrap"><table><thead><tr>
+  // Always show model info header
+  const modelInfo = xgb.accuracy_note ? `<div class="smart-empty-state" style="margin-bottom:0.5rem;">
+    <div style="font-size:0.78rem;color:var(--text-muted);">${_smartEscapeHtml(xgb.accuracy_note)}</div>
+    <div style="font-size:0.78rem;margin-top:0.3rem;">
+      <span>${_t('R²')}: ${_fmtNum(xgb.model_r2, 3)}</span> · 
+      <span>${_t('MAE')}: ${_fmtNum(xgb.model_mae, 3)}</span> · 
+      <span>${_t('Trained on')}: ${xgb.training_months} ${_t('months')}, ${xgb.hospitals_trained} ${_t('hospitals')}</span>
+    </div>
+  </div>` : '';
+  if (!pred.length) {
+    c.innerHTML = modelInfo + `<div class="smart-empty-state">${_t('Not enough predictions for this month')}</div>`;
+    return;
+  }
+  c.innerHTML = modelInfo + `<div class="smart-table-wrap"><table><thead><tr>
     <th>${_t('Hospital')}</th><th>${_t('Predicted score')}</th><th>${_t('Risk')}</th></tr></thead><tbody>` +
     pred.map(p => `<tr><td>${_smartEscapeHtml(p.hospital_name)}</td>
       <td>${_fmtNum(p.prediction ?? p.predicted_next_score, 3)}</td>
