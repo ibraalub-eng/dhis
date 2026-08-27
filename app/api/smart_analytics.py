@@ -25,7 +25,7 @@ def _get_envelope_or_empty(db: Session, month: str) -> dict:
     envelope = _get_smart_data(db, month)
     if envelope.get("computing"):
         return {"computing": True, "message": "جاري التحليل...", "month": month}
-    if envelope["hospitals_count"] == 0:
+    if envelope.get("hospitals_count", 0) == 0:
         return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
     return envelope
 
@@ -341,16 +341,16 @@ def get_decision_board(month: str, db: Session = Depends(get_db)):
     envelope = _get_smart_data(db, month)
     if envelope.get("computing"):
         return {"computing": True, "message": "جاري التحليل...", "month": month}
-    if envelope["hospitals_count"] == 0:
+    if envelope.get("hospitals_count", 0) == 0:
         return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
-    data = envelope["data"]
+    data = envelope.get("data", {})
     order = {"critical": 0, "warning": 1, "normal": 2}
-    anomalies = sorted(data["anomalies"], key=lambda a: (order.get(a["severity"], 2), -a["anomaly_score"]))
+    anomalies = sorted(data.get("anomalies", []), key=lambda a: (order.get(a.get("severity", "normal"), 2), -a.get("anomaly_score", 0)))
     return _sanitize({
         "month": month,
-        "generated_at": envelope["generated_at"],
-        "hospitals_count": envelope["hospitals_count"],
-        "kpi": data["kpi"],
+        "generated_at": envelope.get("generated_at", ""),
+        "hospitals_count": envelope.get("hospitals_count", 0),
+        "kpi": data.get("kpi", {}),
         "anomalies": anomalies,
         "early_warnings": data.get("early_warnings", []),
         "healthy_hospitals": data.get("healthy_hospitals", []),
@@ -390,7 +390,7 @@ def _section_response(db, month, data_key, resp_key=None):
         if data_key and data_key not in result.get("data", {}):
             result.setdefault(data_key, {})
         return result
-    return {"month": month, (resp_key or data_key): result["data"][data_key]}
+    return {"month": month, (resp_key or data_key): result.get("data", {}).get(data_key)}
 
 
 @router.get("/anomalies/{month}")
@@ -399,7 +399,7 @@ def get_anomalies(month: str, db: Session = Depends(get_db)):
     result = _get_envelope_or_empty(db, month)
     if "empty" in result or "computing" in result:
         return result
-    data = result["data"]
+    data = result.get("data", {})
     return {"month": month, "anomalies": data.get("anomalies", []), "explanations": data.get("explanations", [])}
 
 
@@ -477,9 +477,9 @@ def get_trend(hospital_id: int, db: Session = Depends(get_db)):
     trend_data = []
     for m in months:
         try:
-            data = _get_smart_data(db, m)["data"]
+            data = _get_smart_data(db, m).get("data", {})
             hospital_anomaly = next(
-                (a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None
+                (a for a in data.get("anomalies", []) if a.get("hospital_id") == hospital_id), None
             )
             if hospital_anomaly:
                 trend_data.append({
@@ -584,10 +584,10 @@ def get_anomaly_timeline(db: Session = Depends(get_db)):
         # Skip months where computation is still in progress
         if envelope.get("computing") or envelope.get("hospitals_count", 0) == 0:
             continue
-        data = envelope["data"]
-        for a in data["anomalies"]:
-            if a["hospital_id"] not in hospital_map:
-                hospital_map[a["hospital_id"]] = {
+        data = envelope.get("data", {})
+        for a in data.get("anomalies", []):
+            if a.get("hospital_id") not in hospital_map:
+                hospital_map[a.get("hospital_id")] = {
                     "hospital_id": a["hospital_id"],
                     "hospital_name": a["hospital_name"],
                     "scores": {},
@@ -634,7 +634,7 @@ def get_time_overview(db: Session = Depends(get_db)):
         # Skip months where computation is still in progress or no data
         if envelope.get("computing") or envelope.get("hospitals_count", 0) == 0:
             continue
-        data = envelope["data"]
+        data = envelope.get("data", {})
         kpi = data.get("kpi", {})
         anomalies = data.get("anomalies", [])
         avg = round(sum(a["anomaly_score"] for a in anomalies) / len(anomalies), 3) if anomalies else 0.0
@@ -654,4 +654,4 @@ def get_time_overview(db: Session = Depends(get_db)):
 @router.post("/run/{month}")
 def trigger_analysis(month: str, db: Session = Depends(get_db)):
     data = _get_smart_data(db, month)
-    return {"status": "completed", "month": month, "hospitals_count": data["hospitals_count"]}
+    return {"status": "completed", "month": month, "hospitals_count": data.get("hospitals_count", 0)}
