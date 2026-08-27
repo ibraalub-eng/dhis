@@ -45,11 +45,12 @@ export function renderTrend(trend) {
   const months = trend.trend.map(t => t.month);
   const scores = trend.trend.map(t => t.anomaly_score);
   const colors = trend.trend.map(t => t.severity === 'critical' ? '#ef4444' : t.severity === 'warning' ? '#f59e0b' : '#22c55e');
+  const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#1a1a2e';
   renderPlot('smart-hospital-trend', [{
     x: months, y: scores, type: 'scatter', mode: 'lines+markers',
-    line: { color: '#4338ca', width: 2.5 }, marker: { color, size: 8 },
+    line: { color: '#4338ca', width: 2.5 }, marker: { color: colors, size: 8 },
     text: trend.trend.map(t => _t(t.severity)),
-  }], { title: _t('Anomaly score over time'), yaxis: { range: [0, 1] } });
+  }], { title: { text: _t('Anomaly score over time'), font: { color: textColor, size: 13 } }, yaxis: { range: [0, 1] }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' });
 }
 
 export function renderHospitalForecast(forecast) {
