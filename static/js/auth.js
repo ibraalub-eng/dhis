@@ -374,7 +374,7 @@
     'tab-rules': 'rules.read',
     'tab-root-cause': 'root_cause.read',
     'tab-audit': 'audit.read',
-    'tab-settings': 'settings.read',
+    'tab-settings': 'system.manage_users',
     'tab-admin': 'system.manage_users',
   };
 

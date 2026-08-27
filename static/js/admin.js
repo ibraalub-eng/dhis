@@ -95,6 +95,7 @@ window._adminAssignHospitals = function(id, btn) {
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
           <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('system')" id="atab-system" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">⚙️ System Control</button>
         </div>
 
         <!-- Users and Roles Tab -->
@@ -383,6 +384,10 @@ window._adminAssignHospitals = function(id, btn) {
                 <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
             </div>
           </div>
+        </div>
+        <!-- System Control Panel (settings moved here) -->
+        <div id="adminSystemPanel" style="display:none;">
+          <div id="adminSystemContent"></div>
         </div>
         </div>
       </div>
@@ -869,10 +874,29 @@ window._adminAssignHospitals = function(id, btn) {
     if(ab){ab.style.background="var(--accent-purple)";ab.style.color="white";}
     var u=document.getElementById("adminUsersPanel");
     var d=document.getElementById("adminDatabasePanel");
+    var s=document.getElementById("adminSystemPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
+    if(s)s.style.display=tab==="system"?"block":"none";
     if(tab==="database"&&!window._adminDbLoaded){loadAdminDbStatus();window._adminDbLoaded=true;}
+    if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();window._adminSystemLoaded=true;}
   };
+
+  async function loadAdminSystemPanel() {
+    var el=document.getElementById("adminSystemContent");
+    if(!el)return;
+    el.innerHTML='<div style="text-align:center;padding:2rem;color:var(--text-muted);"><span class="spinner"></span> Loading settings...</div>';
+    try {
+      var resp=await fetch("/static/tabs/settings.html");
+      if(!resp.ok)throw new Error("HTTP "+resp.status);
+      var html=await resp.text();
+      el.innerHTML=html;
+      if(typeof window.loadAllSettings==="function")window.loadAllSettings();
+      else if(typeof window.initCollapsibleSections==="function")window.initCollapsibleSections();
+    } catch(e) {
+      el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load settings: '+e.message+'</div>';
+    }
+  }
   async function loadAdminDbStatus() {
     var el=document.getElementById("adminDbStatus");
     if(!el)return;el.innerHTML="Loading...";
