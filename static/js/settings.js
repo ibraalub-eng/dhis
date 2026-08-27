@@ -22,77 +22,59 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         }
 
         function initCollapsibleSections() {
-            document.querySelectorAll('.settings-section').forEach(section => {
+            var sections = document.querySelectorAll('.settings-section');
+            for (var si = 0; si < sections.length; si++) {
+                var section = sections[si];
                 // Skip if already processed
-                if (section.querySelector('.settings-section-header')) return;
-                const h3s = section.querySelectorAll('h3');
-                if (h3s.length === 0) return; // Nothing to wrap
+                if (section.querySelector('.settings-section-header')) continue;
 
-                // Wrap each h3 and its following siblings into a collapsible.
-                // First section open by default, rest collapsed.
-                h3s.forEach((h3, i) => {
-                    const wrapper = document.createElement('div');
+                // Snapshot h3s into a real array (not live NodeList)
+                var h3list = section.querySelectorAll('h3');
+                var h3s = [];
+                for (var h = 0; h < h3list.length; h++) h3s.push(h3list[h]);
+                if (h3s.length === 0) continue;
+
+                // Process in REVERSE order so DOM changes don't affect earlier indices
+                for (var i = h3s.length - 1; i >= 0; i--) {
+                    var h3 = h3s[i];
+                    var wrapper = document.createElement('div');
                     wrapper.className = 'settings-collapsible' + (i === 0 ? ' open' : '');
                     wrapper.style.marginTop = i === 0 ? '0' : '0.6rem';
 
                     // Create clickable header with icon
-                    const icon = _findIcon(h3.textContent);
-                    const header = document.createElement('button');
+                    var icon = _findIcon(h3.textContent);
+                    var header = document.createElement('button');
                     header.className = 'settings-section-header';
-                    header.innerHTML = '<span class="section-icon">' + icon + '</span> ' + h3.innerHTML + '<span class="section-arrow">▶</span>';
-                    header.addEventListener('click', function() {
-                        wrapper.classList.toggle('open');
-                    });
+                    header.innerHTML = '<span class="section-icon">' + icon + '</span> ' + h3.innerHTML + '<span class="section-arrow">\u25B6</span>';
+                    (function(w) {
+                        header.addEventListener('click', function() {
+                            w.classList.toggle('open');
+                        });
+                    })(wrapper);
 
-                    // Wrap the h3 and its following siblings until next h3 or end
-                    h3.replaceWith(header);
+                    // Replace h3 with header in place
+                    h3.parentNode.replaceChild(header, h3);
                     wrapper.appendChild(header);
 
-                    // Collect siblings until next h3
-                    let next = header.nextElementSibling;
-                    const body = document.createElement('div');
+                    // Collect ALL following siblings into body
+                    var body = document.createElement('div');
                     body.className = 'settings-section-body';
-                    while (next && next.tagName !== 'H3' && !next.querySelector('h3')) {
-                        const el = next;
-                        next = next.nextElementSibling;
-                        body.appendChild(el);
+                    while (header.nextSibling) {
+                        body.appendChild(header.nextSibling);
                     }
                     wrapper.appendChild(body);
 
-                    // Insert before the next h3 or append to section
-                    if (next) {
-                        section.insertBefore(wrapper, next);
+                    // Insert wrapper at the beginning of section (since we're going reverse)
+                    if (section.firstChild) {
+                        section.insertBefore(wrapper, section.firstChild);
                     } else {
                         section.appendChild(wrapper);
                     }
-                });
-
-                // Second pass: wrap setting item groups in collapsible sub-panels
-                section.querySelectorAll('.settings-section-body').forEach(body => {
-                    // Find individual setting items (may be direct children or inside flex containers)
-                    const items = body.querySelectorAll('div[style*="bg-elevated"]');
-                    if (items.length < 2) return;
-                    items.forEach((item, idx) => {
-                        const label = item.querySelector('label');
-                        const title = label ? label.textContent.trim() : 'Setting ' + (idx + 1);
-                        const subWrap = document.createElement('div');
-                        subWrap.className = 'settings-sub-item' + (idx === 0 ? ' open' : '');
-                        const subHeader = document.createElement('button');
-                        subHeader.className = 'settings-sub-header';
-                        subHeader.innerHTML = '<span style="font-size:0.75rem;">▶</span> ' + title;
-                        subHeader.addEventListener('click', function() {
-                            subWrap.classList.toggle('open');
-                        });
-                        const subBody = document.createElement('div');
-                        subBody.className = 'settings-sub-body';
-                        subBody.appendChild(item.cloneNode(true));
-                        subWrap.appendChild(subHeader);
-                        subWrap.appendChild(subBody);
-                        item.replaceWith(subWrap);
-                    });
-                });
-            });
+                }
+            }
         }
+        // Expose for admin panel and other modules
+        window.initCollapsibleSections = initCollapsibleSections;
 
         // ── Rules Manager ─────────────────────────────────────────
         export let rulesManagerData = [];

@@ -893,10 +893,10 @@ window._adminAssignHospitals = function(id, btn) {
       var html=await resp.text();
       el.innerHTML=html;
       // Initialize collapsible sections after content is injected
-      setTimeout(function(){
+      requestAnimationFrame(function(){
         if(typeof window.initCollapsibleSections==="function")window.initCollapsibleSections();
         if(typeof window.loadAllSettings==="function")window.loadAllSettings();
-      }, 50);
+      });
     } catch(e) {
       el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load settings: '+e.message+'</div>';
     }
