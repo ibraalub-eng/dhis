@@ -1,5 +1,5 @@
 // geo-regional.js — map, governorate, and regional analysis for monthly mode.
-import { apiSmartGet, showSmartSectionError, showSmartSectionEmpty,
+import { apiSmartGet, setSmartLoader, showSmartSectionError, showSmartSectionEmpty,
          _smartEscapeHtml, _t, _fmtNum, _riskBadge } from './core.js';
 import { renderPlot, makeBarChart } from './charts.js';
 
@@ -8,8 +8,13 @@ export async function loadGeoSection(month, _retries) {
   try {
     const d = await apiSmartGet(`/smart/geo/${month}`);
     if (d.computing) {
-      if (_retries > 0) setTimeout(() => loadGeoSection(month, _retries - 1), 3000);
-      else showSmartSectionEmpty('geo', _t('Computation timed out'));
+      if (_retries > 0) {
+        setSmartLoader('geo', true);
+        setTimeout(() => loadGeoSection(month, _retries - 1), 3000);
+      } else {
+        setSmartLoader('geo', false);
+        showSmartSectionEmpty('geo', _t('Computation timed out'));
+      }
       return;
     }
     if (d.empty) { showSmartSectionEmpty('geo', d.message || _t('No data')); return; }

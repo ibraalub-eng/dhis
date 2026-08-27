@@ -1,5 +1,5 @@
 // advanced.js — heavy analytical sections (clusters, correlations, patterns, forecasts).
-import { smartState, apiSmartGet, setSmartLoader, showSmartSectionError,
+import { smartState, apiSmartGet, showSmartSectionError,
          showSmartSectionEmpty, clearSmartSectionState,
          _smartEscapeHtml, _t, _fmtNum, smartTranslateFeature } from './core.js';
 import { renderPlot, makeScatter, makeHeatmap, makeBarChart, makeLineChart } from './charts.js';
@@ -27,17 +27,13 @@ export function initAdvancedTabs() {
 
 async function fetchSection(path, key, _retries) {
   if (_retries === undefined) _retries = 0;
-  // Show spinner while fetching/computing
-  setSmartLoader(key, true);
   try {
     const res = await apiSmartGet(path);
     if (res && res.computing && _retries < 8) {
       showSmartSectionEmpty(key, _t('Computing analysis...') + ' (' + (_retries + 1) + '/8)');
-      setSmartLoader(key, true);
       await new Promise(r => setTimeout(r, 3000));
       return fetchSection(path, key, _retries + 1);
     }
-    setSmartLoader(key, false);
     if (res && res.empty) {
       showSmartSectionEmpty(key, res.message || _t('No data for this period. Upload data and try again.'));
     } else if (!res || res._error) {
@@ -47,7 +43,6 @@ async function fetchSection(path, key, _retries) {
     }
     return res;
   } catch (e) {
-    setSmartLoader(key, false);
     showSmartSectionError(key, e.message || _t('Network error. Please try again.'));
     return null;
   }

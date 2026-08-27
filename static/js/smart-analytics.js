@@ -76,8 +76,13 @@ async function loadAnomaliesTable(month, _retries) {
   try {
     const d = await apiSmartGet(`/smart/anomalies/${month}`);
     if (d.computing) {
-      if (_retries > 0) setTimeout(() => loadAnomaliesTable(month, _retries - 1), 3000);
-      else showSmartSectionEmpty('anomalies', _t('Computation timed out'));
+      if (_retries > 0) {
+        setSmartLoader('anomalies', true);
+        setTimeout(() => loadAnomaliesTable(month, _retries - 1), 3000);
+      } else {
+        setSmartLoader('anomalies', false);
+        showSmartSectionEmpty('anomalies', _t('Computation timed out'));
+      }
       return;
     }
     if (d.empty) { showSmartSectionEmpty('anomalies', d.message); return; }
@@ -100,8 +105,13 @@ async function loadTimeline(_retries) {
   try {
     const d = await apiSmartGet('/smart/anomaly-timeline');
     if (d.computing) {
-      if (_retries > 0) setTimeout(() => loadTimeline(_retries - 1), 3000);
-      else showSmartSectionEmpty('timeline', _t('Computation timed out'));
+      if (_retries > 0) {
+        setSmartLoader('timeline', true);
+        setTimeout(() => loadTimeline(_retries - 1), 3000);
+      } else {
+        setSmartLoader('timeline', false);
+        showSmartSectionEmpty('timeline', _t('Computation timed out'));
+      }
       return;
     }
     const months = d.months || [];
@@ -168,8 +178,13 @@ async function loadTimeOverview(_retries) {
   try {
     const d = await apiSmartGet('/smart/time-overview');
     if (d.computing) {
-      if (_retries > 0) setTimeout(() => loadTimeOverview(_retries - 1), 3000);
-      else showSmartSectionEmpty('time-overview', _t('Computation timed out'));
+      if (_retries > 0) {
+        setSmartLoader('time-overview', true);
+        setTimeout(() => loadTimeOverview(_retries - 1), 3000);
+      } else {
+        setSmartLoader('time-overview', false);
+        showSmartSectionEmpty('time-overview', _t('Computation timed out'));
+      }
       return;
     }
     if (d.empty) { showSmartSectionEmpty('time-overview', d.message); return; }
@@ -286,5 +301,12 @@ function initSmartAnalytics() {
   initSectionObserver();
   loadHospitals();
   loadMonths();
+  // Safety net: force-hide all smart loaders after 8 seconds so they never
+  // get stuck visible, even if a section loader's promise chain breaks.
+  setTimeout(() => {
+    ['anomalies','geo','advanced','xgboost','timeline','time-overview','hospital'].forEach(k => {
+      setSmartLoader(k, false);
+    });
+  }, 8000);
 }
 window.initSmartAnalytics = initSmartAnalytics;
