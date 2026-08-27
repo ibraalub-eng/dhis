@@ -13,6 +13,7 @@ from app.engine.smart import run_smart_analytics
 from app.engine.smart.schemas import SmartAnalyticsResult
 import threading
 from app.core.deps import require_permission
+from app.core.error_handler import safe_endpoint
 
 router = APIRouter(prefix="/smart", tags=["Smart Analytics"], dependencies=[Depends(require_permission("smart_analytics.read"))])
 
@@ -304,33 +305,26 @@ def _get_smart_data(db: Session, month: str) -> dict:
         },
     }
 @router.get("/months")
+@safe_endpoint("خطأ في قائمة الأشهر")
 def smart_months(db: Session = Depends(get_db)):
     """قائمة الأشهر المتاحة للتحليل الذكي (نفس مصدر analysis/months)."""
     from app.api.analysis import list_months_with_data
-    try:
-        return list_months_with_data(db)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطأ في قائمة الأشهر: {str(e)}")
+    return list_months_with_data(db)
 
 
 @router.get("/hospitals")
+@safe_endpoint("خطأ في قائمة المستشفيات")
 def smart_hospitals(db: Session = Depends(get_db)):
     """قائمة المستشفيات النشطة بصيغة {id, name} لاختيار وضع المستشفى."""
     from app.models import Hospital
-    try:
-        rows = db.query(Hospital).filter(Hospital.is_active == True).order_by(Hospital.name).all()  # noqa: E712
-        return [{"id": h.id, "name": h.name} for h in rows]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"خطأ في قائمة المستشفيات: {str(e)}")
+    rows = db.query(Hospital).filter(Hospital.is_active == True).order_by(Hospital.name).all()  # noqa: E712
+    return [{"id": h.id, "name": h.name} for h in rows]
 
 
 @router.get("/overview/{month}")
+@safe_endpoint("خطأ في التحليل", cache_keys=["smart_overview_{month}"])
 def get_overview(month: str, db: Session = Depends(get_db)):
-    try:
-        return _get_smart_data(db, month)
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}")
-        raise HTTPException(status_code=500, detail=f"خطأ في التحليل: {str(e)}")
+    return _get_smart_data(db, month)
 
 
 @router.get("/decision-board/{month}")
@@ -340,27 +334,23 @@ def get_decision_board(month: str, db: Session = Depends(get_db)):
     تُشتق من مذكّرة الشهر المشتركة (_get_smart_data) بلا إعادة حساب؛ يعرض فقط
     ما يحتاجه القرار الفوري. الشهر الخالي يُرجع empty مع رسالة عربية.
     """
-    try:
-        envelope = _get_smart_data(db, month)
-        if envelope.get("computing"):
-            return {"computing": True, "message": "جاري التحليل...", "month": month}
-        if envelope["hospitals_count"] == 0:
-            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
-        data = envelope["data"]
-        order = {"critical": 0, "warning": 1, "normal": 2}
-        anomalies = sorted(data["anomalies"], key=lambda a: (order.get(a["severity"], 2), -a["anomaly_score"]))
-        return _sanitize({
-            "month": month,
-            "generated_at": envelope["generated_at"],
-            "hospitals_count": envelope["hospitals_count"],
-            "kpi": data["kpi"],
-            "anomalies": anomalies,
-            "early_warnings": data.get("early_warnings", []),
-            "healthy_hospitals": data.get("healthy_hospitals", []),
-        })
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في لوحة القرار: {str(e)}")
+    envelope = _get_smart_data(db, month)
+    if envelope.get("computing"):
+        return {"computing": True, "message": "جاري التحليل...", "month": month}
+    if envelope["hospitals_count"] == 0:
+        return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+    data = envelope["data"]
+    order = {"critical": 0, "warning": 1, "normal": 2}
+    anomalies = sorted(data["anomalies"], key=lambda a: (order.get(a["severity"], 2), -a["anomaly_score"]))
+    return _sanitize({
+        "month": month,
+        "generated_at": envelope["generated_at"],
+        "hospitals_count": envelope["hospitals_count"],
+        "kpi": data["kpi"],
+        "anomalies": anomalies,
+        "early_warnings": data.get("early_warnings", []),
+        "healthy_hospitals": data.get("healthy_hospitals", []),
+    })
 
 
 @router.get("/governorate-analysis/{month}")
@@ -384,205 +374,162 @@ def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
     return result
 
 
+
+def _section_response(db, month, data_key, resp_key=None):
+    """Shared logic for section endpoints that extract one key from the smart envelope.
+
+    Returns the envelope (computing/empty) or a section-specific response.
+    Raises HTTPException on unexpected errors.
+    """
+    result = _get_envelope_or_empty(db, month)
+    if "empty" in result or "computing" in result:
+        if data_key and data_key not in result.get("data", {}):
+            result.setdefault(data_key, {})
+        return result
+    return {"month": month, (resp_key or data_key): result["data"][data_key]}
+
+
 @router.get("/anomalies/{month}")
+@safe_endpoint("خطأ في تحليل الشذوذ", cache_keys=["smart_overview_{month}"])
 def get_anomalies(month: str, db: Session = Depends(get_db)):
-    try:
-        result = _get_envelope_or_empty(db, month)
-        if "empty" in result or "computing" in result:
-            return result
-        data = result["data"]
-        response = {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
-        return response
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الشذوذ: {str(e)}")
+    result = _get_envelope_or_empty(db, month)
+    if "empty" in result or "computing" in result:
+        return result
+    data = result["data"]
+    return {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
 
 
 @router.get("/clusters/{month}")
+@safe_endpoint("خطأ في تحليل التجمعات", cache_keys=["smart_overview_{month}"])
 def get_clusters(month: str, db: Session = Depends(get_db)):
-    try:
-        result = _get_envelope_or_empty(db, month)
-        if "empty" in result or "computing" in result:
-            return result
-        response = {"month": month, "clustering": result["data"]["clustering"]}
-        return response
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل التجمعات: {str(e)}")
+    return _section_response(db, month, "clustering")
 
 
 @router.get("/correlations/{month}")
+@safe_endpoint("خطأ في تحليل الارتباطات", cache_keys=["smart_overview_{month}"])
 def get_correlations(month: str, db: Session = Depends(get_db)):
-    try:
-        result = _get_envelope_or_empty(db, month)
-        if "empty" in result or "computing" in result:
-            return result
-        response = {"month": month, "correlations": result["data"]["correlations"]}
-        return response
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الارتباطات: {str(e)}")
+    return _section_response(db, month, "correlations")
 
 
 @router.get("/residuals/{month}")
+@safe_endpoint("خطأ في تحليل البواقي", cache_keys=["smart_overview_{month}"])
 def get_residuals(month: str, db: Session = Depends(get_db)):
-    try:
-        result = _get_envelope_or_empty(db, month)
-        if "empty" in result or "computing" in result:
-            return result
-        response = {"month": month, "residuals": result["data"]["residuals"]}
-        return response
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل البواقي: {str(e)}")
+    return _section_response(db, month, "residuals")
 
 
 @router.get("/stratified/{month}")
+@safe_endpoint("خطأ في التحليل الطبقي", cache_keys=["smart_overview_{month}"])
 def get_stratified(month: str, db: Session = Depends(get_db)):
-    try:
-        result = _get_envelope_or_empty(db, month)
-        if "empty" in result or "computing" in result:
-            return result
-        response = {"month": month, "stratified": result["data"]["stratified"]}
-        return response
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الطبقي: {str(e)}")
+    return _section_response(db, month, "stratified")
 
 
 @router.get("/geo/{month}")
+@safe_endpoint("خطأ في تحليل الجغرافي", cache_keys=["smart_overview_{month}"])
 def get_geo(month: str, db: Session = Depends(get_db)):
-    try:
-        result = _get_envelope_or_empty(db, month)
-        if "empty" in result or "computing" in result:
-            return result
-        response = {"month": month, "geo": result["data"]["geo"]}
-        return response
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الجغرافي: {str(e)}")
+    return _section_response(db, month, "geo")
 
 
 @router.get("/patterns/{month}")
+@safe_endpoint("خطأ في تحليل الأنماط", cache_keys=["smart_overview_{month}"])
 def get_patterns(month: str, db: Session = Depends(get_db)):
-    try:
-        data = _get_smart_data(db, month)["data"]
-        return {"month": month, "patterns": data.get("patterns", [])}
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الأنماط: {str(e)}")
+    data = _get_smart_data(db, month)["data"]
+    return {"month": month, "patterns": data.get("patterns", [])}
 
 
 @router.get("/lag-analysis/{month}")
+@safe_endpoint("خطأ في تحليل العلاقات المتأخرة", cache_keys=["smart_overview_{month}"])
 def get_lag_analysis(month: str, db: Session = Depends(get_db)):
-    try:
-        result = _get_envelope_or_empty(db, month)
-        if "empty" in result or "computing" in result:
-            result.setdefault("lag_analysis", {})
-            return result
-        return {"month": month, "lag_analysis": result["data"].get("lag_analysis", {})}
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل العلاقات المتأخرة: {str(e)}")
+    result = _get_envelope_or_empty(db, month)
+    if "empty" in result or "computing" in result:
+        result.setdefault("lag_analysis", {})
+        return result
+    return {"month": month, "lag_analysis": result["data"].get("lag_analysis", {})}
 
 
 @router.get("/xgboost/{month}")
+@safe_endpoint("خطأ في تحليل التنبؤات", cache_keys=["smart_overview_{month}"])
 def get_xgboost(month: str, db: Session = Depends(get_db)):
-    try:
-        data = _get_smart_data(db, month)["data"]
-        xgb = data.get("xgboost")
-        if not xgb or not xgb.get("predictions"):
-            return {"month": month, "empty": True,
-                    "message": "لا توجد تنبؤات كافية لهذا الشهر", "xgboost": None}
-        return {"month": month, "xgboost": xgb}
-    except Exception as e:
-        cache.invalidate(f"smart_overview_{month}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل التنبؤات: {str(e)}")
+    data = _get_smart_data(db, month)["data"]
+    xgb = data.get("xgboost")
+    if not xgb or not xgb.get("predictions"):
+        return {"month": month, "empty": True,
+                "message": "لا توجد تنبؤات كافية لهذا الشهر", "xgboost": None}
+    return {"month": month, "xgboost": xgb}
 
 
 @router.get("/trend/{hospital_id}")
+@safe_endpoint("خطأ في تحليل الاتجاه", cache_keys=["smart_trend_{hospital_id}"])
 def get_trend(hospital_id: int, db: Session = Depends(get_db)):
     cache_key = f"smart_trend_{hospital_id}_{SMART_CACHE_VERSION}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    try:
-        from app.models import Hospital
-        hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-        if not hospital:
-            raise HTTPException(status_code=404, detail="Hospital not found")
-        from app.models import QualityScore
-        months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
-        trend_data = []
-        for m in months:
-            try:
-                data = _get_smart_data(db, m)["data"]
-                hospital_anomaly = next(
-                    (a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None
-                )
-                if hospital_anomaly:
-                    trend_data.append({
-                        "month": m,
-                        "anomaly_score": hospital_anomaly["anomaly_score"],
-                        "severity": hospital_anomaly["severity"],
-                        "method_scores": hospital_anomaly["method_scores"],
-                    })
-            except Exception:
-                logger.warning(f"Failed to load trend data for month {m}")
-                continue
-        response = _sanitize({
-            "hospital_id": hospital_id,
-            "hospital_name": hospital.name,
-            "trend": trend_data,
-        })
-        cache.set(cache_key, response, ttl=1800)
-        return response
-    except HTTPException:
-        raise
-    except Exception as e:
-        cache.invalidate(f"smart_trend_{hospital_id}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الاتجاه: {str(e)}")
+    from app.models import Hospital
+    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+    from app.models import QualityScore
+    months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
+    trend_data = []
+    for m in months:
+        try:
+            data = _get_smart_data(db, m)["data"]
+            hospital_anomaly = next(
+                (a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None
+            )
+            if hospital_anomaly:
+                trend_data.append({
+                    "month": m,
+                    "anomaly_score": hospital_anomaly["anomaly_score"],
+                    "severity": hospital_anomaly["severity"],
+                    "method_scores": hospital_anomaly["method_scores"],
+                })
+        except Exception:
+            logger.warning(f"Failed to load trend data for month {m}")
+            continue
+    response = _sanitize({
+        "hospital_id": hospital_id,
+        "hospital_name": hospital.name,
+        "trend": trend_data,
+    })
+    cache.set(cache_key, response, ttl=1800)
+    return response
 
 
 @router.get("/drilldown/{hospital_id}/{month}")
+@safe_endpoint("خطأ في تحليل المستشفى", cache_keys=["smart_drilldown_{hospital_id}"])
 def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
     cache_key = f"smart_drilldown_{hospital_id}_{month}_{SMART_CACHE_VERSION}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    try:
-        from app.models import Hospital
-        hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-        if not hospital:
-            raise HTTPException(status_code=404, detail="Hospital not found")
-        if month == "all":
-            response = _get_drilldown_all_months(db, hospital_id, hospital)
-            cache.set(cache_key, response, ttl=1800)
-            return response
-        data = _get_smart_data(db, month)["data"]
-        anomaly = next((a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None)
-        explanation = next((e for e in data["explanations"] if e["hospital_id"] == hospital_id), None)
-        residuals = [r for r in data["residuals"] if r["hospital_id"] == hospital_id]
-        stratified = [s for s in data["stratified"] if s["hospital_id"] == hospital_id]
-        from app.engine.smart.lag_analysis import run_hospital_forecast
-        forecast = run_hospital_forecast(db, hospital_id, month, data.get("lag_analysis"))
-        response = _sanitize({
-            "hospital_id": hospital_id,
-            "hospital_name": hospital.name,
-            "month": month,
-            "anomaly": anomaly,
-            "explanation": explanation,
-            "residuals": residuals,
-            "stratified": stratified,
-            "forecast": _sanitize(forecast) if forecast else {},
-        })
+    from app.models import Hospital
+    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hospital:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+    if month == "all":
+        response = _get_drilldown_all_months(db, hospital_id, hospital)
         cache.set(cache_key, response, ttl=1800)
         return response
-    except HTTPException:
-        raise
-    except Exception as e:
-        cache.invalidate(f"smart_drilldown_{hospital_id}_")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل المستشفى: {str(e)}")
+    data = _get_smart_data(db, month)["data"]
+    anomaly = next((a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None)
+    explanation = next((e for e in data["explanations"] if e["hospital_id"] == hospital_id), None)
+    residuals = [r for r in data["residuals"] if r["hospital_id"] == hospital_id]
+    stratified = [s for s in data["stratified"] if s["hospital_id"] == hospital_id]
+    from app.engine.smart.lag_analysis import run_hospital_forecast
+    forecast = run_hospital_forecast(db, hospital_id, month, data.get("lag_analysis"))
+    response = _sanitize({
+        "hospital_id": hospital_id,
+        "hospital_name": hospital.name,
+        "month": month,
+        "anomaly": anomaly,
+        "explanation": explanation,
+        "residuals": residuals,
+        "stratified": stratified,
+        "forecast": _sanitize(forecast) if forecast else {},
+    })
+    cache.set(cache_key, response, ttl=1800)
+    return response
 
 
 def _get_drilldown_all_months(db, hospital_id, hospital):
@@ -615,94 +562,88 @@ def _get_drilldown_all_months(db, hospital_id, hospital):
 
 
 @router.get("/anomaly-timeline")
+@safe_endpoint("خطأ في تحليل الخط الزمني")
 def get_anomaly_timeline(db: Session = Depends(get_db)):
     """تطور درجات الشذوذ عبر الأشهر لكل المستشفيات (لرسم متحرك)."""
-    try:
-        cache_key = f"smart_timeline_{SMART_CACHE_VERSION}"
-        cached = cache.get(cache_key)
-        if cached:
-            return cached
+    cache_key = f"smart_timeline_{SMART_CACHE_VERSION}"
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
 
-        from app.models import QualityScore
-        months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
+    from app.models import QualityScore
+    months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
 
-        hospital_map = {}
-        for m in months:
-            envelope = _get_smart_data(db, m)
-            # Skip months where computation is still in progress
-            if envelope.get("computing") or envelope.get("hospitals_count", 0) == 0:
-                continue
-            data = envelope["data"]
-            for a in data["anomalies"]:
-                if a["hospital_id"] not in hospital_map:
-                    hospital_map[a["hospital_id"]] = {
-                        "hospital_id": a["hospital_id"],
-                        "hospital_name": a["hospital_name"],
-                        "scores": {},
-                        "severities": {},
-                    }
-                hospital_map[a["hospital_id"]]["scores"][m] = a["anomaly_score"]
-                hospital_map[a["hospital_id"]]["severities"][m] = a["severity"]
+    hospital_map = {}
+    for m in months:
+        envelope = _get_smart_data(db, m)
+        # Skip months where computation is still in progress
+        if envelope.get("computing") or envelope.get("hospitals_count", 0) == 0:
+            continue
+        data = envelope["data"]
+        for a in data["anomalies"]:
+            if a["hospital_id"] not in hospital_map:
+                hospital_map[a["hospital_id"]] = {
+                    "hospital_id": a["hospital_id"],
+                    "hospital_name": a["hospital_name"],
+                    "scores": {},
+                    "severities": {},
+                }
+            hospital_map[a["hospital_id"]]["scores"][m] = a["anomaly_score"]
+            hospital_map[a["hospital_id"]]["severities"][m] = a["severity"]
 
-        hospitals = sorted(hospital_map.values(), key=lambda h: h["hospital_name"])
-        # Filter months to only those that have data
-        populated_months = sorted(set(m for h in hospital_map.values() for m in h["scores"]))
-        response = _sanitize({"months": populated_months or months, "hospitals": hospitals})
-        cache.set(cache_key, response, ttl=1800)
-        return response
-    except Exception as e:
-        cache.invalidate("smart_timeline")
-        raise HTTPException(status_code=500, detail=f"خطأ في تحليل الخط الزمني: {str(e)}")
+    hospitals = sorted(hospital_map.values(), key=lambda h: h["hospital_name"])
+    # Filter months to only those that have data
+    populated_months = sorted(set(m for h in hospital_map.values() for m in h["scores"]))
+    response = _sanitize({"months": populated_months or months, "hospitals": hospitals})
+    cache.set(cache_key, response, ttl=1800)
+    return response
 
 
 @router.get("/time-overview")
+@safe_endpoint("خطأ في التحليل الزمني")
 def get_time_overview(db: Session = Depends(get_db)):
     """نظرة زمنية عبر الأشهر: تطور متوسط الدرجة وتوزيع الشدة والمحافظات المتأثرة.
 
     يُبني من مذكّرات الشهور المخزّنة (نفس مصدر anomaly-timeline) وتُخزَّن
     النتيجة مؤقتاً كاملة تحت مفتاح معنوَّن بالإصدار.
     """
-    try:
-        cache_key = f"smart_time_overview_{SMART_CACHE_VERSION}"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
+    cache_key = f"smart_time_overview_{SMART_CACHE_VERSION}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
 
-        from app.models import QualityScore
-        months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
-        if not months:
-            response = {"empty": True, "message": "لا توجد بيانات بعد", "months": []}
-            cache.set(cache_key, response, ttl=1800)
-            return response
-
-        series = {
-            "avg_score": [], "critical_count": [], "warning_count": [],
-            "affected_governorates": [],
-        }
-        populated_months = []
-        for m in months:
-            envelope = _get_smart_data(db, m)
-            # Skip months where computation is still in progress or no data
-            if envelope.get("computing") or envelope.get("hospitals_count", 0) == 0:
-                continue
-            data = envelope["data"]
-            kpi = data.get("kpi", {})
-            anomalies = data.get("anomalies", [])
-            avg = round(sum(a["anomaly_score"] for a in anomalies) / len(anomalies), 3) if anomalies else 0.0
-            series["avg_score"].append({"month": m, "value": avg})
-            series["critical_count"].append({"month": m, "value": kpi.get("critical_count", 0)})
-            series["warning_count"].append({"month": m, "value": kpi.get("warning_count", 0)})
-            series["affected_governorates"].append({"month": m, "value": kpi.get("affected_governorates", 0)})
-            populated_months.append(m)
-
-        if not populated_months:
-            return {"empty": True, "message": "جاري التحليل... أعد المحاولة بعد قليل", "months": months}
-        response = _sanitize({"months": populated_months, "series": series})
+    from app.models import QualityScore
+    months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
+    if not months:
+        response = {"empty": True, "message": "لا توجد بيانات بعد", "months": []}
         cache.set(cache_key, response, ttl=1800)
         return response
-    except Exception as e:
-        cache.invalidate("smart_time_overview_")
-        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الزمني: {str(e)}")
+
+    series = {
+        "avg_score": [], "critical_count": [], "warning_count": [],
+        "affected_governorates": [],
+    }
+    populated_months = []
+    for m in months:
+        envelope = _get_smart_data(db, m)
+        # Skip months where computation is still in progress or no data
+        if envelope.get("computing") or envelope.get("hospitals_count", 0) == 0:
+            continue
+        data = envelope["data"]
+        kpi = data.get("kpi", {})
+        anomalies = data.get("anomalies", [])
+        avg = round(sum(a["anomaly_score"] for a in anomalies) / len(anomalies), 3) if anomalies else 0.0
+        series["avg_score"].append({"month": m, "value": avg})
+        series["critical_count"].append({"month": m, "value": kpi.get("critical_count", 0)})
+        series["warning_count"].append({"month": m, "value": kpi.get("warning_count", 0)})
+        series["affected_governorates"].append({"month": m, "value": kpi.get("affected_governorates", 0)})
+        populated_months.append(m)
+
+    if not populated_months:
+        return {"empty": True, "message": "جاري التحليل... أعد المحاولة بعد قليل", "months": months}
+    response = _sanitize({"months": populated_months, "series": series})
+    cache.set(cache_key, response, ttl=1800)
+    return response
 
 
 @router.post("/run/{month}")

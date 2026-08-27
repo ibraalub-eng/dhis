@@ -5,6 +5,7 @@ from app.models import Hospital, QualityScore, ConfidenceScore
 from app.engine.root_cause import generate_root_cause_analysis, get_historical_data, get_peer_historical_data
 from app.engine.pipeline import run_full_analysis
 from app.core.deps import require_permission
+from app.core.error_handler import safe_endpoint
 import json
 
 router = APIRouter(prefix="/root-cause", tags=["root-cause"], dependencies=[Depends(require_permission("root_cause.read"))])

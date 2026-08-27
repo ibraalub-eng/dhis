@@ -15,6 +15,7 @@ from app.cache import cache
 from app.database import get_db
 from app.engine.smart.regional import run_regional_analysis
 from app.core.deps import require_permission
+from app.core.error_handler import safe_endpoint
 
 router = APIRouter(prefix="/regional", tags=["Regional Intelligence"], dependencies=[Depends(require_permission("smart_analytics.read"))])
 
@@ -45,32 +46,23 @@ def _get_regional_data(db: Session, month: str, months_back: int = 6) -> dict:
 
 
 @router.get("/overview/{month}")
+@safe_endpoint("خطأ في التحليل الإقليمي", cache_keys=["regional_{month}_{months_back}"])
 def get_regional_overview(month: str, months_back: int = 6, db: Session = Depends(get_db)):
-    try:
-        return _get_regional_data(db, month, months_back=months_back)
-    except Exception as e:
-        cache.invalidate(f"regional_{month}_{months_back}")
-        raise HTTPException(status_code=500, detail=f"خطأ في التحليل الإقليمي: {str(e)}")
+    return _get_regional_data(db, month, months_back=months_back)
 
 
 @router.get("/governorates/{month}")
+@safe_endpoint("خطأ في مقارنة المحافظات", cache_keys=["regional_{month}_6"])
 def get_regional_governorates(month: str, db: Session = Depends(get_db)):
-    try:
-        data = _get_regional_data(db, month)
-        return {"month": month, "governorates": data.get("governorates", []),
-                "benchmarks": data.get("benchmarks", {}),
-                "mortality": data.get("mortality", [])}
-    except Exception as e:
-        cache.invalidate(f"regional_{month}_6")
-        raise HTTPException(status_code=500, detail=f"خطأ في مقارنة المحافظات: {str(e)}")
+    data = _get_regional_data(db, month)
+    return {"month": month, "governorates": data.get("governorates", []),
+            "benchmarks": data.get("benchmarks", {}),
+            "mortality": data.get("mortality", [])}
 
 
 @router.get("/trends/{month}")
+@safe_endpoint("خطأ في الاتجاهات الإقليمية", cache_keys=["regional_{month}_{months_back}"])
 def get_regional_trends(month: str, months_back: int = 6, db: Session = Depends(get_db)):
-    try:
-        data = _get_regional_data(db, month, months_back=months_back)
-        return {"month": month, "trends": data.get("trends", []),
-                "months_back": months_back}
-    except Exception as e:
-        cache.invalidate(f"regional_{month}_{months_back}")
-        raise HTTPException(status_code=500, detail=f"خطأ في الاتجاهات الإقليمية: {str(e)}")
+    data = _get_regional_data(db, month, months_back=months_back)
+    return {"month": month, "trends": data.get("trends", []),
+            "months_back": months_back}
