@@ -37,6 +37,16 @@ export async function loadDecisionBoard(month) {
   const data = await apiSmartGet(`/smart/decision-board/${month}`);
   smartState.month = month;
   smartState.data = data; // CRIT-2: KPI modals must be able to read the board payload
+  if (data.computing) {
+    // Backend is computing in background — show spinner and poll
+    const status = document.getElementById('smart-status');
+    if (status) status.textContent = data.message || _t('Computing...');
+    const c = document.getElementById('smart-kpi-container');
+    if (c) c.innerHTML = `<div class="smart-empty-state"><span class="spinner"></span> ${_smartEscapeHtml(data.message || _t('Computing...'))}</div>`;
+    // Poll every 3 seconds, max 60 seconds
+    _pollDecisionBoard(month, 20);
+    return;
+  }
   if (data.empty) {
     const status = document.getElementById('smart-status');
     if (status) status.textContent = data.message || _t('No data for this month');
@@ -279,3 +289,29 @@ window._smartKPIStatus = function() {
     </div>
   </div>`);
 };
+
+// Poll for decision-board data while backend is computing.
+let _pollTimer = null;
+function _pollDecisionBoard(month, retries) {
+  if (_pollTimer) clearTimeout(_pollTimer);
+  if (retries <= 0) {
+    const status = document.getElementById('smart-status');
+    if (status) status.textContent = _t('Computation timed out');
+    const c = document.getElementById('smart-kpi-container');
+    if (c) c.innerHTML = `<div class="smart-empty-state">${_t('Computation timed out. Please try again.')}</div>`;
+    return;
+  }
+  _pollTimer = setTimeout(async () => {
+    try {
+      const data = await apiSmartGet(`/smart/decision-board/${month}`);
+      if (data.computing) {
+        _pollDecisionBoard(month, retries - 1);
+        return;
+      }
+      // Data ready — re-run loadDecisionBoard with real data
+      await loadDecisionBoard(month);
+    } catch (e) {
+      _pollDecisionBoard(month, retries - 1);
+    }
+  }, 3000);
+}

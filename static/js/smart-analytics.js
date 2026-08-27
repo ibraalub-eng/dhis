@@ -71,9 +71,15 @@ registerSectionLoaders({
   hospital: { load: () => { const v = getSelectedHospital(); return v ? loadHospitalMode(v, null) : Promise.resolve(); } },
 });
 
-async function loadAnomaliesTable(month) {
+async function loadAnomaliesTable(month, _retries) {
+  _retries = _retries == null ? 10 : _retries;
   try {
     const d = await apiSmartGet(`/smart/anomalies/${month}`);
+    if (d.computing) {
+      if (_retries > 0) setTimeout(() => loadAnomaliesTable(month, _retries - 1), 3000);
+      else showSmartSectionEmpty('anomalies', _t('Computation timed out'));
+      return;
+    }
     if (d.empty) { showSmartSectionEmpty('anomalies', d.message); return; }
     const rows = d.anomalies.map(a => `<tr>
       <td>${_smartEscapeHtml(a.hospital_name)}</td>

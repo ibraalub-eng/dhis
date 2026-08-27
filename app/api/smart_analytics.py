@@ -19,6 +19,16 @@ router = APIRouter(prefix="/smart", tags=["Smart Analytics"], dependencies=[Depe
 SMART_CACHE_VERSION = "v3"
 
 
+def _get_envelope_or_empty(db: Session, month: str) -> dict:
+    """Common pre-check: returns envelope, or None if computing/empty."""
+    envelope = _get_smart_data(db, month)
+    if envelope.get("computing"):
+        return {"computing": True, "message": "جاري التحليل...", "month": month}
+    if envelope["hospitals_count"] == 0:
+        return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+    return envelope
+
+
 def _sanitize(obj):
     if isinstance(obj, np.integer):
         return int(obj)
@@ -318,6 +328,8 @@ def get_decision_board(month: str, db: Session = Depends(get_db)):
     """
     try:
         envelope = _get_smart_data(db, month)
+        if envelope.get("computing"):
+            return {"computing": True, "message": "جاري التحليل...", "month": month}
         if envelope["hospitals_count"] == 0:
             return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
         data = envelope["data"]
@@ -361,10 +373,10 @@ def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
 @router.get("/anomalies/{month}")
 def get_anomalies(month: str, db: Session = Depends(get_db)):
     try:
-        envelope = _get_smart_data(db, month)
-        if envelope["hospitals_count"] == 0:
-            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
-        data = envelope["data"]
+        result = _get_envelope_or_empty(db, month)
+        if "empty" in result or "computing" in result:
+            return result
+        data = result["data"]
         response = {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
         return response
     except Exception as e:
@@ -375,10 +387,10 @@ def get_anomalies(month: str, db: Session = Depends(get_db)):
 @router.get("/clusters/{month}")
 def get_clusters(month: str, db: Session = Depends(get_db)):
     try:
-        envelope = _get_smart_data(db, month)
-        if envelope["hospitals_count"] == 0:
-            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
-        response = {"month": month, "clustering": envelope["data"]["clustering"]}
+        result = _get_envelope_or_empty(db, month)
+        if "empty" in result or "computing" in result:
+            return result
+        response = {"month": month, "clustering": result["data"]["clustering"]}
         return response
     except Exception as e:
         cache.invalidate(f"smart_overview_{month}_")
@@ -388,10 +400,10 @@ def get_clusters(month: str, db: Session = Depends(get_db)):
 @router.get("/correlations/{month}")
 def get_correlations(month: str, db: Session = Depends(get_db)):
     try:
-        envelope = _get_smart_data(db, month)
-        if envelope["hospitals_count"] == 0:
-            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
-        response = {"month": month, "correlations": envelope["data"]["correlations"]}
+        result = _get_envelope_or_empty(db, month)
+        if "empty" in result or "computing" in result:
+            return result
+        response = {"month": month, "correlations": result["data"]["correlations"]}
         return response
     except Exception as e:
         cache.invalidate(f"smart_overview_{month}_")
@@ -401,10 +413,10 @@ def get_correlations(month: str, db: Session = Depends(get_db)):
 @router.get("/residuals/{month}")
 def get_residuals(month: str, db: Session = Depends(get_db)):
     try:
-        envelope = _get_smart_data(db, month)
-        if envelope["hospitals_count"] == 0:
-            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
-        response = {"month": month, "residuals": envelope["data"]["residuals"]}
+        result = _get_envelope_or_empty(db, month)
+        if "empty" in result or "computing" in result:
+            return result
+        response = {"month": month, "residuals": result["data"]["residuals"]}
         return response
     except Exception as e:
         cache.invalidate(f"smart_overview_{month}_")
@@ -414,10 +426,10 @@ def get_residuals(month: str, db: Session = Depends(get_db)):
 @router.get("/stratified/{month}")
 def get_stratified(month: str, db: Session = Depends(get_db)):
     try:
-        envelope = _get_smart_data(db, month)
-        if envelope["hospitals_count"] == 0:
-            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
-        response = {"month": month, "stratified": envelope["data"]["stratified"]}
+        result = _get_envelope_or_empty(db, month)
+        if "empty" in result or "computing" in result:
+            return result
+        response = {"month": month, "stratified": result["data"]["stratified"]}
         return response
     except Exception as e:
         cache.invalidate(f"smart_overview_{month}_")
@@ -427,10 +439,10 @@ def get_stratified(month: str, db: Session = Depends(get_db)):
 @router.get("/geo/{month}")
 def get_geo(month: str, db: Session = Depends(get_db)):
     try:
-        envelope = _get_smart_data(db, month)
-        if envelope["hospitals_count"] == 0:
-            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
-        response = {"month": month, "geo": envelope["data"]["geo"]}
+        result = _get_envelope_or_empty(db, month)
+        if "empty" in result or "computing" in result:
+            return result
+        response = {"month": month, "geo": result["data"]["geo"]}
         return response
     except Exception as e:
         cache.invalidate(f"smart_overview_{month}_")
@@ -450,11 +462,11 @@ def get_patterns(month: str, db: Session = Depends(get_db)):
 @router.get("/lag-analysis/{month}")
 def get_lag_analysis(month: str, db: Session = Depends(get_db)):
     try:
-        envelope = _get_smart_data(db, month)
-        if envelope["hospitals_count"] == 0:
-            return {"empty": True, "message": "لا توجد بيانات لهذا الشهر",
-                    "month": month, "lag_analysis": {}}
-        return {"month": month, "lag_analysis": envelope["data"].get("lag_analysis", {})}
+        result = _get_envelope_or_empty(db, month)
+        if "empty" in result or "computing" in result:
+            result.setdefault("lag_analysis", {})
+            return result
+        return {"month": month, "lag_analysis": result["data"].get("lag_analysis", {})}
     except Exception as e:
         cache.invalidate(f"smart_overview_{month}_")
         raise HTTPException(status_code=500, detail=f"خطأ في تحليل العلاقات المتأخرة: {str(e)}")
