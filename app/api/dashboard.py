@@ -6,7 +6,7 @@ from app.database import get_db
 from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult
 from sqlalchemy import func, text
 from app.engine.pipeline import get_enabled_values_for_hospital_month
-from app.core.deps import require_permission
+from app.core.deps import require_permission, get_user_hospital_ids
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(require_permission("dashboard.read"))])
 
@@ -26,18 +26,26 @@ def dashboard_overview(
     month_to: str | None = None,
     year: str | None = None,
     db: Session = Depends(get_db),
+    user=Depends(require_permission("dashboard.read")),
 ):
+    # Filter by user's assigned hospitals
+    user_hosp_ids = get_user_hospital_ids(user, db)
     from app.api.analysis import get_enabled_months
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
     # Filter hospitals by active status
-    total_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).count()
+    hosp_q = db.query(Hospital).filter(Hospital.is_active.is_(True))
+    if user_hosp_ids is not None:
+        hosp_q = hosp_q.filter(Hospital.id.in_(user_hosp_ids))
+    total_hospitals = hosp_q.count()
 
     # Count reports only for enabled months.
     # NOTE: Query.distinct(col1, col2) emits PostgreSQL-only DISTINCT ON which is
     # silently ignored on SQLite (inflating the count with duplicate rows). Use a
     # portable subquery on the (hospital_id, month) pair instead.
     reports_q = db.query(QualityScore.hospital_id, QualityScore.month).distinct()
+    if user_hosp_ids is not None:
+        reports_q = reports_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         reports_q = reports_q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:

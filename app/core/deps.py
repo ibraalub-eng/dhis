@@ -43,3 +43,21 @@ def require_permission(codename: str):
         return user
 
     return checker
+
+
+def get_user_hospital_ids(user, db: Session) -> list[int] | None:
+    """Return the list of hospital IDs a user is restricted to.
+
+    Returns:
+        None — user is superadmin or has no restriction (see all hospitals)
+        [] — user explicitly assigned zero hospitals (should see nothing, treat as all)
+        [1, 2, 3] — user restricted to these hospital IDs
+    """
+    if getattr(user, 'is_superuser', False):
+        return None
+    from app.models import user_hospitals as _uh
+    from sqlalchemy import select as _sel
+    assigned = [row[0] for row in db.execute(
+        _sel(_uh.c.hospital_id).where(_uh.c.user_id == user.id)
+    ).fetchall()]
+    return assigned if assigned else None  # empty list means no restriction

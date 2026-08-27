@@ -4,7 +4,7 @@ from sqlalchemy import func, case
 from typing import Optional
 from app.database import get_db
 from app.models import Hospital, ValidationResult, AnomalyResult
-from app.core.deps import require_permission
+from app.core.deps import require_permission, get_user_hospital_ids
 
 router = APIRouter(prefix="/alerts", tags=["alerts"], dependencies=[Depends(require_permission("alerts.read"))])
 
@@ -32,6 +32,8 @@ def alerts_overview(
     db: Session = Depends(get_db),
 ):
     q = db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
+    if user_hosp_ids is not None:
+        q = q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:
         q = q.filter(ValidationResult.month == month)
     if hospital_id:

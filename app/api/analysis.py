@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from app.schemas import (
     HistoricalAnalysisOut, HospitalComparisonOut,
 )
-from app.core.deps import require_permission
+from app.core.deps import require_permission, get_user_hospital_ids
 import json
 import logging
 
