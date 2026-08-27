@@ -57,9 +57,13 @@ export function loadClustersTab(month) {
   return fetchSection(`/smart/clusters/${month}`, 'advanced').then(d => {
     if (!d || d.empty) return;
     const clustering = d.clustering || {};
-    const points = clustering.points || [];
-    renderClusterScatter(points, clustering.labels || [], clustering.features || []);
-    renderClusterProfiles(clustering.profiles || []);
+    // Backend returns pca_coordinates as [[x,y],...] and clusters as [{cluster_id, hospital_name},...]
+    const points = clustering.pca_coordinates || [];
+    const clusterDetails = clustering.clusters || [];
+    // Build labels array aligned with points by hospital order
+    const labels = clusterDetails.map(c => c.cluster_id);
+    renderClusterScatter(points, labels, clustering.features || ['PC1', 'PC2']);
+    renderClusterProfiles(clustering.profiles || [], clustering);
   });
 }
 
@@ -67,7 +71,16 @@ export function loadCorrelationsTab(month) {
   return fetchSection(`/smart/correlations/${month}`, 'advanced').then(d => {
     if (!d || d.empty) return;
     const corr = d.correlations || {};
-    renderCorrelationHeatmap(corr.matrix || [], corr.features || []);
+    // Backend returns indicators (not features) and dict-of-dicts matrix
+    const indicators = corr.indicators || [];
+    const rawMatrix = corr.matrix || {};
+    // Convert dict-of-dicts to 2D array matching indicator order
+    const matrix2D = indicators.map(row => indicators.map(col => {
+      const v = rawMatrix[row] && rawMatrix[row][col];
+      return v != null ? v : 0;
+    }));
+    renderCorrelationHeatmap(matrix2D, indicators);
+    renderStrongCorrelations(corr.strong_correlations || []);
     return fetchSection(`/smart/residuals/${month}`, 'advanced').then(rd => {
       if (!rd || rd.empty) return;
       renderResidualPlot(rd.residuals || []);
@@ -83,11 +96,11 @@ export function loadPatternsTab(month) {
       fetchSection(`/smart/lag-analysis/${month}`, 'advanced').then(ld => {
         if (!ld || ld.empty) return;
         renderLagAnalysis(ld.lag_analysis || {});
-      }),
+      }).catch(() => {}),
       fetchSection(`/smart/stratified/${month}`, 'advanced').then(sd => {
         if (!sd || sd.empty) return;
         renderStratifiedAnalysis(sd.stratified || [], month);
-      }),
+      }).catch(() => {}),
     ]);
   });
 }
@@ -136,13 +149,58 @@ export function renderClusterScatter(points, labels, features) {
   });
 }
 
-export function renderClusterProfiles(profiles) {
+export function renderClusterProfiles(profiles, clustering) {
   const c = document.getElementById('smart-cluster-profiles');
   if (!c) return;
-  c.innerHTML = profiles.map(p => `<div class="smart-priority-item smart-priority-normal">
-    <div><div class="smart-priority-name">${_t('Cluster')} ${_smartEscapeHtml(p.cluster)} — ${_fmtNum(p.size)} ${_t('hospitals')}</div>
-    <div class="smart-priority-meta">${_smartEscapeHtml(p.description || '')}</div></div>
-  </div>`).join('');
+  // Backend profiles may use 'cluster' or 'cluster_id'; size may be in the profile or computed from clusters
+  const clusterDetails = (clustering && clustering.clusters) || [];
+  const silhouette = clustering && clustering.silhouette_score;
+  const method = clustering && clustering.method;
+  let header = '';
+  if (method || silhouette != null) {
+    header = `<div class="smart-empty-state" style="margin-bottom:0.5rem;">${_t('Method')}: ${_smartEscapeHtml(method || '')} · ${_t('Silhouette')}: ${_fmtNum(silhouette, 3)} · ${(clustering.n_clusters || profiles.length)} ${_t('clusters')}</div>`;
+  }
+  const rows = profiles.map(p => {
+    const clusterId = p.cluster != null ? p.cluster : p.cluster_id;
+    const hospitals = clusterDetails.filter(c => c.cluster_id === clusterId).map(c => c.hospital_name);
+    const size = p.size || hospitals.length;
+    const features = (p.distinguishing_features || []).map(f => _smartEscapeHtml(smartTranslateFeature(f.feature || f))).join(', ');
+    return `<div class="smart-priority-item smart-priority-normal">
+      <div><div class="smart-priority-name">${_t('Cluster')} ${clusterId} — ${size} ${_t('hospitals')}</div>
+      <div class="smart-priority-meta">${_smartEscapeHtml(p.description || '')}</div>
+      ${features ? `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">${_t('Key features')}: ${features}</div>` : ''}
+      ${hospitals.length ? `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">${hospitals.map(h => _smartEscapeHtml(h)).join(', ')}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  c.innerHTML = header + rows;
+}
+
+export function renderStrongCorrelations(strongCorrelations) {
+  // Render a list of significant correlations below the heatmap
+  const container = document.getElementById('smart-correlation-heatmap');
+  if (!container || !strongCorrelations.length) return;
+  let listEl = document.getElementById('smart-strong-corr-list');
+  if (!listEl) {
+    listEl = document.createElement('div');
+    listEl.id = 'smart-strong-corr-list';
+    listEl.style.cssText = 'margin-top:0.8rem;';
+    container.parentElement.appendChild(listEl);
+  }
+  listEl.innerHTML = `<div style="font-weight:600;font-size:0.82rem;margin-bottom:0.4rem;">${_t('Strong correlations')}</div>` +
+    strongCorrelations.map(c => {
+      const strengthCls = Math.abs(c.pearson_r) >= 0.7 ? 'smart-badge smart-badge-critical' : 'smart-badge smart-badge-warning';
+      return `<div class="smart-priority-item smart-priority-normal" style="border-left:3px solid ${c.pearson_r > 0 ? '#3b82f6' : '#ef4444'};">
+        <div>
+          <div class="smart-priority-name">${_smartEscapeHtml(smartTranslateFeature(c.indicator_a))} ↔ ${_smartEscapeHtml(smartTranslateFeature(c.indicator_b))}</div>
+          <div class="smart-priority-meta">
+            <span class="${strengthCls}" style="margin-right:0.3rem;">r = ${_fmtNum(c.pearson_r, 3)}</span>
+            <span>p = ${_fmtNum(c.p_value, 4)}</span>
+            <span style="margin-left:0.3rem;">${_smartEscapeHtml(c.strength || '')}</span>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
 }
 
 export function renderCorrelationHeatmap(matrix, features) {
@@ -152,10 +210,20 @@ export function renderCorrelationHeatmap(matrix, features) {
 export function renderResidualPlot(residuals) {
   const c = document.getElementById('smart-residual-plot');
   if (!c) return;
+  if (!residuals.length) { c.innerHTML = `<div class="smart-empty-state">${_t('No residual data')}</div>`; return; }
+  // Backend provides actual_value/predicted_value; compute residual
+  const data = residuals.slice(0, 40).map(r => ({
+    ...r,
+    residual: r.residual != null ? r.residual : ((r.actual_value || 0) - (r.predicted_value || 0)),
+  }));
   renderPlot('smart-residual-plot', [{
-    x: residuals.map(r => r.hospital_id), y: residuals.map(r => r.residual),
-    type: 'bar', marker: { color: residuals.map(r => r.residual > 0 ? '#ef4444' : '#3b82f6') },
-  }], { title: _t('Residuals by hospital'), xaxis: { title: _t('Hospital ID') } });
+    x: data.map(r => r.hospital_name || r.hospital_id),
+    y: data.map(r => r.residual),
+    type: 'bar',
+    marker: { color: data.map(r => r.residual > 0 ? '#ef4444' : '#3b82f6') },
+    text: data.map(r => r.indicator || ''),
+    hovertemplate: '%{x}<br>%{text}<br>' + _t('Residual') + ': %{y:.2f}<extra></extra>',
+  }], { title: _t('Residuals by hospital'), xaxis: { title: _t('Hospital'), tickangle: -45, tickfont: { size: 9 } }, height: 280 });
 }
 
 export function renderCompositePatterns(patterns) {
@@ -198,51 +266,28 @@ export function renderCompositePatterns(patterns) {
 export function renderLagAnalysis(lag) {
   const c = document.getElementById('smart-lag-analysis');
   if (!c) return;
-  const m = lag.matrix || {};
-  const metrics = m.metrics || [];
-  const namesAr = m.names_ar || [];
-  const values = m.values || [];
-  const significant = m.significant || [];
-  const bestLags = m.lags || [];
-  const n = metrics.length;
-  if (!n) { c.innerHTML = ''; return; }
-
-  // Build readable lag + correlation table
-  const ths = namesAr.map((name, i) => `<th title="${_smartEscapeHtml(metrics[i])}">${_smartEscapeHtml(smartTranslateFeature(metrics[i]))}</th>`).join('');
-  const rows = namesAr.map((rowName, i) => {
-    const cells = namesAr.map((colName, j) => {
-      if (i === j) return '<td style="text-align:center;">—</td>';
-      const v = values[i] && values[i][j];
-      const sig = significant[i] && significant[i][j];
-      const lagVal = bestLags[i] && bestLags[i][j];
-      if (v === null || v === undefined) return '<td style="text-align:center;color:var(--text-muted);">—</td>';
-      const bg = sig ? (Math.abs(v) >= 0.6 ? 'background:var(--severity-critical-bg);' : 'background:var(--severity-warning-bg);') : '';
-      const lagBadge = lagVal ? `<span style="font-size:0.65rem;color:var(--text-muted);">${lagVal}${_t('m')}</span> ` : '';
-      return `<td style="text-align:center;${bg}">${lagBadge}${_fmtNum(v, 2)}</td>`;
-    }).join('');
-    return `<tr><td style="font-weight:600;white-space:nowrap;">${_smartEscapeHtml(smartTranslateFeature(metrics[i]))}</td>${cells}</tr>`;
-  }).join('');
-
-  const html = `<div class="smart-table-wrap"><table><thead><tr><th></th>${ths}</tr></thead><tbody>${rows}</tbody></table></div>`;
-
-  // Lag findings list
+  const note = lag.note_ar || lag.note_en || '';
   const lags = lag.lags || [];
+  if (!lags.length && !note) { c.innerHTML = ''; return; }
+
+  // Render lag findings as a structured list
   let findingsHtml = '';
   if (lags.length) {
-    findingsHtml = '<div style="margin-top:0.8rem;">' + lags.map(f => {
-      const strengthCls = f.strength === 'strong' ? 'smart-badge smart-badge-critical' : f.strength === 'moderate' ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-normal';
+    findingsHtml = '<div style="margin-top:0.5rem;">' + lags.map(f => {
+      const strengthCls = (f.strength === 'strong' || Math.abs(f.correlation || 0) >= 0.6) ? 'smart-badge smart-badge-critical' : f.strength === 'moderate' ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-normal';
       return `<div class="smart-priority-item smart-priority-normal" style="border-left:3px solid ${f.direction === 'positive' ? '#3b82f6' : '#ef4444'};">
         <div><div class="smart-priority-name">${_smartEscapeHtml(f.summary_ar || f.summary_en || '')}</div>
         <div class="smart-priority-meta">${_smartEscapeHtml(f.prediction_ar || f.prediction_en || '')}
-        <span class="${strengthCls}" style="margin-left:0.3rem;">${_t(f.strength)}</span>
+        <span class="${strengthCls}" style="margin-left:0.3rem;">${_t(f.strength || 'info')}</span>
+        ${f.correlation != null ? `<span style="margin-left:0.3rem;color:var(--text-muted);">r=${_fmtNum(f.correlation, 3)}</span>` : ''}
+        ${f.lag != null ? `<span style="margin-left:0.3rem;color:var(--text-muted);">${_t('lag')}: ${f.lag}m</span>` : ''}
         ${f.granger_pass ? '<span class="smart-badge smart-badge-normal" style="margin-left:0.3rem;">Granger ✓</span>' : ''}
         ${f.is_lead ? '<span class="smart-badge smart-badge-warning" style="margin-left:0.3rem;">' + _t('lead') + '</span>' : ''}
         </div></div></div>`;
     }).join('') + '</div>';
   }
 
-  const note = lag.note_ar || lag.note_en || '';
-  c.innerHTML = (note ? `<div class="smart-empty-state">${_smartEscapeHtml(note)}</div>` : '') + html + findingsHtml;
+  c.innerHTML = (note ? `<div class="smart-empty-state" style="margin-bottom:0.5rem;">${_smartEscapeHtml(note)}</div>` : '') + findingsHtml;
 }
 
 let _stratifiedData = [];
