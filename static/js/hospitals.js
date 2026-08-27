@@ -66,6 +66,12 @@ function renderHospitals() {
         if (filterFacType && String(h.facility_type_id) !== filterFacType) return false;
         return true;
     });
+    // Sort: active hospitals first, then inactive
+    filtered.sort((a, b) => {
+        if (a.is_active && !b.is_active) return -1;
+        if (!a.is_active && b.is_active) return 1;
+        return a.name.localeCompare(b.name, 'ar');
+    });
     const container = document.getElementById('hospList');
     if (!filtered.length) {
         container.innerHTML = '<div style="padding:1rem;text-align:center;color:var(--text-muted);">No hospitals found.</div>';
