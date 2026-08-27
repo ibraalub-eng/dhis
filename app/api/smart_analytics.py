@@ -233,6 +233,8 @@ def _compute_smart_data(db, month: str) -> dict:
                     "correlations": [], "lag_analysis": {},
                     "early_warnings": [], "healthy_hospitals": [],
                     "patterns": [],
+                    "explanations": [], "residuals": [], "stratified": [],
+                    "geo": None, "xgboost": None,
                 },
             }
             cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
@@ -302,6 +304,8 @@ def _get_smart_data(db: Session, month: str) -> dict:
             "kpi": {}, "anomalies": [], "clusters": [],
             "correlations": [], "lag_analysis": {},
             "early_warnings": [], "healthy_hospitals": [],
+            "patterns": [], "explanations": [], "residuals": [],
+            "stratified": [], "geo": None, "xgboost": None,
         },
     }
 @router.get("/months")
@@ -396,7 +400,7 @@ def get_anomalies(month: str, db: Session = Depends(get_db)):
     if "empty" in result or "computing" in result:
         return result
     data = result["data"]
-    return {"month": month, "anomalies": data["anomalies"], "explanations": data["explanations"]}
+    return {"month": month, "anomalies": data.get("anomalies", []), "explanations": data.get("explanations", [])}
 
 
 @router.get("/clusters/{month}")
@@ -511,11 +515,12 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
         response = _get_drilldown_all_months(db, hospital_id, hospital)
         cache.set(cache_key, response, ttl=1800)
         return response
-    data = _get_smart_data(db, month)["data"]
-    anomaly = next((a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None)
-    explanation = next((e for e in data["explanations"] if e["hospital_id"] == hospital_id), None)
-    residuals = [r for r in data["residuals"] if r["hospital_id"] == hospital_id]
-    stratified = [s for s in data["stratified"] if s["hospital_id"] == hospital_id]
+    smart = _get_smart_data(db, month)
+    data = smart.get("data", {})
+    anomaly = next((a for a in data.get("anomalies", []) if a.get("hospital_id") == hospital_id), None)
+    explanation = next((e for e in data.get("explanations", []) if e.get("hospital_id") == hospital_id), None)
+    residuals = [r for r in data.get("residuals", []) if r.get("hospital_id") == hospital_id]
+    stratified = [s for s in data.get("stratified", []) if s.get("hospital_id") == hospital_id]
     from app.engine.smart.lag_analysis import run_hospital_forecast
     forecast = run_hospital_forecast(db, hospital_id, month, data.get("lag_analysis"))
     response = _sanitize({
@@ -539,9 +544,9 @@ def _get_drilldown_all_months(db, hospital_id, hospital):
     all_anomalies = []
     all_explanations = []
     for m in months:
-        data = _get_smart_data(db, m)["data"]
-        anomaly = next((a for a in data["anomalies"] if a["hospital_id"] == hospital_id), None)
-        explanation = next((e for e in data["explanations"] if e["hospital_id"] == hospital_id), None)
+        data = _get_smart_data(db, m).get("data", {})
+        anomaly = next((a for a in data.get("anomalies", []) if a.get("hospital_id") == hospital_id), None)
+        explanation = next((e for e in data.get("explanations", []) if e.get("hospital_id") == hospital_id), None)
         if anomaly:
             all_anomalies.append({"month": m, **anomaly})
         if explanation:
