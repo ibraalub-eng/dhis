@@ -25,7 +25,6 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             var sections = document.querySelectorAll('.settings-section');
             for (var si = 0; si < sections.length; si++) {
                 var section = sections[si];
-                // Skip if already processed
                 if (section.querySelector('.settings-section-header')) continue;
 
                 // Snapshot h3s into a real array (not live NodeList)
@@ -34,14 +33,17 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 for (var h = 0; h < h3list.length; h++) h3s.push(h3list[h]);
                 if (h3s.length === 0) continue;
 
-                // Process in REVERSE order so DOM changes don't affect earlier indices
-                for (var i = h3s.length - 1; i >= 0; i--) {
+                // Process FORWARD but use saved nextSibling reference
+                for (var i = 0; i < h3s.length; i++) {
                     var h3 = h3s[i];
+                    if (!h3.parentNode) continue; // already moved
+                    // Save the boundary BEFORE modifying DOM
+                    var boundary = h3.nextSibling;
+
                     var wrapper = document.createElement('div');
                     wrapper.className = 'settings-collapsible' + (i === 0 ? ' open' : '');
                     wrapper.style.marginTop = i === 0 ? '0' : '0.6rem';
 
-                    // Create clickable header with icon
                     var icon = _findIcon(h3.textContent);
                     var header = document.createElement('button');
                     header.className = 'settings-section-header';
@@ -52,21 +54,25 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                         });
                     })(wrapper);
 
-                    // Replace h3 with header in place
-                    h3.parentNode.replaceChild(header, h3);
+                    // Remove h3 from DOM
+                    h3.parentNode.removeChild(h3);
                     wrapper.appendChild(header);
 
-                    // Collect ALL following siblings into body
+                    // Collect siblings from saved boundary until next h3 or end
                     var body = document.createElement('div');
                     body.className = 'settings-section-body';
-                    while (header.nextSibling) {
-                        body.appendChild(header.nextSibling);
+                    var cursor = boundary;
+                    var stopNode = (i + 1 < h3s.length) ? h3s[i + 1] : null;
+                    while (cursor && cursor !== stopNode) {
+                        var next = cursor.nextSibling;
+                        body.appendChild(cursor);
+                        cursor = next;
                     }
                     wrapper.appendChild(body);
 
-                    // Insert wrapper at the beginning of section (since we're going reverse)
-                    if (section.firstChild) {
-                        section.insertBefore(wrapper, section.firstChild);
+                    // Insert wrapper at the boundary position
+                    if (cursor) {
+                        section.insertBefore(wrapper, cursor);
                     } else {
                         section.appendChild(wrapper);
                     }
