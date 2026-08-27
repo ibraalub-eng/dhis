@@ -12,9 +12,10 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 // Skip if already processed
                 if (section.querySelector('.settings-section-header')) return;
                 const h3s = section.querySelectorAll('h3');
-                if (h3s.length < 2) return; // Only wrap if 2+ sections
+                if (h3s.length === 0) return; // Nothing to wrap
 
-                // Add collapse icon to each h3 — first open, rest collapsed
+                // Wrap each h3 and its following siblings into a collapsible.
+                // First section open by default, rest collapsed.
                 h3s.forEach((h3, i) => {
                     const wrapper = document.createElement('div');
                     wrapper.className = 'settings-collapsible' + (i === 0 ? ' open' : '');
