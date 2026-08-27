@@ -138,12 +138,16 @@ window.refreshAllCharts = function() {
           if (scale.title && scale.title.color !== undefined) scale.title.color = CHART_COLORS.neutral;
         });
       }
-      // Update dataset border/point colors to match new theme
+      // Update dataset border/point colors to match new theme.
       if (chart.data && chart.data.datasets) {
-        chart.data.datasets.forEach(function(ds) {
-          // Update colors that reference old theme values
-          if (ds.borderColor === CHART_COLORS.primary || ds.borderColor === CHART_COLORS.secondary) {
-            // These are already the right values after __refreshChartColors
+        var colorMap = { primary: CHART_COLORS.primary, secondary: CHART_COLORS.secondary,
+          accent: CHART_COLORS.accent, warning: CHART_COLORS.warning, success: CHART_COLORS.success };
+        chart.data.datasets.forEach(function(ds, i) {
+          var role = ds._colorRole || (i === 0 ? 'primary' : i === 1 ? 'secondary' : 'success');
+          var newColor = colorMap[role] || CHART_COLORS.primary;
+          if (ds.borderColor) ds.borderColor = newColor;
+          if (ds.backgroundColor && ds.backgroundColor !== 'transparent' && ds.backgroundColor !== 'rgba(0,0,0,0)') {
+            ds.backgroundColor = newColor;
           }
         });
       }
