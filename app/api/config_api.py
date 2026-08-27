@@ -4,6 +4,7 @@ from app.database import get_db
 from app.models import AppConfig, SystemSetting
 from app.config_utils import AI_CONFIG_KEYS, get_ai_config
 from app.core.deps import require_permission
+from app.core.error_handler import safe_endpoint
 
 router = APIRouter(prefix="/config", tags=["config"], dependencies=[Depends(require_permission("settings.read"))])
 
@@ -163,117 +164,110 @@ def get_ai_settings(db: Session = Depends(get_db)):
 
 
 @router.put("/ai/settings")
+@safe_endpoint("Error saving AI settings")
 def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
-    try:
-        for key, val in updates.items():
-            if key not in AI_CONFIG_KEYS:
-                continue
-            row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-            if row:
-                row.value = str(val)
-            else:
-                db.add(SystemSetting(key=key, value=str(val)))
-        db.commit()
-        from app.plugins.ai import reload_ai_config
-        reload_ai_config()
-        return {"status": "ok", "updated": len(updates)}
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Error saving AI settings: {str(e)}")
+    for key, val in updates.items():
+        if key not in AI_CONFIG_KEYS:
+            continue
+        row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+        if row:
+            row.value = str(val)
+        else:
+            db.add(SystemSetting(key=key, value=str(val)))
+    db.commit()
+    from app.plugins.ai import reload_ai_config
+    reload_ai_config()
+    return {"status": "ok", "updated": len(updates)}
 
 
 @router.get("/database/preview")
+@safe_endpoint("Error previewing database")
 def preview_database_tables(db: Session = Depends(get_db)):
     """List all tables with column info, row counts, and first 5 rows of preview data."""
     from sqlalchemy import inspect as sa_inspect, text
-    try:
-        inspector = sa_inspect(db.get_bind())
-        tables = []
-        for table_name in sorted(inspector.get_table_names()):
-            # Handle both dict-style and string-style column metadata
-            raw_cols = inspector.get_columns(table_name)
-            columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
-            pk_info = inspector.get_pk_constraint(table_name)
-            raw_pk = pk_info.get("constrained_columns", []) if isinstance(pk_info, dict) else []
-            pk_cols = [p if isinstance(p, str) else str(p) for p in raw_pk]
-            # Count rows
+    inspector = sa_inspect(db.get_bind())
+    tables = []
+    for table_name in sorted(inspector.get_table_names()):
+        # Handle both dict-style and string-style column metadata
+        raw_cols = inspector.get_columns(table_name)
+        columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
+        pk_info = inspector.get_pk_constraint(table_name)
+        raw_pk = pk_info.get("constrained_columns", []) if isinstance(pk_info, dict) else []
+        pk_cols = [p if isinstance(p, str) else str(p) for p in raw_pk]
+        # Count rows
+        try:
+            count = db.execute(text(f'SELECT COUNT(*) FROM "{table_name}"')).scalar() or 0
+        except Exception:
+            count = -1  # unknown
+        # Preview first 5 rows
+        preview = []
+        if count > 0:
             try:
-                count = db.execute(text(f'SELECT COUNT(*) FROM "{table_name}"')).scalar() or 0
+                rows = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT 5')).fetchall()
+                for row in rows:
+                    row_dict = {}
+                    for i, col in enumerate(columns):
+                        val = row[i] if i < len(row) else None
+                        # Convert non-serializable types to string
+                        if val is not None and not isinstance(val, (int, float, str, bool, type(None))):
+                            val = str(val)
+                        row_dict[col] = val
+                    preview.append(row_dict)
             except Exception:
-                count = -1  # unknown
-            # Preview first 5 rows
-            preview = []
-            if count > 0:
-                try:
-                    rows = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT 5')).fetchall()
-                    for row in rows:
-                        row_dict = {}
-                        for i, col in enumerate(columns):
-                            val = row[i] if i < len(row) else None
-                            # Convert non-serializable types to string
-                            if val is not None and not isinstance(val, (int, float, str, bool, type(None))):
-                                val = str(val)
-                            row_dict[col] = val
-                        preview.append(row_dict)
-                except Exception:
-                    pass
-            tables.append({
-                "name": table_name,
-                "columns": columns,
-                "primary_keys": pk_cols,
-                "row_count": count,
-                "preview": preview,
-            })
-        return {"tables": tables, "total_tables": len(tables)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error previewing database: {str(e)}")
+                pass
+        tables.append({
+            "name": table_name,
+            "columns": columns,
+            "primary_keys": pk_cols,
+            "row_count": count,
+            "preview": preview,
+        })
+    return {"tables": tables, "total_tables": len(tables)}
 
 
 @router.get("/database/export")
+@safe_endpoint("Error exporting database")
 def export_database(db: Session = Depends(get_db)):
     """Export all tables and all data as JSON."""
     from sqlalchemy import inspect as sa_inspect, text
     from fastapi.responses import StreamingResponse
     import json, datetime
-    try:
-        inspector = sa_inspect(db.get_bind())
-        export = {
-            "exported_at": datetime.datetime.utcnow().isoformat() + "Z",
-            "engine": str(db.get_bind().url).split("@")[-1] if "@" in str(db.get_bind().url) else str(db.get_bind().url),
-            "tables": {},
+    inspector = sa_inspect(db.get_bind())
+    export = {
+        "exported_at": datetime.datetime.utcnow().isoformat() + "Z",
+        "engine": str(db.get_bind().url).split("@")[-1] if "@" in str(db.get_bind().url) else str(db.get_bind().url),
+        "tables": {},
+    }
+    total_rows = 0
+    for table_name in sorted(inspector.get_table_names()):
+        raw_cols = inspector.get_columns(table_name)
+        columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
+        try:
+            rows = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT 5000')).fetchall()
+        except Exception:
+            rows = []
+        data = []
+        for row in rows:
+            row_dict = {}
+            for i, col in enumerate(columns):
+                val = row[i] if i < len(row) else None
+                if val is not None and not isinstance(val, (int, float, str, bool, type(None))):
+                    val = str(val)
+                row_dict[col] = val
+            data.append(row_dict)
+        export["tables"][table_name] = {
+            "columns": columns,
+            "row_count": len(data),
+            "rows": data,
         }
-        total_rows = 0
-        for table_name in sorted(inspector.get_table_names()):
-            raw_cols = inspector.get_columns(table_name)
-            columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
-            try:
-                rows = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT 5000')).fetchall()
-            except Exception:
-                rows = []
-            data = []
-            for row in rows:
-                row_dict = {}
-                for i, col in enumerate(columns):
-                    val = row[i] if i < len(row) else None
-                    if val is not None and not isinstance(val, (int, float, str, bool, type(None))):
-                        val = str(val)
-                    row_dict[col] = val
-                data.append(row_dict)
-            export["tables"][table_name] = {
-                "columns": columns,
-                "row_count": len(data),
-                "rows": data,
-            }
-            total_rows += len(data)
-        export["total_tables"] = len(export["tables"])
-        export["total_rows"] = total_rows
-        # Return as downloadable JSON
-        content_str = json.dumps(export, ensure_ascii=False, indent=2, default=str)
-        filename = "database_export_{}.json".format(datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S"))
-        return StreamingResponse(
-            iter([content_str]),
-            media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename={filename}"},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error exporting database: {str(e)}")
+        total_rows += len(data)
+    export["total_tables"] = len(export["tables"])
+    export["total_rows"] = total_rows
+    # Return as downloadable JSON
+    content_str = json.dumps(export, ensure_ascii=False, indent=2, default=str)
+    filename = "database_export_{}.json".format(datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S"))
+    return StreamingResponse(
+        iter([content_str]),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

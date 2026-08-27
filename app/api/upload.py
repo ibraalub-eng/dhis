@@ -2,8 +2,10 @@ import os
 import shutil
 import io
 import json
+import hashlib
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.excel_parser import process_excel_upload, parse_excel, normalize_data
@@ -21,6 +23,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/upload", tags=["upload"])
+
+
+def _process_upload(file_path, file, db):
+    """Process an uploaded Excel file with cleanup on error and cache invalidation."""
+    try:
+        result = process_excel_upload(file_path, db)
+    except ValueError as e:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        logger.error(f"Unexpected error processing {file.filename}: {e}", exc_info=True)
+        raise HTTPException(status_code=422, detail=f"Error processing file: {str(e)}")
+    for prefix in ("smart_overview_", "smart_anomalies_", "smart_clusters_", "smart_correlations_", "smart_residuals_"):
+        cache.invalidate(prefix)
+    return result
 
 ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".xlsm", ".xlsb"}
 
@@ -117,6 +137,54 @@ def download_template():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f"attachment; filename=srmnh_template_{datetime.now().strftime('%Y%m%d')}.xlsx"}
     )
+
+
+class DuplicateCheckResponse(BaseModel):
+    is_duplicate: bool
+    existing_file: str = ""
+    existing_records: int = 0
+    existing_months: list = []
+    existing_hospitals: list = []
+    file_hash: str = ""
+
+
+@router.post("/check-duplicate")
+def check_duplicate(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Check if uploaded file is a duplicate of previously uploaded data.
+    Returns duplicate info so frontend can show confirmation dialog."""
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"File extension '{ext}' not supported")
+
+    # Read file content and compute hash
+    content = file.file.read()
+    file.file.seek(0)  # Reset for later reading
+    file_hash = hashlib.sha256(content).hexdigest()
+
+    # Check if any IndicatorValues exist with this source filename
+    filename = os.path.basename(file.filename or "")
+    existing = (
+        db.query(IndicatorValue)
+        .filter(IndicatorValue.source_file == filename)
+        .all()
+    )
+
+    if existing:
+        months = sorted(set(iv.month for iv in existing))
+        hosp_ids = sorted(set(iv.hospital_id for iv in existing))
+        hosp_names = []
+        if hosp_ids:
+            hosp_names = [h.name for h in db.query(Hospital).filter(Hospital.id.in_(hosp_ids)).all()]
+        return DuplicateCheckResponse(
+            is_duplicate=True,
+            existing_file=filename,
+            existing_records=len(existing),
+            existing_months=months,
+            existing_hospitals=hosp_names[:10],  # Limit to 10
+            file_hash=file_hash,
+        )
+
+    return DuplicateCheckResponse(is_duplicate=False, file_hash=file_hash)
 
 
 @router.post("/preview")
@@ -217,7 +285,7 @@ def save_manual_entry(
 
 
 @router.post("/", response_model=UploadResponse)
-async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
+async def upload_excel(file: UploadFile = File(...), override: bool = Query(False, description="Allow overwriting existing data"), db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -236,22 +304,27 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
         os.remove(file_path)
         raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes)")
     logger.info(f"Uploaded file: {file.filename} ({file_size} bytes)")
-    try:
-        result = process_excel_upload(file_path, db)
-    except ValueError as e:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        logger.error(f"Unexpected error processing {file.filename}: {e}", exc_info=True)
-        raise HTTPException(status_code=422, detail=f"Error processing file: {str(e)}")
-    cache.invalidate("smart_overview_")
-    cache.invalidate("smart_anomalies_")
-    cache.invalidate("smart_clusters_")
-    cache.invalidate("smart_correlations_")
-    cache.invalidate("smart_residuals_")
+
+    # Check for duplicate file before processing
+    filename = os.path.basename(file.filename or "")
+    existing_records = (
+        db.query(IndicatorValue)
+        .filter(IndicatorValue.source_file == filename)
+        .count()
+    )
+    if existing_records > 0 and not override:
+        os.remove(file_path)
+        raise HTTPException(
+            status_code=409,
+            detail=json.dumps({
+                "error": "duplicate_file",
+                "message": f"File '{filename}' was already uploaded with {existing_records} records.",
+                "existing_records": existing_records,
+                "hint": "Use override=true to replace existing data."
+            })
+        )
+
+    result = _process_upload(file_path, file, db)
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
     cache.invalidate("smart_timeline")
@@ -262,7 +335,7 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
 
 
 @router.post("/analyze", response_model=AutoReportResponse)
-async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
+async def upload_and_analyze(file: UploadFile = File(...), override: bool = Query(False), db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -281,23 +354,26 @@ async def upload_and_analyze(file: UploadFile = File(...), db: Session = Depends
         os.remove(file_path)
         raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes)")
 
-    try:
-        result = process_excel_upload(file_path, db)
-    except ValueError as e:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        logger.error(f"Unexpected error processing {file.filename}: {e}", exc_info=True)
-        raise HTTPException(status_code=422, detail=f"Error processing file: {str(e)}")
+    # Check for duplicate file before processing
+    filename = os.path.basename(file.filename or "")
+    existing_count = (
+        db.query(IndicatorValue)
+        .filter(IndicatorValue.source_file == filename)
+        .count()
+    )
+    if existing_count > 0 and not override:
+        os.remove(file_path)
+        raise HTTPException(
+            status_code=409,
+            detail=json.dumps({
+                "error": "duplicate_file",
+                "message": f"File '{filename}' was already uploaded with {existing_count} records.",
+                "existing_records": existing_count,
+                "hint": "Use override=true to replace existing data."
+            })
+        )
 
-    cache.invalidate("smart_overview_")
-    cache.invalidate("smart_anomalies_")
-    cache.invalidate("smart_clusters_")
-    cache.invalidate("smart_correlations_")
-    cache.invalidate("smart_residuals_")
+    result = _process_upload(file_path, file, db)
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
     cache.invalidate("smart_timeline")
