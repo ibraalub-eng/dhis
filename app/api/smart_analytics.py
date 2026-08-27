@@ -222,6 +222,20 @@ def _compute_smart_data(db, month: str) -> dict:
             logger.info(f"[smart] Computation result for {month}: hospitals={result.hospitals_count} anomalies={len(result.anomalies)} clusters={len(result.clustering.clusters) if result.clustering else 0}")
         except Exception as e:
             logger.error(f"[smart] Computation FAILED for {month}: {e}", exc_info=True)
+            # Cache the error state so we don't keep retrying forever
+            error_response = {
+                "month": month,
+                "generated_at": datetime.utcnow().isoformat(),
+                "hospitals_count": 0,
+                "data": {
+                    "kpi": {}, "anomalies": [], "clusters": [],
+                    "correlations": [], "lag_analysis": {},
+                    "early_warnings": [], "healthy_hospitals": [],
+                    "patterns": [],
+                },
+            }
+            cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
+            cache.set(cache_key, error_response, ttl=300)  # cache error for 5min
             _compute_locks.pop(month, None)
             return
         response = _envelope(result)
