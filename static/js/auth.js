@@ -375,7 +375,7 @@
     'tab-root-cause': 'root_cause.read',
     'tab-audit': 'audit.read',
     'tab-settings': 'system.manage_users',
-    'tab-admin': 'system.manage_users',
+    // tab-admin uses data-requires-superadmin instead of permission check
   };
 
   /** Show all tab-content panels (reset before applying per-user rules). */
@@ -418,6 +418,10 @@
     //    plus any future elements that need permission gating).
     document.querySelectorAll('[data-requires]').forEach(function(el) {
       if (!hasPermission(el.dataset.requires)) el.style.display = 'none';
+    });
+    // 3b) data-requires-superadmin: only visible to superadmin users
+    document.querySelectorAll('[data-requires-superadmin]').forEach(function(el) {
+      if (!user.is_superuser) el.style.display = 'none';
     });
 
     // 4) Header: show logout button, user name + role badge.
