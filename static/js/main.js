@@ -78,7 +78,7 @@
                     if (!r.ok) throw new Error('HTTP ' + r.status);
                     return r.text();
                 }).then(html => {
-                    targetContent.innerHTML = html + targetContent.innerHTML;
+                    targetContent.innerHTML = html;
                     targetContent.dataset.loaded = 'true';
                     _initTab(name);
                     // Re-apply translations to newly loaded content
