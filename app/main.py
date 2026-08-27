@@ -222,13 +222,13 @@ def _ensure_auth_tables(session):
         from sqlalchemy import inspect as sa_inspect
         insp = sa_inspect(session.get_bind())
         existing = set(insp.get_table_names())
-        needed = {'users', 'roles', 'permissions', 'refresh_tokens', 'user_roles', 'role_permissions'}
+        needed = {'users', 'roles', 'permissions', 'refresh_tokens', 'user_roles', 'role_permissions', 'user_hospitals'}
         missing = needed - existing
         if missing:
             print(f"[startup] Creating missing auth tables: {missing}")
             from app.database import Base
             # Create tables in dependency order: no FKs first, then with FKs
-            create_order = ['permissions', 'roles', 'users', 'refresh_tokens', 'user_roles', 'role_permissions']
+            create_order = ['permissions', 'roles', 'users', 'refresh_tokens', 'user_roles', 'role_permissions', 'user_hospitals']
             for tname in create_order:
                 if tname in missing:
                     table = Base.metadata.tables.get(tname)
