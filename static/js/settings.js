@@ -22,62 +22,14 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         }
 
         function initCollapsibleSections() {
-            var sections = document.querySelectorAll('.settings-section');
-            for (var si = 0; si < sections.length; si++) {
-                var section = sections[si];
-                if (section.querySelector('.settings-section-header')) continue;
-
-                // Snapshot h3s into a real array (not live NodeList)
-                var h3list = section.querySelectorAll('h3');
-                var h3s = [];
-                for (var h = 0; h < h3list.length; h++) h3s.push(h3list[h]);
-                if (h3s.length === 0) continue;
-
-                // Process FORWARD but use saved nextSibling reference
-                for (var i = 0; i < h3s.length; i++) {
-                    var h3 = h3s[i];
-                    if (!h3.parentNode) continue; // already moved
-                    // Save the boundary BEFORE modifying DOM
-                    var boundary = h3.nextSibling;
-
-                    var wrapper = document.createElement('div');
-                    wrapper.className = 'settings-collapsible' + (i === 0 ? ' open' : '');
-                    wrapper.style.marginTop = i === 0 ? '0' : '0.6rem';
-
-                    var icon = _findIcon(h3.textContent);
-                    var header = document.createElement('button');
-                    header.className = 'settings-section-header';
-                    header.innerHTML = '<span class="section-icon">' + icon + '</span> ' + h3.innerHTML + '<span class="section-arrow">\u25B6</span>';
-                    (function(w) {
-                        header.addEventListener('click', function() {
-                            w.classList.toggle('open');
-                        });
-                    })(wrapper);
-
-                    // Remove h3 from DOM
-                    h3.parentNode.removeChild(h3);
-                    wrapper.appendChild(header);
-
-                    // Collect siblings from saved boundary until next h3 or end
-                    var body = document.createElement('div');
-                    body.className = 'settings-section-body';
-                    var cursor = boundary;
-                    var stopNode = (i + 1 < h3s.length) ? h3s[i + 1] : null;
-                    while (cursor && cursor !== stopNode) {
-                        var next = cursor.nextSibling;
-                        body.appendChild(cursor);
-                        cursor = next;
-                    }
-                    wrapper.appendChild(body);
-
-                    // Insert wrapper at the boundary position
-                    if (cursor) {
-                        section.insertBefore(wrapper, cursor);
-                    } else {
-                        section.appendChild(wrapper);
-                    }
-                }
-            }
+            // Collapsible structure is now built into settings.html
+            // Just ensure click handlers are attached to any buttons that lack them
+            document.querySelectorAll('.settings-section-header').forEach(function(btn) {
+                if (btn.getAttribute('onclick')) return; // already has handler
+                btn.addEventListener('click', function() {
+                    this.parentElement.classList.toggle('open');
+                });
+            });
         }
         // Expose for admin panel and other modules
         window.initCollapsibleSections = initCollapsibleSections;
