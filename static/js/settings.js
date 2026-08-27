@@ -69,7 +69,8 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
 
                 // Second pass: wrap setting item groups in collapsible sub-panels
                 section.querySelectorAll('.settings-section-body').forEach(body => {
-                    const items = body.querySelectorAll(':scope > div[style*="background:var(--bg-elevated)"]');
+                    // Find individual setting items (may be direct children or inside flex containers)
+                    const items = body.querySelectorAll('div[style*="bg-elevated"]');
                     if (items.length < 2) return;
                     items.forEach((item, idx) => {
                         const label = item.querySelector('label');

@@ -24,7 +24,7 @@
                             <button class="btn" onclick="reanalyzeAll(this)" style="background:var(--accent-orange);color:white;">Re-analyze All</button>
                             <span id="settingsStatus" style="font-size:0.8rem;"></span>
                         </div>
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Quality Score Formula Weights</h3>
+                        <h3>Quality Score Formula Weights</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Formula:</strong> Score = (rule_compliance x W1 + completeness x W2 + consistency x W3 + (1 - outlier_penalty) x W4) x 100<br>
                             <strong>Used in:</strong> <code>quality_score.py</code> &rarr; <code>run_full_analysis()</code> in <code>pipeline.py:138</code><br>
@@ -85,7 +85,7 @@
                                 <span id="cfgtotal_status_quality" style="font-size:0.78rem;"></span>
                             </div>
                         </div>
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin:1.2rem 0 0.5rem;">Outlier & Severity Settings</h3>
+                        <h3>Outlier & Severity Settings</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.6rem;border-radius:6px;margin-bottom:0.8rem;font-size:0.78rem;color:var(--text-secondary);">
                             <strong>Outlier Multiplier:</strong> Multiplies the outlier ratio before capping at 1.0. At multiplier 2.0, 50% outliers = max penalty.<br>
                             <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:91-97</code> &rarr; <code>min(1.0, ratio * multiplier)</code></span><br>
@@ -146,7 +146,7 @@
 
                     <!-- Confidence Score Settings -->
                     <div id="settings-confidence" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Confidence Signal Weights</h3>
+                        <h3>Confidence Signal Weights</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Formula:</strong> confidence = sum(signal_score x signal_weight) x 100<br>
                             <strong>Appears in:</strong> Detail Modal (Priority Verification table, by_level badges)<br>
@@ -224,7 +224,7 @@
 
                     <!-- Thresholds Settings -->
                     <div id="settings-thresholds" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Confidence Level Cutoffs</h3>
+                        <h3>Confidence Level Cutoffs</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Appears in:</strong> Detail Modal (badge colors, by_level counts, Priority Verification table)<br>
                             <span class="dev-hint"><strong>Source:</strong> <code>app/engine/confidence/confidence.py:349-355</code> &rarr; <code>_compute_level()</code></span>
@@ -268,7 +268,7 @@
                             </div>
                             <div style="font-size:0.78rem;color:var(--accent-red);padding-left:185px;">Below LOW = CRITICAL (dark red). Needs immediate verification.</div>
                         </div>
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin:1.2rem 0 0.5rem;">Global Z-Score Threshold</h3>
+                        <h3>Global Z-Score Threshold</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.6rem;border-radius:6px;margin-bottom:0.8rem;font-size:0.78rem;color:var(--text-secondary);">
                             <strong>Controls:</strong> Outlier detection sensitivity. Lower = more values flagged as outliers.<br>
                             <span class="dev-hint"><strong>Source:</strong> <code>app/config_utils.py:10</code> &rarr; referenced by <code>app/engine/anomaly/zscore.py:62,105</code>, <code>app/engine/anomaly/trends.py:241</code>, <code>app/engine/confidence/confidence.py</code></span>
@@ -291,7 +291,7 @@
 
                     <!-- Rules Settings -->
                     <div id="settings-rules" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Rule Thresholds</h3>
+                        <h3>Rule Thresholds</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Used in:</strong> <code>rules.py</code> &rarr; individual rule functions (_eq, _benchmark_rate, _month_over, etc.)<br>
                             <strong>Appears in:</strong> Validation Results table in Detail Modal (PASS/FAIL per rule)
@@ -386,7 +386,7 @@
 
                     <!-- Clinical Thresholds -->
                     <div id="settings-clinical" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Clinical Indicator Thresholds</h3>
+                        <h3>Clinical Indicator Thresholds</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Appears in:</strong> Clinical Assessment section of Detail Modal (Elevated / High / Critical labels)<br>
                             <span class="dev-hint"><strong>Source:</strong> <code>app/engine/clinical/clinical_thresholds.py</code> &rarr; <code>classify_rate()</code></span>
@@ -487,7 +487,7 @@
 
                     <!-- Risk Profile Settings -->
                     <div id="settings-risk" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Risk Profile Thresholds</h3>
+                        <h3>Risk Profile Thresholds</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Calculation:</strong> Each risk dimension (High-Risk Delivery, Adolescent Pregnancy, etc.) scored against thresholds. Peer multipliers compare hospital rate vs peer average.<br>
                             <strong>Appears in:</strong> Risk Profile section of Detail Modal<br>
@@ -546,7 +546,7 @@
 
                     <!-- Trends Settings -->
                     <div id="settings-trends" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Trend Analysis Thresholds</h3>
+                        <h3>Trend Analysis Thresholds</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Appears in:</strong> Trend Chart, flags, recommendations<br>
                             <span class="dev-hint"><strong>Source:</strong> <code>app/engine/anomaly/trends.py</code> &rarr; slope classification, severity, finding generation</span>
@@ -679,7 +679,7 @@
 
                     <!-- Rate Benchmarks Settings -->
                     <div id="settings-rates" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Rate Benchmarks (Anomaly Detection)</h3>
+                        <h3>Rate Benchmarks (Anomaly Detection)</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Calculation:</strong> Expected rate used as the mean in z-score: z = (actual - benchmark) / std_dev.<br>
                             <strong>Appears in:</strong> Anomaly Detection section of Detail Modal, outlier flagging<br>
@@ -775,7 +775,7 @@
 
                     <!-- AI Provider Settings -->
                     <div id="settings-ai" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--accent-red);margin-bottom:0.5rem;">AI Provider Configuration</h3>
+                        <h3>AI Provider Configuration</h3>
                         <div style="background:rgba(220,38,38,0.08);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>Function:</strong> Configures the AI model used to generate clinical and root cause recommendations.<br>
                             <strong>Providers:</strong> Gemini (Google AI Studio - free), DeepSeek, Minimax, Kimi (Moonshot), OpenAI-compatible APIs, or Local Fallback (rule-based, no API).<br>
@@ -874,7 +874,7 @@
                             <button class="btn btn-outline" onclick="loadAllSettings()">Reload</button>
                             <span id="settingsStatus" style="font-size:0.8rem;"></span>
                         </div>
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">ML Analysis Settings</h3>
+                        <h3>ML Analysis Settings</h3>
                         <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
                             <strong>ML Engine:</strong> scikit-learn (IsolationForest, KMeans, PCA).<br>
                             <strong>Used in:</strong> Compare tab (clustering), Outliers tab (ML anomalies), Root Cause tab (PCA).<br>
@@ -970,7 +970,7 @@
 
                     <!-- Account / Change Password -->
                     <div id="settings-account" class="settings-section" style="display:none;">
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.8rem;">👤 My Profile</h3>
+                        <h3>👤 My Profile</h3>
                         <div style="max-width:450px;margin-bottom:1.5rem;">
                             <div style="background:var(--bg-elevated);padding:1rem;border-radius:8px;border:1px solid var(--border-default);">
                                 <div style="margin-bottom:0.8rem;">
@@ -990,7 +990,7 @@
                                 <button class="btn" onclick="saveSelfProfile()" style="background:var(--accent-blue);color:white;">Save Profile</button>
                             </div>
                         </div>
-                        <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.8rem;">🔑 Change Your Password</h3>
+                        <h3>🔑 Change Your Password</h3>
                         <div style="max-width:450px;">
                             <div style="background:var(--bg-elevated);padding:1rem;border-radius:8px;border:1px solid var(--border-default);">
                                 <div style="margin-bottom:0.8rem;">
