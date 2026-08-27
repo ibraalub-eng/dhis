@@ -394,7 +394,7 @@ window._adminAssignHospitals = function(id, btn) {
     `;
   } catch(e) {
     container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
-      '<h3 style="color:var(--accent-red);margin-bottom:0.5rem;">Error Loading Admin Panel</h3>' +
+      '<h3 style="color:var(--accent-red);margin-bottom:0.5rem;">Error Loading System Control</h3>' +
       '<p style="color:var(--text-secondary);">' + (e.message || 'An unexpected error occurred') + '</p>' +
       '<button class="btn btn-sm" onclick="loadAdminPanel()" style="margin-top:0.5rem;">Retry</button>' +
       '</div>';
