@@ -96,6 +96,7 @@ window._adminAssignHospitals = function(id, btn) {
           <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('system')" id="atab-system" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">⚙️ System Control</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('tabs')" id="atab-tabs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Tab Order</button>
         </div>
 
         <!-- Users and Roles Tab -->
@@ -215,19 +216,6 @@ window._adminAssignHospitals = function(id, btn) {
                 <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">Visible tab content panels:</div>
                 <div id="simTabContent" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
             </div>
-        </div>
-
-        <!-- Tab Order Manager -->
-        <div id="adminTabOrder" style="margin-top:1.5rem;padding:1rem;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border-default);">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
-            <h3 style="color:var(--accent-blue);margin:0;">📋 Tab Order</h3>
-            <div style="display:flex;gap:0.3rem;">
-              <button class="btn btn-sm btn-outline" onclick="resetTabOrder()" style="font-size:0.72rem;">↺ Reset</button>
-              <button class="btn btn-sm" onclick="saveTabOrder()" style="background:var(--accent-green);color:white;font-size:0.72rem;">💾 Save Order</button>
-            </div>
-          </div>
-          <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.6rem;">Drag to reorder tabs. Changes apply on next page load.</p>
-          <div id="tabOrderList"></div>
         </div>
 
         <!-- Create/Edit User Modal -->
@@ -388,6 +376,16 @@ window._adminAssignHospitals = function(id, btn) {
         <!-- System Control Panel (settings moved here) -->
         <div id="adminSystemPanel" style="display:none;">
           <div id="adminSystemContent"></div>
+        </div>
+        <!-- Tab Order Panel -->
+        <div id="adminTabOrderPanel" style="display:none;">
+          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Tab Order</h2>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Drag to reorder the main navigation tabs. Changes apply on next page load.</p>
+          <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+            <button class="btn btn-sm btn-outline" onclick="resetTabOrder()">↺ Reset to Default</button>
+            <button class="btn btn-sm" onclick="saveTabOrder()" style="background:var(--accent-green);color:white;">💾 Save Order</button>
+          </div>
+          <div id="tabOrderList"></div>
         </div>
         </div>
       </div>
@@ -875,11 +873,14 @@ window._adminAssignHospitals = function(id, btn) {
     var u=document.getElementById("adminUsersPanel");
     var d=document.getElementById("adminDatabasePanel");
     var s=document.getElementById("adminSystemPanel");
+    var t=document.getElementById("adminTabOrderPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
     if(s)s.style.display=tab==="system"?"block":"none";
+    if(t)t.style.display=tab==="tabs"?"block":"none";
     if(tab==="database"&&!window._adminDbLoaded){loadAdminDbStatus();window._adminDbLoaded=true;}
     if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();window._adminSystemLoaded=true;}
+    if(tab==="tabs"&&!window._adminTabOrderLoaded){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
   async function loadAdminSystemPanel() {
