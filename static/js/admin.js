@@ -612,6 +612,112 @@ window._adminAssignHospitals = function(id, btn) {
     setTimeout(closePwModal, 1500);
   };
 
+  // ── Hospital assignment modal ──
+  window.assignHospitals = async function(userId, username) {
+    var modal = document.getElementById('hospAssignModal');
+    if (!modal) {
+      // Create the modal dynamically if it doesn't exist
+      var div = document.createElement('div');
+      div.id = 'hospAssignModal';
+      div.className = 'modal-overlay';
+      div.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;';
+      div.innerHTML = '<div style="background:var(--bg-surface);border-radius:8px;padding:1.5rem;max-width:500px;width:90%;max-height:80vh;display:flex;flex-direction:column;">' +
+        '<h3 style="color:var(--accent-blue);margin-bottom:0.5rem;">Assign Hospitals — <span id="hospAssignUser"></span></h3>' +
+        '<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.8rem;">Leave empty = all hospitals (no restriction)</div>' +
+        '<div id="hospAssignList" style="flex:1;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.5rem;max-height:50vh;"></div>' +
+        '<div id="hospAssignError" style="color:var(--accent-red);font-size:0.82rem;margin-top:0.5rem;display:none;"></div>' +
+        '<div style="display:flex;gap:0.5rem;margin-top:1rem;justify-content:flex-end;">' +
+          '<button class="btn btn-outline" onclick="document.getElementById(\'hospAssignModal\').style.display=\'none\'">Cancel</button>' +
+          '<button class="btn" style="background:var(--accent-blue);color:white;" onclick="window._saveHospAssign()">Save</button>' +
+        '</div>' +
+      '</div>';
+      document.body.appendChild(div);
+      modal = div;
+    }
+    document.getElementById('hospAssignUser').textContent = username;
+    document.getElementById('hospAssignError').style.display = 'none';
+    modal.style.display = 'flex';
+    modal.dataset.userId = userId;
+
+    var listEl = document.getElementById('hospAssignList');
+    listEl.innerHTML = '<div style="color:var(--text-muted);padding:1rem;text-align:center;">Loading...</div>';
+
+    try {
+      var allHosp = await api('/hospitals/');
+      var userHospResp = await api('/admin/users/' + userId + '/hospitals');
+      var assignedIds = new Set((userHospResp.hospitals || []).map(function(h) { return h.id; }));
+      var isRestricted = userHospResp.is_restricted;
+
+      if (!allHosp || !allHosp.length) {
+        listEl.innerHTML = '<div style="color:var(--text-muted);padding:1rem;text-align:center;">No hospitals found</div>';
+        return;
+      }
+
+      var html = '<label style="display:block;padding:0.3rem 0.4rem;font-size:0.82rem;cursor:pointer;border-bottom:1px solid var(--border-default);font-weight:600;color:var(--accent-blue);">' +
+        '<input type="checkbox" id="hospAssignAll" onchange="window._hospAssignToggleAll(this.checked)" style="margin-right:0.4rem;"> All Hospitals (no restriction)' +
+        '</label>';
+      allHosp.forEach(function(h) {
+        var checked = isRestricted ? assignedIds.has(h.id) : true;
+        html += '<label style="display:block;padding:0.3rem 0.4rem;font-size:0.82rem;cursor:pointer;border-bottom:1px solid var(--border-default);">' +
+          '<input type="checkbox" class="hospAssignCb" value="' + h.id + '" ' + (checked ? 'checked' : '') + ' style="margin-right:0.4rem;"> ' + esc(h.name) +
+          '</label>';
+      });
+      listEl.innerHTML = html;
+      // Update "All" checkbox state
+      window._hospAssignUpdateAll();
+      listEl.querySelectorAll('.hospAssignCb').forEach(function(cb) {
+        cb.addEventListener('change', window._hospAssignUpdateAll);
+      });
+    } catch(e) {
+      listEl.innerHTML = '<div style="color:var(--accent-red);padding:1rem;">Failed to load hospitals: ' + esc(e.message) + '</div>';
+    }
+  };
+
+  window._hospAssignToggleAll = function(checked) {
+    document.querySelectorAll('.hospAssignCb').forEach(function(cb) { cb.checked = checked; });
+  };
+
+  window._hospAssignUpdateAll = function() {
+    var cbs = document.querySelectorAll('.hospAssignCb');
+    var allCb = document.getElementById('hospAssignAll');
+    if (!allCb || !cbs.length) return;
+    var allChecked = Array.from(cbs).every(function(cb) { return cb.checked; });
+    allCb.checked = allChecked;
+  };
+
+  window._saveHospAssign = async function() {
+    var modal = document.getElementById('hospAssignModal');
+    var userId = modal.dataset.userId;
+    var errEl = document.getElementById('hospAssignError');
+    errEl.style.display = 'none';
+
+    var allChecked = document.getElementById('hospAssignAll').checked;
+    var hospitalIds = [];
+    if (!allChecked) {
+      document.querySelectorAll('.hospAssignCb:checked').forEach(function(cb) {
+        hospitalIds.push(parseInt(cb.value, 10));
+      });
+    }
+
+    try {
+      var resp = await api('/admin/users/' + userId + '/hospitals', {
+        method: 'PUT',
+        body: JSON.stringify({ hospital_ids: hospitalIds })
+      });
+      if (resp && resp._error) {
+        errEl.textContent = resp.detail || 'Server error';
+        errEl.style.display = 'block';
+        return;
+      }
+      modal.style.display = 'none';
+      toastSuccess(resp.message || 'Hospitals updated');
+      loadAdminPanel();
+    } catch(e) {
+      errEl.textContent = 'Failed: ' + (e.message || 'Network error');
+      errEl.style.display = 'block';
+    }
+  };
+
   function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
 
   window.showCreateUserModal = function() {
