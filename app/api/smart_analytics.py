@@ -614,7 +614,11 @@ def get_anomaly_timeline(db: Session = Depends(get_db)):
 
         hospital_map = {}
         for m in months:
-            data = _get_smart_data(db, m)["data"]
+            envelope = _get_smart_data(db, m)
+            # Skip months where computation is still in progress
+            if envelope.get("computing") or envelope.get("hospitals_count", 0) == 0:
+                continue
+            data = envelope["data"]
             for a in data["anomalies"]:
                 if a["hospital_id"] not in hospital_map:
                     hospital_map[a["hospital_id"]] = {
@@ -627,7 +631,9 @@ def get_anomaly_timeline(db: Session = Depends(get_db)):
                 hospital_map[a["hospital_id"]]["severities"][m] = a["severity"]
 
         hospitals = sorted(hospital_map.values(), key=lambda h: h["hospital_name"])
-        response = _sanitize({"months": months, "hospitals": hospitals})
+        # Filter months to only those that have data
+        populated_months = sorted(set(m for h in hospital_map.values() for m in h["scores"]))
+        response = _sanitize({"months": populated_months or months, "hospitals": hospitals})
         cache.set(cache_key, response, ttl=1800)
         return response
     except Exception as e:
@@ -659,17 +665,25 @@ def get_time_overview(db: Session = Depends(get_db)):
             "avg_score": [], "critical_count": [], "warning_count": [],
             "affected_governorates": [],
         }
+        populated_months = []
         for m in months:
             envelope = _get_smart_data(db, m)
+            # Skip months where computation is still in progress or no data
+            if envelope.get("computing") or envelope.get("hospitals_count", 0) == 0:
+                continue
             data = envelope["data"]
-            anomalies = data["anomalies"]
+            kpi = data.get("kpi", {})
+            anomalies = data.get("anomalies", [])
             avg = round(sum(a["anomaly_score"] for a in anomalies) / len(anomalies), 3) if anomalies else 0.0
             series["avg_score"].append({"month": m, "value": avg})
-            series["critical_count"].append({"month": m, "value": data["kpi"]["critical_count"]})
-            series["warning_count"].append({"month": m, "value": data["kpi"]["warning_count"]})
-            series["affected_governorates"].append({"month": m, "value": data["kpi"]["affected_governorates"]})
+            series["critical_count"].append({"month": m, "value": kpi.get("critical_count", 0)})
+            series["warning_count"].append({"month": m, "value": kpi.get("warning_count", 0)})
+            series["affected_governorates"].append({"month": m, "value": kpi.get("affected_governorates", 0)})
+            populated_months.append(m)
 
-        response = _sanitize({"months": months, "series": series})
+        if not populated_months:
+            return {"empty": True, "message": "جاري التحليل... أعد المحاولة بعد قليل", "months": months}
+        response = _sanitize({"months": populated_months, "series": series})
         cache.set(cache_key, response, ttl=1800)
         return response
     except Exception as e:

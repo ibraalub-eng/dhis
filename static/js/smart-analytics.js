@@ -95,9 +95,15 @@ async function loadAnomaliesTable(month, _retries) {
   }
 }
 
-async function loadTimeline() {
+async function loadTimeline(_retries) {
+  _retries = _retries == null ? 10 : _retries;
   try {
     const d = await apiSmartGet('/smart/anomaly-timeline');
+    if (d.computing) {
+      if (_retries > 0) setTimeout(() => loadTimeline(_retries - 1), 3000);
+      else showSmartSectionEmpty('timeline', _t('Computation timed out'));
+      return;
+    }
     const months = d.months || [];
     const hospitals = d.hospitals || [];
     const badge = document.getElementById('smart-timeline-badge');
@@ -157,9 +163,15 @@ async function loadTimeline() {
   }
 }
 
-async function loadTimeOverview() {
+async function loadTimeOverview(_retries) {
+  _retries = _retries == null ? 10 : _retries;
   try {
     const d = await apiSmartGet('/smart/time-overview');
+    if (d.computing) {
+      if (_retries > 0) setTimeout(() => loadTimeOverview(_retries - 1), 3000);
+      else showSmartSectionEmpty('time-overview', _t('Computation timed out'));
+      return;
+    }
     if (d.empty) { showSmartSectionEmpty('time-overview', d.message); return; }
     const s = d.series;
     renderPlot('smart-time-avg', [{ x: s.avg_score.map(p => p.month), y: s.avg_score.map(p => p.value), type: 'scatter', mode: 'lines+markers' }], { title: _t('Average anomaly score') });
