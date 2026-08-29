@@ -10,6 +10,27 @@ from app.models import IndicatorValue
 
 logger = logging.getLogger(__name__)
 
+# --- أقسام التقرير الشامل (الترتيب النهائي) ---
+SECTIONS: List[str] = [
+    "exec_summary",        # الملخص التنفيذي + الحالة العامة
+    "key_messages",        # أهم الرسائل التنفيذية
+    "priority_hospitals",  # المستشفيات ذات الأولوية
+    "geo_risk",            # التوزيع الجغرافي للمخاطر
+    "early_warnings",      # إشارات الإنذار المبكر
+    "current_trends",      # الاتجاهات الشهرية
+    "forecast",            # التنبؤ بالمخاطر المستقبلية
+    "clinical_relations",  # تحليل المؤشرات والعلاقات
+    "composite_patterns",  # الأنماط المركبة
+    "anomaly_intel",       # تحليل الحالات الشاذة
+    "top_deviations",      # أكبر الانحرافات
+    "regional_intel",      # الاستخبارات الإقليمية
+    "deterioration",       # تدهور مستمر
+    "data_quality",        # تنبيهات جودة البيانات
+    "recommendations",     # توصيات + مصفوفة الأولويات
+    "conclusion",          # الخلاصة التنفيذية
+    "appendix",            # الملحق الفني
+]
+
 # أسماء المؤشرات المشتقة (مطابقة لواجهة المستخدم)
 INDICATOR_NAMES_AR = {
     "cs_rate": "معدل القيصارية",
@@ -642,6 +663,21 @@ def _build_english_prompt(analytics, indicator_stats=None, prev_month: Optional[
     - Cover all sections above
     """
     return prompt
+
+
+def _parse_sections(ai_text: str, keys: List[str]) -> Dict[str, str]:
+    """تقسيم نص الذكاء الاصطناعي إلى أقسام بحسب ترويسات `## key`."""
+    result: Dict[str, str] = {}
+    # TODO: filled in Task 3
+    return result
+
+
+def _build_local_sections(analytics, lang: str = "ar", indicator_stats=None,
+                          prev_month: Optional[str] = None, regional=None,
+                          decision=None, forecast=None) -> Dict[str, str]:
+    """توليد سرد لكل قسم بشكل حتمي (عند عدم توفر AI)."""
+    # TODO: filled in Task 2
+    return {key: "" for key in SECTIONS}
 
 
 def generate_comprehensive_report(session: Session, month: str, lang: str = "ar", use_cache: bool = True) -> Dict[str, Any]:
