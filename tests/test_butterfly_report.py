@@ -42,3 +42,16 @@ def test_local_sections_avoid_causation_words():
         assert bad not in joined, f"found forbidden wording: {bad}"
     # واقعي: يوجد تحذير الارتباط لا يعني السببية بشكل آمن
     assert "ارتباط" in " ".join(sections.values())
+
+
+def test_parse_sections_tolerates_ai_noise():
+    noisy = ("مقدمة غير مقصودة\n\n"
+             "## exec_summary\nالمحتوى الأول\n\n"
+             "## key_messages\n- بند 1\n- بند 2\n\n"
+             "## appendix\nنهاية")
+    parsed = _parse_sections(noisy, SECTIONS)
+    assert parsed["exec_summary"].strip() == "المحتوى الأول"
+    assert parsed["key_messages"].strip() == "- بند 1\n- بند 2"
+    assert parsed["appendix"].strip() == "نهاية"
+    # الأقسام غير المذكورة تُملأ بسرد فارغ → تُهدى لاحقاً للحتمي
+    assert "geo_risk" in parsed

@@ -478,6 +478,62 @@ def _build_arabic_prompt(analytics, indicator_stats=None, prev_month: Optional[s
     - يتضمن توصيات إجرائية واضحة
     - يغطي جميع الجوانب أعلاه
     """
+    prompt = prompt + f"""
+    أخرج تقريرك على شكل أقسام مستقلة، كل قسم يبدأ بترويسة صريحة بصيغة markdown
+    بالشكل التالي (أنشئ الأقسام الـ{len(SECTIONS)} التالية بالترتيب، ولا تُضف أي شيء
+    خارج هذه الترويسات):
+
+    ## exec_summary
+    (ملخص تنفيذي قصير — الحالة العامة، عدد الشاذ/الحرج، المحافظات المتأثرة)
+
+    ## key_messages
+    (5 إلى 7 رسائل تنفيذية أوضحها — نقاط مبدوءة بـ "- ")
+
+    ## priority_hospitals
+    (مستشفيات الأولوية مرتبة تنازلياً بالدرجة، كل سطر: الترتيب — المستشفى — المحافظة — الدرجة — الحالة)
+
+    ## geo_risk
+    (التوزيع الجغرافي للمخاطر وتفسيره)
+
+    ## early_warnings
+    (إشارات الإنذار المبكر — علاقات زمنية إحصائية لا سببية)
+
+    ## current_trends
+    (الاتجاهات الشهرية وتفسيرها)
+
+    ## forecast
+    (التنبؤ بالمخاطر المستقبلية — فصل الخطر الحالي عن المتوقع)
+
+    ## clinical_relations
+    (العلاقات بين المؤشرات + ملاحظة أن الارتباط لا يثبت السببية)
+
+    ## composite_patterns
+    (الأنماط المركبة المتكررة)
+
+    ## anomaly_intel
+    (تحليل الحالات الشاذة — فصل درجة الشذوذ عن انحراف المؤشر)
+
+    ## top_deviations
+    (أكبر الانحرافات عن المستشفيات المماثلة)
+
+    ## regional_intel
+    (الاستخبارات الإقليمية)
+
+    ## deterioration
+    (المؤشرات ذات التدهور المستمر)
+
+    ## data_quality
+    (تنبيهات جودة البيانات وحجم العينة)
+
+    ## recommendations
+    (التوصيات المبنية على الأدلة)
+
+    ## conclusion
+    (الخلاصة التنفيذية — الوضع الحالي والخطر المستقبلي والإجراء)
+
+    ## appendix
+    (ملحق فني: FDR، غرانجر، الارتباطات، SHAP، البواقي، التجميع، المقارنة الطبقية)
+    """
     return prompt
 
 
@@ -662,14 +718,104 @@ def _build_english_prompt(analytics, indicator_stats=None, prev_month: Optional[
     - Include actionable recommendations
     - Cover all sections above
     """
+    prompt = prompt + f"""
+    Output your report as independent sections. Each section MUST start with a
+    plain markdown heading of the exact form `## <key>` (with the key literally
+    written, in the given order). Do NOT add any text outside these headings.
+    Coverage expectations per section:
+
+    ## exec_summary
+    (short executive summary — overall status, anomalous/critical counts, affected governorates)
+
+    ## key_messages
+    (5 to 7 clearest executive messages, each as a bullet starting with "- ")
+
+    ## priority_hospitals
+    (priority hospitals sorted by score descending; each line: rank — hospital — governorate — score — status)
+
+    ## geo_risk
+    (geographic risk distribution and interpretation)
+
+    ## early_warnings
+    (early warning signals — temporal statistical associations, NOT causation)
+
+    ## current_trends
+    (monthly trends and interpretation)
+
+    ## forecast
+    (future risk forecast — keep current risk separate from forecast risk)
+
+    ## clinical_relations
+    (relationships between indicators + note that correlation does not imply causation)
+
+    ## composite_patterns
+    (recurring composite patterns)
+
+    ## anomaly_intel
+    (anomaly analysis — keep anomaly score separate from indicator deviation)
+
+    ## top_deviations
+    (largest deviations vs comparable hospitals)
+
+    ## regional_intel
+    (regional intelligence)
+
+    ## deterioration
+    (indicators with persistent deterioration)
+
+    ## data_quality
+    (data-quality and sample-size alerts)
+
+    ## recommendations
+    (evidence-based recommendations)
+
+    ## conclusion
+    (executive conclusion — current state, future risk, action)
+
+    ## appendix
+    (technical appendix: FDR, Granger, correlations, SHAP, residuals, clustering, stratified peers)
+    """
     return prompt
 
 
 def _parse_sections(ai_text: str, keys: List[str]) -> Dict[str, str]:
-    """تقسيم نص الذكاء الاصطناعي إلى أقسام بحسب ترويسات `## key`."""
-    result: Dict[str, str] = {}
-    # TODO: filled in Task 3
+    """تقسيم نص الذكاء الاصطناعي إلى أقسام بحسب ترويسات `## <key>` (أو `=== <key> ===`).
+    يملأ أي مفتاح لم يُذكر بقيمة فارغة حتى يغطي المتصل كل الأقسام."""
+    import re
+    result: Dict[str, str] = {key: "" for key in keys}
+    normalized = str(ai_text or "")
+    for key in keys:
+        m = re.search(rf"^#{{2,4}}\s*{re.escape(key)}\s*$", normalized, re.MULTILINE)
+        if m is None:
+            m = re.search(rf"^===\s*{re.escape(key)}\s*===\s*$", normalized, re.MULTILINE)
+        if m is None:
+            continue
+        start = m.end()
+        nxt = re.search(rf"^#{{2,4}}\s*\S+.*$", normalized[start:], re.MULTILINE)
+        if nxt:
+            end = start + nxt.start()
+        else:
+            end = len(normalized)
+        result[key] = normalized[start:end].strip()
     return result
+
+
+def _build_sections_from_ai(prompt: str, local_sections: Dict[str, str],
+                            lang: str = "ar") -> Optional[Dict[str, str]]:
+    """استدعاء AI وتقسيم الناتج؛ أي قسم مفقود يُملأ من النسخة الحتمية."""
+    try:
+        ai_text = _call_api(prompt)
+    except Exception:
+        logger.error("AI report generation failed; using local fallback", exc_info=True)
+        return None
+    if not ai_text:
+        return None
+    parsed = _parse_sections(ai_text, SECTIONS)
+    merged = {key: (parsed.get(key) or local_sections.get(key, "")).strip()
+              for key in SECTIONS}
+    if all(merged.values()):
+        return merged
+    return local_sections
 
 
 def _build_local_sections(analytics, lang: str = "ar", indicator_stats=None,
@@ -982,37 +1128,35 @@ def generate_comprehensive_report(session: Session, month: str, lang: str = "ar"
         regional = run_regional_analysis(session, month)
         cache.set(f"regional_{month}_6", regional, ttl=300)
 
-    prompt = build_comprehensive_prompt(
-        analytics, lang, indicator_stats=indicator_stats, prev_month=prev_month,
-        regional=regional,
-    )
-
     decision_brief = _build_decision_brief(
         analytics, indicator_stats=indicator_stats, prev_month=prev_month, lang=lang,
         regional=regional,
     )
+    forecast_brief = _build_forecast_brief(session, month, lang)
 
-    report_text = None
+    # سرد كل قسم بشكل حتمي أولاً (ضمان تغطية كاملة)، ثم حاول AI.
+    local_sections = _build_local_sections(
+        analytics, lang=lang, indicator_stats=indicator_stats, prev_month=prev_month,
+        regional=regional, decision=decision_brief, forecast=forecast_brief,
+    )
+    sections = None
+    report_source = "local"
     try:
-        report_text = _call_api(prompt)
-    except Exception:
-        logger.error("AI report generation failed; using local fallback", exc_info=True)
-    report_source = "ai" if report_text else "local"
-    if not report_text:
-        report_text = _build_local_report(
+        prompt = build_comprehensive_prompt(
             analytics, lang, indicator_stats=indicator_stats, prev_month=prev_month,
             regional=regional,
         )
-    # قسم القرارات التنفيذية دائماً في مقدمة التقرير (بيانات حقيقية محسوبة لا
-    # تخمين AI) — مع إبقاء الموجز في data للوحة القرارات في الواجهة.
-    report_text = "\n".join(_decision_brief_lines(decision_brief, lang)) + "\n\n" + report_text
+        sections = _build_sections_from_ai(prompt, local_sections, lang=lang)
+        if sections is not None:
+            report_source = "ai"
+    except Exception:
+        logger.error("AI report generation failed; using local fallback", exc_info=True)
+    if sections is None:
+        sections = local_sections
+        report_source = "local"
 
-    # توقعات الشهر القادم: مؤشرات قيادية صاعدة بأوزانها المكتشفة والنتائج المتوقعة
-    # (قسم محسوب من العلاقات المتأخرة — يظهر في النص المُصدَّر بغض النظر عن AI).
-    forecast_brief = _build_forecast_brief(session, month, lang)
-    forecast_lines = _forecast_brief_lines(forecast_brief, lang)
-    if forecast_lines:
-        report_text = "\n".join(forecast_lines) + "\n\n" + report_text
+    # تقرير متوافق خلفياً = دمج الأقسام بالترتيب.
+    report_text = "\n\n".join(sections[key] for key in SECTIONS)
     
     def _to_dict(obj):
         # تحويل عميق مع تنظيف قيم numpy حتى يسلسل JSON بسلامة
@@ -1039,6 +1183,7 @@ def generate_comprehensive_report(session: Session, month: str, lang: str = "ar"
         "month": month,
         "report": report_text,
         "report_source": report_source,
+        "sections": sections,
         "data": {
             "hospitals_count": analytics.hospitals_count,
             "kpi": _to_dict(analytics.kpi),

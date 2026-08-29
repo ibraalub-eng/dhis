@@ -7,7 +7,7 @@ from app.models import AnalysisCache
 
 logger = logging.getLogger(__name__)
 
-REPORT_CACHE_PREFIX = "comparative_report:"
+REPORT_CACHE_PREFIX = "comparative_report_v2:"
 
 
 def _cache_key(month: str, lang: str) -> str:
