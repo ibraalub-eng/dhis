@@ -12,6 +12,7 @@ import { renderPlot } from './smart/charts.js';
 import { loadGeoSection } from './smart/geo-regional.js';
 import { initHospitalSelect, loadHospitalMode, openDrilldown, goRootCause } from './smart/hospital.js';
 import { generateComprehensiveReport, toggleReportLang, exportSmartData, initComparisonSelect, renderComparison } from './smart/report.js';
+import renderReportSections from './smart/report-sections.js';
 
 // Legacy window globals kept for inline onclick compatibility (some live in modules).
 window.smartDrilldown = openDrilldown;

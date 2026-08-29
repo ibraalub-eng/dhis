@@ -2,6 +2,7 @@
 // IMP-2: all three flows use the server-side comparative/export endpoints.
 import { smartState, apiSmartGet, _smartEscapeHtml, _t, _fmtNum, _riskBadge, smartTranslateFeature } from './core.js';
 import { renderPlot } from './charts.js';
+import renderReportSections from './report-sections.js';
 
 function reportLang() {
   return smartState.lang || 'en';
@@ -81,6 +82,7 @@ export async function generateComprehensiveReport() {
   try {
     const result = await apiSmartGet(`/comparative/comprehensive-report/${month}?lang=${reportLang()}`);
     smartState.data = result.data || result;
+    smartState.sections = result.sections || {};
     renderReportSection(result.data || result, month, result.report || '');
     section.style.display = 'block';
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -107,7 +109,10 @@ export function renderReportSection(data, month, reportText) {
   }
   renderDecisionBoard(data.decision || {}, k);
   const output = document.getElementById('smart-report-output');
-  if (output) output.innerHTML = reportText ? renderReportLines(reportText) : '';
+  if (output) {
+    smartState.sections = smartState.sections || {};
+    renderReportSections({ data, sections: smartState.sections, lang: reportLang() });
+  }
 }
 
 function renderDecisionBoard(decision, k) {
