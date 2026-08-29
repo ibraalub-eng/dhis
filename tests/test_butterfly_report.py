@@ -55,3 +55,45 @@ def test_parse_sections_tolerates_ai_noise():
     assert parsed["appendix"].strip() == "نهاية"
     # الأقسام غير المذكورة تُملأ بسرد فارغ → تُهدى لاحقاً للحتمي
     assert "geo_risk" in parsed
+
+
+def _seed_report_data(db_session, months):
+    from app.models import Hospital, HospitalType, Indicator, IndicatorValue
+    htype = HospitalType(name="ReportGov")
+    db_session.add(htype)
+    db_session.flush()
+    hospitals = [Hospital(name=f"RepH{i}", hospital_type_id=htype.id, is_active=True) for i in range(3)]
+    db_session.add_all(hospitals)
+    db_session.flush()
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in hospitals:
+        for mi, m in enumerate(months):
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id["2"], month=m, value=200 + mi * 5))
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id["6"], month=m, value=120 + mi * 3))
+    db_session.commit()
+
+
+def test_comprehensive_report_endpoint_contract(db_session):
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_db
+
+    def override():
+        yield db_session
+    app.dependency_overrides[get_db] = override
+    try:
+        _seed_report_data(db_session, ["2026-05", "2026-06"])
+        client = TestClient(app)
+        resp = client.get("/comparative/comprehensive-report/2026-06?lang=ar")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["month"] == "2026-06"
+        assert body["report_source"] in ("ai", "local")
+        sections = body.get("sections")
+        assert sections is not None
+        for key in SECTIONS:
+            assert key in sections and str(sections[key]).strip(), f"empty/absent section: {key}"
+        assert body["report"] == "\n\n".join(str(sections[k]) for k in SECTIONS)
+        assert "data" in body and "decision" in body["data"] and "kpi" in body["data"]
+    finally:
+        app.dependency_overrides.pop(get_db, None)

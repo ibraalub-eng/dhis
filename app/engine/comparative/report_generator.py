@@ -1508,7 +1508,7 @@ def _forecast_brief_lines(brief: Dict, lang: str = "ar") -> List[str]:
                             or "no reliable outcome linked")
                 delta = r.get("delta_pct")
                 d = f" (+{delta:.1f}%)" if delta is not None else ""
-                lines.append(f"  • {r.get('metric_ar')} (weight {r.get('weight')}){d}: leads to {outcomes}")
+                lines.append(f"  • {r.get('metric_ar')} (weight {r.get('weight')}){d}: statistically associates with {outcomes}")
         lines.append("- Note: correlation is not causation — these are statistical lead signals, not certain forecasts.")
         return lines
 

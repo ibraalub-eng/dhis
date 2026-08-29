@@ -178,41 +178,6 @@ function renderDecisionBoard(decision, k) {
   }
 }
 
-// Render the AI report text as formatted lines (reuses report-* CSS classes).
-function renderReportLines(reportText) {
-  return String(reportText).split('\n').map(line => {
-    const t = String(line).trim();
-    if (!t) return `<div class="report-line report-line-empty"></div>`;
-    if (t.startsWith('- ') || t.startsWith('• ')) {
-      let content = t.replace(/^[-•]\s*/, '');
-      const segments = content.split('|').map(s => s.trim()).filter(Boolean);
-      if (segments.length > 1) {
-        const chips = segments.map(seg => {
-          const idx = seg.indexOf(': ');
-          if (idx > 0) {
-            const key = seg.slice(0, idx);
-            const val = seg.slice(idx + 2);
-            return `<span class="report-chip"><span class="report-chip-key">${_smartEscapeHtml(key)}</span>: ${_smartEscapeHtml(val)}</span>`;
-          }
-          return `<span class="report-chip">${_smartEscapeHtml(seg)}</span>`;
-        });
-        return `<div class="report-line report-bullet">${chips.join('')}</div>`;
-      }
-      const idx = content.indexOf(': ');
-      if (idx > 0) {
-        const key = content.slice(0, idx);
-        const val = content.slice(idx + 2);
-        return `<div class="report-line report-bullet"><span class="report-key">${_smartEscapeHtml(key)}</span><span class="report-sep">: </span><span class="report-value">${_smartEscapeHtml(val)}</span></div>`;
-      }
-      return `<div class="report-line report-bullet">${_smartEscapeHtml(content)}</div>`;
-    }
-    if (t.endsWith(':') && t.length < 60) {
-      return `<div class="report-line report-text" style="font-weight:700;color:var(--accent-blue);">${_smartEscapeHtml(t)}</div>`;
-    }
-    return `<div class="report-line report-text">${_smartEscapeHtml(t)}</div>`;
-  }).join('');
-}
-
 export function initComparisonSelect() {
   const select = document.getElementById('smart-comparison-type');
   if (!select) return;
