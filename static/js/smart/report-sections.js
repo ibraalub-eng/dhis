@@ -1,6 +1,6 @@
 // report-sections.js — Butterfly Intelligence section renderers.
 // Each section renders structured HTML from `data` + embeds `sections[key]` narrative.
-import { smartState, _smartEscapeHtml, _t, _fmtNum } from './core.js';
+import { smartState, _smartEscapeHtml, _t, _fmtNum, smartTranslateFeature } from './core.js';
 
 const SECTION_META = {
   exec_summary: { title: 'تقرير تنفيذي', icon: '📊' },
@@ -129,6 +129,173 @@ function renderAppendix(data) {
   return `<details class="bi-collapsible"><summary>عرض التحليل الفني</summary><div style="margin-top:.5rem;">${lines.map(esc).join('<br>')}</div></details>`;
 }
 
+function renderCurrentTrends(data) {
+  const trends = ((data.regional && data.regional.trends) || []).filter(t => t.metric_ar);
+  const dirs = trends.filter(t => t.direction === 'worsening' || t.direction === 'improving');
+  const spikes = trends.filter(t => t.direction === 'spike');
+  if (!dirs.length && !spikes.length) return `<div class="bi-empty">لا توجد سلاسل شهرية كافية لحساب الاتجاهات.</div>`;
+  const cards = dirs.slice(0, 6).map(t => {
+    const worse = t.direction === 'worsening';
+    return `<div class="bi-priority">
+      <strong>${esc(t.governorate)}</strong> — ${esc(t.metric_ar)}
+      <span class="bi-badge ${worse ? 'bi-badge-critical' : 'bi-badge-normal'}">${worse ? 'تدهور' : 'تحسّن'} ${esc(t.slope_pct != null ? Math.abs(t.slope_pct).toFixed(1) + '%/شهر' : '')}</span><br>
+      <span class="bi-kpi-label">R² = ${esc(t.r2 != null ? t.r2.toFixed(2) : '—')} · ميل ${worse ? '⬆' : '⬇'} (الانخفاض أفضل)</span>
+    </div>`;
+  }).join('');
+  const spikeRows = spikes.slice(0, 5).map(t => `<tr>
+    <td>${esc(t.governorate)}</td><td>${esc(t.metric_ar)}</td><td>${esc(t.last_value)}</td><td>${esc(t.prior_mean)}</td><td>${esc(t.spike_z)}</td>
+  </tr>`).join('');
+  const spikeBlock = spikeRows ? `<div class="bi-table-wrap"><table><thead><tr><th>المحافظة</th><th>المؤشر</th><th>آخر قيمة</th><th>متوسط سابق</th><th>z</th></tr></thead><tbody>${spikeRows}</tbody></table></div>` : '';
+  return `<div class="bi-grid-2">${cards}</div>${spikeBlock}`;
+}
+
+function renderClinicalRelations(data) {
+  const corrs = ((data.correlations && data.correlations.strong_correlations) || []).slice(0, 8);
+  if (!corrs.length) return `<div class="bi-empty">لا توجد علاقات قوية بين المؤشرات.</div>`;
+  const cards = corrs.map(c => {
+    const r = c.pearson_r || 0;
+    const col = Math.abs(r) >= 0.7 ? 'var(--accent-red)' : 'var(--accent-orange)';
+    return `<div class="bi-priority" style="border-left-color:${col};">
+      <strong>${esc(smartTranslateFeature(c.indicator_a))} ↔ ${esc(smartTranslateFeature(c.indicator_b))}</strong><br>
+      <span>r = <b>${_fmtNum(r)}</b> · ${esc(c.strength || '')}</span>
+    </div>`;
+  }).join('');
+  return `<div class="bi-grid-2">${cards}</div>
+    <div class="bi-caution">الارتباط الإحصائي لا يثبت السببية — قد تكون الوشائج نتيجة عوامل مشتركة أو عشوائية.</div>`;
+}
+
+function renderCompositePatterns(data) {
+  const patterns = (data.patterns || []).slice(0, 5);
+  if (!patterns.length) return `<div class="bi-empty">لا توجد أنماط مركبة متكررة.</div>`;
+  const cards = patterns.map(p => `
+    <div class="bi-priority">
+      <strong>${esc((p.arabic_names || []).join('، '))}</strong><br>
+      <span class="bi-kpi-label">${esc(p.hospitals_count || 0)} مستشفى · الدعم ${_fmtNum((p.support || 0) * 100)}%</span><br>
+      <span class="bi-badge bi-badge-warning" title="Lift مقدار تجاوز تكرار النمط عن التكرار المتوقع المستقل">Lift ${esc(p.lift != null ? p.lift.toFixed(2) : '—')}</span>
+      ${esc(p.summary_ar ? ' · ' + p.summary_ar : '')}
+    </div>`).join('');
+  return `<div class="bi-grid-2">${cards}</div>`;
+}
+
+function renderAnomalyIntel(data) {
+  const anomalies = (data.anomalies || []).slice(0, 6);
+  if (!anomalies.length) return `<div class="bi-empty">لا توجد حالات شاذة.</div>`;
+  const cards = anomalies.map(a => {
+    const expl = (data.explanations || []).find(e => e.hospital_name === a.hospital_name);
+    const factors = (expl && expl.top_factors || []).slice(0, 3).map(f => {
+      const dir = f.direction === 'low' ? '▼' : '▲';
+      return `<span class="bi-kpi-label">${esc(f.arabic_label || f.feature)} ${dir} ${_fmtNum(f.shap_value)}</span>`;
+    }).join('<br>');
+    return `<div class="bi-priority">
+      <strong>${esc(a.hospital_name)}</strong> — ${esc(a.governorate || '')}<br>
+      <div class="bi-kpi-label">درجة الشذوذ (Anomaly Score): <b>${_fmtNum(a.anomaly_score)}</b> ${badge(a.severity)}</div>
+      <div style="margin-top:.4rem;">${esc(_t('انحراف المؤشر المفسِّر (Indicator Deviation):'))}</div>
+      ${factors || `<div class="bi-empty">لا توجد عوامل تفسير متاحة.</div>`}
+    </div>`;
+  }).join('');
+  return `<div class="bi-grid-2">${cards}</div>
+    <div class="bi-caution">درجة الشذوذ الإحصائية منفصلة عن انحراف المؤشرات — لا تُخلط بينهما عند اتخاذ القرار.</div>`;
+}
+
+function renderTopDeviations(data) {
+  const rowsData = (data.stratified || []).slice().sort((a, b) => Math.abs(b.deviation_pct || 0) - Math.abs(a.deviation_pct || 0)).slice(0, 5);
+  if (!rowsData.length) return `<div class="bi-empty">لا توجد انحرافات كبيرة عن المستشفيات المماثلة.</div>`;
+  const rows = rowsData.map(r => `<tr>
+    <td>${esc(r.hospital_name)}</td>
+    <td>${esc(smartTranslateFeature(r.indicator))}</td>
+    <td style="text-align:center;">${_fmtNum(r.hospital_value)}</td>
+    <td style="text-align:center;">${_fmtNum(r.peer_group_mean)}</td>
+    <td style="text-align:center;color:${r.deviation_pct >= 0 ? 'var(--accent-red)' : 'var(--accent-green)'};">${r.deviation_pct >= 0 ? '+' : ''}${_fmtNum(r.deviation_pct)}%</td>
+  </tr>`).join('');
+  return `<div class="bi-table-wrap"><table><thead><tr>
+    <th>المستشفى</th><th>المؤشر</th><th>القيمة</th><th>متوسط النظير</th><th>الانحراف</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>
+  <div class="bi-caution">الانحراف عن النظير لا يُثبت خطأً إكلينيكياً — يجب التحقق من البيانات قبل الاعتماد.</div>`;
+}
+
+function renderRegionalIntel(data) {
+  const govs = ((data.regional && data.regional.governorates) || []).map(g => {
+    const r = (g.rates && g.rates.nmr) || {};
+    return { name: g.governorate, births: g.births, nmr: r.value, risk: (data.regional.mortality || []).find(m => m.governorate === g.governorate) };
+  });
+  if (!govs.length) return `<div class="bi-empty">لا توجد بيانات إقليمية كافية.</div>`;
+  const rows = govs.map(g => {
+    const mr = g.risk;
+    const lvl = mr ? mr.risk : 'low';
+    const col = lvl === 'high' ? 'var(--accent-red)' : lvl === 'medium' ? 'var(--accent-orange)' : 'var(--accent-green)';
+    return `<tr>
+      <td>${esc(g.name)}</td>
+      <td style="text-align:center;">${esc(g.births ?? '-')}</td>
+      <td style="text-align:center;">${g.nmr != null ? _fmtNum(g.nmr) : '—'}</td>
+      <td style="text-align:center;">${mr && mr.rate != null ? _fmtNum(mr.rate) : '—'}</td>
+      <td style="text-align:center;color:${col};">${esc(mr ? (mr.risk_label_ar || mr.risk) : '—')}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="bi-table-wrap"><table><thead><tr>
+    <th>المحافظة</th><th>المواليد</th><th>معدل وفيات حديثي الولادة</th><th>معدل الوفيات</th><th>مستوى الخطر</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderDeterioration(data) {
+  const trends = ((data.regional && data.regional.trends) || []).filter(t => t.direction === 'worsening').slice(0, 5);
+  if (!trends.length) return `<div class="bi-empty">لا توجد سلاسل تاريخية كافية لتقدير التدهور المستمر.</div>`;
+  const rows = trends.map(t => `<tr>
+    <td>${esc(t.governorate)}</td>
+    <td>${esc(t.metric_ar)}</td>
+    <td style="text-align:center;">${esc(Math.abs(t.slope_pct).toFixed(1))}%</td>
+    <td style="text-align:center;">${esc(t.r2.toFixed(2))}</td>
+    <td style="text-align:center;color:var(--accent-red);">⬆ تدهور</td>
+  </tr>`).join('');
+  return `<div class="bi-table-wrap"><table><thead><tr>
+    <th>المحافظة</th><th>المؤشر</th><th>الميل الشهري %</th><th>R²</th><th>الاتجاه</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>
+  <div class="bi-caution">التدهور المستمر قياس اتجاه زمني إحصائي — لا يفترض علاقة سببية مباشرة.</div>`;
+}
+
+function renderDataQuality(data) {
+  const mortality = ((data.regional && data.regional.mortality) || []).filter(m => m.small_sample);
+  if (!mortality.length) return `<div class="bi-empty">لا توجد تنبيهات جودة بيانات كبرى.</div>`;
+  const cards = mortality.slice(0, 6).map(m => `
+    <div class="bi-priority">
+      <strong>${esc(m.governorate)}</strong><br>
+      <span class="bi-kpi-label">${esc(m.births || 0)} مولود — حجم عينة صغير، تُفسَّر النتائج بحذر.</span>
+    </div>`).join('');
+  return `<div class="bi-grid-2">${cards}</div>
+    <div class="bi-caution">العينات الصغيرة قد تُضخّم الانحرافات — لا تُعتمد النتائج كقرار نهائي دون بيانات أكبر.</div>`;
+}
+
+function renderRecommendations(data) {
+  const prios = (data.decision && data.decision.priorities) || [];
+  if (!prios.length) return `<div class="bi-empty">لا توجد أولويات إلزامية هذا الشهر.</div>`;
+  const prioIcons = { critical: '🔴', high: '🟠', medium: '🟡', low: '🔵' };
+  const rows = prios.slice(0, 5).map(p => `<tr>
+    <td style="text-align:center;">${prioIcons[p.priority] || '⚪'}</td>
+    <td>${esc(p.action)}</td>
+    <td>${esc(p.target)}</td>
+    <td>${badge(p.priority)}</td>
+    <td style="text-align:center;">${Math.round((p.impact || 0) * 100)}%</td>
+  </tr>`).join('');
+  return `<div class="bi-table-wrap"><table><thead><tr>
+    <th>الأولوية</th><th>الإجراء</th><th>الهدف</th><th>المستوى</th><th>الأثر</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function renderConclusion(data) {
+  const decision = data.decision || {};
+  const prio = (decision.priorities || [])[0];
+  const verdict = decision.verdict === 'critical' ? 'وضع حرج يتطلب تدخلاً فورياً' :
+    decision.verdict === 'attention' ? 'وضع يستدعي متابعة ومراجعة' : 'استقرار نسبي هذا الشهر';
+  return `<div class="bi-priority">
+    <strong>الوضع الحالي:</strong> ${esc(verdict)} (درجة الخطر ${esc(decision.risk_score ?? '-')}/100).
+  </div>
+  <div class="bi-priority">
+    <strong>الخطر المستقبلي:</strong> يُرصد في قسم التنبؤ — تقدير إحصائي منفصل عن الوضع الحالي وليس يقيناً.
+  </div>
+  <div class="bi-priority">
+    <strong>الإجراء الموصى به:</strong> ${prio ? esc(prio.action) + ' ← ' + esc(prio.target) : 'مراجعة بيانات المستشفيات ذات الأولوية وتحديث السجلات.'}
+  </div>`;
+}
+
 // Render the remaining sections with a shared table/grid fallback that shows
 // the narrative plus a lightweight data table where relevant.
 function renderSimpleSection(key, data) {
@@ -137,10 +304,20 @@ function renderSimpleSection(key, data) {
 
 const RENDERERS = {
   exec_summary: renderExecSummary,
+  current_trends: renderCurrentTrends,
   priority_hospitals: renderPriorityHospitals,
   geo_risk: renderGeoRisk,
   early_warnings: renderEarlyWarnings,
+  clinical_relations: renderClinicalRelations,
+  composite_patterns: renderCompositePatterns,
+  anomaly_intel: renderAnomalyIntel,
+  top_deviations: renderTopDeviations,
+  regional_intel: renderRegionalIntel,
+  deterioration: renderDeterioration,
+  data_quality: renderDataQuality,
   forecast: renderForecast,
+  recommendations: renderRecommendations,
+  conclusion: renderConclusion,
   appendix: renderAppendix,
 };
 
