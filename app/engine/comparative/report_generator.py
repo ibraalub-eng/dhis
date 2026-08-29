@@ -675,9 +675,289 @@ def _parse_sections(ai_text: str, keys: List[str]) -> Dict[str, str]:
 def _build_local_sections(analytics, lang: str = "ar", indicator_stats=None,
                           prev_month: Optional[str] = None, regional=None,
                           decision=None, forecast=None) -> Dict[str, str]:
-    """توليد سرد لكل قسم بشكل حتمي (عند عدم توفر AI)."""
-    # TODO: filled in Task 2
-    return {key: "" for key in SECTIONS}
+    """توليد سرد لكل قسم بشكل حتمي عند عدم توفر AI (مبني على بيانات محسوبة حقيقية)."""
+    kpi = analytics.kpi if analytics else None
+    anomalies = list(analytics.anomalies or []) if analytics else []
+    clustering = analytics.clustering if analytics else None
+    correlations = analytics.correlations if analytics else None
+    residuals = list(analytics.residuals or []) if analytics else []
+    stratified = list(analytics.stratified or []) if analytics else []
+    explanations = list(analytics.explanations or []) if analytics else []
+    geo = analytics.geo if analytics else None
+    xgboost = analytics.xgboost_predictions if analytics else None
+
+    critical_count = sum(1 for a in anomalies if a.severity == "critical")
+    warning_count = sum(1 for a in anomalies if a.severity == "warning")
+    strong_correlations = correlations.strong_correlations if correlations else []
+    total = max(1, getattr(analytics, "hospitals_count", 0) or 0)
+    affected = kpi.affected_governorates if kpi else 0
+
+    if lang == "en":
+        return _build_local_sections_en(
+            analytics, indicator_stats, prev_month, regional, decision, forecast,
+        )
+
+    s: Dict[str, str] = {}
+
+    # 1) الملخص التنفيذي + الحالة العامة
+    verdict = (decision or {}).get("verdict", "normal")
+    risk = (decision or {}).get("risk_score", 0)
+    status_ar = {"critical": "حرجة", "attention": "تحذير", "normal": "طبيعية"}.get(verdict, "طبيعية")
+    s["exec_summary"] = (
+        f"**الحالة العامة للأداء: {status_ar}** — درجة الخطر {risk}/100. "
+        f"يغطي التحليل {total} مستشفى، شاذ منها {kpi.total_anomalies if kpi else 0} "
+        f"(حرج {critical_count}، يحتاج متابعة {warning_count}) في {affected} محافظة. "
+        + ("يستدعي ذلك التحقق من البيانات واتخاذ إجراءات وقائية."
+           if verdict == "critical" else
+           "يحتاج الوضع متابعة دورية للمؤشرات الرئيسية.")
+    )
+
+    # 3) أهم الرسائل التنفيذية (مشتقة من البيانات)
+    msgs = []
+    if anomalies:
+        msgs.append(f"{len(anomalies)} مستشفى أظهرت أنماطًا غير طبيعية.")
+    if critical_count:
+        msgs.append(f"{critical_count} مستشفى مصنّفة حرجة.")
+    if geo and geo.governorates:
+        top_gov = max(geo.governorates, key=lambda g: g.avg_anomaly_score, default=None)
+        if top_gov and top_gov.outlier_count > 0:
+            msgs.append(f"{top_gov.governorate} تمثل أعلى تركّز للمخاطر ({top_gov.outlier_count} مستشفى شاذ).")
+    if stratified:
+        top_dev = max(stratified, key=lambda x: abs(x.deviation_pct))
+        msgs.append(f"انحراف استثنائي في {INDICATOR_NAMES_AR.get(top_dev.indicator, top_dev.indicator)} "
+                    f"في {top_dev.hospital_name} ({top_dev.deviation_pct:+.1f}%).")
+    if xgboost and xgboost.predictions:
+        escal = [p for p in xgboost.predictions if p.predicted_severity in ("critical", "high")]
+        if escal:
+            msgs.append(f"{len(escal)} مستشفى متوقع تصاعد مستوى خطورتها.")
+    if not msgs:
+        msgs.append("لا توجد مؤشرات تتطلب تدخلاً عاجلاً هذا الشهر.")
+    s["key_messages"] = "\n- ".join(msgs)
+
+    # 4) المستشفيات ذات الأولوية (ترتيب تنازلي بالدرجة)
+    if anomalies:
+        ranked = sorted(anomalies, key=lambda a: a.anomaly_score, reverse=True)
+        rows = []
+        for i, a in enumerate(ranked[:10], start=1):
+            rows.append(f"{i}. {a.hospital_name} — {a.governorate} — درجة {a.anomaly_score:.2f} — {a.severity}")
+        s["priority_hospitals"] = "\n".join(rows)
+    else:
+        s["priority_hospitals"] = "لا توجد مستشفيات ذات أولوية هذا الشهر."
+
+    # 5) التوزيع الجغرافي للمخاطر
+    if geo and geo.governorates:
+        govs = sorted(geo.governorates, key=lambda g: g.avg_anomaly_score, reverse=True)
+        lines = []
+        for g in govs:
+            lines.append(f"- {g.governorate}: {g.hospital_count} مستشفى، متوسط {g.avg_anomaly_score:.2f}، "
+                         f"شاذ {g.outlier_count}")
+        s["geo_risk"] = "\n".join(lines)
+    else:
+        s["geo_risk"] = "لا توجد بيانات جغرافية كافية."
+
+    # 7) إشارات الإنذار المبكر
+    if forecast and forecast.get("hospitals"):
+        fh = forecast["hospitals"][:8]
+        lines = []
+        for h in fh:
+            prob = int((h.get("probability") or 0) * 100)
+            conf = h.get("confidence_label_ar") or h.get("confidence") or "—"
+            lead = "؛ ".join(
+                f"{r.get('metric_ar')} (+{r.get('delta_pct'):.1f}%)"
+                for r in h.get("leading_rising", [])[:3] if r.get("delta_pct") is not None
+            )
+            lines.append(f"- {h.get('hospital_name')}: {lead} — احتمال {prob}%، ثقة {conf}.")
+        lines.append("(الإشارات علاقات زمنية إحصائية، وليست علاقات سببية.)")
+        s["early_warnings"] = "\n".join(lines)
+    else:
+        s["early_warnings"] = "لا توجد إشارات إنذار مبكر موثوقة هذا الشهر."
+
+    # 6) الاتجاهات الشهرية
+    if prev_month and indicator_stats:
+        s["current_trends"] = "\n".join(_trend_lines_ar(prev_month, indicator_stats))
+    else:
+        s["current_trends"] = "لا يوجد شهر سابق متوفر للمقارنة."
+
+    # 9/10) التنبؤ — فصل الحالي عن المتوقع
+    if xgboost and xgboost.predictions:
+        lines = []
+        for p in xgboost.predictions[:8]:
+            lines.append(f"- {p.hospital_name}: الخطر الحالي {p.current_score:.2f} → المتوقع "
+                         f"{p.predicted_next_score:.2f} ({p.predicted_severity}).")
+        s["forecast"] = "\n".join(lines) + "\n(التوقع تقدير إحصائي وليس يقينًا.)"
+    else:
+        s["forecast"] = "لا توجد تنبؤات متاحة."
+
+    # 11) العلاقات بين المؤشرات
+    if strong_correlations:
+        lines = []
+        for c in strong_correlations[:8]:
+            lines.append(f"- {INDICATOR_NAMES_AR.get(c.indicator_a, c.indicator_a)} ↔ "
+                         f"{INDICATOR_NAMES_AR.get(c.indicator_b, c.indicator_b)}: r={c.pearson_r:.2f} ({c.strength})")
+        lines.append("(الارتباط الإحصائي لا يثبت السببية.)")
+        s["clinical_relations"] = "\n".join(lines)
+    else:
+        s["clinical_relations"] = "لا توجد علاقات قوية بين المؤشرات."
+
+    # 12) الأنماط المركبة
+    s["composite_patterns"] = "\n".join(_composite_patterns_lines_ar(analytics.patterns if analytics else []))
+
+    # 13) تحليل الحالات الشاذة (فصل درجة الشذوذ عن انحراف المؤشر)
+    if anomalies:
+        lines = []
+        for a in anomalies[:8]:
+            lines.append(f"- {a.hospital_name} ({a.governorate}): درجة الشذوذ {a.anomaly_score:.2f} — "
+                         f"الشدة {a.severity}. شدة الشذوذ منفصلة عن انحراف المؤشرات.")
+        s["anomaly_intel"] = "\n".join(lines)
+    else:
+        s["anomaly_intel"] = "لا توجد حالات شاذة."
+
+    # 14) أكبر الانحرافات
+    if stratified:
+        rows = sorted(stratified, key=lambda x: abs(x.deviation_pct), reverse=True)[:5]
+        lines = []
+        for row in rows:
+            lines.append(f"- {row.hospital_name} | {INDICATOR_NAMES_AR.get(row.indicator, row.indicator)}: "
+                         f"{row.hospital_value:.1f} مقابل متوسط نظير {row.peer_group_mean:.1f} "
+                         f"(انحراف {row.deviation_pct:+.1f}%).")
+        lines.append("(إجراء: التحقق من السجلات ومصدر البيانات قبل اعتماد النتيجة.)")
+        s["top_deviations"] = "\n".join(lines)
+    else:
+        s["top_deviations"] = "لا توجد انحرافات كبيرة عن المستشفيات المماثلة."
+
+    # 17) الاستخبارات الإقليمية
+    if regional:
+        s["regional_intel"] = "\n".join(_regional_lines_ar(regional))
+    else:
+        s["regional_intel"] = "لا توجد بيانات إقليمية كافية."
+
+    # 18) التدهور المستمر (يُعرض رقمياً في الواجهة من السلاسل الشهرية)
+    if prev_month and indicator_stats:
+        s["deterioration"] = ("التدهور المستمر يُحسب من اتجاه سلاسل المؤشرات الشهرية "
+                              "(الميل ومعامل R²) ويُعرض في جدول القسم.")
+    else:
+        s["deterioration"] = "لا توجد سلاسل تاريخية كافية لتقدير التدهور المستمر."
+
+    # 19/20) جودة البيانات + حجم العينة
+    dq = []
+    if regional and regional.get("mortality"):
+        small = [m for m in regional["mortality"] if m.get("small_sample")]
+        if small:
+            for m in small[:5]:
+                dq.append(f"- حجم عينة صغير في {m['governorate']} ({int(m.get('births') or 0)} مولود) — تُفسَّر النتائج بحذر.")
+    if not dq:
+        dq.append("- لا توجد تنبيهات جودة بيانات كبرى هذا الشهر.")
+    s["data_quality"] = "\n".join(dq)
+
+    # 21/22) التوصيات + الأولويات
+    if decision and decision.get("priorities"):
+        lines = [f"- {p['action']} ← {p['target']} (أولوية: {p['priority']})."
+                 for p in decision["priorities"]]
+    else:
+        lines = ["- لا توجد أولويات إلزامية هذا الشهر."]
+    s["recommendations"] = "\n".join(lines)
+
+    # 23) الخلاصة التنفيذية
+    s["conclusion"] = (
+        f"**الوضع الحالي:** {'وجود مستشفيات حرجة.' if critical_count else 'استقرار نسبي.'} "
+        f"**الخطر المستقبلي:** {s['forecast']} "
+        f"**الإجراء:** التحقق من جودة البيانات في المستشفيات ذات الأولوية ومراجعة مؤشراتها."
+    )
+
+    # 24) الملحق الفني
+    app_lines = []
+    if clustering:
+        app_lines.append(f"- التجميع: {clustering.n_clusters} مجموعات، جودة silhouette {clustering.silhouette_score:.2f}.")
+    if correlations:
+        app_lines.append(f"- عدد الارتباطات القوية: {len(strong_correlations)}.")
+    if xgboost:
+        app_lines.append(f"- نموذج التنبؤ: R² {xgboost.model_r2:.3f}، MAE {xgboost.model_mae:.3f}.")
+    app_lines.append("- Terms: درجة الخطر (Risk Score), درجة الشذوذ (Anomaly Score), الارتباط الزمني (Lead-Lag).")
+    s["appendix"] = "\n".join(app_lines) if app_lines else "لا توجد بيانات فنية كافية."
+
+    return s
+
+
+def _build_local_sections_en(analytics, indicator_stats=None, prev_month=None,
+                             regional=None, decision=None, forecast=None) -> Dict[str, str]:
+    """English deterministic per-section narratives (mirror of the Arabic builder)."""
+    kpi = analytics.kpi if analytics else None
+    anomalies = list(analytics.anomalies or []) if analytics else []
+    clustering = analytics.clustering if analytics else None
+    correlations = analytics.correlations if analytics else None
+    stratified = list(analytics.stratified or []) if analytics else []
+    geo = analytics.geo if analytics else None
+    xgboost = analytics.xgboost_predictions if analytics else None
+    critical_count = sum(1 for a in anomalies if a.severity == "critical")
+    strong_correlations = correlations.strong_correlations if correlations else []
+
+    s: Dict[str, str] = {}
+    s["exec_summary"] = (
+        f"System status: {kpi.month_status if kpi else 'unknown'}. "
+        f"{kpi.total_anomalies if kpi else 0} anomalous hospitals "
+        f"({critical_count} critical) across {kpi.affected_governorates if kpi else 0} governorates."
+    )
+    s["key_messages"] = ("\n- ".join(
+        ([f"{len(anomalies)} hospitals showed abnormal patterns."] if anomalies else [])
+        + ([f"{critical_count} hospitals are classified critical."] if critical_count else [])
+    ) or "No urgent signals this month.")
+    s["priority_hospitals"] = ("\n".join(
+        f"{i+1}. {a.hospital_name} — {a.governorate} — score {a.anomaly_score:.2f} — {a.severity}"
+        for i, a in enumerate(sorted(anomalies, key=lambda x: x.anomaly_score, reverse=True)[:10])
+    ) if anomalies else "No priority hospitals this month.")
+    s["geo_risk"] = ("\n".join(
+        f"- {g.governorate}: {g.hospital_count} hospitals, avg {g.avg_anomaly_score:.2f}, outliers {g.outlier_count}"
+        for g in sorted(geo.governorates, key=lambda x: x.avg_anomaly_score, reverse=True)
+    ) if geo and geo.governorates else "No geographic data.")
+    s["early_warnings"] = ("\n".join(
+        f"- {h.get('hospital_name')}: probability {int((h.get('probability') or 0) * 100)}%, confidence "
+        f"{h.get('confidence_label_en') or h.get('confidence') or '—'}. (temporal statistical association only.)"
+        for h in (forecast or {}).get("hospitals", [])[:8]
+    ) or "No reliable early-warning signals this month.")
+    s["current_trends"] = ("\n".join(_trend_lines_en(prev_month, indicator_stats))
+                           if prev_month and indicator_stats else "No previous month for comparison.")
+    s["forecast"] = ("\n".join(
+        f"- {p.hospital_name}: current {p.current_score:.2f} → predicted {p.predicted_next_score:.2f} "
+        f"({p.predicted_severity})." for p in (xgboost.predictions if xgboost else [])[:8]
+    ) + "\n(Prediction is a statistical estimate, not certainty.)" if xgboost and xgboost.predictions
+        else "No forecasts available.")
+    s["clinical_relations"] = ("\n".join(
+        [f"- {c.indicator_a} ↔ {c.indicator_b}: r={c.pearson_r:.2f} ({c.strength})"
+         for c in strong_correlations[:8]] + ["(Correlation does not imply causation.)"]
+    ) if strong_correlations else "No strong indicator relationships.")
+    s["composite_patterns"] = "\n".join(_composite_patterns_lines_en(analytics.patterns if analytics else []))
+    s["anomaly_intel"] = ("\n".join(
+        f"- {a.hospital_name} ({a.governorate}): anomaly score {a.anomaly_score:.2f} — severity {a.severity} "
+        f"(separate from indicator-level deviation)." for a in anomalies[:8]
+    ) or "No anomalies.")
+    s["top_deviations"] = ("\n".join(
+        [f"- {r.hospital_name} | {r.indicator}: {r.hospital_value:.1f} vs peer mean {r.peer_group_mean:.1f} "
+         f"({r.deviation_pct:+.1f}%)." for r in sorted(stratified, key=lambda x: abs(x.deviation_pct), reverse=True)[:5]]
+        + ["(Action: verify records and data source before relying on the result.)"]
+    ) if stratified else "No large deviations vs peers.")
+    s["regional_intel"] = ("\n".join(_regional_lines_en(regional)) if regional else "No regional data.")
+    s["deterioration"] = ("Persistent deterioration is derived from monthly indicator series (slope and R²) "
+                          "and shown in the section table." if prev_month and indicator_stats
+                          else "Insufficient history to estimate persistent deterioration.")
+    s["data_quality"] = ("\n".join(
+        [f"- Small sample in {m['governorate']} ({int(m.get('births') or 0)} births) — interpret with caution."
+         for m in ((regional or {}).get("mortality") or []) if m.get("small_sample")][:5]
+    ) or "- No major data-quality alerts this month.")
+    s["recommendations"] = ("\n".join(
+        f"- {p['action']} ← {p['target']} (priority: {p['priority']})."
+        for p in (decision or {}).get("priorities", [])
+    ) or "- No mandatory priorities this month.")
+    s["conclusion"] = (f"**Current:** {'Critical hospitals present.' if critical_count else 'Relative stability.'} "
+                       f"**Future risk:** {s['forecast']} "
+                       f"**Action:** verify data quality in priority hospitals and review their indicators.")
+    s["appendix"] = ("\n".join(
+        ([f"- Clustering: {clustering.n_clusters} clusters, silhouette {clustering.silhouette_score:.2f}."] if clustering else [])
+        + ([f"- Strong correlations: {len(strong_correlations)}."] if correlations else [])
+        + ([f"- Prediction model: R² {xgboost.model_r2:.3f}, MAE {xgboost.model_mae:.3f}."] if xgboost else [])
+    ) or "No technical data.")
+    for key in SECTIONS:
+        s.setdefault(key, "- Not available.")
+    return s
 
 
 def generate_comprehensive_report(session: Session, month: str, lang: str = "ar", use_cache: bool = True) -> Dict[str, Any]:

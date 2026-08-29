@@ -33,3 +33,12 @@ def test_parse_sections_returns_all_keys():
     for key in SECTIONS:
         assert key in parsed
         assert parsed[key].strip()
+
+
+def test_local_sections_avoid_causation_words():
+    sections = _build_local_sections(None, lang="ar")
+    joined = "\n".join(sections.values())
+    for bad in ("يؤدي إلى", "سببّية", "causes", "leads to"):
+        assert bad not in joined, f"found forbidden wording: {bad}"
+    # واقعي: يوجد تحذير الارتباط لا يعني السببية بشكل آمن
+    assert "ارتباط" in " ".join(sections.values())
