@@ -707,6 +707,67 @@ def test_generate_comparison_chart_has_options():
     assert chart["options"]["plugins"]["title"]["display"] is True
 
 
+def _chart_color_for_seed(hospital_id, seed):
+    """تشغيل توليد اللون في عملية فرعية بذرعة hash معينة وإرجاع borderColor."""
+    import os, subprocess, sys, json
+    code = (
+        "import sys, json\n"
+        "from app.engine.comparative.advanced_comparison import TrendData, generate_comparison_chart\n"
+        "t = TrendData(hospital_id=sys.argv[1], hospital_name='H', months=['2026-01'], values={'total_cases':[1]})\n"
+        "c = generate_comparison_chart([t], [])\n"
+        "print(json.dumps(c['data']['datasets'][0]['borderColor']))\n"
+    )
+    env = dict(os.environ)
+    env["PYTHONHASHSEED"] = str(seed)
+    r = subprocess.run(
+        [sys.executable, "-c", code, hospital_id],
+        capture_output=True, text=True, env=env, cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    )
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout.strip())
+
+
+def test_generate_comparison_chart_color_is_stable_across_processes():
+    """ألوان المقارنة يجب أن تكون ثابتة عبر عمليات/إعادة تشغيل مختلفة —
+    لا تتغير بسبب عشوائية hash() في بيثون (PYTHONHASHSEED)."""
+    color_a = _chart_color_for_seed("h1", seed=1)
+    color_b = _chart_color_for_seed("h1", seed=999)
+    assert color_a == color_b, (
+        f"Color changed across processes with different hash seeds: {color_a} != {color_b}"
+    )
+
+
+def test_generate_comparison_chart_color_format():
+    """borderColor يجب أن تكون صيغة rgb صالحة بقيم داخل النطاق [0,255]."""
+    import re
+    chart = generate_comparison_chart([
+        TrendData(hospital_id="h1", hospital_name="Hospital",
+                  months=["2026-01"], values={"total_cases": [100]}),
+    ], [])
+    color = chart["data"]["datasets"][0]["borderColor"]
+    m = re.match(r"^rgb\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\)$", color)
+    assert m, f"Unexpected color format: {color}"
+    assert all(0 <= int(g) <= 255 for g in m.groups())
+
+
+def test_generate_comparison_chart_colors_stable_for_different_ids():
+    """ألوان مستشفيات مختلفة يجب أن تبقى صالحة ومستقرة، مع تنوّع كافٍ للتمييز."""
+    import re
+    trends = [
+        TrendData(hospital_id=f"h{i}", hospital_name=f"H{i}",
+                  months=["2026-01"], values={"total_cases": [i * 10]})
+        for i in range(5)
+    ]
+    chart = generate_comparison_chart(trends, [])
+    colors = [d["borderColor"] for d in chart["data"]["datasets"]]
+    assert len(colors) == 5
+    for color in colors:
+        m = re.match(r"^rgb\((\d{1,3}),\s*(\d{1,3}),\s*(\d{1,3})\)$", color)
+        assert m
+        assert all(0 <= int(g) <= 255 for g in m.groups())
+    assert len(set(colors)) >= 3
+
+
 # --- Peer Comparison Label Tests ---
 
 def test_peer_comparison_label_percentile_25():

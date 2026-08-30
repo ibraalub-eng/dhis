@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
+import zlib
 from sqlalchemy.orm import Session
 from app.engine.smart import run_smart_analytics
 
@@ -232,9 +233,21 @@ def generate_comparison_chart(trends: List[TrendData], peer_comparisons: List[Pe
             dataset = {
                 "label": trend.hospital_name,
                 "data": trend.values.get("total_cases", []),
-                "borderColor": f"rgb({hash(trend.hospital_id) % 256}, {hash(trend.hospital_id + '1') % 256}, {hash(trend.hospital_id + '2') % 256})",
+                "borderColor": _stable_hospital_color(trend.hospital_id),
                 "tension": 0.1
             }
             chart_data["data"]["datasets"].append(dataset)
 
     return chart_data
+
+
+def _stable_hospital_color(hospital_id: str) -> str:
+    """لون ثابت للمستشفى عبر كل العمليات/إعادة التشغيل.
+
+    يعتمد على crc32 (حتمي عبر العمليات) بدل hash() المدمج في بيثون
+    الذي يختلف باختلاف PYTHONHASHSEED فيغير الألوان مع كل إعادة تشغيل."""
+    h = zlib.crc32(str(hospital_id).encode("utf-8")) & 0xFFFFFFFF
+    r = h & 0xFF
+    g = (h >> 8) & 0xFF
+    b = (h >> 16) & 0xFF
+    return f"rgb({r}, {g}, {b})"
