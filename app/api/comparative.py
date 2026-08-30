@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.engine.comparative import generate_comprehensive_report, perform_advanced_comparison
-from app.core.deps import require_permission
+from app.core.deps import require_permission, get_current_user
+from app.models import SystemSetting
 
 router = APIRouter(prefix="/comparative", tags=["Comparative Analysis"], dependencies=[Depends(require_permission("smart_analytics.read"))])
 
@@ -13,11 +14,16 @@ def get_comprehensive_report(
     month: str,
     lang: str = Query("en", description="Report language (ar/en)"),
     force: bool = Query(False, description="Force regenerate report"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ):
     """توليد تقرير ذكي شامل"""
+    hide_row = db.query(SystemSetting).filter(SystemSetting.key == "hide_explanatory_text").first()
+    hide_explanations = (hide_row.value == "true") if hide_row else False
+    can_view = bool(user.is_superuser) or not hide_explanations
     try:
-        result = generate_comprehensive_report(db, month, lang, use_cache=not force)
+        result = generate_comprehensive_report(db, month, lang, use_cache=not force, include_explanations=can_view)
+        result["can_view_explanations"] = can_view
         return result
     except Exception as e:
         error_msg = f"Error generating report: {str(e)}" if lang == "en" else f"خطأ في توليد التقرير: {str(e)}"

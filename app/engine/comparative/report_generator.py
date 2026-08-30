@@ -1106,13 +1106,26 @@ def _build_local_sections_en(analytics, indicator_stats=None, prev_month=None,
     return s
 
 
-def generate_comprehensive_report(session: Session, month: str, lang: str = "ar", use_cache: bool = True) -> Dict[str, Any]:
+def _with_explanations(result: Dict[str, Any], include: bool) -> Dict[str, Any]:
+    """Return the report dict, blanking the narrative sections/report when
+    explanations are disabled for the requesting user. The structural `data`
+    (tables, charts, KPIs, decision board) is left untouched so the dashboard
+    still renders normally. The narrative prose never reaches the browser."""
+    if include:
+        return result
+    stripped = dict(result)
+    stripped["report"] = ""
+    stripped["sections"] = {k: "" for k in SECTIONS}
+    return stripped
+
+
+def generate_comprehensive_report(session: Session, month: str, lang: str = "ar", use_cache: bool = True, include_explanations: bool = True) -> Dict[str, Any]:
     """توليد تقرير ذكي شامل حسب اللغة مع تخزين للتقرير المولّد بالذكاء الاصطناعي"""
 
     if use_cache:
         cached = get_stored_report(session, month, lang)
         if cached:
-            return cached
+            return _with_explanations(cached, include_explanations)
 
     analytics = run_smart_analytics(session, month)
 
@@ -1205,7 +1218,7 @@ def generate_comprehensive_report(session: Session, month: str, lang: str = "ar"
     if report_source == "ai":
         store_report(session, month, lang, result)
 
-    return result
+    return _with_explanations(result, include_explanations)
 
 
 def _build_decision_brief(

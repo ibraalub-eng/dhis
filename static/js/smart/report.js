@@ -83,6 +83,7 @@ export async function generateComprehensiveReport() {
     const result = await apiSmartGet(`/comparative/comprehensive-report/${month}?lang=${reportLang()}`);
     smartState.data = result.data || result;
     smartState.sections = result.sections || {};
+    smartState.can_view_explanations = result.can_view_explanations !== false;
     renderReportSection(result.data || result, month, result.report || '');
     section.style.display = 'block';
     section.scrollIntoView({ behavior: 'smooth', block: 'start' });

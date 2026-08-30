@@ -220,7 +220,7 @@ window._adminAssignHospitals = function(id, btn) {
 
         <!-- Create/Edit User Modal -->
         <div id="adminUserModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center;">
-          <div style="background:white;border-radius:10px;padding:1.5rem;width:420px;max-width:94%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+          <div style="background:var(--bg-surface);border-radius:10px;padding:1.5rem;width:420px;max-width:94%;box-shadow:0 8px 32px rgba(0,0,0,0.2);border:1px solid var(--border-default);">
             <h3 id="adminModalTitle" style="color:var(--accent-blue);margin:0 0 1rem;">New User</h3>
             <input type="hidden" id="adminEditUserId">
             <div style="margin-bottom:0.8rem;">
@@ -256,7 +256,7 @@ window._adminAssignHospitals = function(id, btn) {
 
         <!-- Role Editor Modal -->
         <div id="adminRoleModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center;">
-          <div style="background:white;border-radius:10px;padding:1.5rem;width:480px;max-width:94%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+          <div style="background:var(--bg-surface);border-radius:10px;padding:1.5rem;width:480px;max-width:94%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2);border:1px solid var(--border-default);">
             <h3 id="roleModalTitle" style="color:var(--accent-blue);margin:0 0 1rem;">New Role</h3>
             <input type="hidden" id="adminEditRoleId">
             <div style="margin-bottom:0.8rem;">
@@ -342,6 +342,15 @@ window._adminAssignHospitals = function(id, btn) {
                     <div>
                         <strong>Slow Query Logging</strong><br>
                         <span style="font-size:0.8rem;color:var(--text-secondary);">Log SQL queries taking over 1 second.</span>
+                    </div>
+                </label>
+            </div>
+            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                    <input type="checkbox" id="cfg_hide_explanatory" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                    <div>
+                        <strong>Hide Forecast/Explanation Sentences</strong><br>
+                        <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, narrative forecast/explanation sentences are hidden from non-super-admin users (super admins always see them).</span>
                     </div>
                 </label>
             </div>
@@ -964,6 +973,8 @@ window._adminAssignHospitals = function(id, btn) {
         if (logCb) logCb.checked = data.structured_logging_enabled !== false;
         var sqCb = document.getElementById("cfg_slow_query_logging");
         if (sqCb) sqCb.checked = data.slow_query_logging_enabled !== false;
+        var hideCb = document.getElementById("cfg_hide_explanatory");
+        if (hideCb) hideCb.checked = !!data.hide_explanatory_text;
       }
     } catch(e) {}
     var enabled = localStorage.getItem("dev_hints_enabled") !== "false";
@@ -976,9 +987,11 @@ window._adminAssignHospitals = function(id, btn) {
     var cb = document.getElementById("cfg_auto_disable_null");
     var logCb = document.getElementById("cfg_structured_logging");
     var sqCb = document.getElementById("cfg_slow_query_logging");
+    var hideCb = document.getElementById("cfg_hide_explanatory");
     var val = cb ? cb.checked : false;
     var logVal = logCb ? logCb.checked : true;
     var sqVal = sqCb ? sqCb.checked : true;
+    var hideVal = hideCb ? hideCb.checked : false;
     var status = document.getElementById("controlSaveStatus");
     if (status) { status.textContent = "Saving..."; status.style.color = "var(--accent-blue)"; }
     api("/config/control/settings", {
@@ -986,7 +999,8 @@ window._adminAssignHospitals = function(id, btn) {
       body: JSON.stringify({
         auto_disable_null_indicators: val ? "true" : "false",
         structured_logging_enabled: logVal ? "true" : "false",
-        slow_query_logging_enabled: sqVal ? "true" : "false"
+        slow_query_logging_enabled: sqVal ? "true" : "false",
+        hide_explanatory_text: hideVal ? "true" : "false"
       })
     }).then(function() {
       if (status) { status.textContent = "✓ Saved"; status.style.color = "var(--accent-green)"; }

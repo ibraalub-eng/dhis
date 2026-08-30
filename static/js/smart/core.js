@@ -24,6 +24,7 @@ export const smartState = {
   reportGenerating: false,
   mode: 'monthly',
   lang: 'en',
+  can_view_explanations: true,
 };
 
 // i18n helper: use the global __ from app.js when available, else passthrough.

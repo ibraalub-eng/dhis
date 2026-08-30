@@ -55,6 +55,21 @@ def test_comprehensive_report_includes_forecast_section(db_session):
     assert ("وزن" in result["report"] or "لا يوجد أي مستشفى" in result["report"])
 
 
+def test_comprehensive_report_strips_explanations_for_hidden(db_session):
+    """عند تعطيل النصوص التوضيحية، تُفرَّغ الأقسام السردية والنص الكامل بينما
+    تبقى البيانات البنيوية (data) سليمة — ولا يُغيَّر الكائن المخزَّن في الكاش."""
+    from app.engine.comparative.report_generator import _with_explanations
+    full = generate_comprehensive_report(db_session, "2026-06", use_cache=False)
+    stripped = _with_explanations(full, False)
+    assert stripped["report"] == ""
+    assert stripped["sections"] and all(v == "" for v in stripped["sections"].values())
+    assert stripped["data"] == full["data"]
+    # الكائن الأصلي غير مُتغيّر (الكاش يحتفظ بالنص الكامل)
+    assert full["report"] != ""
+    # عند التمكين تُعاد النسخة كاملة
+    assert _with_explanations(full, True)["report"] == full["report"]
+
+
 def test_local_report_includes_regional_section(db_session):
     """التقرير المحلي يتضمن قسم الاستخبارات الإقليمية من بيانات المحافظات الفعلية."""
     from app.engine.comparative.report_generator import _build_local_report

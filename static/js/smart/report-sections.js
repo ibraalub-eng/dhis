@@ -23,6 +23,11 @@ const SECTION_META = {
 };
 
 function esc(v) { return v == null ? '' : _smartEscapeHtml(String(v)); }
+// System Control: hide the hardcoded statistical disclaimer/explanation lines
+// for users who are not allowed to view explanatory text (server also strips
+// the narrative in `sections`, but these disclaimers live in JS constants).
+function canExplain() { return smartState.can_view_explanations !== false; }
+function caution(text) { return canExplain() ? `<div class="bi-caution">${text}</div>` : ''; }
 function badge(severity) {
   const lvl = severity === 'critical' ? 'critical' : severity === 'warning' ? 'warning' : 'normal';
   return `<span class="bi-badge bi-badge-${lvl}">${esc(_t(severity || 'Normal'))}</span>`;
@@ -100,7 +105,7 @@ function renderEarlyWarnings(data) {
       <div class="bi-kpi-label">الاحتمال: <b>${prob}%</b> · الثقة: ${esc(h.confidence_label_ar || h.confidence || '—')}</div>
     </div>`;
   }).join('');
-  return `<div class="bi-grid-2">${cards}</div><div class="bi-caution">ارتباط زمني إحصائي — ليس علاقة سببية.</div>`;
+  return `<div class="bi-grid-2">${cards}</div>${caution('ارتباط زمني إحصائي — ليس علاقة سببية.')}`;
 }
 
 function renderForecast(data) {
@@ -115,7 +120,7 @@ function renderForecast(data) {
   return `<div class="bi-table-wrap"><table><thead><tr>
     <th>المستشفى</th><th>الخطر الحالي</th><th>الخطر المتوقع</th><th>التصنيف المتوقع</th>
   </tr></thead><tbody>${rows}</tbody></table></div>
-  <div class="bi-caution">الخطر الحالي منفصل عن الخطر المتوقع — التوقع تقدير إحصائي وليس يقينًا.</div>`;
+  ${caution('الخطر الحالي منفصل عن الخطر المتوقع — التوقع تقدير إحصائي وليس يقينًا.')}`;
 }
 
 function renderAppendix(data) {
@@ -161,7 +166,7 @@ function renderClinicalRelations(data) {
     </div>`;
   }).join('');
   return `<div class="bi-grid-2">${cards}</div>
-    <div class="bi-caution">الارتباط الإحصائي لا يثبت السببية — قد تكون الوشائج نتيجة عوامل مشتركة أو عشوائية.</div>`;
+    ${caution('الارتباط الإحصائي لا يثبت السببية — قد تكون الوشائج نتيجة عوامل مشتركة أو عشوائية.')}`;
 }
 
 function renderCompositePatterns(data) {
@@ -194,7 +199,7 @@ function renderAnomalyIntel(data) {
     </div>`;
   }).join('');
   return `<div class="bi-grid-2">${cards}</div>
-    <div class="bi-caution">درجة الشذوذ الإحصائية منفصلة عن انحراف المؤشرات — لا تُخلط بينهما عند اتخاذ القرار.</div>`;
+    ${caution('درجة الشذوذ الإحصائية منفصلة عن انحراف المؤشرات — لا تُخلط بينهما عند اتخاذ القرار.')}`;
 }
 
 function renderTopDeviations(data) {
@@ -210,7 +215,7 @@ function renderTopDeviations(data) {
   return `<div class="bi-table-wrap"><table><thead><tr>
     <th>المستشفى</th><th>المؤشر</th><th>القيمة</th><th>متوسط النظير</th><th>الانحراف</th>
   </tr></thead><tbody>${rows}</tbody></table></div>
-  <div class="bi-caution">الانحراف عن النظير لا يُثبت خطأً إكلينيكياً — يجب التحقق من البيانات قبل الاعتماد.</div>`;
+  ${caution('الانحراف عن النظير لا يُثبت خطأً إكلينيكياً — يجب التحقق من البيانات قبل الاعتماد.')}`;
 }
 
 function renderRegionalIntel(data) {
@@ -249,7 +254,7 @@ function renderDeterioration(data) {
   return `<div class="bi-table-wrap"><table><thead><tr>
     <th>المحافظة</th><th>المؤشر</th><th>الميل الشهري %</th><th>R²</th><th>الاتجاه</th>
   </tr></thead><tbody>${rows}</tbody></table></div>
-  <div class="bi-caution">التدهور المستمر قياس اتجاه زمني إحصائي — لا يفترض علاقة سببية مباشرة.</div>`;
+  ${caution('التدهور المستمر قياس اتجاه زمني إحصائي — لا يفترض علاقة سببية مباشرة.')}`;
 }
 
 function renderDataQuality(data) {
@@ -261,7 +266,7 @@ function renderDataQuality(data) {
       <span class="bi-kpi-label">${esc(m.births || 0)} مولود — حجم عينة صغير، تُفسَّر النتائج بحذر.</span>
     </div>`).join('');
   return `<div class="bi-grid-2">${cards}</div>
-    <div class="bi-caution">العينات الصغيرة قد تُضخّم الانحرافات — لا تُعتمد النتائج كقرار نهائي دون بيانات أكبر.</div>`;
+    ${caution('العينات الصغيرة قد تُضخّم الانحرافات — لا تُعتمد النتائج كقرار نهائي دون بيانات أكبر.')}`;
 }
 
 function renderRecommendations(data) {
