@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from bs4 import BeautifulSoup
 from app.engine.comparative import generate_comprehensive_report
-from app.engine.comparative.advanced_comparison import perform_advanced_comparison, AdvancedComparisonResult
+from app.engine.comparative.advanced_comparison import perform_advanced_comparison, AdvancedComparisonResult, PeerComparison
 
 
 def test_build_comprehensive_prompt_returns_string(db_session):
@@ -983,10 +983,35 @@ def test_advanced_comparison_trends_structure(client):
         assert isinstance(trend["values"], dict)
 
 
-def test_advanced_comparison_peer_comparison_structure(client):
+@patch("app.engine.comparative.advanced_comparison.compare_peers")
+def test_advanced_comparison_peer_comparison_structure(mock_compare_peers, client):
+    # seeded DB يعجز عن مقارنة الأقران (لا صفوف IndicatorValue)؛ نحوّل compare_peers
+    # ليُعيد قائمة أقران فعلية حتى تُختبر مسار Serialization وقيم anomaly_score بالفعل.
+    mock_compare_peers.return_value = [
+        PeerComparison(
+            hospital_id="1",
+            hospital_name="Hospital A",
+            percentile=100.0,
+            rank=1,
+            total_hospitals=2,
+            comparison_label="critical",
+            anomaly_score=83.5,
+        ),
+        PeerComparison(
+            hospital_id="2",
+            hospital_name="Hospital B",
+            percentile=50.0,
+            rank=2,
+            total_hospitals=2,
+            comparison_label="high",
+            anomaly_score=42.0,
+        ),
+    ]
     response = client.get("/comparative/advanced-comparison/2026-06")
     data = response.json()
-    for peer in data["comparison_data"]["peer_comparison"]:
+    peers = data["comparison_data"]["peer_comparison"]
+    assert len(peers) == 2
+    for peer in peers:
         assert "hospital_id" in peer
         assert "hospital_name" in peer
         assert "percentile" in peer
@@ -994,6 +1019,9 @@ def test_advanced_comparison_peer_comparison_structure(client):
         assert "total_hospitals" in peer
         assert "comparison_label" in peer
         assert "anomaly_score" in peer
+    by_id = {peer["hospital_id"]: peer for peer in peers}
+    assert by_id["1"]["anomaly_score"] == 83.5
+    assert by_id["2"]["anomaly_score"] == 42.0
 
 
 def test_advanced_comparison_chart_has_required_keys(client):
