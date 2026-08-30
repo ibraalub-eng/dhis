@@ -589,6 +589,20 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
             if iid in peer_sums and peer_sums[iid]:
                 ind["peer_avg"] = round(sum(peer_sums[iid]) / len(peer_sums[iid]), 3)
 
+    # Lag analysis for this hospital's indicators
+    lag_analysis = data.get("lag_analysis", {})
+    hospital_indicator_names = set(ind.indicator.name if ind.indicator else '' for ind in iv_rows)
+    hospital_lags = []
+    for lag_f in lag_analysis.get("lags", []):
+        # Include lags where at least one indicator matches the hospital's data
+        a_name = lag_f.get("indicator_a_ar", lag_f.get("indicator_a", ""))
+        b_name = lag_f.get("indicator_b_ar", lag_f.get("indicator_b", ""))
+        # Match by code or Arabic name
+        a_match = lag_f.get("indicator_a") in hospital_indicator_names or any(a_name in n for n in hospital_indicator_names)
+        b_match = lag_f.get("indicator_b") in hospital_indicator_names or any(b_name in n for n in hospital_indicator_names)
+        if a_match or b_match:
+            hospital_lags.append(lag_f)
+
     response = _sanitize({
         "hospital_id": hospital_id,
         "hospital_name": hospital.name,
@@ -606,6 +620,10 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
             "peer_anomalies": peer_anomalies[:5],
         },
         "indicators": indicators,
+        "lag_analysis": {
+            "lags": hospital_lags[:10],
+            "all_lags": lag_analysis.get("lags", [])[:10],
+        },
         "anomaly": anomaly,
         "explanation": explanation,
         "residuals": residuals,

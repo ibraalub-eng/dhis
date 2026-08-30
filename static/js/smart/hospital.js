@@ -36,6 +36,7 @@ export async function loadHospitalMode(hospitalId, months) {
     renderTrend(trend);
     renderHospitalIndicators(drill.indicators || []);
     renderHospitalPeers(drill.peer_comparison || {}, drill.anomaly);
+    renderHospitalLagTimeline(drill.lag_analysis || {}, drill.indicators || []);
     const forecast = drill.forecast || {};
     renderHospitalForecast(forecast);
     renderHospitalFactors(drill.anomaly, drill.explanation);
@@ -273,6 +274,137 @@ function renderHospitalPeers(peers, anomaly) {
   c.innerHTML = `<div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.3rem;">👥 ${_t('Peer Comparison')}</div>
     <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">${peers.peer_count} ${_t('peers in same group')}</div>
     ${barHtml}`;
+}
+
+function renderHospitalLagTimeline(lagData, indicators) {
+  const c = document.getElementById('smart-hospital-lag');
+  if (!c) return;
+  const lags = lagData.lags || lagData.all_lags || [];
+  if (!lags.length) { c.innerHTML = ''; return; }
+
+  // Build node list from indicators involved in lags
+  const nodeMap = new Map();
+  lags.forEach(f => {
+    const aKey = f.indicator_a || f.indicator_a_ar || '';
+    const bKey = f.indicator_b || f.indicator_b_ar || '';
+    if (aKey && !nodeMap.has(aKey)) nodeMap.set(aKey, {
+      label: f.indicator_a_ar || f.indicator_a || aKey,
+      code: aKey,
+    });
+    if (bKey && !nodeMap.has(bKey)) nodeMap.set(bKey, {
+      label: f.indicator_b_ar || f.indicator_b || bKey,
+      code: bKey,
+    });
+  });
+  const nodes = Array.from(nodeMap.values());
+  if (!nodes.length) { c.innerHTML = ''; return; }
+
+  // Layout: arrange nodes horizontally with spacing
+  const svgW = Math.max(500, nodes.length * 110);
+  const svgH = 200;
+  const nodeY = svgH / 2 + 10;
+  const nodeSpacing = svgW / (nodes.length + 1);
+  const nodePositions = {};
+  nodes.forEach((n, i) => {
+    nodePositions[n.code] = { x: nodeSpacing * (i + 1), y: nodeY };
+  });
+
+  // Draw SVG: nodes + lag arrows
+  const textPrimary = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#1a1a2e';
+  const bgSurface = getComputedStyle(document.documentElement).getPropertyValue('--bg-surface').trim() || '#fff';
+  const borderDef = getComputedStyle(document.documentElement).getPropertyValue('--border-default').trim() || '#e0e0e0';
+
+  function shortenName(name, maxLen) {
+    if (name.length <= maxLen) return name;
+    return name.substring(0, maxLen - 2) + '…';
+  }
+
+  // Arrow paths
+  const arrowsHtml = lags.map((f, idx) => {
+    const aPos = nodePositions[f.indicator_a];
+    const bPos = nodePositions[f.indicator_b];
+    if (!aPos || !bPos) return '';
+    const isPos = f.direction === 'positive';
+    const arrowColor = isPos ? '#3b82f6' : '#ef4444';
+    const strength = f.strength || 'weak';
+    const strokeW = strength === 'strong' ? 3 : strength === 'moderate' ? 2 : 1.5;
+    const dashArr = strength === 'weak' ? '6,4' : 'none';
+    const r = f.lag_pearson || f.correlation || 0;
+    // Curved path between nodes
+    const x1 = aPos.x + 35, y1 = aPos.y;
+    const x2 = bPos.x - 35, y2 = bPos.y;
+    const midX = (x1 + x2) / 2;
+    const curveY = y1 - 20 - (idx % 3) * 15; // stagger curves
+    const path = `M ${x1} ${y1} Q ${midX} ${curveY} ${x2} ${y2}`;
+    // Arrowhead
+    const angle = Math.atan2(y2 - curveY, x2 - midX);
+    const ahLen = 8;
+    const ahx = x2 - ahLen * Math.cos(angle - 0.3);
+    const ahy = y2 - ahLen * Math.sin(angle - 0.3);
+    const ahx2 = x2 - ahLen * Math.cos(angle + 0.3);
+    const ahy2 = y2 - ahLen * Math.sin(angle + 0.3);
+    // Label
+    const labelX = midX;
+    const labelY = curveY - 6;
+    const confBadge = f.confidence === 'high' ? '🟢' : f.confidence === 'medium' ? '🟡' : '🔴';
+    const lagText = `${f.lag}m`;
+    return `
+      <path d="${path}" fill="none" stroke="${arrowColor}" stroke-width="${strokeW}" stroke-dasharray="${dashArr}" opacity="0.8"/>
+      <polygon points="${x2},${y2} ${ahx},${ahy} ${ahx2},${ahy2}" fill="${arrowColor}" opacity="0.8"/>
+      <rect x="${labelX - 30}" y="${labelY - 10}" width="60" height="18" rx="9" fill="${bgSurface}" stroke="${borderDef}" stroke-width="1"/>
+      <text x="${labelX}" y="${labelY + 3}" text-anchor="middle" font-size="9" font-weight="600" fill="${arrowColor}">
+        r=${_fmtNum(r, 2)} · ${lagText} ${confBadge}
+      </text>
+    `;
+  }).join('');
+
+  // Nodes
+  const nodesHtml = nodes.map(n => {
+    const pos = nodePositions[n.code];
+    // Check if this node is a leader (has outgoing lag)
+    const isLeader = lags.some(f => f.indicator_a === n.code);
+    const isFollower = lags.some(f => f.indicator_b === n.code);
+    const borderColor = isLeader ? '#3b82f6' : isFollower ? '#ef4444' : borderDef;
+    const bgColor = isLeader ? 'rgba(59,130,246,0.08)' : isFollower ? 'rgba(239,68,68,0.08)' : bgSurface;
+    return `
+      <rect x="${pos.x - 35}" y="${pos.y - 18}" width="70" height="36" rx="8" fill="${bgColor}" stroke="${borderColor}" stroke-width="1.5"/>
+      <text x="${pos.x}" y="${pos.y + 1}" text-anchor="middle" font-size="8" font-weight="600" fill="${textPrimary}">
+        ${shortenName(n.label, 10)}
+      </text>
+    `;
+  }).join('');
+
+  // Legend
+  const legendHtml = `
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.5rem;font-size:0.72rem;color:var(--text-muted);">
+      <span>🔵 → ${_t('Positive lag')}</span>
+      <span>🔴 → ${_t('Negative lag')}</span>
+      <span>── ${_t('Strong (r≥0.6)')}</span>
+      <span>╌╌ ${_t('Weak (r<0.4)')}</span>
+      <span>🟢 ${_t('High confidence')}</span>
+      <span>🟡 ${_t('Medium')}</span>
+      <span>🔴 ${_t('Low')}</span>
+    </div>
+  `;
+
+  c.innerHTML = `
+    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">⏱️ ${_t('Lag Relationships Timeline')}</div>
+    <div style="overflow-x:auto;padding:0.5rem 0;">
+      <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" style="display:block;">
+        <!-- Timeline axis -->
+        <line x1="20" y1="${svgH - 15}" x2="${svgW - 20}" y2="${svgH - 15}" stroke="${borderDef}" stroke-width="1"/>
+        <text x="${svgW / 2}" y="${svgH - 3}" text-anchor="middle" font-size="8" fill="var(--text-muted)">
+          ${_t('Leading')} ← ${_t('time')} → ${_t('Lagging')}
+        </text>
+        ${arrowsHtml}
+        ${nodesHtml}
+      </svg>
+    </div>
+    ${legendHtml}
+    <div style="margin-top:0.4rem;font-size:0.72rem;color:var(--text-muted);font-style:italic;">
+      ${_t('Arrows show indicator A leading indicator B by the indicated lag. Thickness = correlation strength.')}
+    </div>
+  `;
 }
 
 export function renderHospitalFactors(anomaly, explanation, containerId) {
