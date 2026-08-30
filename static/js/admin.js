@@ -95,7 +95,8 @@ window._adminAssignHospitals = function(id, btn) {
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
           <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
-          <button class="admin-tab-btn" onclick="switchAdminTab('system')" id="atab-system" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🛡️ System Control</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('control')" id="atab-control" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🎛️ Control</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('logs')" id="atab-logs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('tabs')" id="atab-tabs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Tab Order</button>
         </div>
 
@@ -310,13 +311,8 @@ window._adminAssignHospitals = function(id, btn) {
             </div>
           </div>
         </div>
-        <!-- System Control Panel -->
-        <div id="adminSystemControlPanel" style="display:none;">
-          <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
-            <button class="admin-sys-subtab active" onclick="switchAdminSystemTab('control')" id="sys-subtab-control" style="padding:0.4rem 1rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.82rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">🎛️ Control</button>
-            <button class="admin-sys-subtab" onclick="switchAdminSystemTab('logs')" id="sys-subtab-logs" style="padding:0.4rem 1rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.82rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
-          </div>
-          <div id="sysSubControl">
+        <!-- Control Panel -->
+        <div id="adminControlPanel" style="display:none;">
             <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Analysis Control</h2>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Configure analysis behavior, logging, and month toggles.</p>
             <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
@@ -389,9 +385,10 @@ window._adminAssignHospitals = function(id, btn) {
                   <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
               </div>
             </div>
-          </div>
-          <div id="sysSubLogs" style="display:none;">
-            <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Server Logs</h2>
+        </div>
+        <!-- Logs Panel -->
+        <div id="adminLogsPanel" style="display:none;">
+          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Server Logs</h2>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Recent server warnings and errors. Auto-refreshes every 10 seconds.</p>
             <div style="display:flex;gap:0.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
               <select id="logsLevelFilter" style="padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:4px;font-size:0.82rem;">
@@ -412,7 +409,6 @@ window._adminAssignHospitals = function(id, btn) {
             <div id="logsContainer" style="max-height:500px;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;padding:0.5rem;font-family:monospace;font-size:0.78rem;line-height:1.6;">
               <div style="text-align:center;padding:2rem;color:var(--text-muted);">Loading logs...</div>
             </div>
-          </div>
         </div>
         <!-- Tab Order Panel -->
         <div id="adminTabOrderPanel" style="display:none;">
@@ -911,37 +907,27 @@ window._adminAssignHospitals = function(id, btn) {
     if(ab){ab.style.background="var(--accent-purple)";ab.style.color="white";}
     var u=document.getElementById("adminUsersPanel");
     var d=document.getElementById("adminDatabasePanel");
-    var s=document.getElementById("adminSystemControlPanel");
+    var c=document.getElementById("adminControlPanel");
+    var l=document.getElementById("adminLogsPanel");
     var t=document.getElementById("adminTabOrderPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
-    if(s)s.style.display=tab==="system"?"block":"none";
+    if(c)c.style.display=tab==="control"?"block":"none";
+    if(l)l.style.display=tab==="logs"?"block":"none";
     if(t)t.style.display=tab==="tabs"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
-    if(tab==="system"){switchAdminSystemTab('control');}
+    if(tab==="control"){loadAdminControlSettings();}
+    if(tab==="logs"){loadAdminLogs();_startLogsAutoRefresh();}
     if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
   var _logsInterval=null;
-  window.switchAdminSystemTab = function(sub) {
-    document.querySelectorAll('.admin-sys-subtab').forEach(function(btn){
-      btn.style.background='var(--bg-surface-hover)';
-      btn.style.color='var(--text-secondary)';
-    });
-    var ab=document.getElementById('sys-subtab-'+sub);
-    if(ab){ab.style.background='var(--accent-purple)';ab.style.color='white';}
-    var ct=document.getElementById('sysSubControl');
-    var lg=document.getElementById('sysSubLogs');
-    if(ct)ct.style.display=sub==='control'?'block':'none';
-    if(lg)lg.style.display=sub==='logs'?'block':'none';
-    if(sub==='control')loadAdminControlSettings();
-    if(sub==='logs')loadAdminLogs();
-    // Auto-refresh for logs
+  function _startLogsAutoRefresh(){
     if(_logsInterval){clearInterval(_logsInterval);_logsInterval=null;}
-    if(sub==='logs'&&document.getElementById('logsAutoRefresh')&&document.getElementById('logsAutoRefresh').checked){
+    if(document.getElementById('logsAutoRefresh')&&document.getElementById('logsAutoRefresh').checked){
       _logsInterval=setInterval(loadAdminLogs,10000);
     }
-  };
+  }
   window.loadAdminLogs = async function() {
     var el=document.getElementById('logsContainer');
     var countEl=document.getElementById('logsCount');
