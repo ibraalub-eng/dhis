@@ -257,7 +257,12 @@
     <div id="smart-hospital-profile" style="display:none;background:var(--bg-elevated);border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;border:1px solid var(--border-default);"></div>
 r
     <!-- Quality + Confidence Gauges -->
-    <div id="smart-hospital-gauges" style="display:none;display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:0.6rem;margin-bottom:1rem;"></div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;align-items:start;margin-bottom:1rem;">
+      <!-- Model Confidence Gauge (semicircle) -->
+      <div id="smart-hospital-confidence-gauge" style="display:none;"></div>
+      <!-- Quality breakdown cards -->
+      <div id="smart-hospital-gauges" style="display:none;display:grid;grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));gap:0.5rem;"></div>
+    </div>
 
     <!-- Trend Chart -->
     <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">📈 <span data-i18n="Anomaly Score Trend">اتجاه درجة الشذوذ</span></div>

@@ -31,6 +31,7 @@ export async function loadHospitalMode(hospitalId, months) {
     }
 
     renderHospitalProfile(drill);
+    renderConfidenceGauge(drill, trend);
     renderHospitalGauges(drill);
     renderTrend(trend);
     renderHospitalIndicators(drill.indicators || []);
@@ -93,6 +94,105 @@ function renderHospitalGauges(drill) {
       </div>
     </div>`;
   }).join('');
+}
+
+function renderConfidenceGauge(drill, trend) {
+  const el = document.getElementById('smart-hospital-confidence-gauge');
+  if (!el) return;
+
+  // Compute composite confidence from multiple signals
+  const q = drill.quality || {};
+  const conf = drill.confidence;
+  const months = (trend.trend || []).length;
+  const anomalies = trend.trend || [];
+  const indicators = drill.indicators || [];
+  const peerAvg = drill.peer_comparison?.peer_avg_anomaly;
+  const myScore = drill.anomaly?.anomaly_score;
+
+  // Factor 1: data completeness (0–30)
+  const completeness = q.completeness != null ? (q.completeness / 100) * 30 : 0;
+  // Factor 2: months of data (0–25), capped at 6 months = max
+  const monthScore = Math.min(25, (months / 6) * 25);
+  // Factor 3: has confidence score (0–20)
+  const confScore = conf != null ? (conf / 100) * 20 : 0;
+  // Factor 4: indicator count sufficiency (0–15)
+  const indicatorScore = Math.min(15, (indicators.length / 10) * 15);
+  // Factor 5: peer comparison available (0–10)
+  const peerScore = peerAvg != null && myScore != null ? 10 : 0;
+  // Factor 6: consistency across months (0–10)
+  let consistencyScore = 0;
+  if (anomalies.length >= 2) {
+    const stdDev = Math.sqrt(anomalies.reduce((s, a) => s + Math.pow(a.anomaly_score - (anomalies.reduce((s2, a2) => s2 + a2.anomaly_score, 0) / anomalies.length), 2), 0) / anomalies.length);
+    consistencyScore = stdDev < 0.15 ? 10 : stdDev < 0.25 ? 6 : 3;
+  }
+
+  const total = Math.round(completeness + monthScore + confScore + indicatorScore + peerScore + consistencyScore);
+  const clamped = Math.max(0, Math.min(100, total));
+
+  // Classify
+  let level, label, color, arcColor;
+  if (clamped >= 70) {
+    level = 'high'; label = _t('High Confidence'); color = 'var(--accent-green)'; arcColor = '#22c55e';
+  } else if (clamped >= 40) {
+    level = 'medium'; label = _t('Medium Confidence'); color = 'var(--accent-orange)'; arcColor = '#f59e0b';
+  } else {
+    level = 'low'; label = _t('Low Confidence'); color = 'var(--accent-red)'; arcColor = '#ef4444';
+  }
+
+  // SVG semicircular gauge
+  const w = 160, h = 100, cx = w / 2, cy = h - 10, r = 65;
+  // Arc from 180° (left) to 0° (right) — 180 degrees
+  const needleAngle = 180 - (clamped / 100) * 180; // degrees from positive x-axis
+  const needleRad = (needleAngle * Math.PI) / 180;
+  const nx = cx + r * Math.cos(needleRad);
+  const ny = cy - r * Math.sin(needleRad);
+
+  // Colored arc segments (3 zones: red → orange → green)
+  function arcPath(startDeg, endDeg) {
+    const s = (startDeg * Math.PI) / 180;
+    const e = (endDeg * Math.PI) / 180;
+    const sx = cx + r * Math.cos(s);
+    const sy = cy - r * Math.sin(s);
+    const ex = cx + r * Math.cos(e);
+    const ey = cy - r * Math.sin(e);
+    const largeArc = endDeg - startDeg > 180 ? 1 : 0;
+    return `M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 0 ${ex} ${ey}`;
+  }
+
+  // Draw the 3 colored zones
+  const zoneW = 60; // degrees per zone
+  const zones = [
+    { start: 180, end: 120, color: '#ef4444', label: _t('Low') },
+    { start: 120, end: 60,  color: '#f59e0b', label: _t('Medium') },
+    { start: 60,  end: 0,   color: '#22c55e', label: _t('High') },
+  ];
+
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;">
+      <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+        <!-- Zone arcs -->
+        ${zones.map(z => `<path d="${arcPath(z.start, z.end)}" fill="none" stroke="${z.color}" stroke-width="12" stroke-linecap="round" opacity="0.25"/>`).join('')}
+        <!-- Active filled arc from left to needle position -->
+        <path d="${arcPath(180, needleAngle)}" fill="none" stroke="${arcColor}" stroke-width="12" stroke-linecap="round"/>
+        <!-- Needle -->
+        <line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="var(--text-primary)" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="${cx}" cy="${cy}" r="5" fill="var(--text-primary)"/>
+        <circle cx="${nx}" cy="${ny}" r="3" fill="${arcColor}"/>
+        <!-- Zone labels -->
+        ${zones.map(z => {
+          const mid = ((z.start + z.end) / 2 * Math.PI) / 180;
+          const lx = cx + (r + 14) * Math.cos(mid);
+          const ly = cy - (r + 14) * Math.sin(mid);
+          return `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="8" fill="var(--text-muted)" dominant-baseline="middle">${z.label}</text>`;
+        }).join('')}
+      </svg>
+      <div style="text-align:center;margin-top:-0.3rem;">
+        <div style="font-size:1.4rem;font-weight:800;color:${color};">${clamped}%</div>
+        <div style="font-size:0.78rem;font-weight:600;color:${color};">${label}</div>
+      </div>
+    </div>
+  `;
 }
 
 export function renderTrend(trend) {
