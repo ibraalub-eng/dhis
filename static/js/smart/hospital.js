@@ -30,7 +30,7 @@ export async function loadHospitalMode(hospitalId, months) {
       return;
     }
 
-    renderHospitalProfile(drill);
+    renderHospitalProfile(drill, trend);
     renderConfidenceGauge(drill, trend);
     renderHospitalGauges(drill);
     renderTrend(trend);
@@ -47,13 +47,61 @@ export async function loadHospitalMode(hospitalId, months) {
   }
 }
 
-function renderHospitalProfile(drill) {
+function computeTrendDirection(trendData) {
+  const points = trendData.trend || [];
+  if (points.length < 2) return { overall: 'stable', recent: 'stable', overallDelta: 0, recentDelta: 0 };
+  const scores = points.map(p => p.anomaly_score);
+
+  // Overall: compare first half avg vs second half avg
+  const mid = Math.floor(scores.length / 2);
+  const firstHalf = scores.slice(0, mid || 1);
+  const secondHalf = scores.slice(mid);
+  const avgFirst = firstHalf.reduce((s, v) => s + v, 0) / firstHalf.length;
+  const avgSecond = secondHalf.reduce((s, v) => s + v, 0) / secondHalf.length;
+  const overallDelta = avgSecond - avgFirst;
+  let overall = 'stable';
+  if (overallDelta > 0.05) overall = 'declining';
+  else if (overallDelta < -0.05) overall = 'improving';
+
+  // Recent: last 2-3 months direction
+  const recent = scores.slice(-Math.min(3, scores.length));
+  let recentDelta = 0;
+  let recentDir = 'stable';
+  if (recent.length >= 2) {
+    recentDelta = recent[recent.length - 1] - recent[0];
+    if (recentDelta > 0.03) recentDir = 'declining';
+    else if (recentDelta < -0.03) recentDir = 'improving';
+  }
+
+  return { overall, recent: recentDir, overallDelta, recentDelta };
+}
+
+function trendArrow(dir, size) {
+  const s = size || '1rem';
+  if (dir === 'improving') return `<span style="color:var(--accent-green);font-size:${s};font-weight:800;">↗</span>`;
+  if (dir === 'declining') return `<span style="color:var(--accent-red);font-size:${s};font-weight:800;">↘</span>`;
+  return `<span style="color:var(--text-muted);font-size:${s};">→</span>`;
+}
+
+function trendLabel(dir) {
+  if (dir === 'improving') return `<span style="color:var(--accent-green);font-weight:600;">${_t('Improving')}</span>`;
+  if (dir === 'declining') return `<span style="color:var(--accent-red);font-weight:600;">${_t('Declining')}</span>`;
+  return `<span style="color:var(--text-muted);">${_t('Stable')}</span>`;
+}
+
+function renderHospitalProfile(drill, trend) {
   const el = document.getElementById('smart-hospital-profile');
   if (!el) return;
   const meta = drill.metadata || {};
   const score = drill.anomaly?.anomaly_score;
   const severity = drill.anomaly?.severity || 'normal';
   const sevColor = severity === 'critical' ? 'var(--accent-red)' : severity === 'warning' ? 'var(--accent-orange)' : 'var(--accent-green)';
+
+  // Compute trend
+  const td = computeTrendDirection(trend || {});
+  const overallColor = td.overall === 'improving' ? 'var(--accent-green)' : td.overall === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)';
+  const recentColor = td.recent === 'improving' ? 'var(--accent-green)' : td.recent === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)';
+
   el.style.display = 'block';
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
@@ -67,6 +115,30 @@ function renderHospitalProfile(drill) {
       ${meta.facility_ownership ? `<span>🏢 ${_smartEscapeHtml(meta.facility_ownership)}</span>` : ''}
       ${meta.facility_type ? `<span>🏗️ ${_smartEscapeHtml(meta.facility_type)}</span>` : ''}
       ${meta.organisation_unit_id ? `<span style="color:var(--text-muted);">ID: ${meta.organisation_unit_id}</span>` : ''}
+    </div>
+    <!-- Trend arrows -->
+    <div style="display:flex;gap:1.5rem;flex-wrap:wrap;margin-top:0.6rem;padding:0.5rem 0.7rem;background:var(--bg-surface);border-radius:8px;border:1px solid var(--border-default);">
+      <div style="display:flex;align-items:center;gap:0.4rem;">
+        ${trendArrow(td.overall, '1.2rem')}
+        <div>
+          <div style="font-size:0.68rem;color:var(--text-muted);line-height:1;">${_t('Overall Trend')}</div>
+          <div style="font-size:0.82rem;line-height:1.2;">${trendLabel(td.overall)}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.4rem;">
+        ${trendArrow(td.recent, '1.2rem')}
+        <div>
+          <div style="font-size:0.68rem;color:var(--text-muted);line-height:1;">${_t('Recent (3 mo)')}</div>
+          <div style="font-size:0.82rem;line-height:1.2;">${trendLabel(td.recent)}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.4rem;">
+        <div style="font-size:0.8rem;">${td.overallDelta >= 0 ? '📈' : '📉'}</div>
+        <div>
+          <div style="font-size:0.68rem;color:var(--text-muted);line-height:1;">${_t('Score Change')}</div>
+          <div style="font-size:0.82rem;line-height:1.2;color:${overallColor};">${td.overallDelta >= 0 ? '+' : ''}${_fmtNum(td.overallDelta, 3)}</div>
+        </div>
+      </div>
     </div>
   `;
 }
