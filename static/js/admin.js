@@ -287,98 +287,103 @@ window._adminAssignHospitals = function(id, btn) {
 
         <!-- Database Tab -->
         <div id="adminDatabasePanel" style="display:none;">
-          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Database</h2>
-          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">View database connection status, preview tables, and export data.</p>
-          <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
-            <div id="adminDbStatus" style="font-size:0.85rem;line-height:1.8;">Loading...</div>
+          <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
+            <button class="admin-db-subtab active" onclick="switchAdminDbTab('overview')" id="dbsub-overview" style="padding:0.4rem 1rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.82rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">📊 Database</button>
+            <button class="admin-db-subtab" onclick="switchAdminDbTab('control')" id="dbsub-control" style="padding:0.4rem 1rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.82rem;cursor:pointer;margin-bottom:-2px;">🎛️ Control</button>
           </div>
-          <div style="margin-top:1.2rem;display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
-            <button class="btn btn-sm" onclick="adminPreviewDb()" id="adminBtnPreviewDb">Preview Tables</button>
-            <button class="btn btn-sm" onclick="adminExportDb()" id="adminBtnExportDb" style="background:#22c55e;color:white;">Export Full Database (JSON)</button>
-            <span id="adminDbExportStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
-          </div>
-          <div id="adminDbPreviewContainer" style="margin-top:1rem;display:none;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-              <h4 style="font-size:0.88rem;color:var(--text-primary);margin:0;">Database Tables Preview</h4>
-              <button class="btn btn-sm btn-outline" id="adminDbCloseBtn">Close</button>
+          <div id="dbSubOverview">
+            <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Database</h2>
+            <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">View database connection status, preview tables, and export data.</p>
+            <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
+              <div id="adminDbStatus" style="font-size:0.85rem;line-height:1.8;">Loading...</div>
             </div>
-            <div id="adminDbPreviewContent" style="max-height:600px;overflow-y:auto;background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
-              <p style="color:var(--text-muted);font-size:0.82rem;">Click Preview Tables to load.</p>
+            <div style="margin-top:1.2rem;display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+              <button class="btn btn-sm" onclick="adminPreviewDb()" id="adminBtnPreviewDb">Preview Tables</button>
+              <button class="btn btn-sm" onclick="adminExportDb()" id="adminBtnExportDb" style="background:#22c55e;color:white;">Export Full Database (JSON)</button>
+              <span id="adminDbExportStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
             </div>
-          </div>
-        </div>
-        <!-- Control Tab -->
-        <div id="adminControlPanel" style="display:none;">
-          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Analysis Control</h2>
-          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Configure analysis behavior, logging, and month toggles.</p>
-          <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
-            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
-                Controls how null/missing indicator values are handled during analysis and in the indicator tree.
-            </div>
-            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;">
-                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                    <input type="checkbox" id="cfg_auto_disable_null" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
-                    <div>
-                        <strong>Auto-disable null indicators</strong><br>
-                        <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, indicators with null values are treated as disabled.</span>
-                    </div>
-                </label>
-            </div>
-            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
-                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                    <input type="checkbox" id="cfg_structured_logging" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
-                    <div>
-                        <strong>Structured Logging</strong><br>
-                        <span style="font-size:0.8rem;color:var(--text-secondary);">Log all HTTP requests as JSON to stdout.</span>
-                    </div>
-                </label>
-                <div style="margin-top:0.6rem;">
-                    <span id="controlSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
-                </div>
-            </div>
-            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
-                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                    <input type="checkbox" id="cfg_slow_query_logging" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
-                    <div>
-                        <strong>Slow Query Logging</strong><br>
-                        <span style="font-size:0.8rem;color:var(--text-secondary);">Log SQL queries taking over 1 second.</span>
-                    </div>
-                </label>
-            </div>
-            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
-                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                    <input type="checkbox" id="cfg_hide_explanatory" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
-                    <div>
-                        <strong>Hide Forecast/Explanation Sentences</strong><br>
-                        <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, narrative forecast/explanation sentences are hidden from non-super-admin users (super admins always see them).</span>
-                    </div>
-                </label>
-            </div>
-            <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
-                <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                    <input type="checkbox" id="cfg_dev_hints" onchange="adminToggleDevHints(this.checked)" style="margin-top:0.2rem;width:18px;height:18px;">
-                    <div>
-                        <strong>Show Developer Hints</strong><br>
-                        <span style="font-size:0.8rem;color:var(--text-secondary);">Display source code references below each setting control.</span>
-                    </div>
-                </label>
+            <div id="adminDbPreviewContainer" style="margin-top:1rem;display:none;">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                <h4 style="font-size:0.88rem;color:var(--text-primary);margin:0;">Database Tables Preview</h4>
+                <button class="btn btn-sm btn-outline" id="adminDbCloseBtn">Close</button>
+              </div>
+              <div id="adminDbPreviewContent" style="max-height:600px;overflow-y:auto;background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
+                <p style="color:var(--text-muted);font-size:0.82rem;">Click Preview Tables to load.</p>
+              </div>
             </div>
           </div>
-          <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);margin-top:1rem;">
-            <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Analysis Months</h3>
-            <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.8rem;">Toggle months on/off per hospital.</p>
-            <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.8rem;">
-                <label style="font-size:0.78rem;color:var(--text-secondary);">Hospital:</label>
-                <select id="monthHospitalSelect" onchange="onMonthHospitalChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"></select>
+          <div id="dbSubControl" style="display:none;">
+            <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Analysis Control</h2>
+            <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Configure analysis behavior, logging, and month toggles.</p>
+            <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
+                  Controls how null/missing indicator values are handled during analysis and in the indicator tree.
+              </div>
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;">
+                  <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                      <input type="checkbox" id="cfg_auto_disable_null" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <div>
+                          <strong>Auto-disable null indicators</strong><br>
+                          <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, indicators with null values are treated as disabled.</span>
+                      </div>
+                  </label>
+              </div>
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                  <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                      <input type="checkbox" id="cfg_structured_logging" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <div>
+                          <strong>Structured Logging</strong><br>
+                          <span style="font-size:0.8rem;color:var(--text-secondary);">Log all HTTP requests as JSON to stdout.</span>
+                      </div>
+                  </label>
+                  <div style="margin-top:0.6rem;">
+                      <span id="controlSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+                  </div>
+              </div>
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                  <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                      <input type="checkbox" id="cfg_slow_query_logging" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <div>
+                          <strong>Slow Query Logging</strong><br>
+                          <span style="font-size:0.8rem;color:var(--text-secondary);">Log SQL queries taking over 1 second.</span>
+                      </div>
+                  </label>
+              </div>
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                  <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                      <input type="checkbox" id="cfg_hide_explanatory" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <div>
+                          <strong>Hide Forecast/Explanation Sentences</strong><br>
+                          <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, narrative forecast/explanation sentences are hidden from non-super-admin users (super admins always see them).</span>
+                      </div>
+                  </label>
+              </div>
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                  <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                      <input type="checkbox" id="cfg_dev_hints" onchange="adminToggleDevHints(this.checked)" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <div>
+                          <strong>Show Developer Hints</strong><br>
+                          <span style="font-size:0.8rem;color:var(--text-secondary);">Display source code references below each setting control.</span>
+                      </div>
+                  </label>
+              </div>
             </div>
-            <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;">
-                <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(true)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Enable All</button>
-                <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(false)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Disable All</button>
-                <button class="btn btn-sm" onclick="adminSaveAllMonthSettings()" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Save</button>
-            </div>
-            <div id="monthToggleList" style="display:flex;flex-wrap:wrap;gap:0.5rem;"></div>
-            <div style="margin-top:0.5rem;">
-                <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+            <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);margin-top:1rem;">
+              <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Analysis Months</h3>
+              <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.8rem;">Toggle months on/off per hospital.</p>
+              <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.8rem;">
+                  <label style="font-size:0.78rem;color:var(--text-secondary);">Hospital:</label>
+                  <select id="monthHospitalSelect" onchange="onMonthHospitalChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"></select>
+              </div>
+              <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;">
+                  <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(true)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Enable All</button>
+                  <button class="btn btn-sm btn-outline" onclick="toggleAllAnalysisMonths(false)" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Disable All</button>
+                  <button class="btn btn-sm" onclick="adminSaveAllMonthSettings()" style="font-size:0.7rem;padding:0.2rem 0.5rem;">Save</button>
+              </div>
+              <div id="monthToggleList" style="display:flex;flex-wrap:wrap;gap:0.5rem;"></div>
+              <div style="margin-top:0.5rem;">
+                  <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+              </div>
             </div>
           </div>
         </div>
@@ -886,6 +891,43 @@ window._adminAssignHospitals = function(id, btn) {
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
     if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
+
+  window.switchAdminDbTab = function(sub) {
+    document.querySelectorAll('.admin-db-subtab').forEach(function(btn){
+      btn.style.background='var(--bg-surface-hover)';
+      btn.style.color='var(--text-secondary)';
+    });
+    var ab=document.getElementById('dbsub-'+sub);
+    if(ab){ab.style.background='var(--accent-purple)';ab.style.color='white';}
+    var ov=document.getElementById('dbSubOverview');
+    var ct=document.getElementById('dbSubControl');
+    if(ov)ov.style.display=sub==='overview'?'block':'none';
+    if(ct)ct.style.display=sub==='control'?'block':'none';
+    if(sub==='control')loadAdminControlSettings();
+  };
+
+  function loadAdminControlSettings() {
+    var hospitalSel=document.getElementById('monthHospitalSelect');
+    if(hospitalSel&&hospitalSel.options.length<=1){
+      api('/admin/hospitals').then(function(data){
+        if(!data||data._error)return;
+        var hosp=data.hospitals||[];
+        hospitalSel.innerHTML='<option value="">-- Select Hospital --</option>';
+        hosp.forEach(function(h){
+          hospitalSel.innerHTML+='<option value="'+h.id+'">'+esc(h.name)+'</option>';
+        });
+      });
+    }
+    api('/config/settings').then(function(data){
+      if(!data||data._error)return;
+      var s=data.settings||data;
+      var ids=['cfg_auto_disable_null','cfg_structured_logging','cfg_slow_query_logging','cfg_hide_explanatory'];
+      ids.forEach(function(id){
+        var el=document.getElementById(id);
+        if(el)el.checked=!!s[id.replace('cfg_','')];
+      });
+    });
+  }
 
   async function loadAdminDbStatus() {
     var el=document.getElementById("adminDbStatus");
