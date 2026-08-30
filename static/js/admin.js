@@ -307,6 +307,7 @@ window._adminAssignHospitals = function(id, btn) {
               <p style="color:var(--text-muted);font-size:0.82rem;">Click Preview Tables to load.</p>
             </div>
           </div>
+        </div>
         <!-- Control Tab -->
         <div id="adminControlPanel" style="display:none;">
           <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Analysis Control</h2>
@@ -395,7 +396,6 @@ window._adminAssignHospitals = function(id, btn) {
             <button class="btn btn-sm" onclick="saveTabOrder()" style="background:var(--accent-green);color:white;">💾 Save Order</button>
           </div>
           <div id="tabOrderList"></div>
-        </div>
         </div>
       </div>
     `;
