@@ -95,6 +95,7 @@ window._adminAssignHospitals = function(id, btn) {
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
           <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('system')" id="atab-system" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🛡️ System Control</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('tabs')" id="atab-tabs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Tab Order</button>
         </div>
 
@@ -287,11 +288,6 @@ window._adminAssignHospitals = function(id, btn) {
 
         <!-- Database Tab -->
         <div id="adminDatabasePanel" style="display:none;">
-          <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
-            <button class="admin-db-subtab active" onclick="switchAdminDbTab('overview')" id="dbsub-overview" style="padding:0.4rem 1rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.82rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">📊 Database</button>
-            <button class="admin-db-subtab" onclick="switchAdminDbTab('control')" id="dbsub-control" style="padding:0.4rem 1rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.82rem;cursor:pointer;margin-bottom:-2px;">🎛️ Control</button>
-            <button class="admin-db-subtab" onclick="switchAdminDbTab('logs')" id="dbsub-logs" style="padding:0.4rem 1rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.82rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
-          </div>
           <div id="dbSubOverview">
             <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Database</h2>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">View database connection status, preview tables, and export data.</p>
@@ -313,7 +309,14 @@ window._adminAssignHospitals = function(id, btn) {
               </div>
             </div>
           </div>
-          <div id="dbSubControl" style="display:none;">
+        </div>
+        <!-- System Control Panel -->
+        <div id="adminSystemControlPanel" style="display:none;">
+          <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
+            <button class="admin-sys-subtab active" onclick="switchAdminSystemTab('control')" id="sys-subtab-control" style="padding:0.4rem 1rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.82rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">🎛️ Control</button>
+            <button class="admin-sys-subtab" onclick="switchAdminSystemTab('logs')" id="sys-subtab-logs" style="padding:0.4rem 1rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.82rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
+          </div>
+          <div id="sysSubControl">
             <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Analysis Control</h2>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Configure analysis behavior, logging, and month toggles.</p>
             <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
@@ -387,7 +390,7 @@ window._adminAssignHospitals = function(id, btn) {
               </div>
             </div>
           </div>
-          <div id="dbSubLogs" style="display:none;">
+          <div id="sysSubLogs" style="display:none;">
             <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Server Logs</h2>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Recent server warnings and errors. Auto-refreshes every 10 seconds.</p>
             <div style="display:flex;gap:0.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
@@ -908,26 +911,27 @@ window._adminAssignHospitals = function(id, btn) {
     if(ab){ab.style.background="var(--accent-purple)";ab.style.color="white";}
     var u=document.getElementById("adminUsersPanel");
     var d=document.getElementById("adminDatabasePanel");
+    var s=document.getElementById("adminSystemControlPanel");
     var t=document.getElementById("adminTabOrderPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
+    if(s)s.style.display=tab==="system"?"block":"none";
     if(t)t.style.display=tab==="tabs"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
+    if(tab==="system"){switchAdminSystemTab('control');}
     if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
   var _logsInterval=null;
-  window.switchAdminDbTab = function(sub) {
-    document.querySelectorAll('.admin-db-subtab').forEach(function(btn){
+  window.switchAdminSystemTab = function(sub) {
+    document.querySelectorAll('.admin-sys-subtab').forEach(function(btn){
       btn.style.background='var(--bg-surface-hover)';
       btn.style.color='var(--text-secondary)';
     });
-    var ab=document.getElementById('dbsub-'+sub);
+    var ab=document.getElementById('sys-subtab-'+sub);
     if(ab){ab.style.background='var(--accent-purple)';ab.style.color='white';}
-    var ov=document.getElementById('dbSubOverview');
-    var ct=document.getElementById('dbSubControl');
-    var lg=document.getElementById('dbSubLogs');
-    if(ov)ov.style.display=sub==='overview'?'block':'none';
+    var ct=document.getElementById('sysSubControl');
+    var lg=document.getElementById('sysSubLogs');
     if(ct)ct.style.display=sub==='control'?'block':'none';
     if(lg)lg.style.display=sub==='logs'?'block':'none';
     if(sub==='control')loadAdminControlSettings();
