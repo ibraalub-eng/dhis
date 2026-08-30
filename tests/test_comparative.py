@@ -540,10 +540,10 @@ def test_peer_comparison_fields():
     p = PeerComparison(
         hospital_id="h1", hospital_name="H1",
         percentile=25.0, rank=1, total_hospitals=4,
-        comparison_label="متفوق",
+        comparison_label="حرج",
     )
     assert p.percentile == 25.0
-    assert p.comparison_label == "متفوق"
+    assert p.comparison_label == "حرج"
 
 
 def test_advanced_comparison_result_defaults():
@@ -784,6 +784,170 @@ def test_peer_risk_label_thresholds():
     assert _risk_label(0.0, "ar") == "منخفض"
     assert _risk_label(100.0, "en") == "critical"
     assert _risk_label(60.0, "en") == "high"
+
+
+# --- Peer Comparison v2: Scope Filtering Tests ---
+
+from app.engine.comparative.advanced_comparison import compare_peers
+from app.engine.smart.schemas import (
+    SmartAnalyticsResult, SmartAnomalyResult, GovernorateAgg, GeoAggregationResult,
+)
+
+
+def _make_scope_analytics(anomalies):
+    """يبني SmartAnalyticsResult ثابتاً بقائمة شذوذ مُتحكَّم بها."""
+    return SmartAnalyticsResult(
+        month="2026-06",
+        hospitals_count=len(anomalies),
+        anomalies=anomalies,
+        clustering=MagicMock(),
+        correlations=MagicMock(),
+        residuals=[],
+        stratified=[],
+        explanations=[],
+        geo=GeoAggregationResult(governorates=[]),
+        kpi=MagicMock(),
+    )
+
+
+def _make_scope_anomaly(hospital_id, name, score):
+    """يبني SmartAnomalyResult بدرجة تحكم محددة."""
+    from app.engine.smart.schemas import SmartAnomalyResult
+    return SmartAnomalyResult(
+        hospital_name=name,
+        hospital_id=hospital_id,
+        governorate="X",
+        hospital_type="Y",
+        anomaly_score=score,
+        method_scores={},
+        severity="warning",
+        is_outlier=True,
+    )
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_governorate_filters_by_fk(mock_analytics, db_session):
+    """نطاق governorate يُعيد فقط المستشفيات التي تشارك نفس governorate_id للمستشفى المرجعي."""
+    from app.models import Hospital, Governorate, HospitalType
+
+    gov_a = Governorate(name="Gov A")
+    gov_b = Governorate(name="Gov B")
+    db_session.add_all([gov_a, gov_b])
+    db_session.flush()
+
+    ref = Hospital(name="Ref Scope", is_active=True, governorate_id=gov_a.id)
+    same = Hospital(name="Same Gov", is_active=True, governorate_id=gov_a.id)
+    diff = Hospital(name="Diff Gov", is_active=True, governorate_id=gov_b.id)
+    db_session.add_all([ref, same, diff])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(ref.id, "Ref Scope", 0.9),
+        _make_scope_anomaly(same.id, "Same Gov", 0.7),
+        _make_scope_anomaly(diff.id, "Diff Gov", 0.5),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "governorate",
+                           hospital_id=str(ref.id), analytics=mock_analytics.return_value)
+
+    ids = {int(p.hospital_id) for p in result}
+    # المستشفى المرجعي + مستشفى نفس المحافظة فقط
+    assert ids == {ref.id, same.id}
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_type_filters_by_fk(mock_analytics, db_session):
+    """نطاق type يُعيد فقط المستشفيات التي تشارك نفس hospital_type_id للمستشفى المرجعي."""
+    from app.models import Hospital, Governorate, HospitalType
+
+    t_a = HospitalType(name="Type A")
+    t_b = HospitalType(name="Type B")
+    db_session.add_all([t_a, t_b])
+    db_session.flush()
+
+    ref = Hospital(name="Ref Type", is_active=True, hospital_type_id=t_a.id)
+    same = Hospital(name="Same Type", is_active=True, hospital_type_id=t_a.id)
+    diff = Hospital(name="Diff Type", is_active=True, hospital_type_id=t_b.id)
+    db_session.add_all([ref, same, diff])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(ref.id, "Ref Type", 0.9),
+        _make_scope_anomaly(same.id, "Same Type", 0.7),
+        _make_scope_anomaly(diff.id, "Diff Type", 0.5),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "type",
+                           hospital_id=str(ref.id), analytics=mock_analytics.return_value)
+
+    ids = {int(p.hospital_id) for p in result}
+    assert ids == {ref.id, same.id}
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_requires_hospital_id(mock_analytics, db_session):
+    """نطاق governorate/type بدون hospital_id يُعيد [] ولا يكلّف الاستعلام عن المستشفى المرجعي."""
+    anomalies = [_make_scope_anomaly(1, "H1", 0.5)]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    assert compare_peers(db_session, "2026-06", "governorate",
+                         analytics=mock_analytics.return_value) == []
+    assert compare_peers(db_session, "2026-06", "type",
+                         analytics=mock_analytics.return_value) == []
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_missing_hospital_returns_empty(mock_analytics, db_session):
+    """معرف مستشفى غير موجود يُعيد [] بأمان."""
+    anomalies = [_make_scope_anomaly(1, "H1", 0.5)]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    assert compare_peers(db_session, "2026-06", "governorate",
+                         hospital_id="999999", analytics=mock_analytics.return_value) == []
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_non_numeric_hospital_returns_empty(mock_analytics, db_session):
+    """معرف غير رقمي لا يرفع ValueError بل يُعيد [] بأمان."""
+    anomalies = [_make_scope_anomaly(1, "H1", 0.5)]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    assert compare_peers(db_session, "2026-06", "governorate",
+                         hospital_id="abc", analytics=mock_analytics.return_value) == []
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_null_governorate_does_not_match(mock_analytics, db_session):
+    """مستشفى بلا محافظة (governorate_id=None) لا يطابق مستشفى بمحافظة محددة — مقارنة FK تفصل القيم الفارغة عن القيم الفعلية.
+
+    ملاحظة: عند مقارنة مستشفيين كلاهما بلا محافظة (None != None -> False) يتطابقان؛
+    هذا سلوك متأصل متساوٍ في المقارنة الجديدة (FK) والقديمة (كائن العلاقة)،
+    وليس خطراً جديداً — نتحقق هنا فقط من أن القيمة الفارغة لا تطابق قيمة محددة."""
+    from app.models import Hospital, Governorate
+
+    gov_a = Governorate(name="Gov A")
+    db_session.add(gov_a)
+    db_session.flush()
+
+    ref = Hospital(name="Ref No Gov", is_active=True)
+    ref.governorate_id = None
+    with_gov = Hospital(name="With Gov", is_active=True, governorate_id=gov_a.id)
+    db_session.add_all([ref, with_gov])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(ref.id, "Ref No Gov", 0.9),
+        _make_scope_anomaly(with_gov.id, "With Gov", 0.7),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "governorate",
+                           hospital_id=str(ref.id), analytics=mock_analytics.return_value)
+
+    # المرجع بلا محافظة — مستشفيان فقط، فلن يشمل مستشفى بمحافظة مختلفة
+    assert all(int(p.hospital_id) != with_gov.id for p in result)
 
 
 # --- Endpoint Error Handling Tests ---

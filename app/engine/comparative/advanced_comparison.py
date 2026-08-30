@@ -150,14 +150,12 @@ def _risk_label(risk_percentile: float, lang: str = "ar") -> str:
 
 
 def _anomaly_map(analytics) -> Dict[int, dict]:
-    """خريطة hospital_id -> {name, score, governorate, hospital_type} من نتائج التحليل."""
+    """خريطة hospital_id -> {name, score} من نتائج التحليل."""
     out = {}
     for a in (analytics.anomalies or []) if analytics else []:
         out[a.hospital_id] = {
             "name": a.hospital_name,
             "score": a.anomaly_score,
-            "governorate": a.governorate,
-            "hospital_type": a.hospital_type,
         }
     return out
 
@@ -184,7 +182,10 @@ def compare_peers(
     if comparison_type in ("governorate", "type"):
         if not hospital_id:
             return []
-        ref = session.query(Hospital).get(int(hospital_id))
+        try:
+            ref = session.query(Hospital).get(int(hospital_id))
+        except ValueError:
+            return []
         if ref is None:
             return []
 
@@ -193,9 +194,9 @@ def compare_peers(
         info = ana_map.get(h.id)
         if info is None:
             continue  # لا بيانات للمستشفى هذا الشهر
-        if comparison_type == "governorate" and h.governorate != ref.governorate:
+        if comparison_type == "governorate" and h.governorate_id != ref.governorate_id:
             continue
-        if comparison_type == "type" and h.hospital_type != ref.hospital_type:
+        if comparison_type == "type" and h.hospital_type_id != ref.hospital_type_id:
             continue
         candidates.append((h.id, info["name"], info["score"]))
 
