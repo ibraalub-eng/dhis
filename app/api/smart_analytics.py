@@ -523,10 +523,89 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
     stratified = [s for s in data.get("stratified", []) if s.get("hospital_id") == hospital_id]
     from app.engine.smart.lag_analysis import run_hospital_forecast
     forecast = run_hospital_forecast(db, hospital_id, month, data.get("lag_analysis"))
+
+    # Hospital metadata
+    gov_name = hospital.governorate.name if hospital.governorate else None
+    type_name = hospital.hospital_type.name if hospital.hospital_type else None
+    owner_name = hospital.facility_ownership.name if hospital.facility_ownership else None
+    fac_type_name = hospital.facility_type.name if hospital.facility_type else None
+
+    # Quality & confidence scores
+    from app.models import QualityScore, ConfidenceScore, IndicatorValue
+    qs = db.query(QualityScore).filter(
+        QualityScore.hospital_id == hospital_id, QualityScore.month == month
+    ).first()
+    cs = db.query(ConfidenceScore).filter(
+        ConfidenceScore.hospital_id == hospital_id, ConfidenceScore.month == month
+    ).first()
+    quality = None
+    if qs:
+        quality = {
+            "score": qs.score, "completeness": qs.completeness,
+            "consistency": qs.consistency, "rule_compliance": qs.rule_compliance,
+            "outlier_penalty": qs.outlier_penalty,
+        }
+    confidence_val = float(cs.overall_confidence) if cs else None
+
+    # Peer comparison: same hospital type or governorate
+    peer_ids = []
+    if hospital.hospital_type_id:
+        peer_ids = [a["hospital_id"] for a in data.get("anomalies", [])
+                    if a.get("hospital_type_id") == hospital.hospital_type_id and a["hospital_id"] != hospital_id]
+    if not peer_ids and hospital.governorate_id:
+        peer_ids = [a["hospital_id"] for a in data.get("anomalies", [])
+                    if a.get("governorate_id") == hospital.governorate_id and a["hospital_id"] != hospital_id]
+    peer_anomalies = [a for a in data.get("anomalies", []) if a.get("hospital_id") in peer_ids]
+    peer_avg_score = None
+    if peer_anomalies:
+        scores = [a.get("anomaly_score", 0) for a in peer_anomalies]
+        peer_avg_score = round(sum(scores) / len(scores), 3) if scores else None
+
+    # Clinical indicator values for this hospital
+    indicators = []
+    iv_rows = db.query(IndicatorValue).filter(
+        IndicatorValue.hospital_id == hospital_id, IndicatorValue.month == month
+    ).all()
+    for iv in iv_rows:
+        indicators.append({
+            "indicator_id": iv.indicator_id,
+            "indicator_name": iv.indicator.name if iv.indicator else f"Indicator {iv.indicator_id}",
+            "value": iv.value,
+            "peer_avg": None,
+        })
+    # Fill peer averages
+    if peer_ids:
+        from collections import defaultdict
+        peer_sums = defaultdict(list)
+        peer_count = defaultdict(int)
+        for pid in peer_ids:
+            for piv in db.query(IndicatorValue).filter(
+                IndicatorValue.hospital_id == pid, IndicatorValue.month == month
+            ).all():
+                peer_sums[piv.indicator_id].append(piv.value or 0)
+                peer_count[piv.indicator_id] += 1
+        for ind in indicators:
+            iid = ind["indicator_id"]
+            if iid in peer_sums and peer_sums[iid]:
+                ind["peer_avg"] = round(sum(peer_sums[iid]) / len(peer_sums[iid]), 3)
+
     response = _sanitize({
         "hospital_id": hospital_id,
         "hospital_name": hospital.name,
         "month": month,
+        "metadata": {
+            "governorate": gov_name, "hospital_type": type_name,
+            "facility_ownership": owner_name, "facility_type": fac_type_name,
+            "organisation_unit_id": hospital.organisation_unit_id,
+        },
+        "quality": quality,
+        "confidence": confidence_val,
+        "peer_comparison": {
+            "peer_count": len(peer_ids),
+            "peer_avg_anomaly": peer_avg_score,
+            "peer_anomalies": peer_anomalies[:5],
+        },
+        "indicators": indicators,
         "anomaly": anomaly,
         "explanation": explanation,
         "residuals": residuals,

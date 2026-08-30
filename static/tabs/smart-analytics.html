@@ -252,9 +252,29 @@
     <div class="smart-loader" data-smart-loader="hospital"><span data-i18n="Computing...">جاري المعالجة...</span></div>
     <div class="smart-error-banner" data-smart-error="hospital" role="alert"></div>
     <div class="smart-empty-state" data-smart-empty="hospital"></div>
-    <div id="smart-hospital-name" style="font-size:1rem;font-weight:700;color:var(--accent-blue);margin-bottom:0.8rem;"></div>
-    <div id="smart-hospital-forecast"></div>
-    <div id="smart-hospital-trend" style="height:260px;"></div>
+
+    <!-- Profile Card -->
+    <div id="smart-hospital-profile" style="display:none;background:var(--bg-elevated);border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;border:1px solid var(--border-default);"></div>
+r
+    <!-- Quality + Confidence Gauges -->
+    <div id="smart-hospital-gauges" style="display:none;display:grid;grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));gap:0.6rem;margin-bottom:1rem;"></div>
+
+    <!-- Trend Chart -->
+    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">📈 <span data-i18n="Anomaly Score Trend">اتجاه درجة الشذوذ</span></div>
+    <div id="smart-hospital-trend" style="height:240px;margin-bottom:1rem;"></div>
+
+    <!-- Clinical Indicators -->
+    <div id="smart-hospital-indicators" style="margin-bottom:1rem;"></div>
+
+    <!-- Peer Comparison -->
+    <div id="smart-hospital-peers" style="margin-bottom:1rem;"></div>
+
+    <!-- Forecast -->
+    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">🔮 <span data-i18n="Forecast">التنبؤ</span></div>
+    <div id="smart-hospital-forecast" style="margin-bottom:1rem;"></div>
+
+    <!-- Root Cause Factors -->
+    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">🔍 <span data-i18n="Root Cause Factors">عوامل السبب الجذري</span></div>
     <div id="smart-hospital-factors" class="smart-table-wrap"></div>
   </div>
 
