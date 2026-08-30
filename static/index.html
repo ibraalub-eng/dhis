@@ -19,11 +19,13 @@
     if (typeof window.toggleLang !== 'function') {
       window.toggleLang = function() {
         var html = document.documentElement;
-        if (html.dir === 'rtl') {
-          html.dir = 'ltr'; html.lang = 'en';
-        } else {
-          html.dir = 'rtl'; html.lang = 'ar';
-        }
+        var btn = document.getElementById('langToggle');
+        var newLang = html.dir === 'rtl' ? 'en' : 'ar';
+        html.dir = newLang === 'ar' ? 'rtl' : 'ltr';
+        html.lang = newLang;
+        html.body.classList.toggle('rtl', newLang === 'ar');
+        localStorage.setItem('lang', newLang);
+        if (btn) btn.textContent = newLang === 'ar' ? 'English' : 'العربية';
       };
     }
     function toggleTheme() {
