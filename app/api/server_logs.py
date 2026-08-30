@@ -78,3 +78,14 @@ def get_logs(
         "min_level": level.upper(),
         "entries": recent,
     }
+
+
+@router.delete("")
+def clear_logs(
+    user=Depends(require_permission("admin.manage")),
+):
+    """Clear all entries from the in-memory log buffer."""
+    with _buffer_lock:
+        count = len(_buffer)
+        _buffer.clear()
+    return {"cleared": count, "message": f"Cleared {count} log entries"}

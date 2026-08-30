@@ -399,6 +399,8 @@ window._adminAssignHospitals = function(id, btn) {
                 <option value="DEBUG">🔍 DEBUG+</option>
               </select>
               <button class="btn btn-sm" onclick="loadAdminLogs()" style="background:var(--accent-blue);color:white;">↻ Refresh</button>
+              <button class="btn btn-sm" onclick="exportLogsCSV()" style="background:var(--accent-green);color:white;">📥 Export CSV</button>
+              <button class="btn btn-sm btn-outline" onclick="clearAdminLogs()" style="color:var(--accent-red);">🗑️ Clear</button>
               <label style="font-size:0.78rem;color:var(--text-secondary);display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
                 <input type="checkbox" id="logsAutoRefresh" checked> Auto-refresh
               </label>
@@ -961,6 +963,40 @@ window._adminAssignHospitals = function(id, btn) {
     }catch(err){
       el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Error loading logs: '+err.message+'</div>';
     }
+  };
+  window.clearAdminLogs = async function() {
+    if(!confirm('Clear all log entries from memory?'))return;
+    try{
+      await api('/logs',{method:'DELETE'});
+      loadAdminLogs();
+      if(typeof toastSuccess==='function')toastSuccess('Logs cleared');
+    }catch(err){
+      if(typeof toastError==='function')toastError('Failed to clear logs: '+err.message);
+    }
+  };
+  window.exportLogsCSV = function() {
+    var container=document.getElementById('logsContainer');
+    if(!container)return;
+    var rows=container.querySelectorAll('div[style]');
+    if(!rows.length){return;}
+    var csv='Time,Level,Logger,Message\n';
+    rows.forEach(function(row){
+      var spans=row.querySelectorAll('span');
+      if(spans.length>=4){
+        var time=spans[0].textContent.trim();
+        var level=spans[1].textContent.trim();
+        var logger=spans[2].textContent.trim();
+        var message=spans[3].textContent.trim().replace(/"/g,'""');
+        csv+='"'+time+'","'+level+'","'+logger+'","'+message+'"\n';
+      }
+    });
+    var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a');
+    a.href=url;
+    a.download='server-logs-'+new Date().toISOString().slice(0,10)+'.csv';
+    a.click();
+    URL.revokeObjectURL(url);
   };
   // Bind auto-refresh checkbox
   document.addEventListener('change',function(e){
