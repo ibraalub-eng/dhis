@@ -3,6 +3,24 @@ import { smartState, apiSmartGet, setSmartLoader, showSmartSectionError,
          showSmartSectionEmpty, _smartEscapeHtml, _t, _fmtNum, _riskBadge, smartTranslateFeature } from './core.js';
 import { renderPlot, makeLineChart, renderWaterfall } from './charts.js';
 
+/** Read theme-aware colors from CSS variables at render time. */
+function getThemeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  return {
+    green: cs.getPropertyValue('--accent-green').trim() || '#4ADE80',
+    orange: cs.getPropertyValue('--accent-orange').trim() || '#FB923C',
+    red: cs.getPropertyValue('--accent-red').trim() || '#F87171',
+    blue: cs.getPropertyValue('--accent-blue').trim() || '#4F8CFF',
+    purple: cs.getPropertyValue('--accent-purple').trim() || '#A78BFA',
+    teal: cs.getPropertyValue('--accent-teal').trim() || '#2DD4BF',
+    textPrimary: cs.getPropertyValue('--text-primary').trim() || '#E8EAED',
+    textMuted: cs.getPropertyValue('--text-muted').trim() || '#5C6370',
+    bgSurface: cs.getPropertyValue('--bg-surface').trim() || '#1A1D27',
+    bgElevated: cs.getPropertyValue('--bg-elevated').trim() || '#252A36',
+    borderDefault: cs.getPropertyValue('--border-default').trim() || '#2A2E3B',
+  };
+}
+
 export function initHospitalSelect(hospitals) {
   const select = document.getElementById('smart-hospital-context-select');
   const monthlySelect = document.getElementById('smart-hospital-select');
@@ -150,15 +168,16 @@ function renderHospitalGauges(drill) {
   const c = drill.confidence;
   if (!q.score && c == null) { el.style.display = 'none'; return; }
   el.style.display = 'grid';
+  const tc = getThemeColors();
   const items = [];
-  if (q.score != null) items.push({ label: _t('Quality'), value: q.score, max: 100, color: 'var(--accent-blue)' });
-  if (c != null) items.push({ label: _t('Confidence'), value: c, max: 100, color: 'var(--accent-teal)' });
-  if (q.completeness != null) items.push({ label: _t('Completeness'), value: q.completeness, max: 100, color: 'var(--accent-green)' });
-  if (q.consistency != null) items.push({ label: _t('Consistency'), value: q.consistency, max: 100, color: 'var(--accent-orange)' });
-  if (q.rule_compliance != null) items.push({ label: _t('Rule Compliance'), value: q.rule_compliance, max: 100, color: '#7b1fa2' });
+  if (q.score != null) items.push({ label: _t('Quality'), value: q.score, max: 100, color: tc.blue });
+  if (c != null) items.push({ label: _t('Confidence'), value: c, max: 100, color: tc.teal });
+  if (q.completeness != null) items.push({ label: _t('Completeness'), value: q.completeness, max: 100, color: tc.green });
+  if (q.consistency != null) items.push({ label: _t('Consistency'), value: q.consistency, max: 100, color: tc.orange });
+  if (q.rule_compliance != null) items.push({ label: _t('Rule Compliance'), value: q.rule_compliance, max: 100, color: tc.purple });
   el.innerHTML = items.map(it => {
     const pct = Math.min(100, Math.max(0, it.value));
-    const barColor = pct >= 80 ? 'var(--accent-green)' : pct >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+    const barColor = pct >= 80 ? tc.green : pct >= 60 ? tc.orange : tc.red;
     return `<div style="background:var(--bg-surface);border-radius:8px;padding:0.6rem 0.8rem;border:1px solid var(--border-default);">
       <div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.2rem;">${it.label}</div>
       <div style="font-size:1.1rem;font-weight:700;color:var(--text-primary);">${_fmtNum(it.value, 1)}%</div>
@@ -203,13 +222,14 @@ function renderConfidenceGauge(drill, trend) {
   const clamped = Math.max(0, Math.min(100, total));
 
   // Classify
+  const tc = getThemeColors();
   let level, label, color, arcColor;
   if (clamped >= 70) {
-    level = 'high'; label = _t('High Confidence'); color = 'var(--accent-green)'; arcColor = '#22c55e';
+    level = 'high'; label = _t('High Confidence'); color = tc.green; arcColor = tc.green;
   } else if (clamped >= 40) {
-    level = 'medium'; label = _t('Medium Confidence'); color = 'var(--accent-orange)'; arcColor = '#f59e0b';
+    level = 'medium'; label = _t('Medium Confidence'); color = tc.orange; arcColor = tc.orange;
   } else {
-    level = 'low'; label = _t('Low Confidence'); color = 'var(--accent-red)'; arcColor = '#ef4444';
+    level = 'low'; label = _t('Low Confidence'); color = tc.red; arcColor = tc.red;
   }
 
   // SVG semicircular gauge
@@ -235,9 +255,9 @@ function renderConfidenceGauge(drill, trend) {
   // Draw the 3 colored zones
   const zoneW = 60; // degrees per zone
   const zones = [
-    { start: 180, end: 120, color: '#ef4444', label: _t('Low') },
-    { start: 120, end: 60,  color: '#f59e0b', label: _t('Medium') },
-    { start: 60,  end: 0,   color: '#22c55e', label: _t('High') },
+    { start: 180, end: 120, color: tc.red, label: _t('Low') },
+    { start: 120, end: 60,  color: tc.orange, label: _t('Medium') },
+    { start: 60,  end: 0,   color: tc.green, label: _t('High') },
   ];
 
   el.style.display = 'block';
@@ -269,15 +289,15 @@ function renderConfidenceGauge(drill, trend) {
 }
 
 export function renderTrend(trend) {
+  const tc = getThemeColors();
   const months = trend.trend.map(t => t.month);
   const scores = trend.trend.map(t => t.anomaly_score);
-  const colors = trend.trend.map(t => t.severity === 'critical' ? '#ef4444' : t.severity === 'warning' ? '#f59e0b' : '#22c55e');
-  const textColor = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#1a1a2e';
+  const colors = trend.trend.map(t => t.severity === 'critical' ? tc.red : t.severity === 'warning' ? tc.orange : tc.green);
   renderPlot('smart-hospital-trend', [{
     x: months, y: scores, type: 'scatter', mode: 'lines+markers',
-    line: { color: '#4338ca', width: 2.5 }, marker: { color: colors, size: 8 },
+    line: { color: tc.purple, width: 2.5 }, marker: { color: colors, size: 8 },
     text: trend.trend.map(t => _t(t.severity)),
-  }], { title: { text: _t('Anomaly score over time'), font: { color: textColor, size: 13 } }, yaxis: { range: [0, 1] }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' });
+  }], { title: { text: _t('Anomaly score over time'), font: { color: tc.textPrimary, size: 13 } }, yaxis: { range: [0, 1] }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' });
 }
 
 export function renderHospitalForecast(forecast) {
@@ -319,6 +339,7 @@ function renderHospitalPeers(peers, anomaly) {
   const c = document.getElementById('smart-hospital-peers');
   if (!c) return;
   if (!peers.peer_count) { c.innerHTML = ''; return; }
+  const tc = getThemeColors();
   const myScore = anomaly?.anomaly_score ?? null;
   const peerAvg = peers.peer_avg_anomaly;
   let barHtml = '';
@@ -330,14 +351,14 @@ function renderHospitalPeers(peers, anomaly) {
       <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.3rem;">
         <span style="font-size:0.72rem;color:var(--text-muted);width:80px;">${_t('This Hospital')}</span>
         <div style="height:14px;background:var(--bg-elevated);border-radius:3px;flex:1;max-width:${maxW}px;">
-          <div style="height:100%;width:${myW}px;background:var(--accent-blue);border-radius:3px;transition:width 0.5s;"></div>
+          <div style="height:100%;width:${myW}px;background:${tc.blue};border-radius:3px;transition:width 0.5s;"></div>
         </div>
         <span style="font-size:0.75rem;font-weight:600;">${_fmtNum(myScore, 3)}</span>
       </div>
       <div style="display:flex;align-items:center;gap:0.5rem;">
         <span style="font-size:0.72rem;color:var(--text-muted);width:80px;">${_t('Peer Average')}</span>
         <div style="height:14px;background:var(--bg-elevated);border-radius:3px;flex:1;max-width:${maxW}px;">
-          <div style="height:100%;width:${peerW}px;background:var(--accent-orange);border-radius:3px;transition:width 0.5s;"></div>
+          <div style="height:100%;width:${peerW}px;background:${tc.orange};border-radius:3px;transition:width 0.5s;"></div>
         </div>
         <span style="font-size:0.75rem;font-weight:600;">${_fmtNum(peerAvg, 3)}</span>
       </div>
@@ -382,9 +403,10 @@ function renderHospitalLagTimeline(lagData, indicators) {
   });
 
   // Draw SVG: nodes + lag arrows
-  const textPrimary = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#1a1a2e';
-  const bgSurface = getComputedStyle(document.documentElement).getPropertyValue('--bg-surface').trim() || '#fff';
-  const borderDef = getComputedStyle(document.documentElement).getPropertyValue('--border-default').trim() || '#e0e0e0';
+  const tc = getThemeColors();
+  const textPrimary = tc.textPrimary;
+  const bgSurface = tc.bgSurface;
+  const borderDef = tc.borderDefault;
 
   function shortenName(name, maxLen) {
     if (name.length <= maxLen) return name;
@@ -397,7 +419,7 @@ function renderHospitalLagTimeline(lagData, indicators) {
     const bPos = nodePositions[f.indicator_b];
     if (!aPos || !bPos) return '';
     const isPos = f.direction === 'positive';
-    const arrowColor = isPos ? '#3b82f6' : '#ef4444';
+    const arrowColor = isPos ? tc.blue : tc.red;
     const strength = f.strength || 'weak';
     const strokeW = strength === 'strong' ? 3 : strength === 'moderate' ? 2 : 1.5;
     const dashArr = strength === 'weak' ? '6,4' : 'none';
@@ -436,8 +458,8 @@ function renderHospitalLagTimeline(lagData, indicators) {
     // Check if this node is a leader (has outgoing lag)
     const isLeader = lags.some(f => f.indicator_a === n.code);
     const isFollower = lags.some(f => f.indicator_b === n.code);
-    const borderColor = isLeader ? '#3b82f6' : isFollower ? '#ef4444' : borderDef;
-    const bgColor = isLeader ? 'rgba(59,130,246,0.08)' : isFollower ? 'rgba(239,68,68,0.08)' : bgSurface;
+    const borderColor = isLeader ? tc.blue : isFollower ? tc.red : borderDef;
+    const bgColor = isLeader ? 'rgba(79,140,255,0.08)' : isFollower ? 'rgba(248,113,113,0.08)' : bgSurface;
     return `
       <rect x="${pos.x - 35}" y="${pos.y - 18}" width="70" height="36" rx="8" fill="${bgColor}" stroke="${borderColor}" stroke-width="1.5"/>
       <text x="${pos.x}" y="${pos.y + 1}" text-anchor="middle" font-size="8" font-weight="600" fill="${textPrimary}">
@@ -514,10 +536,11 @@ export function openDrilldown(hospitalId) {
     document.getElementById('smart-drilldown-name').textContent = d.hospital_name;
     document.getElementById('smart-drilldown-text').textContent = d.explanation?.text_ar || d.explanation?.text || '';
     const residuals = d.residuals || [];
+    const _tc = getThemeColors();
     if (residuals.length) renderPlot('smart-trend-line', [{
       x: residuals.map(r => r.month), y: residuals.map(r => r.residual),
-      type: 'bar', marker: { color: residuals.map(r => r.residual > 0 ? '#ef4444' : '#3b82f6') },
-    }], { title: _t('Monthly residuals') });
+      type: 'bar', marker: { color: residuals.map(r => r.residual > 0 ? _tc.red : _tc.blue) },
+    }], { title: { text: _t('Monthly residuals'), font: { color: _tc.textPrimary, size: 13 } }, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' });
     renderHospitalFactors(d.anomaly, d.explanation, 'smart-drilldown-factors');
   }).catch(e => {
     document.getElementById('smart-drilldown-text').textContent = e.message;
