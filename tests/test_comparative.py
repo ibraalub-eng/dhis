@@ -768,26 +768,22 @@ def test_generate_comparison_chart_colors_stable_for_different_ids():
     assert len(set(colors)) >= 3
 
 
-# --- Peer Comparison Label Tests ---
+# --- Peer Comparison v2: Risk-Based Label Tests ---
 
-def test_peer_comparison_label_percentile_25():
-    p = PeerComparison("h1", "H1", 25.0, 1, 4, "متفوق")
-    assert p.comparison_label == "متفوق"
-
-
-def test_peer_comparison_label_percentile_50():
-    p = PeerComparison("h1", "H1", 50.0, 2, 4, "متوسط")
-    assert p.comparison_label == "متوسط"
-
-
-def test_peer_comparison_label_percentile_75():
-    p = PeerComparison("h1", "H1", 75.0, 3, 4, "يحتاج تحسين")
-    assert p.comparison_label == "يحتاج تحسين"
-
-
-def test_peer_comparison_label_percentile_100():
-    p = PeerComparison("h1", "H1", 100.0, 4, 4, "حرج")
-    assert p.comparison_label == "حرج"
+def test_peer_risk_label_thresholds():
+    """حواف مئين المخاطرة: 75/50/25 -> critical/high/moderate/low (نصوص ضرورية)."""
+    # نختبر دالة التسمية مباشرة إن وُجدت، وإلا نختبر عبر بناء صفوف
+    from app.engine.comparative.advanced_comparison import _risk_label
+    assert _risk_label(100.0, "ar") == "حرج"
+    assert _risk_label(75.0, "ar") == "حرج"
+    assert _risk_label(74.9, "ar") == "عالي"
+    assert _risk_label(50.0, "ar") == "عالي"
+    assert _risk_label(49.9, "ar") == "متوسط"
+    assert _risk_label(25.0, "ar") == "متوسط"
+    assert _risk_label(24.9, "ar") == "منخفض"
+    assert _risk_label(0.0, "ar") == "منخفض"
+    assert _risk_label(100.0, "en") == "critical"
+    assert _risk_label(60.0, "en") == "high"
 
 
 # --- Endpoint Error Handling Tests ---
