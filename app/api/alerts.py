@@ -30,7 +30,9 @@ def alerts_overview(
     month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),
     hospital_id: Optional[int] = Query(None, description="Filter by hospital ID"),
     db: Session = Depends(get_db),
+    user=Depends(require_permission("alerts.read")),
 ):
+    user_hosp_ids = get_user_hospital_ids(user, db)
     q = db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
     if user_hosp_ids is not None:
         q = q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
@@ -122,8 +124,12 @@ def alerts_list(
     limit: int = Query(50, description="Max results"),
     offset: int = Query(0, description="Offset"),
     db: Session = Depends(get_db),
+    user=Depends(require_permission("alerts.read")),
 ):
+    user_hosp_ids = get_user_hospital_ids(user, db)
     q = db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
+    if user_hosp_ids is not None:
+        q = q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:
         q = q.filter(ValidationResult.month == month)
     if hospital_id:
