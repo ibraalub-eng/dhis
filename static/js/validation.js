@@ -361,11 +361,11 @@
                     html += '<div style="display:inline-block;margin:0.3rem;padding:0.4rem 0.6rem;border-radius:4px;border-left:4px solid ' + color + ';background:var(--bg-surface-hover);vertical-align:top;min-width:160px;">';
                     html += '<div style="font-size:0.78rem;font-weight:600;color:' + color + ';">Cluster ' + cid + ' (' + members.length + ')</div>';
                     members.forEach(m => {
-                        html += '<div style="font-size:0.72rem;color:#555;margin:0.1rem 0;">' + esc(m.hospital_name) + ' <span style="color:#999;">(' + (m.distance_to_centroid ?? 0).toFixed(2) + ')</span></div>';
+                        html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin:0.1rem 0;">' + esc(m.hospital_name) + ' <span style="color:var(--text-muted);">(' + (m.distance_to_centroid ?? 0).toFixed(2) + ')</span></div>';
                     });
                     html += '</div>';
                 });
-                html += '<div style="font-size:0.7rem;color:#999;margin-top:0.3rem;">Features: ' + (c.features_used || []).join(', ') + '</div>';
+                html += '<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.3rem;">Features: ' + (c.features_used || []).join(', ') + '</div>';
                 html += '</div>';
                 container.innerHTML = html;
                 container.style.display = '';

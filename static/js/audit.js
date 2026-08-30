@@ -134,7 +134,7 @@ function renderAudit() {
         html += '<div style="margin:0.3rem 0;padding:0.3rem 0.5rem;background:var(--bg-elevated);border-radius:3px;font-size:0.72rem;">';
         steps.raw_data.forEach(r => {
             html += '<div style="display:flex;justify-content:space-between;padding:0.1rem 0;border-bottom:1px solid var(--border-default);">';
-            html += '<span>' + esc(r.name) + ' <span style="color:#999;">(' + esc(r.code) + ')</span></span>';
+            html += '<span>' + esc(r.name) + ' <span style="color:var(--text-muted);">(' + esc(r.code) + ')</span></span>';
             html += '<span>' + esc(r.value) + '</span>';
             html += '</div>';
         });
