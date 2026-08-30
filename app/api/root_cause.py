@@ -1,6 +1,9 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.models import Hospital, QualityScore, ConfidenceScore
 from app.engine.root_cause import generate_root_cause_analysis, get_historical_data, get_peer_historical_data
 from app.engine.pipeline import run_full_analysis
@@ -150,8 +153,8 @@ def get_root_cause_analysis(
                 "issues": report.get("issues", []),
             }
             confidence_data = report.get("confidence", {})
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load quality data for hospital %s month %s: %s", hospital_id, month, e)
 
     report = generate_root_cause_analysis(
         db, hospital_id, month,

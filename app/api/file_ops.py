@@ -60,8 +60,8 @@ def list_saved_files(db: Session = Depends(get_db)):
         if on_disk:
             try:
                 size_kb = round(os.path.getsize(fpath) / 1024, 1)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("Could not get size for %s: %s", fpath, e)
         uploaded_at = None
         if row.uploaded_at:
             uploaded_at = row.uploaded_at.isoformat()
@@ -171,8 +171,8 @@ def delete_saved_files(body: dict, db: Session = Depends(get_db)):
             if os.path.exists(fpath):
                 try:
                     os.remove(fpath)
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("Could not delete file %s: %s", fpath, e)
     db.commit()
     return {"message": f"Deleted {deleted} record(s) from {len(filenames)} file(s).", "deleted": deleted}
 
@@ -393,8 +393,8 @@ def _process_preview_worker(file_path: str) -> dict:
         try:
             from app.api.upload import _precompute_smart_bg
             _precompute_smart_bg(db, sorted(all_months))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Smart analytics precompute failed: %s", e)
 
         return {
             "files_processed": 1,

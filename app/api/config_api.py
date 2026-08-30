@@ -1,6 +1,9 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.models import AppConfig, SystemSetting
 from app.config_utils import AI_CONFIG_KEYS, get_ai_config
 from app.core.deps import require_permission
@@ -216,8 +219,8 @@ def preview_database_tables(db: Session = Depends(get_db)):
                             val = str(val)
                         row_dict[col] = val
                     preview.append(row_dict)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to preview table %s: %s", table_name, e)
         tables.append({
             "name": table_name,
             "columns": columns,

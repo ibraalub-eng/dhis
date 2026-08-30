@@ -191,8 +191,8 @@ def quality_trend(hospital_id: int, db: Session = Depends(get_db)):
         try:
             if s.issues:
                 issues = json.loads(s.issues)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to parse issues JSON for hospital %s month %s: %s", s.hospital_id, s.month, e)
         data.append(QualityTrendPoint(
             month=s.month,
             score=round(s.score, 1),

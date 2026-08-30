@@ -1,8 +1,11 @@
 import json
+import logging
 import re
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult
 from sqlalchemy import func, text
 from app.engine.pipeline import get_enabled_values_for_hospital_month
@@ -330,8 +333,8 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
                         for c in result.classifications
                         if c.rate_name in _MAIN_CLINICAL_RATES and c.value is not None
                     }
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Clinical analysis failed for hospital %s: %s", h.name, e)
 
         rows.append({
             "id": h.id,
@@ -396,8 +399,8 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
                         "unit": c.unit,
                         "classification": c.classification,
                     })
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Clinical analysis failed for hospital %s: %s", hospital_id, e)
 
     if latest_month and clinical_rates:
         try:
@@ -410,7 +413,8 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
                 from app.engine.clinical import run_clinical_analysis as rca_peer
                 try:
                     pr = rca_peer(hospital=ph.name, month=latest_month, values=pv, include_ai=False)
-                except Exception:
+                except Exception as e:
+                    logger.debug("Peer clinical analysis failed for %s: %s", ph.name, e)
                     continue
                 for c in pr.classifications:
                     if c.rate_name in peer_rate_vals and c.value is not None:
@@ -418,8 +422,8 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
             for r in clinical_rates:
                 vals = peer_rate_vals.get(r["rate_name"], [])
                 r["peer_avg"] = round(sum(vals) / len(vals), 1) if vals else None
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Peer comparison failed for hospital %s: %s", hospital_id, e)
 
     total_alerts = db.query(ValidationResult).filter(
         ValidationResult.hospital_id == hospital_id,
