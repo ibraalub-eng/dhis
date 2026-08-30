@@ -95,7 +95,6 @@ window._adminAssignHospitals = function(id, btn) {
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
           <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
-          <button class="admin-tab-btn" onclick="switchAdminTab('system')" id="atab-system" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">⚙️ System Control</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('tabs')" id="atab-tabs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Tab Order</button>
         </div>
 
@@ -383,10 +382,6 @@ window._adminAssignHospitals = function(id, btn) {
             </div>
           </div>
         </div>
-        <!-- System Control Panel (settings moved here) -->
-        <div id="adminSystemPanel" style="display:none;">
-          <div id="adminSystemContent"></div>
-        </div>
         <!-- Tab Order Panel -->
         <div id="adminTabOrderPanel" style="display:none;">
           <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Tab Order</h2>
@@ -401,7 +396,6 @@ window._adminAssignHospitals = function(id, btn) {
     `;
     // Reset flags since DOM was rebuilt
     window._adminDbLoaded = false;
-    window._adminSystemLoaded = false;
     window._adminTabOrderLoaded = false;
   } catch(e) {
     container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
@@ -885,59 +879,14 @@ window._adminAssignHospitals = function(id, btn) {
     if(ab){ab.style.background="var(--accent-purple)";ab.style.color="white";}
     var u=document.getElementById("adminUsersPanel");
     var d=document.getElementById("adminDatabasePanel");
-    var s=document.getElementById("adminSystemPanel");
     var t=document.getElementById("adminTabOrderPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
-    if(s)s.style.display=tab==="system"?"block":"none";
     if(t)t.style.display=tab==="tabs"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
-    if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();}else if(tab==="system"&&document.getElementById('adminSystemContent').children.length > 0){/* already loaded, just re-init */_initSystemPanel(document.getElementById('adminSystemContent'));}
     if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
-  async function loadAdminSystemPanel() {
-    window.loadAdminSystemPanel = loadAdminSystemPanel;
-    var el=document.getElementById("adminSystemContent");
-    if(!el)return;
-    el.innerHTML='<div style="text-align:center;padding:2rem;color:var(--text-muted);"><span class="spinner"></span> Loading settings...</div>';
-    try {
-      var resp=await fetch("/static/tabs/settings.html");
-      if(!resp.ok)throw new Error("HTTP "+resp.status);
-      var html=await resp.text();
-      el.innerHTML=html;
-      window._adminSystemLoaded=true;
-      // Initialize after DOM is fully parsed — use MutationObserver for reliability
-      _initSystemPanel(el);
-    } catch(e) {
-      window._adminSystemLoaded=false;
-      el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load settings: '+e.message+'<br><button class="btn btn-sm" onclick="loadAdminSystemPanel()" style="margin-top:0.5rem;">Retry</button></div>';
-    }
-  }
-  function _initSystemPanel(el) {
-    // Try initializing with retries to handle async module loading
-    var attempts = 0;
-    function _try() {
-      attempts++;
-      var hasShowTab = typeof window.showSettingsTab === 'function' && window.showSettingsTab.toString().indexOf('Module not loaded') === -1;
-      var hasLoadAll = typeof window.loadAllSettings === 'function' && window.loadAllSettings.toString().indexOf('Module not loaded') === -1;
-      // Always ensure quality sub-tab is visible
-      var qSection = document.getElementById('settings-quality');
-      if (qSection) qSection.style.display = '';
-      var qBtn = document.getElementById('stbtn-quality');
-      if (qBtn) { qBtn.className = 'btn btn-sm'; qBtn.style.background = 'var(--accent-blue)'; qBtn.style.color = 'white'; }
-      // Activate collapsible sections
-      if (typeof window.initCollapsibleSections === 'function') window.initCollapsibleSections();
-      // If settings module is loaded, use it for full initialization
-      if (hasShowTab && hasLoadAll) {
-        try { window.showSettingsTab('quality'); } catch(e) {}
-        try { window.loadAllSettings(); } catch(e) {}
-      } else if (attempts < 15) {
-        setTimeout(_try, 300);
-      }
-    }
-    _try();
-  }
   async function loadAdminDbStatus() {
     var el=document.getElementById("adminDbStatus");
     if(!el)return;el.innerHTML="Loading...";
