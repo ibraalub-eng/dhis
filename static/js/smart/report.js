@@ -1,6 +1,6 @@
 // report.js — comprehensive report, data export, and peer comparison.
 // IMP-2: all three flows use the server-side comparative/export endpoints.
-import { smartState, apiSmartGet, _smartEscapeHtml, _t, _fmtNum, _riskBadge, smartTranslateFeature } from './core.js';
+import { smartState, apiSmartGet, _smartEscapeHtml, _t, _fmtNum, _riskBadge, smartTranslateFeature, setSmartLoader, showSmartSectionError, showSmartSectionEmpty, clearSmartSectionState } from './core.js';
 import { renderPlot } from './charts.js';
 import renderReportSections from './report-sections.js';
 
@@ -188,6 +188,7 @@ export function initComparisonSelect() {
 export async function renderComparison(scope) {
   const month = smartState.month || '';
   const hospitalId = document.getElementById('smart-hospital-select')?.value || '';
+  setSmartLoader('comparison', true);
   try {
     const params = new URLSearchParams();
     if (hospitalId) params.append('hospital_id', hospitalId);
@@ -218,7 +219,16 @@ export async function renderComparison(scope) {
           <td>${_riskBadge(p.comparison_label, _labelToLevel(p.comparison_label))}</td></tr>`).join('') +
         `</tbody></table></div>`;
     }
-  } catch (e) { /* ignored */ }
+    if (!peers.length) {
+      showSmartSectionEmpty('comparison', _t('No data'));
+    } else {
+      clearSmartSectionState('comparison');
+    }
+  } catch (e) {
+    showSmartSectionError('comparison', e.message || String(e));
+  } finally {
+    setSmartLoader('comparison', false);
+  }
 }
 
 // Exposed for inline onclick attributes.
