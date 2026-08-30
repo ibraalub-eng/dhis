@@ -401,6 +401,330 @@ function loadHospitalsSettings() {
             drawRcTimelineChart(inds[idx || 0]);
         }
 
+        function _loadRootCauseAllMonths(hid) {
+            // Fetch root cause for each available month and aggregate
+            apiGet('/analysis/months').then(months => {
+                if (!months || !months.length) {
+                    document.getElementById('rcLoading').style.display = 'none';
+                    document.getElementById('rcContent').style.display = 'block';
+                    document.getElementById('rcKpiBar').innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text-muted);">No months with data</div>';
+                    return;
+                }
+                const promises = months.map(m =>
+                    apiGet('/root-cause/' + hid + '?month=' + m + '&include_history=true&compare_peers=true&months_back=6')
+                        .catch(() => null)
+                );
+                Promise.all(promises).then(results => {
+                    const valid = results.filter(d => d && !d.error);
+                    if (!valid.length) {
+                        document.getElementById('rcLoading').style.display = 'none';
+                        document.getElementById('rcContent').style.display = 'block';
+                        document.getElementById('rcKpiBar').innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text-muted);">No root cause data available</div>';
+                        return;
+                    }
+                    // Aggregate: average scores, sum critical issues, combine rule failures
+                    const avgQs = valid.reduce((s, d) => s + (d.overall_quality_score || 0), 0) / valid.length;
+                    const avgConf = valid.reduce((s, d) => s + (d.overall_confidence || 0), 0) / valid.length;
+                    const totalCi = valid.reduce((s, d) => s + (d.critical_issues_count || 0), 0);
+                    // Merge priority actions (deduplicate by action text)
+                    const actionMap = new Map();
+                    valid.forEach(d => {
+                        (d.priority_actions || []).forEach(a => {
+                            if (!actionMap.has(a)) actionMap.set(a, { action: a, months: [] });
+                            actionMap.get(a).months.push(d.month);
+                        });
+                    });
+                    const mergedActions = [...actionMap.values()]
+                        .sort((a, b) => b.months.length - a.months.length)
+                        .map(a => a.action);
+                    // Merge rule failures
+                    const rfMap = new Map();
+                    valid.forEach(d => {
+                        (d.top_rule_failures || []).forEach(rf => {
+                            const key = rf.rule_code || rf.rule || JSON.stringify(rf);
+                            if (!rfMap.has(key)) rfMap.set(key, { ...rf, count: 0, months: [] });
+                            const entry = rfMap.get(key);
+                            entry.count++;
+                            entry.months.push(d.month);
+                            if (rf.failure_rate > (entry.failure_rate || 0)) entry.failure_rate = rf.failure_rate;
+                        });
+                    });
+                    const mergedRf = [...rfMap.values()]
+                        .sort((a, b) => b.count - a.count || (b.failure_rate || 0) - (a.failure_rate || 0));
+                    // Combine summaries
+                    const summaries = valid.map(d => d.summary_arabic || d.summary).filter(Boolean);
+                    const combinedSummary = summaries.length > 1
+                        ? summaries.map((s, i) => '<div style="margin-bottom:0.3rem;"><span style="font-weight:600;color:var(--accent-blue);">' + valid[i].month + ':</span> ' + esc(s) + '</div>').join('')
+                        : (summaries[0] || 'No summary available.');
+                    // Build aggregated report object
+                    const agg = {
+                        hospital: valid[0].hospital,
+                        hospital_id: hid,
+                        month: 'all (' + valid.length + ' months)',
+                        overall_quality_score: Math.round(avgQs * 10) / 10,
+                        overall_confidence: Math.round(avgConf * 10) / 10,
+                        critical_issues_count: totalCi,
+                        summary_arabic: combinedSummary,
+                        summary: combinedSummary,
+                        priority_actions: mergedActions,
+                        priority_action_details: [],
+                        top_rule_failures: mergedRf,
+                        confidence_gaps: [],
+                        anomaly_patterns: [],
+                        causal_tree: [],
+                        causal_chains: [],
+                        historical_trends: {},
+                        peer_comparisons: {},
+                        _allMonths: true,
+                        _monthCount: valid.length,
+                        _months: valid.map(d => d.month),
+                    };
+                    document.getElementById('rcLoading').style.display = 'none';
+                    document.getElementById('rcContent').style.display = 'block';
+                    _renderRootCauseResult(agg, hid, 'all');
+                });
+            });
+        }
+
+        function _renderRootCauseResult(d, hid, mth) {
+            // KPI Banner
+            const qs = d.overall_quality_score || 0;
+            const qsColor = qs >= 80 ? 'var(--accent-green)' : qs >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
+            const conf = d.overall_confidence || 0;
+            const confColor = conf >= 80 ? 'var(--accent-green)' : conf >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
+            const ci = d.critical_issues_count || 0;
+            const isAll = d._allMonths;
+            const monthBadge = isAll ? '<span style="display:inline-block;font-size:0.65rem;background:var(--accent-blue);color:#fff;padding:1px 6px;border-radius:8px;margin-left:0.3rem;">' + d._monthCount + ' months</span>' : '';
+            document.getElementById('rcKpiBar').innerHTML =
+                '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + qsColor + ';">' +
+                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">جودة البيانات / Quality' + monthBadge + '</div>' +
+                    '<div style="font-size:2rem;font-weight:700;color:' + qsColor + ';">' + qs + '</div>' +
+                    '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
+                        '<div style="width:' + Math.min(qs, 100) + '%;height:100%;background:' + qsColor + ';border-radius:2px;"></div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + confColor + ';">' +
+                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">الثقة / Confidence</div>' +
+                    '<div style="font-size:2rem;font-weight:700;color:' + confColor + ';">' + conf + '</div>' +
+                    '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
+                        '<div style="width:' + Math.min(conf, 100) + '%;height:100%;background:' + confColor + ';border-radius:2px;"></div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' +
+                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">المشاكل الحرجة / Critical Issues</div>' +
+                    '<div style="font-size:2rem;font-weight:700;color:' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' + ci + '</div>' +
+                    '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">' + (ci > 0 ? 'يتطلب انتباهاً' : 'لا توجد مشاكل حرجة') + '</div>' +
+                '</div>';
+            // Summary
+            const arSumEl = document.getElementById('rcSummaryArabic');
+            if (arSumEl) arSumEl.innerHTML = d.summary_arabic || '';
+            document.getElementById('rcSummary').innerHTML =
+                '<span style="color:var(--text-muted);">EN summary:</span> ' + (d.summary || 'No summary available.');
+            // Priority Actions
+            const al = document.getElementById('rcActionsList');
+            al.innerHTML = '';
+            const detailByAction = {};
+            (d.priority_action_details || []).forEach(p => { detailByAction[p.action] = p; });
+            if (d.priority_actions && d.priority_actions.length) {
+                d.priority_actions.forEach((a, i) => {
+                    const isCritical = a.startsWith('[CRITICAL]');
+                    const color = isCritical ? 'var(--accent-red)' : 'var(--accent-orange)';
+                    const icon = isCritical ? '\u26a0' : '\u26a1';
+                    const det = detailByAction[a] || {};
+                    const impact = Math.max(0, Math.min(100, det.impact || 0));
+                    const effort = Math.max(1, Math.min(5, det.effort || 3));
+                    const roi = det.roi || 0;
+                    let barHtml = '<div style="margin-top:0.2rem;font-size:0.62rem;color:var(--text-muted);">— لا يوجد تقدير كمي</div>';
+                    if (impact > 0) {
+                        const roiCol = roi >= 15 ? 'var(--accent-green)' : roi >= 8 ? 'var(--accent-orange)' : '#888';
+                        const impactCol = impact >= 60 ? 'var(--accent-red)' : impact >= 30 ? 'var(--accent-orange)' : 'var(--accent-green)';
+                        const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:var(--accent-yellow);font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
+                            '&#9679;'.repeat(effort) + '<span style="color:var(--text-muted);">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
+                        barHtml = '<div style="margin-top:0.3rem;">' +
+                            '<div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--text-muted);margin-bottom:1px;">' +
+                                '<span>&#128200; الأثر: ' + impact.toFixed(0) + ' نقطة جودة</span>' +
+                                '<span style="color:' + roiCol + ';font-weight:700;">&#128176; عائد ' + roi.toFixed(1) + '</span>' +
+                                '<span>الجهد: ' + effortDots + '</span>' +
+                            '</div>' +
+                            '<div style="height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +
+                                '<div style="width:' + impact + '%;height:100%;background:linear-gradient(90deg,' + impactCol + 'cc,' + impactCol + ');border-radius:3px;"></div>' +
+                            '</div>' +
+                        '</div>';
+                    }
+                    const div = document.createElement('div');
+                    div.style.cssText = 'display:flex;align-items:flex-start;gap:0.5rem;padding:0.45rem 0.5rem;margin-bottom:0.4rem;background:' + color + '08;border-radius:4px;font-size:0.8rem;';
+                    div.innerHTML = '<span style="color:' + color + ';font-weight:700;min-width:1.2rem;">' + (i + 1) + '.</span>' +
+                        '<span style="flex:1;">' + (isCritical ? '<span style="color:' + color + ';font-weight:600;">' + icon + ' </span>' : '') + esc(a.replace('[CRITICAL] ','')) + barHtml +
+                        '</span>';
+                    al.appendChild(div);
+                });
+            } else {
+                al.innerHTML = '<div style="padding:0.5rem;text-align:center;color:var(--text-muted);font-size:0.8rem;">No urgent actions needed.</div>';
+            }
+            // Rule Failures
+            const rfEl = document.getElementById('rcRuleFailures');
+            if (rfEl) {
+                const rf = d.top_rule_failures || [];
+                if (rf.length) {
+                    rfEl.innerHTML = rf.map(r => {
+                        const sev = (r.severity || 'medium').toUpperCase();
+                        const sevColor = sev === 'CRITICAL' ? 'var(--accent-red)' : sev === 'HIGH' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
+                        const countBadge = r.count > 1 ? ' <span style="font-size:0.6rem;background:var(--accent-blue);color:#fff;padding:0 4px;border-radius:6px;">×' + r.count + '</span>' : '';
+                        return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;border-bottom:1px solid var(--border-default);font-size:0.8rem;">' +
+                            '<span style="width:8px;height:8px;border-radius:50%;background:' + sevColor + ';flex-shrink:0;"></span>' +
+                            '<span style="font-weight:600;">' + esc(r.rule || r.rule_code || '') + '</span>' +
+                            '<span style="color:var(--text-muted);font-size:0.72rem;">' + esc(sev) + '</span>' +
+                            '<span style="margin-left:auto;font-size:0.72rem;">' + (r.failure_rate || 0).toFixed(1) + '%</span>' +
+                            countBadge +
+                        '</div>';
+                    }).join('');
+                } else {
+                    rfEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">No rule failures.</div>';
+                }
+            }
+            // Confidence Gaps
+            const cgEl = document.getElementById('rcConfidenceGaps');
+            if (cgEl) {
+                const cg = d.confidence_gaps || [];
+                if (cg.length) {
+                    cgEl.innerHTML = cg.map(g => {
+                        const lvl = (g.level || '').toUpperCase();
+                        const lvlColor = lvl === 'CRITICAL' ? 'var(--accent-red)' : lvl === 'LOW' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
+                        return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;border-bottom:1px solid var(--border-default);font-size:0.8rem;">' +
+                            '<span style="width:8px;height:8px;border-radius:50%;background:' + lvlColor + ';flex-shrink:0;"></span>' +
+                            '<span style="font-weight:600;">' + esc(g.indicator_name || g.indicator || '') + '</span>' +
+                            '<span style="color:var(--text-muted);font-size:0.72rem;">' + esc(lvl) + '</span>' +
+                            '<span style="margin-left:auto;font-size:0.72rem;color:' + lvlColor + ';">' + (g.score != null ? g.score.toFixed(1) : '') + '</span>' +
+                        '</div>' +
+                            '<div style="font-size:0.7rem;color:var(--text-secondary);margin:0.1rem 0 0.2rem 1.2rem;">Signal: ' + (g.weakest_signal || '') + ' | ' + esc((g.root_cause || '').slice(0, 90)) + '</div>';
+                    }).join('');
+                } else {
+                    cgEl.innerHTML = '<div style="padding:0.5rem;text-align:center;color:var(--text-muted);font-size:0.78rem;">No confidence gaps found.</div>';
+                }
+            }
+            // Causal Chains
+            const chainsEl = document.getElementById('rcCausalChains');
+            if (chainsEl) {
+                chainsEl.innerHTML = '';
+                const chains = d.causal_chains || [];
+                if (chains.length) {
+                    chainsEl.innerHTML = chains.slice(0, 8).map(c => {
+                        const pct = Math.round((c.confidence || 0) * 100);
+                        const confColor = c.confidence >= 0.7 ? 'var(--accent-teal)' : c.confidence >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                        const prio = (c.implementation_priority || '').toUpperCase();
+                        const prioColor = prio === 'CRITICAL' ? 'var(--accent-red)' : prio === 'HIGH' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
+                        return '<div style="padding:0.6rem;border:1px solid var(--accent-teal);border-radius:8px;margin-bottom:0.5rem;background:var(--bg-elevated);">' +
+                            '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">' +
+                                '<span style="font-weight:700;font-size:0.82rem;color:var(--accent-teal);">' + esc(c.root_cause_arabic || c.root_cause) + '</span>' +
+                                '<span style="font-size:0.65rem;background:' + prioColor + ';padding:1px 8px;border-radius:10px;white-space:nowrap;font-weight:600;">' + esc(prio) + '</span>' +
+                            '</div>' +
+                            (c.chain_path && c.chain_path.length > 1
+                                ? '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.2rem;margin:0.35rem 0;direction:rtl;" title="سلسلة السبب والنتيجة الكاملة (الأعمق ← الأحدث)">' +
+                                    c.chain_path.map((code, ci) => {
+                                        const isRoot = ci === c.chain_path.length - 1;
+                                        return '<span style="font-size:0.66rem;padding:1px 8px;border-radius:10px;font-weight:600;white-space:nowrap;' +
+                                            (isRoot ? 'background:var(--accent-teal);color:#fff;' : 'background:var(--severity-info-bg);color:var(--accent-teal);border:1px solid var(--accent-teal);') + '">' +
+                                            esc(code) + '</span>' +
+                                            (ci < c.chain_path.length - 1 ? '<span style="color:var(--accent-teal);font-size:0.7rem;">&#8592;</span>' : '');
+                                    }).join('') +
+                                '</div>' : '') +
+                            (c.chain_path_arabic ? '<div style="font-size:0.68rem;color:#0f766e;margin-bottom:0.3rem;">' + esc(c.chain_path_arabic) + '</div>' : '') +
+                            '<div style="margin:0.4rem 0;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +
+                                '<div style="width:' + pct + '%;height:100%;background:' + confColor + ';border-radius:3px;"></div>' +
+                            '</div>' +
+                            '<div style="display:flex;gap:0.8rem;font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +
+                                '<span title="قوة الثقة في السبب الجذري">الثقة <strong>' + pct + '%</strong></span>' +
+                                '<span title="الأثر المتوقع عند الإصلاح">الأثر <strong>' + (c.impact_if_fixed || 0) + '</strong></span>' +
+                            '</div>' +
+                            (c.affected_factors && c.affected_factors.length
+                                ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;"><strong>العوامل المتأثرة:</strong> ' + c.affected_factors.map(esc).join(' ← ') + '</div>' : '') +
+                            (c.recommended_action ? '<div style="font-size:0.72rem;color:#0f766e;margin-top:0.2rem;">&#128161; ' + esc(c.recommended_action) + '</div>' : '') +
+                            (c.evidence && c.evidence.length ? '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem;">' + c.evidence.slice(0, 3).map(esc).join(' | ') + '</div>' : '') +
+                        '</div>';
+                    }).join('');
+                } else {
+                    chainsEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد سلاسل سببية — فعّل التحليل التاريخي أو لا توجد فشل قواعد حرج.</div>';
+                }
+            }
+            // Causal Tree
+            const treeEl = document.getElementById('rcCausalTree');
+            if (treeEl) {
+                treeEl.innerHTML = '';
+                if (d.causal_tree && d.causal_tree.length) {
+                    treeEl.innerHTML = d.causal_tree.slice(0, 12).map(n => {
+                        const sevColor = n.severity === 'CRITICAL' ? 'var(--accent-red)' : n.severity === 'HIGH' ? 'var(--accent-orange)' : n.severity === 'critical' ? 'var(--accent-red)' : n.severity === 'high' ? 'var(--accent-orange)' : 'var(--accent-teal)';
+                        const trendArrow = n.trend === 'declining' ? '&#9660;' : n.trend === 'improving' ? '&#9650;' : '&#8212;';
+                        return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
+                            '<span style="width:9px;height:9px;border-radius:50%;background:' + sevColor + ';flex-shrink:0;"></span>' +
+                            '<span style="font-weight:600;font-size:0.78rem;">' + esc(n.factor) + '</span>' +
+                            '<span style="font-size:0.7rem;color:var(--text-secondary);">' + (n.current_value != null ? n.current_value : '') + '</span>' +
+                            '<span style="margin-right:auto;font-size:0.65rem;color:var(--text-muted);">' + esc(n.factor_type || '') + '</span>' +
+                        '</div>';
+                    }).join('');
+                } else {
+                    treeEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد بيانات شجرة سببية.</div>';
+                }
+            }
+            // Peer Comparisons
+            const peerEl = document.getElementById('rcPeerComparisons');
+            if (peerEl) {
+                peerEl.innerHTML = '';
+                const comps = d.peer_comparisons || {};
+                const entries = Object.values(comps);
+                if (entries.length) {
+                    peerEl.innerHTML = entries.slice(0, 10).map(c => {
+                        const gap = c.gap_pct || 0;
+                        const over = gap > 0;
+                        const color = Math.abs(gap) > 20 ? (over ? 'var(--accent-red)' : 'var(--accent-blue)') : 'var(--text-muted)';
+                        return '<div style="padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
+                            '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                                '<span style="font-weight:600;font-size:0.78rem;">' + esc(c.indicator_name || c.indicator_code) + '</span>' +
+                                '<span style="font-size:0.7rem;color:' + color + ';font-weight:700;">' + (over ? '▲ +' : '▼ ') + Math.abs(gap).toFixed(1) + '%</span>' +
+                            '</div>' +
+                            '<div style="font-size:0.68rem;color:var(--text-muted);">المستشفى ' + c.hospital_value + ' مقابل متوسط النظير ' + c.peer_mean + ' (' + c.peer_count + ' مستشفى)</div>' +
+                        '</div>';
+                    }).join('');
+                } else {
+                    peerEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مقارنات نظير.</div>';
+                }
+            }
+            // Timeline (skip for all-months mode)
+            if (!isAll && mth !== 'all') {
+                apiGet('/root-cause/' + hid + '/timeline?month=' + mth + '&months_back=6').then(tl => {
+                    _rcTimelineData = tl || { indicators: [] };
+                    renderRcTimeline();
+                }).catch(() => {
+                    _rcTimelineData = { indicators: [] };
+                    renderRcTimeline();
+                });
+                apiGet('/analysis/ml?month=' + mth).then(mlData => {
+                    if (mlData && mlData.ml_pca) {
+                        const pca = mlData.ml_pca;
+                        const features = pca.top_features || {};
+                        const entries = Object.entries(features).sort((a, b) => b[1] - a[1]);
+                        let html = '<div style="margin-top:0.3rem;">';
+                        const cumVar = pca.cumulative_variance ?? 0;
+                        html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem;">Cumulative variance explained: ' + (cumVar * 100).toFixed(0) + '%</div>';
+                        if (!entries.length) {
+                            html += '<div style="font-size:0.72rem;color:var(--text-muted);">No PCA data available.</div>';
+                        } else {
+                            const maxVal = Math.max(...entries.map(e => e[1]), 0.01);
+                            entries.forEach(([name, variance]) => {
+                                const pct = (variance / maxVal * 100).toFixed(0);
+                                html += '<div style="display:flex;align-items:center;gap:0.3rem;margin:0.15rem 0;">';
+                                html += '<span style="width:120px;font-size:0.72rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(name) + '">' + esc(name) + '</span>';
+                                html += '<div style="flex:1;height:14px;background:var(--border-default);border-radius:3px;"><div style="height:100%;width:' + pct + '%;background:var(--accent-blue);border-radius:3px;"></div></div>';
+                                html += '<span style="width:40px;text-align:right;font-size:0.7rem;color:var(--text-secondary);">' + (variance * 100).toFixed(0) + '%</span>';
+                                html += '</div>';
+                            });
+                        }
+                        html += '</div>';
+                        document.getElementById('pcaFeatures').innerHTML = html;
+                    }
+                }).catch(() => {});
+            }
+        }
+
         export function loadRootCause() {
             _saveUIState('root-cause');
             const hid = document.getElementById('rcHospital').value;
@@ -408,36 +732,14 @@ function loadHospitalsSettings() {
             if (!hid || !mth) return;
             document.getElementById('rcLoading').style.display = 'block';
             document.getElementById('rcContent').style.display = 'none';
+            if (mth === 'all') {
+                _loadRootCauseAllMonths(hid);
+                return;
+            }
             apiGet('/root-cause/' + hid + '?month=' + mth + '&include_history=true&compare_peers=true&months_back=6').then(d => {
                 document.getElementById('rcLoading').style.display = 'none';
                 document.getElementById('rcContent').style.display = 'block';
-
-                // ── KPI Banner ──
-                const qs = d.overall_quality_score || 0;
-                const qsColor = qs >= 80 ? 'var(--accent-green)' : qs >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                const conf = d.overall_confidence || 0;
-                const confColor = conf >= 80 ? 'var(--accent-green)' : conf >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                const ci = d.critical_issues_count || 0;
-                document.getElementById('rcKpiBar').innerHTML =
-                    '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + qsColor + ';">' +
-                        '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">جودة البيانات / Quality</div>' +
-                        '<div style="font-size:2rem;font-weight:700;color:' + qsColor + ';">' + qs + '</div>' +
-                        '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
-                            '<div style="width:' + Math.min(qs, 100) + '%;height:100%;background:' + qsColor + ';border-radius:2px;"></div>' +
-                        '</div>' +
-                    '</div>' +
-                    '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + confColor + ';">' +
-                        '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">الثقة / Confidence</div>' +
-                        '<div style="font-size:2rem;font-weight:700;color:' + confColor + ';">' + conf + '</div>' +
-                        '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
-                            '<div style="width:' + Math.min(conf, 100) + '%;height:100%;background:' + confColor + ';border-radius:2px;"></div>' +
-                        '</div>' +
-                    '</div>' +
-                    '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' +
-                        '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">المشاكل الحرجة / Critical Issues</div>' +
-                        '<div style="font-size:2rem;font-weight:700;color:' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' + ci + '</div>' +
-                        '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">' + (ci > 0 ? 'يتطلب انتباهاً' : 'لا توجد مشاكل حرجة') + '</div>' +
-                    '</div>';
+                _renderRootCauseResult(d, hid, mth);
 
                 // ── Summary: Arabic primary (rendered into rcSummaryArabic), English secondary line ──
                 const arSumEl = document.getElementById('rcSummaryArabic');
@@ -747,7 +1049,7 @@ function loadHospitalsSettings() {
                     const list = data.value || data || [];
                     hsel.innerHTML = phH + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
                 }),
-                populateMonthSelect('rcMonth', false),
+                populateMonthSelect('rcMonth', true),
             ]).then(() => {
                 _restoreUIState('root-cause');
                 // إذا وُجد سياق معلّق قادم من شاشة أخرى (التحليل الذكي)، طبّقه بدل الحالة المحفوظة
