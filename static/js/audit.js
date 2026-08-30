@@ -158,7 +158,7 @@ function renderAudit() {
             html += '<strong>' + esc(rname) + '</strong>';
             html += '<span style="color:' + barColor + ';font-weight:600;">' + arrow + ' ' + Math.abs(c.percent_deviation || 0).toFixed(1) + '% vs avg</span>';
             html += '</div>';
-            html += '<div style="margin:0.2rem 0;height:0.5rem;background:#eee;border-radius:3px;position:relative;">';
+            html += '<div style="margin:0.2rem 0;height:0.5rem;background:var(--border-default);border-radius:3px;position:relative;">';
             html += '<div style="height:100%;width:' + Math.min(Math.abs(c.percent_deviation || 0), 100) + '%;background:' + barColor + ';border-radius:3px;opacity:0.6;"></div>';
             html += '</div>';
             html += '<div style="font-size:0.72rem;color:var(--text-secondary);">Hospital: <strong>' + (c.hospital_value || 0) + '</strong> | Avg: ' + (c.peer_average || 0) + ' | Median: ' + (c.peer_median || 0) + ' | Range: [' + (c.peer_min || 0) + ' - ' + (c.peer_max || 0) + ']</div>';
@@ -220,7 +220,7 @@ function renderAudit() {
     if (da.outliers && da.outliers.items && da.outliers.items.length) {
         html += '<div style="margin:0.5rem 0 0.3rem 0;font-weight:600;font-size:0.8rem;color:var(--text-primary);">Outliers (' + da.outliers.total + ')</div>';
         da.outliers.items.forEach(o => {
-            html += '<div style="padding:0.2rem 0.5rem;border-left:2px solid #b71c1c;margin:0.15rem 0;background:#b71c1c06;border-radius:2px;font-size:0.74rem;">';
+            html += '<div style="padding:0.2rem 0.5rem;border-left:2px solid var(--accent-red);margin:0.15rem 0;background:var(--bg-elevated);border-radius:2px;font-size:0.74rem;">';
             html += '<div style="display:flex;justify-content:space-between;"><span><strong>' + esc(o.rate_name) + '</strong> (' + esc(o.indicator_code) + ')</span><span style="color:#b71c1c;font-weight:600;">z=' + (o.z_score != null ? Number(o.z_score).toFixed(2) : '--') + '</span></div>';
             html += '<div style="font-size:0.7rem;color:var(--text-secondary);">Value: ' + (o.value != null ? Number(o.value).toFixed(2) : '--') + ' | Benchmark: ' + (o.benchmark != null ? Number(o.benchmark).toFixed(2) : '--') + '</div>';
             html += '</div>';

@@ -135,8 +135,8 @@
                     </div>
                 </div>
                 ${declineHtml ? `<div style="background:var(--severity-critical-bg);border:1px solid var(--severity-critical-border);border-radius:4px;padding:0.4rem 0.8rem;margin-bottom:0.8rem;font-size:0.82rem;color:var(--accent-red);">${declineHtml}</div>` : ''}
-                <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:0.4rem 0.6rem;">
-                    <span style="font-size:0.78rem;color:#666;font-weight:600;">المقياس:</span>
+                <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;padding:0.4rem 0.6rem;">
+                    <span style="font-size:0.78rem;color:var(--text-secondary);font-weight:600;">المقياس:</span>
                     <button data-metric="score" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--accent-blue);background:var(--accent-blue);color:white;font-weight:700;" onclick="switchQualityTrendMetric('score')">درجة الجودة</button>
                     <button data-metric="completeness" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('completeness')">الاكتمال</button>
                     <button data-metric="rule_compliance" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('rule_compliance')">الالتزام</button>

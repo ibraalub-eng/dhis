@@ -203,6 +203,7 @@ tbody tr { transition: background 0.12s; }
 .loader-overlay.active { opacity:1; visibility:visible; pointer-events:all; }
 .loader-overlay .spinner-lg { margin-bottom:0.8rem; }
 .loader-overlay .loader-text { font-size:0.95rem; color:var(--text-secondary); }
+[data-theme="light"] .loader-overlay { background:rgba(245,246,248,0.88); }
 .hidden { display: none !important; }
 .fade-in { animation:fadeIn 0.3s ease; }
 @keyframes fadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }

@@ -366,7 +366,7 @@
 
                     // ── Morbidity profile key data ──
                     if (mp.maternal_deaths > 0 || mp.mortality_preventability_signals?.length) {
-                        html += '<div style="margin:0.2rem 0;padding:0.2rem 0.5rem;background:#b71c1c08;border-left:2px solid #b71c1c;border-radius:2px;font-size:0.74rem;">';
+                        html += '<div style="margin:0.2rem 0;padding:0.2rem 0.5rem;background:var(--bg-elevated);border-left:2px solid var(--accent-red);border-radius:2px;font-size:0.74rem;">';
                         if (mp.maternal_deaths > 0) {
                             html += '<div style="font-weight:600;color:var(--accent-red);">Maternal Deaths: ' + mp.maternal_deaths + '</div>';
                         }
@@ -408,8 +408,8 @@
                         html += '<details style="margin:0.3rem 0;font-size:0.74rem;">';
                         html += '<summary style="cursor:pointer;color:var(--accent-blue);font-weight:600;font-size:0.76rem;">Assessments</summary>';
                         if (s.overview) html += '<div style="font-size:0.74rem;color:var(--text-secondary);margin:0.15rem 0;padding:0.2rem 0.5rem;background:var(--bg-surface-hover);border-radius:2px;">' + esc(s.overview) + '</div>';
-                        if (s.risk_assessment) html += '<div style="font-size:0.74rem;color:var(--text-secondary);margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fff3e008;border-left:2px solid var(--accent-orange);border-radius:2px;">' + esc(s.risk_assessment) + '</div>';
-                        if (s.morbidity_assessment) html += '<div style="font-size:0.74rem;color:var(--text-secondary);margin:0.15rem 0;padding:0.2rem 0.5rem;background:#fce4ec08;border-left:2px solid var(--accent-red);border-radius:2px;">' + esc(s.morbidity_assessment) + '</div>';
+                        if (s.risk_assessment) html += '<div style="font-size:0.74rem;color:var(--text-secondary);margin:0.15rem 0;padding:0.2rem 0.5rem;background:var(--bg-elevated);border-left:2px solid var(--accent-orange);border-radius:2px;">' + esc(s.risk_assessment) + '</div>';
+                        if (s.morbidity_assessment) html += '<div style="font-size:0.74rem;color:var(--text-secondary);margin:0.15rem 0;padding:0.2rem 0.5rem;background:var(--bg-elevated);border-left:2px solid var(--accent-red);border-radius:2px;">' + esc(s.morbidity_assessment) + '</div>';
                         html += '</details>';
                     }
 

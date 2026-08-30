@@ -129,7 +129,7 @@
             const crit = data.recent_critical || [];
             let critHtml = '';
             if (crit.length) {
-                critHtml = crit.map(r => '<div style="padding:0.35rem 0.5rem;border-left:3px solid #b71c1c;margin:0.25rem 0;background:#fef2f2;border-radius:3px;">' +
+                critHtml = crit.map(r => '<div style="padding:0.35rem 0.5rem;border-left:3px solid #b71c1c;margin:0.25rem 0;background:var(--bg-elevated);border-radius:3px;">' +
                     '<strong style="font-size:0.78rem;">' + esc(r.rule_code) + '</strong>' +
                     '<span style="color:var(--text-muted);font-size:0.72rem;"> | ' + esc(r.hospital) + ' | ' + esc(r.month) + '</span>' +
                     '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.1rem;">' + esc(r.rule_description) + '</div>' +

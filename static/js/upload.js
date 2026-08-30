@@ -409,7 +409,7 @@
                     card.className = 'report-card disabled';
                     card.setAttribute('data-hospital', r.hospital);
                     card.setAttribute('data-month', r.month);
-                    card.innerHTML = '<h3 style="color:#999;">' + r.hospital + '</h3><div class="month" style="color:#bbb;">' + r.month + '</div><div class="score" style="color:#ccc;">-</div><div class="progress-bar" style="background:#eee;"><div class="progress-bar-fill" style="width:0%;background:#ddd;"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:#bbb;">Analysis disabled</div>';
+                    card.innerHTML = '<h3 style="color:var(--text-muted);">' + r.hospital + '</h3><div class="month" style="color:var(--text-secondary);">' + r.month + '</div><div class="score" style="color:var(--text-muted);">-</div><div class="progress-bar" style="background:var(--border-default);"><div class="progress-bar-fill" style="width:0%;background:var(--text-muted);"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:var(--text-secondary);">Analysis disabled</div>';
                     card.style.opacity = '0.6';
                     card.style.cursor = 'default';
                     grid.appendChild(card);
@@ -527,7 +527,7 @@
                     var bl = c.by_level || {};
                     if (!bl.HIGH && c.priority_verify) bl.HIGH = (c.priority_verify.length > 0 ? 0 : 0);
                     html += '<div style="margin-top:0.6rem;display:flex;gap:0.5rem;font-size:0.8rem;flex-wrap:wrap;">';
-                    html += '<span class="badge badge-all" style="cursor:pointer;background:#1a237e;color:white;font-weight:700;" onclick="filterPriorityTable(\'ALL\')">ALL</span>';
+                    html += '<span class="badge badge-all" style="cursor:pointer;background:var(--accent-blue);color:white;font-weight:700;" onclick="filterPriorityTable(\'ALL\')">ALL</span>'
                     var levels = ['HIGH','MEDIUM','LOW','CRITICAL'];
                     levels.forEach(function(lv) {
                         var cnt = bl[lv] || 0;

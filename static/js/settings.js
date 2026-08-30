@@ -471,7 +471,7 @@ function loadHospitalsSettings() {
                                     '<span style="color:' + roiCol + ';font-weight:700;">&#128176; عائد ' + roi.toFixed(1) + '</span>' +
                                     '<span>الجهد: ' + effortDots + '</span>' +
                                 '</div>' +
-                                '<div style="height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden;">' +
+                                '<div style="height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +
                                     '<div style="width:' + impact + '%;height:100%;background:linear-gradient(90deg,' + impactCol + 'cc,' + impactCol + ');border-radius:3px;"></div>' +
                                 '</div>' +
                             '</div>';
@@ -508,7 +508,7 @@ function loadHospitalsSettings() {
                         card.style.cssText = 'padding:0.5rem 0.6rem;border-radius:4px;margin-bottom:0.4rem;border-left:3px solid ' + pCol + ';font-size:0.8rem;';
                         card.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.3rem;">' +
                             '<div style="display:flex;align-items:center;gap:0.3rem;flex-wrap:wrap;"><span class="rec-source rec-source-ai" title="AI-generated">&#9889;</span>' +
-                            (catLabel ? '<span style="font-size:0.58rem;background:#eef2ff;color:#4338ca;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(catLabel) + '</span>' : '') +
+                            (catLabel ? '<span style="font-size:0.58rem;background:var(--bg-elevated);color:var(--accent-purple);padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(catLabel) + '</span>' : '') +
                             '<span style="font-weight:600;color:var(--text-primary);">' + esc(title) + '</span></div>' +
                             '<span style="font-size:0.6rem;background:' + pCol + ';color:#fff;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(aiPrioLabel(r.priority)) + '</span></div>' +
                             (desc ? '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.2rem;">' + esc(desc) + '</div>' : '') +
@@ -517,7 +517,7 @@ function loadHospitalsSettings() {
                         aiList.appendChild(card);
                     });
                 } else {
-                    aiList.innerHTML = '<div style="padding:0.6rem;text-align:center;background:#fff8e1;border-radius:4px;font-size:0.8rem;color:var(--text-muted);">' +
+                    aiList.innerHTML = '<div style="padding:0.6rem;text-align:center;background:var(--bg-elevated);border-radius:4px;font-size:0.8rem;color:var(--text-muted);">' +
                         __('No AI recommendations available.') + '<br><a href="javascript:void(0)" onclick="SwitchTab(\'settings\')" style="color:#3f51b5;">' +
                         __('Configure AI provider') + '</a></div>';
                 }
@@ -620,7 +620,7 @@ function loadHospitalsSettings() {
                                         }).join('') +
                                     '</div>' : '') +
                                 (c.chain_path_arabic ? '<div style="font-size:0.68rem;color:#0f766e;margin-bottom:0.3rem;">' + esc(c.chain_path_arabic) + '</div>' : '') +
-                                '<div style="margin:0.4rem 0;height:5px;background:#e2e8f0;border-radius:3px;overflow:hidden;">' +
+                                '<div style="margin:0.4rem 0;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +
                                     '<div style="width:' + pct + '%;height:100%;background:' + confColor + ';border-radius:3px;"></div>' +
                                 '</div>' +
                                 '<div style="display:flex;gap:0.8rem;font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +
@@ -878,7 +878,7 @@ function loadHospitalsSettings() {
 
                 if (kpi) {
                     html += '<div class="scorecard-kpi-bar">' +
-                        '<div class="scorecard-kpi-item" style="border-top-color:var(--accent-blue);background:#f0f8ff;">' +
+                        '<div class="scorecard-kpi-item" style="border-top-color:var(--accent-blue);background:var(--bg-elevated);">' +
                         '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">' + label + '</div>' +
                         '<div style="font-size:1.5rem;font-weight:700;color:var(--accent-blue);">' + kpi.value + (kpi.unit ? ' ' + kpi.unit : '') + '</div></div>';
                     if (kpi.target != null) {
@@ -1040,7 +1040,7 @@ function loadHospitalsSettings() {
 
                 const qc = d.avg_score >= 75 ? 'var(--accent-green)' : d.avg_score >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
                 let html = '<div class="scorecard-kpi-bar">' +
-                    '<div class="scorecard-kpi-item" style="border-top-color:' + qc + ';background:#f0f8ff;">' +
+                    '<div class="scorecard-kpi-item" style="border-top-color:' + qc + ';background:var(--bg-elevated);">' +
                         '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Quality Score</div>' +
                         '<div style="font-size:1.5rem;font-weight:700;color:' + qc + ';">' + d.avg_score + '%</div></div>' +
                     '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Compliance</div>' +
