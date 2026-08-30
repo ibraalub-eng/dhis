@@ -290,6 +290,7 @@ window._adminAssignHospitals = function(id, btn) {
           <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
             <button class="admin-db-subtab active" onclick="switchAdminDbTab('overview')" id="dbsub-overview" style="padding:0.4rem 1rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.82rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">📊 Database</button>
             <button class="admin-db-subtab" onclick="switchAdminDbTab('control')" id="dbsub-control" style="padding:0.4rem 1rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.82rem;cursor:pointer;margin-bottom:-2px;">🎛️ Control</button>
+            <button class="admin-db-subtab" onclick="switchAdminDbTab('logs')" id="dbsub-logs" style="padding:0.4rem 1rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.82rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
           </div>
           <div id="dbSubOverview">
             <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Database</h2>
@@ -384,6 +385,27 @@ window._adminAssignHospitals = function(id, btn) {
               <div style="margin-top:0.5rem;">
                   <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
               </div>
+            </div>
+          </div>
+          <div id="dbSubLogs" style="display:none;">
+            <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Server Logs</h2>
+            <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Recent server warnings and errors. Auto-refreshes every 10 seconds.</p>
+            <div style="display:flex;gap:0.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+              <select id="logsLevelFilter" style="padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:4px;font-size:0.82rem;">
+                <option value="WARNING">⚠️ WARNING+</option>
+                <option value="ERROR">🔴 ERROR+</option>
+                <option value="CRITICAL">🚨 CRITICAL</option>
+                <option value="INFO">ℹ️ INFO+</option>
+                <option value="DEBUG">🔍 DEBUG+</option>
+              </select>
+              <button class="btn btn-sm" onclick="loadAdminLogs()" style="background:var(--accent-blue);color:white;">↻ Refresh</button>
+              <label style="font-size:0.78rem;color:var(--text-secondary);display:flex;align-items:center;gap:0.3rem;cursor:pointer;">
+                <input type="checkbox" id="logsAutoRefresh" checked> Auto-refresh
+              </label>
+              <span id="logsCount" style="font-size:0.78rem;color:var(--text-muted);"></span>
+            </div>
+            <div id="logsContainer" style="max-height:500px;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;padding:0.5rem;font-family:monospace;font-size:0.78rem;line-height:1.6;">
+              <div style="text-align:center;padding:2rem;color:var(--text-muted);">Loading logs...</div>
             </div>
           </div>
         </div>
@@ -892,6 +914,7 @@ window._adminAssignHospitals = function(id, btn) {
     if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
+  var _logsInterval=null;
   window.switchAdminDbTab = function(sub) {
     document.querySelectorAll('.admin-db-subtab').forEach(function(btn){
       btn.style.background='var(--bg-surface-hover)';
@@ -901,10 +924,51 @@ window._adminAssignHospitals = function(id, btn) {
     if(ab){ab.style.background='var(--accent-purple)';ab.style.color='white';}
     var ov=document.getElementById('dbSubOverview');
     var ct=document.getElementById('dbSubControl');
+    var lg=document.getElementById('dbSubLogs');
     if(ov)ov.style.display=sub==='overview'?'block':'none';
     if(ct)ct.style.display=sub==='control'?'block':'none';
+    if(lg)lg.style.display=sub==='logs'?'block':'none';
     if(sub==='control')loadAdminControlSettings();
+    if(sub==='logs')loadAdminLogs();
+    // Auto-refresh for logs
+    if(_logsInterval){clearInterval(_logsInterval);_logsInterval=null;}
+    if(sub==='logs'&&document.getElementById('logsAutoRefresh')&&document.getElementById('logsAutoRefresh').checked){
+      _logsInterval=setInterval(loadAdminLogs,10000);
+    }
   };
+  window.loadAdminLogs = async function() {
+    var el=document.getElementById('logsContainer');
+    var countEl=document.getElementById('logsCount');
+    if(!el)return;
+    var level=document.getElementById('logsLevelFilter')?document.getElementById('logsLevelFilter').value:'WARNING';
+    try{
+      var data=await api('/logs?level='+level+'&limit=200');
+      if(!data||data._error){el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load logs: '+(data?data.detail||data._error:'No response')+'</div>';return;}
+      var entries=data.entries||[];
+      if(countEl)countEl.textContent=entries.length+' / '+data.total+' entries';
+      if(entries.length===0){el.innerHTML='<div style="padding:1.5rem;text-align:center;color:var(--text-muted);">No log entries at this level.</div>';return;}
+      var html='';
+      entries.forEach(function(e){
+        var color=e.level==='CRITICAL'?'#dc2626':e.level==='ERROR'?'#ef4444':e.level==='WARNING'?'#f59e0b':e.level==='INFO'?'#3b82f6':'#6b7280';
+        html+='<div style="padding:0.2rem 0.5rem;border-bottom:1px solid var(--border-default);display:flex;gap:0.8rem;align-items:flex-start;">';
+        html+='<span style="color:var(--text-muted);white-space:nowrap;min-width:130px;">'+e.time+'</span>';
+        html+='<span style="color:'+color+';font-weight:600;min-width:65px;">'+e.level+'</span>';
+        html+='<span style="color:var(--text-muted);min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="'+e.logger+'">'+e.logger+'</span>';
+        html+='<span style="flex:1;word-break:break-word;">'+e.message+'</span>';
+        html+='</div>';
+      });
+      el.innerHTML=html;
+    }catch(err){
+      el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Error loading logs: '+err.message+'</div>';
+    }
+  };
+  // Bind auto-refresh checkbox
+  document.addEventListener('change',function(e){
+    if(e.target&&e.target.id==='logsAutoRefresh'){
+      if(e.target.checked){_logsInterval=setInterval(loadAdminLogs,10000);}
+      else if(_logsInterval){clearInterval(_logsInterval);_logsInterval=null;}
+    }
+  });
 
   function loadAdminControlSettings() {
     var hospitalSel=document.getElementById('monthHospitalSelect');

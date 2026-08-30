@@ -12,7 +12,7 @@ from alembic.script import ScriptDirectory  # noqa: E402
 from app.database import init_db, SessionLocal, engine  # noqa: E402
 from app.models import AppConfig, FacilityOwnership, FacilityType, Governorate, HospitalType  # noqa: E402
 from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
-from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router, regional as regional_router, auth as auth_router, admin as admin_router  # noqa: E402
+from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router, regional as regional_router, auth as auth_router, admin as admin_router, server_logs as server_logs_router  # noqa: E402
 from app.tasks import get_task  # noqa: E402
 from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR, DATA_DIR  # noqa: E402
 from scripts.seed_indicators import seed_indicators  # noqa: E402
@@ -387,6 +387,8 @@ def _deactivate_hospitals_without_data(session):
 
 async def lifespan(app: FastAPI):
     global _startup_done
+    from app.server_logs import install_buffer_handler
+    install_buffer_handler(logging.WARNING)
     from app.database import _db_ready
     if not _db_ready:
         print("[startup] DATABASE_URL not configured — showing setup page")
@@ -516,6 +518,7 @@ app.include_router(export_router.router)
 app.include_router(regional_router.router)
 app.include_router(auth_router.router)
 app.include_router(admin_router.router)
+app.include_router(server_logs_router.router)
 
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from sqlalchemy import func as _sa_func  # noqa: E402
