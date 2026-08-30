@@ -888,11 +888,12 @@ window._adminAssignHospitals = function(id, btn) {
     if(s)s.style.display=tab==="system"?"block":"none";
     if(t)t.style.display=tab==="tabs"?"block":"none";
     if(tab==="database"&&!window._adminDbLoaded){loadAdminDbStatus();window._adminDbLoaded=true;}
-    if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();window._adminSystemLoaded=true;}
+    if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();}
     if(tab==="tabs"&&!window._adminTabOrderLoaded){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
   async function loadAdminSystemPanel() {
+    window.loadAdminSystemPanel = loadAdminSystemPanel;
     var el=document.getElementById("adminSystemContent");
     if(!el)return;
     el.innerHTML='<div style="text-align:center;padding:2rem;color:var(--text-muted);"><span class="spinner"></span> Loading settings...</div>';
@@ -901,13 +902,16 @@ window._adminAssignHospitals = function(id, btn) {
       if(!resp.ok)throw new Error("HTTP "+resp.status);
       var html=await resp.text();
       el.innerHTML=html;
-      // Initialize collapsible sections after content is injected
+      window._adminSystemLoaded=true;
+      // Initialize after DOM is painted
       requestAnimationFrame(function(){
+        if(typeof window.showSettingsTab==="function")window.showSettingsTab('quality');
         if(typeof window.initCollapsibleSections==="function")window.initCollapsibleSections();
         if(typeof window.loadAllSettings==="function")window.loadAllSettings();
       });
     } catch(e) {
-      el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load settings: '+e.message+'</div>';
+      window._adminSystemLoaded=false;
+      el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load settings: '+e.message+'<br><button class="btn btn-sm" onclick="loadAdminSystemPanel()" style="margin-top:0.5rem;">Retry</button></div>';
     }
   }
   async function loadAdminDbStatus() {
