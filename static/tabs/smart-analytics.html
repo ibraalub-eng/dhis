@@ -1,9 +1,9 @@
 <div class="smart-analytics-tab" dir="rtl" style="padding:0.5rem 0.25rem;max-width:1200px;margin:0 auto;position:relative;">
 
   <!-- Loading overlay -->
-  <div id="smart-loading-overlay" style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;background:rgba(15,17,23,0.85);z-index:500;border-radius:12px;backdrop-filter:blur(3px);flex-direction:column;align-items:center;justify-content:center;gap:1rem;">
-    <div style="width:48px;height:48px;border:4px solid var(--border-default);border-top-color:var(--accent-blue);border-radius:50%;animation:smartSpin 0.8s linear infinite;"></div>
-    <span style="font-size:0.95rem;font-weight:600;color:var(--accent-blue);" data-i18n="Analyzing data...">جاري تحليل البيانات…</span>
+  <div id="smart-loading-overlay" class="smart-overlay">
+    <div class="smart-overlay-spinner"></div>
+    <span class="smart-overlay-text" data-i18n="Analyzing data...">جاري تحليل البيانات…</span>
   </div>
   <style>@keyframes smartSpin{to{transform:rotate(360deg)}}</style>
 
@@ -197,6 +197,9 @@
           <span class="smart-toggle-icon">▾</span>
         </div>
         <div class="smart-section-body" id="smart-comparison-block">
+          <div class="smart-loader" data-smart-loader="comparison"><span data-i18n="Computing...">جاري المعالجة...</span></div>
+          <div class="smart-error-banner" data-smart-error="comparison" role="alert"></div>
+          <div class="smart-empty-state" data-smart-empty="comparison"></div>
           <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.6rem;">
             <label style="font-size:0.8rem;color:var(--accent-purple);font-weight:600;" data-i18n="Comparison scope:">نطاق المقارنة:</label>
             <select id="smart-comparison-type" style="padding:0.4rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);font-size:0.8rem;">
