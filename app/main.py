@@ -387,7 +387,7 @@ def _deactivate_hospitals_without_data(session):
 
 async def lifespan(app: FastAPI):
     global _startup_done
-    from app.server_logs import install_buffer_handler
+    from app.api.server_logs import install_buffer_handler
     install_buffer_handler(logging.WARNING)
     from app.database import _db_ready
     if not _db_ready:
