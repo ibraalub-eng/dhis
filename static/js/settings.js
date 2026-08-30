@@ -443,7 +443,7 @@ function loadHospitalsSettings() {
                 const arSumEl = document.getElementById('rcSummaryArabic');
                 if (arSumEl) arSumEl.textContent = d.summary_arabic || '';
                 document.getElementById('rcSummary').innerHTML =
-                    '<span style="color:#94a3b8;">EN summary:</span> ' + (d.summary || 'No summary available.');
+                    '<span style="color:var(--text-muted);">EN summary:</span> ' + (d.summary || 'No summary available.');
 
                 // ── Priority Actions (with quantified impact/effort/ROI) ──
                 const al = document.getElementById('rcActionsList');
@@ -464,7 +464,7 @@ function loadHospitalsSettings() {
                             const roiCol = roi >= 15 ? 'var(--accent-green)' : roi >= 8 ? 'var(--accent-orange)' : '#888';
                             const impactCol = impact >= 60 ? 'var(--accent-red)' : impact >= 30 ? 'var(--accent-orange)' : 'var(--accent-green)';
                             const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:var(--accent-yellow);font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
-                                '&#9679;'.repeat(effort) + '<span style="color:#ddd;">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
+                                '&#9679;'.repeat(effort) + '<span style="color:var(--text-muted);">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
                             barHtml = '<div style="margin-top:0.3rem;">' +
                                 '<div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--text-muted);margin-bottom:1px;">' +
                                     '<span>&#128200; الأثر: ' + impact.toFixed(0) + ' نقطة جودة</span>' +

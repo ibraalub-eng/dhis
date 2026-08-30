@@ -118,7 +118,7 @@
                         <span style="color:${dirColor}88;">Trend</span>
                     </div>
                     <div style="${pill}background:#33311;border:1px solid #33344;min-width:80px;">
-                        <span style="font-size:1.2rem;font-weight:700;color:#333;">${data.avg_score}</span>
+                        <span style="font-size:1.2rem;font-weight:700;color:var(--text-primary);">${data.avg_score}</span>
                         <span style="color:var(--text-muted);">Average</span>
                     </div>
                     <div style="${pill}background:#2e7d3211;border:1px solid #2e7d3244;min-width:80px;">
