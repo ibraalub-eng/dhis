@@ -888,7 +888,7 @@ window._adminAssignHospitals = function(id, btn) {
     if(s)s.style.display=tab==="system"?"block":"none";
     if(t)t.style.display=tab==="tabs"?"block":"none";
     if(tab==="database"&&!window._adminDbLoaded){loadAdminDbStatus();window._adminDbLoaded=true;}
-    if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();}
+    if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();}else if(tab==="system"){/* re-init settings if already loaded */_initSystemPanel(document.getElementById('adminSystemContent'));}
     if(tab==="tabs"&&!window._adminTabOrderLoaded){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
@@ -903,16 +903,36 @@ window._adminAssignHospitals = function(id, btn) {
       var html=await resp.text();
       el.innerHTML=html;
       window._adminSystemLoaded=true;
-      // Initialize after DOM is painted
-      requestAnimationFrame(function(){
-        if(typeof window.showSettingsTab==="function")window.showSettingsTab('quality');
-        if(typeof window.initCollapsibleSections==="function")window.initCollapsibleSections();
-        if(typeof window.loadAllSettings==="function")window.loadAllSettings();
-      });
+      // Initialize after DOM is fully parsed — use MutationObserver for reliability
+      _initSystemPanel(el);
     } catch(e) {
       window._adminSystemLoaded=false;
       el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load settings: '+e.message+'<br><button class="btn btn-sm" onclick="loadAdminSystemPanel()" style="margin-top:0.5rem;">Retry</button></div>';
     }
+  }
+  function _initSystemPanel(el) {
+    // Try initializing with retries to handle async module loading
+    var attempts = 0;
+    function _try() {
+      attempts++;
+      var hasShowTab = typeof window.showSettingsTab === 'function' && window.showSettingsTab.toString().indexOf('Module not loaded') === -1;
+      var hasLoadAll = typeof window.loadAllSettings === 'function' && window.loadAllSettings.toString().indexOf('Module not loaded') === -1;
+      // Always ensure quality sub-tab is visible
+      var qSection = document.getElementById('settings-quality');
+      if (qSection) qSection.style.display = '';
+      var qBtn = document.getElementById('stbtn-quality');
+      if (qBtn) { qBtn.className = 'btn btn-sm'; qBtn.style.background = 'var(--accent-blue)'; qBtn.style.color = 'white'; }
+      // Activate collapsible sections
+      if (typeof window.initCollapsibleSections === 'function') window.initCollapsibleSections();
+      // If settings module is loaded, use it for full initialization
+      if (hasShowTab && hasLoadAll) {
+        try { window.showSettingsTab('quality'); } catch(e) {}
+        try { window.loadAllSettings(); } catch(e) {}
+      } else if (attempts < 15) {
+        setTimeout(_try, 300);
+      }
+    }
+    _try();
   }
   async function loadAdminDbStatus() {
     var el=document.getElementById("adminDbStatus");
