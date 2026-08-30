@@ -45,7 +45,7 @@ def get_advanced_comparison(
             "month": result.month,
             "comparison_data": {
                 "trends": [{"hospital_id": t.hospital_id, "hospital_name": t.hospital_name, "months": t.months, "values": t.values} for t in result.trends],
-                "peer_comparison": [{"hospital_id": p.hospital_id, "hospital_name": p.hospital_name, "percentile": p.percentile, "rank": p.rank, "total_hospitals": p.total_hospitals, "comparison_label": p.comparison_label} for p in result.peer_comparisons],
+                "peer_comparison": [{"hospital_id": p.hospital_id, "hospital_name": p.hospital_name, "percentile": p.percentile, "rank": p.rank, "total_hospitals": p.total_hospitals, "comparison_label": p.comparison_label, "anomaly_score": p.anomaly_score} for p in result.peer_comparisons],
                 "predictions": result.predictions
             },
             "chart_config": result.chart_config

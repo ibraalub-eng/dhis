@@ -993,6 +993,7 @@ def test_advanced_comparison_peer_comparison_structure(client):
         assert "rank" in peer
         assert "total_hospitals" in peer
         assert "comparison_label" in peer
+        assert "anomaly_score" in peer
 
 
 def test_advanced_comparison_chart_has_required_keys(client):
