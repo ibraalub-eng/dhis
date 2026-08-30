@@ -399,6 +399,10 @@ window._adminAssignHospitals = function(id, btn) {
         </div>
       </div>
     `;
+    // Reset flags since DOM was rebuilt
+    window._adminDbLoaded = false;
+    window._adminSystemLoaded = false;
+    window._adminTabOrderLoaded = false;
   } catch(e) {
     container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
       '<h3 style="color:var(--accent-red);margin-bottom:0.5rem;">Error Loading System Control</h3>' +
@@ -887,9 +891,9 @@ window._adminAssignHospitals = function(id, btn) {
     if(d)d.style.display=tab==="database"?"block":"none";
     if(s)s.style.display=tab==="system"?"block":"none";
     if(t)t.style.display=tab==="tabs"?"block":"none";
-    if(tab==="database"&&!window._adminDbLoaded){loadAdminDbStatus();window._adminDbLoaded=true;}
-    if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();}else if(tab==="system"){/* re-init settings if already loaded */_initSystemPanel(document.getElementById('adminSystemContent'));}
-    if(tab==="tabs"&&!window._adminTabOrderLoaded){window.loadTabOrder();window._adminTabOrderLoaded=true;}
+    if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
+    if(tab==="system"&&!window._adminSystemLoaded){loadAdminSystemPanel();}else if(tab==="system"&&document.getElementById('adminSystemContent').children.length > 0){/* already loaded, just re-init */_initSystemPanel(document.getElementById('adminSystemContent'));}
+    if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
   async function loadAdminSystemPanel() {
