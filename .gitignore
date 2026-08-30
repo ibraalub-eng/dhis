@@ -26,6 +26,9 @@ data/models/*
 *.swp
 *.swo
 
+# Worktrees
+.worktrees/
+
 # OS
 Thumbs.db
 .DS_Store
