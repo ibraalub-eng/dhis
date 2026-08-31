@@ -67,7 +67,10 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
         db.add(SessionLog(user_id=user.id, username=user.username, event="login",
                           ip_address=ip, user_agent=ua))
         db.commit()
-    except Exception:
+    except Exception as e:
+        import traceback, sys
+        print(f"[session_log] Failed to record login: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         db.rollback()
 
     return TokenResponse(
@@ -236,7 +239,10 @@ def get_sessions(request: Request, db: Session = Depends(get_db), user=Depends(g
             .all()
         )
         online_user_ids = {r.user_id for r in online_rows if r.user_id}
-    except Exception:
+    except Exception as e:
+        import traceback, sys
+        print(f"[session_log] Failed to record login: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         db.rollback()
         # Table might not exist yet — try to create it
         try:
