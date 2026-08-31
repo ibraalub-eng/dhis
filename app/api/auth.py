@@ -40,7 +40,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
                               event="failed_login", ip_address=ip, user_agent=ua))
             db.commit()
         except Exception:
-            db.rollback()
+            pass
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
         try:
@@ -48,7 +48,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
                               event="inactive_account", ip_address=ip, user_agent=ua))
             db.commit()
         except Exception:
-            db.rollback()
+            pass
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is inactive")
 
     roles = [r.name for r in user.roles]
@@ -62,6 +62,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     rt = RefreshToken(user_id=user.id, token_jti=jti, expires_at=expires_at)
     db.add(rt)
     db.commit()
+    # Log session event (table may not exist yet on first run)
     try:
         db.add(SessionLog(user_id=user.id, username=user.username, event="login",
                           ip_address=ip, user_agent=ua))
