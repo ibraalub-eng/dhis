@@ -547,19 +547,42 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
         }
     confidence_val = float(cs.overall_confidence) if cs else None
 
-    # Peer comparison: same hospital type or governorate
-    peer_ids = []
+    # Peer comparison: query hospitals table directly for active peers
+    from app.models import Hospital as HospModel
+    peer_query = db.query(HospModel).filter(
+        HospModel.is_active == True, HospModel.id != hospital_id
+    )
     if hospital.hospital_type_id:
-        peer_ids = [a["hospital_id"] for a in data.get("anomalies", [])
-                    if a.get("hospital_type_id") == hospital.hospital_type_id and a["hospital_id"] != hospital_id]
-    if not peer_ids and hospital.governorate_id:
-        peer_ids = [a["hospital_id"] for a in data.get("anomalies", [])
-                    if a.get("governorate_id") == hospital.governorate_id and a["hospital_id"] != hospital_id]
-    peer_anomalies = [a for a in data.get("anomalies", []) if a.get("hospital_id") in peer_ids]
+        peer_query = peer_query.filter(HospModel.hospital_type_id == hospital.hospital_type_id)
+    elif hospital.governorate_id:
+        peer_query = peer_query.filter(HospModel.governorate_id == hospital.governorate_id)
+    peer_hospitals = peer_query.all()
+    peer_ids = [p.id for p in peer_hospitals]
+
+    # Get quality scores for peers in same month
+    peer_quality_scores = {}
+    if peer_ids:
+        for qs in db.query(QualityScore).filter(
+            QualityScore.hospital_id.in_(peer_ids),
+            QualityScore.month == month
+        ).all():
+            peer_quality_scores[qs.hospital_id] = qs.score or 0
     peer_avg_score = None
-    if peer_anomalies:
-        scores = [a.get("anomaly_score", 0) for a in peer_anomalies]
+    if peer_quality_scores:
+        scores = list(peer_quality_scores.values())
         peer_avg_score = round(sum(scores) / len(scores), 3) if scores else None
+
+    # Build peer list with names and scores
+    peer_list = []
+    for p in peer_hospitals:
+        peer_list.append({
+            "hospital_id": p.id,
+            "hospital_name": p.name,
+            "governorate": p.governorate.name if p.governorate else None,
+            "hospital_type": p.hospital_type.name if p.hospital_type else None,
+            "quality_score": peer_quality_scores.get(p.id),
+        })
+    peer_list.sort(key=lambda x: x.get("quality_score") or 0, reverse=True)
 
     # Clinical indicator values for this hospital
     indicators = []
@@ -617,7 +640,8 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
         "peer_comparison": {
             "peer_count": len(peer_ids),
             "peer_avg_anomaly": peer_avg_score,
-            "peer_anomalies": peer_anomalies[:5],
+            "peer_list": peer_list[:15],
+            "peer_match_by": "type" if hospital.hospital_type_id else "governorate",
         },
         "indicators": indicators,
         "lag_analysis": {

@@ -342,6 +342,8 @@ function renderHospitalPeers(peers, anomaly) {
   const tc = getThemeColors();
   const myScore = anomaly?.anomaly_score ?? null;
   const peerAvg = peers.peer_avg_anomaly;
+  const peerList = peers.peer_list || [];
+  const matchBy = peers.peer_match_by === 'type' ? _t('Hospital Type') : _t('Governorate');
   let barHtml = '';
   if (myScore != null && peerAvg != null) {
     const maxW = 300;
@@ -364,9 +366,32 @@ function renderHospitalPeers(peers, anomaly) {
       </div>
     </div>`;
   }
+  // Peer list table
+  let peerRows = '';
+  peerList.forEach((p, i) => {
+    const score = p.quality_score != null ? _fmtNum(p.quality_score, 1) : '—';
+    const scoreColor = p.quality_score != null ? (p.quality_score >= 80 ? tc.green : p.quality_score >= 50 ? tc.orange : tc.red) : 'var(--text-muted)';
+    peerRows += `<tr style="border-bottom:1px solid var(--border-default);">
+      <td style="padding:0.3rem 0.4rem;font-weight:600;font-size:0.78rem;">${p.hospital_name || ''}</td>
+      <td style="padding:0.3rem 0.4rem;font-size:0.72rem;color:var(--text-secondary);">${p.governorate || '—'}</td>
+      <td style="padding:0.3rem 0.4rem;font-size:0.72rem;color:var(--text-secondary);">${p.hospital_type || '—'}</td>
+      <td style="padding:0.3rem 0.4rem;font-size:0.78rem;font-weight:600;color:${scoreColor};text-align:center;">${score}</td>
+    </tr>`;
+  });
+  const peerTable = peerList.length ? `<div style="margin-top:0.5rem;overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
+      <thead><tr style="background:var(--bg-elevated);">
+        <th style="text-align:left;padding:0.3rem 0.4rem;">${_t('Hospital')}</th>
+        <th style="text-align:left;padding:0.3rem 0.4rem;">${_t('Governorate')}</th>
+        <th style="text-align:left;padding:0.3rem 0.4rem;">${_t('Type')}</th>
+        <th style="text-align:center;padding:0.3rem 0.4rem;">${_t('Score')}</th>
+      </tr></thead>
+      <tbody>${peerRows}</tbody>
+    </table>
+  </div>` : '';
   c.innerHTML = `<div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.3rem;">👥 ${_t('Peer Comparison')}</div>
-    <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">${peers.peer_count} ${_t('peers in same group')}</div>
-    ${barHtml}`;
+    <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">${peers.peer_count} ${_t('peers matched by')} <strong>${matchBy}</strong></div>
+    ${barHtml}${peerTable}`;
 }
 
 function renderHospitalLagTimeline(lagData, indicators) {
