@@ -103,8 +103,8 @@ Result: one `run_smart_analytics` call serves both the predictions AND the peer 
 - No hospitals with data that month -> `[]` -> frontend shows "No data" (already wired via
   `showSmartSectionEmpty`, report.js:224).
 - Reference hospital not found -> `[]`.
-- Scope group smaller than 2 -> returned as-is (rank 1 only); not an error — a genuine
-  single peer.
+- Scope group smaller than 2 -> `[]` (no comparison shown, UI shows "No data"); this is
+  intentional.
 - Tied anomaly scores -> deterministic name tie-break.
 
 ## Scope restriction

@@ -173,6 +173,7 @@
             'Deviation %': 'الانحراف %',
             'Percentile': 'النسبة المئوية',
             'Assessment': 'التقييم',
+            'Anomaly score': 'درجة الشذوذ',
 
             // Clinical Intelligence
             'Clinical Intelligence': 'التحليل السريري',
