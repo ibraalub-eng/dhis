@@ -456,6 +456,77 @@ function loadHospitalsSettings() {
                     const combinedSummary = summaries.length > 1
                         ? summaries.map((s, i) => '<div style="margin-bottom:0.3rem;"><span style="font-weight:600;color:var(--accent-blue);">' + valid[i].month + ':</span> ' + esc(s) + '</div>').join('')
                         : (summaries[0] || 'No summary available.');
+                    // Merge confidence gaps (deduplicate by indicator, keep worst severity)
+                    const cgMap = new Map();
+                    const severityOrder = { CRITICAL: 4, HIGH: 3, LOW: 2, MEDIUM: 2, INFO: 1 };
+                    valid.forEach(d => {
+                        (d.confidence_gaps || []).forEach(cg => {
+                            const key = cg.indicator_name || cg.indicator || '';
+                            if (!key) return;
+                            if (!cgMap.has(key) || (severityOrder[(cg.level||'').toUpperCase()] || 0) > (severityOrder[(cgMap.get(key).level||'').toUpperCase()] || 0)) {
+                                cgMap.set(key, { ...cg, _months: (cgMap.get(key)?._months || []).concat([d.month]) });
+                            } else if (cgMap.has(key)) {
+                                cgMap.get(key)._months.push(d.month);
+                            }
+                        });
+                    });
+                    const mergedCg = [...cgMap.values()].sort((a, b) => (severityOrder[(b.level||'').toUpperCase()] || 0) - (severityOrder[(a.level||'').toUpperCase()] || 0));
+                    // Merge causal chains (deduplicate by root cause, keep highest confidence)
+                    const chainMap = new Map();
+                    valid.forEach(d => {
+                        (d.causal_chains || []).forEach(c => {
+                            const key = c.root_cause || c.root_cause_arabic || JSON.stringify(c.chain_path || []);
+                            if (!chainMap.has(key) || (c.confidence || 0) > (chainMap.get(key).confidence || 0)) {
+                                chainMap.set(key, { ...c, _months: (chainMap.get(key)?._months || []).concat([d.month]) });
+                            } else if (chainMap.has(key)) {
+                                chainMap.get(key)._months.push(d.month);
+                            }
+                        });
+                    });
+                    const mergedChains = [...chainMap.values()].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+                    // Merge causal tree (deduplicate by factor, keep highest severity)
+                    const treeMap = new Map();
+                    const treeSev = { CRITICAL: 4, critical: 4, HIGH: 3, high: 3, MEDIUM: 2, medium: 2, LOW: 1, low: 1 };
+                    valid.forEach(d => {
+                        (d.causal_tree || []).forEach(n => {
+                            const key = n.factor || '';
+                            if (!key) return;
+                            if (!treeMap.has(key) || (treeSev[n.severity] || 0) > (treeSev[treeMap.get(key).severity] || 0)) {
+                                treeMap.set(key, { ...n, _months: (treeMap.get(key)?._months || []).concat([d.month]) });
+                            } else if (treeMap.has(key)) {
+                                treeMap.get(key)._months.push(d.month);
+                            }
+                        });
+                    });
+                    const mergedTree = [...treeMap.values()].sort((a, b) => (treeSev[b.severity] || 0) - (treeSev[a.severity] || 0));
+                    // Merge peer comparisons (average peer values across months)
+                    const peerMap = new Map();
+                    valid.forEach(d => {
+                        Object.values(d.peer_comparisons || {}).forEach(p => {
+                            const key = p.indicator_code || p.indicator_name || '';
+                            if (!key) return;
+                            if (!peerMap.has(key)) {
+                                peerMap.set(key, { ...p, _sumGap: p.gap_pct || 0, _sumHv: p.hospital_value || 0, _sumPm: p.peer_mean || 0, _count: 1 });
+                            } else {
+                                const e = peerMap.get(key);
+                                e._sumGap += (p.gap_pct || 0);
+                                e._sumHv += (p.hospital_value || 0);
+                                e._sumPm += (p.peer_mean || 0);
+                                e._count++;
+                            }
+                        });
+                    });
+                    const mergedPeers = {};
+                    peerMap.forEach((v, k) => {
+                        mergedPeers[k] = {
+                            indicator_code: v.indicator_code,
+                            indicator_name: v.indicator_name,
+                            gap_pct: Math.round(v._sumGap / v._count * 10) / 10,
+                            hospital_value: Math.round(v._sumHv / v._count * 10) / 10,
+                            peer_mean: Math.round(v._sumPm / v._count * 10) / 10,
+                            peer_count: v.peer_count,
+                        };
+                    });
                     // Build per-month arrays for trend chart
                     const sortedValid = [...valid].sort((a, b) => (a.month || '').localeCompare(b.month || ''));
                     const monthLabels = sortedValid.map(d => d.month);
@@ -475,12 +546,12 @@ function loadHospitalsSettings() {
                         priority_actions: mergedActions,
                         priority_action_details: [],
                         top_rule_failures: mergedRf,
-                        confidence_gaps: [],
+                        confidence_gaps: mergedCg,
                         anomaly_patterns: [],
-                        causal_tree: [],
-                        causal_chains: [],
+                        causal_tree: mergedTree,
+                        causal_chains: mergedChains,
                         historical_trends: {},
-                        peer_comparisons: {},
+                        peer_comparisons: mergedPeers,
                         _allMonths: true,
                         _monthCount: valid.length,
                         _months: monthLabels,
@@ -651,12 +722,13 @@ function loadHospitalsSettings() {
                         const sev = (r.severity || 'medium').toUpperCase();
                         const sevColor = sev === 'CRITICAL' ? 'var(--accent-red)' : sev === 'HIGH' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
                         const countBadge = r.count > 1 ? ' <span style="font-size:0.6rem;background:var(--accent-blue);color:#fff;padding:0 4px;border-radius:6px;">×' + r.count + '</span>' : '';
+                        const rfMonths = (r.months && r.months.length > 0 && isAll) ? ' <span style="font-size:0.55rem;background:var(--accent-teal);color:#fff;padding:0 4px;border-radius:6px;margin-left:2px;">' + r.months.join(', ') + '</span>' : '';
                         return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;border-bottom:1px solid var(--border-default);font-size:0.8rem;">' +
                             '<span style="width:8px;height:8px;border-radius:50%;background:' + sevColor + ';flex-shrink:0;"></span>' +
                             '<span style="font-weight:600;">' + esc(r.rule || r.rule_code || '') + '</span>' +
                             '<span style="color:var(--text-muted);font-size:0.72rem;">' + esc(sev) + '</span>' +
+                            countBadge + rfMonths +
                             '<span style="margin-left:auto;font-size:0.72rem;">' + (r.failure_rate || 0).toFixed(1) + '%</span>' +
-                            countBadge +
                         '</div>';
                     }).join('');
                 } else {
@@ -671,10 +743,11 @@ function loadHospitalsSettings() {
                     cgEl.innerHTML = cg.map(g => {
                         const lvl = (g.level || '').toUpperCase();
                         const lvlColor = lvl === 'CRITICAL' ? 'var(--accent-red)' : lvl === 'LOW' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
+                        const cgMonthBadge = (g._months && g._months.length > 0 && isAll) ? ' <span style="font-size:0.55rem;background:var(--accent-teal);color:#fff;padding:0 4px;border-radius:6px;">' + g._months.join(', ') + '</span>' : '';
                         return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0;border-bottom:1px solid var(--border-default);font-size:0.8rem;">' +
                             '<span style="width:8px;height:8px;border-radius:50%;background:' + lvlColor + ';flex-shrink:0;"></span>' +
                             '<span style="font-weight:600;">' + esc(g.indicator_name || g.indicator || '') + '</span>' +
-                            '<span style="color:var(--text-muted);font-size:0.72rem;">' + esc(lvl) + '</span>' +
+                            '<span style="color:var(--text-muted);font-size:0.72rem;">' + esc(lvl) + cgMonthBadge + '</span>' +
                             '<span style="margin-left:auto;font-size:0.72rem;color:' + lvlColor + ';">' + (g.score != null ? g.score.toFixed(1) : '') + '</span>' +
                         '</div>' +
                             '<div style="font-size:0.7rem;color:var(--text-secondary);margin:0.1rem 0 0.2rem 1.2rem;">Signal: ' + (g.weakest_signal || '') + ' | ' + esc((g.root_cause || '').slice(0, 90)) + '</div>';
@@ -694,9 +767,10 @@ function loadHospitalsSettings() {
                         const confColor = c.confidence >= 0.7 ? 'var(--accent-teal)' : c.confidence >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
                         const prio = (c.implementation_priority || '').toUpperCase();
                         const prioColor = prio === 'CRITICAL' ? 'var(--accent-red)' : prio === 'HIGH' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
+                        const chainMonthBadge = (c._months && c._months.length > 0 && isAll) ? '<span style="font-size:0.55rem;background:var(--accent-teal);color:#fff;padding:1px 6px;border-radius:8px;margin-left:0.3rem;white-space:nowrap;">' + c._months.join(', ') + '</span>' : '';
                         return '<div style="padding:0.6rem;border:1px solid var(--accent-teal);border-radius:8px;margin-bottom:0.5rem;background:var(--bg-elevated);">' +
                             '<div style="display:flex;justify-content:space-between;align-items:center;gap:0.5rem;">' +
-                                '<span style="font-weight:700;font-size:0.82rem;color:var(--accent-teal);">' + esc(c.root_cause_arabic || c.root_cause) + '</span>' +
+                                '<span style="font-weight:700;font-size:0.82rem;color:var(--accent-teal);">' + esc(c.root_cause_arabic || c.root_cause) + chainMonthBadge + '</span>' +
                                 '<span style="font-size:0.65rem;background:' + prioColor + ';padding:1px 8px;border-radius:10px;white-space:nowrap;font-weight:600;">' + esc(prio) + '</span>' +
                             '</div>' +
                             (c.chain_path && c.chain_path.length > 1
@@ -735,9 +809,10 @@ function loadHospitalsSettings() {
                     treeEl.innerHTML = d.causal_tree.slice(0, 12).map(n => {
                         const sevColor = n.severity === 'CRITICAL' ? 'var(--accent-red)' : n.severity === 'HIGH' ? 'var(--accent-orange)' : n.severity === 'critical' ? 'var(--accent-red)' : n.severity === 'high' ? 'var(--accent-orange)' : 'var(--accent-teal)';
                         const trendArrow = n.trend === 'declining' ? '&#9660;' : n.trend === 'improving' ? '&#9650;' : '&#8212;';
+                        const treeMonthBadge = (n._months && n._months.length > 0 && isAll) ? ' <span style="font-size:0.55rem;background:var(--accent-teal);color:#fff;padding:0 4px;border-radius:6px;">' + n._months.join(', ') + '</span>' : '';
                         return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
                             '<span style="width:9px;height:9px;border-radius:50%;background:' + sevColor + ';flex-shrink:0;"></span>' +
-                            '<span style="font-weight:600;font-size:0.78rem;">' + esc(n.factor) + '</span>' +
+                            '<span style="font-weight:600;font-size:0.78rem;">' + esc(n.factor) + treeMonthBadge + '</span>' +
                             '<span style="font-size:0.7rem;color:var(--text-secondary);">' + (n.current_value != null ? n.current_value : '') + '</span>' +
                             '<span style="margin-right:auto;font-size:0.65rem;color:var(--text-muted);">' + esc(n.factor_type || '') + '</span>' +
                         '</div>';
