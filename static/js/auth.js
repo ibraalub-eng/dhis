@@ -445,9 +445,8 @@
     var token = getAccessToken();
     if (!token) { showLoginPage(); return false; }
     try {
-      var resp = await fetch(API_BASE + '/auth/me', {
-        headers: { 'Authorization': 'Bearer ' + token },
-      });
+      // Let the global fetch interceptor handle 401 → refresh → retry
+      var resp = await fetch(API_BASE + '/auth/me');
       if (resp.ok) {
         var user;
         try { user = await resp.json(); } catch(e) { showLoginPage(); return false; }
@@ -459,30 +458,16 @@
         if (rs) rs.classList.remove('hidden');
         return true;
       }
+      // 401 that the interceptor couldn't fix (refresh token expired)
+      clearTokens();
+      showLoginPage();
+      return false;
     } catch(e) {
-      // Network error or server down — try refresh once, then show login
+      // Network error or server down
+      clearTokens();
+      showLoginPage();
+      return false;
     }
-    var refreshed = await tryRefresh();
-    if (refreshed) {
-      try {
-        var meResp = await fetch(API_BASE + '/auth/me', {
-          headers: { 'Authorization': 'Bearer ' + getAccessToken() },
-        });
-        if (meResp.ok) {
-          var u; try { u = await meResp.json(); } catch(e) { showLoginPage(); return false; }
-          setUserInfo(u);
-          hideLoginPage();
-          applyPermissions();
-          _startInactivityTimer();
-          var rs = document.getElementById('resultsSection');
-          if (rs) rs.classList.remove('hidden');
-          return true;
-        }
-      } catch(e) {}
-    }
-    clearTokens();
-    showLoginPage();
-    return false;
   };
 })();
 
@@ -498,10 +483,9 @@ window.openProfileModal = function() {
     // Load current user data
     var user = window.getUserInfo ? window.getUserInfo() : null;
     if (!user) {
-        // Fetch from API
-        var token = window.getAccessToken ? window.getAccessToken() : '';
-        fetch('/auth/me', { headers: { 'Authorization': 'Bearer ' + token } })
-            .then(function(r) { return r.json(); })
+        // Fetch from API (global interceptor adds auth header)
+        fetch(API_BASE + '/auth/me')
+            .then(function(r) { if (!r.ok) throw new Error(); return r.json(); })
             .then(function(data) { _fillProfileModal(data); })
             .catch(function() {});
     } else {
@@ -567,10 +551,9 @@ window._pmSaveProfile = function() {
     if (!fullName) { errEl.textContent = 'Full name is required'; errEl.style.display = 'block'; return; }
     if (!email) { errEl.textContent = 'Email is required'; errEl.style.display = 'block'; return; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'Invalid email format'; errEl.style.display = 'block'; return; }
-    var token = window.getAccessToken ? window.getAccessToken() : '';
-    fetch('/auth/me', {
+    fetch(API_BASE + '/auth/me', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full_name: fullName, email: email })
     }).then(function(r) { return r.json(); }).then(function(data) {
         if (data.detail) { errEl.textContent = data.detail; errEl.style.display = 'block'; return; }
@@ -613,10 +596,9 @@ window._pmChangePw = function() {
     if (nw.length < 6) { errEl.textContent = 'Password must be at least 6 characters'; errEl.style.display = 'block'; return; }
     if (nw === cur) { errEl.textContent = 'New password must be different from current'; errEl.style.display = 'block'; return; }
     if (nw !== cf) { errEl.textContent = 'Passwords do not match'; errEl.style.display = 'block'; return; }
-    var token = window.getAccessToken ? window.getAccessToken() : '';
-    fetch('/auth/change-password', {
+    fetch(API_BASE + '/auth/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ current_password: cur, new_password: nw, confirm_password: cf })
     }).then(function(r) { return r.json(); }).then(function(data) {
         if (!data.success) { errEl.textContent = data.detail || 'Failed'; errEl.style.display = 'block'; return; }
