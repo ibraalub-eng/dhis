@@ -4,6 +4,9 @@ import { smartState, apiSmartGet, showSmartSectionError,
          _smartEscapeHtml, _t, _fmtNum, smartTranslateFeature } from './core.js';
 import { renderPlot, makeScatter, makeHeatmap, makeBarChart, makeLineChart } from './charts.js';
 
+// Expose fetchSection globally so retry buttons can re-trigger loads
+window.__smartFetchSection = fetchSection;
+
 export function initAdvancedTabs() {
   const loaders = {
     'clusters-tab': loadClustersTab,
@@ -29,21 +32,36 @@ async function fetchSection(path, key, _retries) {
   if (_retries === undefined) _retries = 0;
   try {
     const res = await apiSmartGet(path);
-    if (res && res.computing && _retries < 8) {
-      showSmartSectionEmpty(key, _t('Computing analysis...') + ' (' + (_retries + 1) + '/8)');
+    if (res && res.computing && _retries < 15) {
+      const mins = Math.floor((_retries * 3) / 60);
+      const secs = (_retries * 3) % 60;
+      const elapsed = mins > 0 ? mins + 'm ' + secs + 's' : secs + 's';
+      showSmartSectionEmpty(key, _t('Computing analysis...') + ' (' + elapsed + ')', {
+        retryPath: path, retryKey: key
+      });
       await new Promise(r => setTimeout(r, 3000));
       return fetchSection(path, key, _retries + 1);
     }
-    if (res && res.empty) {
-      showSmartSectionEmpty(key, res.message || _t('No data for this period. Upload data and try again.'));
+    if (res && res.computing && _retries >= 15) {
+      showSmartSectionError(key, _t('Computation is taking longer than expected.') + ' ' + _t('Try again later.'), {
+        retryPath: path, retryKey: key
+      });
+    } else if (res && res.empty) {
+      showSmartSectionEmpty(key, res.message || _t('No data for this period. Upload data and try again.'), {
+        retryPath: path, retryKey: key
+      });
     } else if (!res || res._error) {
-      showSmartSectionError(key, (res && res.detail) || _t('Failed to load data. Check server connection.'));
+      showSmartSectionError(key, (res && res.detail) || _t('Failed to load data. Check server connection.'), {
+        retryPath: path, retryKey: key
+      });
     } else {
       clearSmartSectionState(key);
     }
     return res;
   } catch (e) {
-    showSmartSectionError(key, e.message || _t('Network error. Please try again.'));
+    showSmartSectionError(key, e.message || _t('Network error. Please try again.'), {
+      retryPath: path, retryKey: key
+    });
     return null;
   }
 }
@@ -52,11 +70,19 @@ export function loadClustersTab(month) {
   return fetchSection(`/smart/clusters/${month}`, 'advanced').then(d => {
     if (!d || d.empty) return;
     const clustering = d.clustering || {};
-    // Backend returns pca_coordinates as [[x,y],...] and clusters as [{cluster_id, hospital_name},...]
-    const points = clustering.pca_coordinates || [];
     const clusterDetails = clustering.clusters || [];
-    // Build labels array aligned with points by hospital order
-    const labels = clusterDetails.map(c => c.cluster_id);
+    // Backend returns pca_coordinates as {name: {x,y}} dict
+    const pcaDict = clustering.pca_coordinates || {};
+    // Build points and labels arrays aligned by hospital order from clusters
+    const points = [];
+    const labels = [];
+    clusterDetails.forEach(function(c) {
+      const coord = pcaDict[c.hospital_name];
+      if (coord) {
+        points.push([coord.x, coord.y]);
+        labels.push(c.cluster_id);
+      }
+    });
     renderClusterScatter(points, labels, clustering.features || ['PC1', 'PC2']);
     renderClusterProfiles(clustering.profiles || [], clustering);
   });

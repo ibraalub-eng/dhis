@@ -53,16 +53,30 @@ export function setSmartLoader(key, active) {
   if (el) el.classList.toggle('active', !!active);
 }
 
-export function showSmartSectionError(key, message) {
+export function showSmartSectionError(key, message, opts) {
   const err = document.querySelector(`[data-smart-error="${key}"]`);
-  if (err) { err.textContent = message || _t('Failed to load'); err.classList.add('active'); }
+  if (err) {
+    let html = _smartEscapeHtml(message || _t('Failed to load'));
+    if (opts && opts.retryPath) {
+      html += '<br><button class="btn btn-sm" style="margin-top:0.5rem;background:var(--accent-blue);color:#fff;border:none;border-radius:4px;padding:0.3rem 0.8rem;cursor:pointer;font-size:0.78rem;" onclick="window.__smartRetry(\'' + opts.retryPath + '\', \'' + (opts.retryKey || key) + '\')">↻ ' + _t('Retry') + '</button>';
+    }
+    err.innerHTML = html;
+    err.classList.add('active');
+  }
   const empty = document.querySelector(`[data-smart-empty="${key}"]`);
-  if (empty) empty.textContent = '';
+  if (empty) empty.innerHTML = '';
 }
 
-export function showSmartSectionEmpty(key, message) {
+export function showSmartSectionEmpty(key, message, opts) {
   const empty = document.querySelector(`[data-smart-empty="${key}"]`);
-  if (empty) { empty.textContent = message || _t('No data'); empty.style.display = 'block'; }
+  if (empty) {
+    let html = _smartEscapeHtml(message || _t('No data'));
+    if (opts && opts.retryPath) {
+      html += '<br><button class="btn btn-sm" style="margin-top:0.5rem;background:var(--accent-blue);color:#fff;border:none;border-radius:4px;padding:0.3rem 0.8rem;cursor:pointer;font-size:0.78rem;" onclick="window.__smartRetry(\'' + opts.retryPath + '\', \'' + (opts.retryKey || key) + '\')">↻ ' + _t('Retry') + '</button>';
+    }
+    empty.innerHTML = html;
+    empty.style.display = 'block';
+  }
   const err = document.querySelector(`[data-smart-error="${key}"]`);
   if (err) err.classList.remove('active');
 }
@@ -268,3 +282,22 @@ export function trapFocus(modalEl, openFocusEl) {
   (openFocusEl || first)?.focus();
   return { close };
 }
+
+// Global retry handler for smart sections
+window.__smartRetry = function(path, key) {
+  clearSmartSectionState(key);
+  showSmartSectionEmpty(key, _t('Retrying...'));
+  // Use the globally exposed fetchSection from advanced.js
+  if (typeof window.__smartFetchSection === 'function') {
+    window.__smartFetchSection(path, key, 0);
+  } else {
+    // Fallback: simple re-fetch
+    apiSmartGet(path).then(function(data) {
+      if (data && !data.computing && !data.empty) {
+        clearSmartSectionState(key);
+      } else if (data && (data.computing || data.empty)) {
+        showSmartSectionEmpty(key, data.message || _t('Still computing...'), { retryPath: path, retryKey: key });
+      }
+    });
+  }
+};

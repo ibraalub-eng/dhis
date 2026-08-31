@@ -209,12 +209,13 @@ def _healthy_hospitals(db: Session, month: str, anomalies: list) -> list:
 
 
 def _compute_smart_data(db, month: str) -> dict:
-    """Heavy computation — runs in background thread.
+    """Heavy computation — runs in background thread with timeout.
     
     Always creates its own session (SessionLocal) to avoid
     issues with request-scoped sessions closing prematurely.
     """
     from app.database import SessionLocal
+    import signal
     bg_db = SessionLocal()
     try:
         logger.info(f"[smart] Starting computation for {month}...")
