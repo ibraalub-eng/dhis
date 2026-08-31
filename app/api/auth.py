@@ -214,29 +214,38 @@ def get_sessions(request: Request, db: Session = Depends(get_db), user=Depends(g
     """Return recent session events. Superadmin only."""
     if not user.is_superuser:
         raise HTTPException(status_code=403, detail="Superadmin only")
-    from sqlalchemy import func
+    from sqlalchemy import func, text
     limit = int(request.query_params.get("limit", 100))
     limit = min(limit, 500)
-    logs = db.query(SessionLog).order_by(SessionLog.created_at.desc()).limit(limit).all()
-    # Active sessions: logins without a subsequent logout
-    # Get last event per user
-    last_events = (
-        db.query(
-            SessionLog.user_id,
-            SessionLog.username,
-            func.max(SessionLog.created_at).label("last_at")
+    try:
+        logs = db.query(SessionLog).order_by(SessionLog.created_at.desc()).limit(limit).all()
+        last_events = (
+            db.query(
+                SessionLog.user_id,
+                SessionLog.username,
+                func.max(SessionLog.created_at).label("last_at")
+            )
+            .group_by(SessionLog.user_id, SessionLog.username)
+            .subquery()
         )
-        .group_by(SessionLog.user_id, SessionLog.username)
-        .subquery()
-    )
-    # Check which users last event was a login (still online)
-    online_rows = (
-        db.query(SessionLog)
-        .join(last_events, (SessionLog.user_id == last_events.c.user_id) & (SessionLog.created_at == last_events.c.last_at))
-        .filter(SessionLog.event.in_("login", "refresh"))
-        .all()
-    )
-    online_user_ids = {r.user_id for r in online_rows if r.user_id}
+        online_rows = (
+            db.query(SessionLog)
+            .join(last_events, (SessionLog.user_id == last_events.c.user_id) & (SessionLog.created_at == last_events.c.last_at))
+            .filter(SessionLog.event.in_("login", "refresh"))
+            .all()
+        )
+        online_user_ids = {r.user_id for r in online_rows if r.user_id}
+    except Exception:
+        db.rollback()
+        # Table might not exist yet — try to create it
+        try:
+            SessionLog.__table__.create(db.get_bind(), checkfirst=True)
+            db.commit()
+            logs = []
+            online_user_ids = set()
+        except Exception:
+            db.rollback()
+            return {"events": [], "online": [], "error": "session_logs table not available"}
     return {
         "events": [{
             "id": l.id,
