@@ -55,7 +55,7 @@ const ciBandPlugin = {
     if (validIndices.length < 2) return;
     
     ctx.save();
-    ctx.fillStyle = CHART_COLORS.ciBand;
+    ctx.fillStyle = getCSSVar('--severity-info-bg') || CHART_COLORS.ciBand;
     ctx.beginPath();
     
     // Draw upper bound
@@ -137,6 +137,14 @@ window.refreshAllCharts = function() {
           if (scale.grid) scale.grid.color = CHART_COLORS.grid;
           if (scale.title && scale.title.color !== undefined) scale.title.color = CHART_COLORS.neutral;
         });
+      }
+      // Update tooltip background color
+      if (chart.options && chart.options.plugins && chart.options.plugins.tooltip) {
+        chart.options.plugins.tooltip.backgroundColor = getCSSVar('--bg-elevated') || '#1e293b';
+        chart.options.plugins.tooltip.titleFont = chart.options.plugins.tooltip.titleFont || {};
+        chart.options.plugins.tooltip.titleFont.color = getCSSVar('--text-primary') || '#e5e7eb';
+        chart.options.plugins.tooltip.bodyFont = chart.options.plugins.tooltip.bodyFont || {};
+        chart.options.plugins.tooltip.bodyFont.color = getCSSVar('--text-secondary') || '#9ca3af';
       }
       // Update dataset border/point colors to match new theme.
       if (chart.data && chart.data.datasets) {

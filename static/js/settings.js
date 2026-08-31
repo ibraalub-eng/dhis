@@ -297,7 +297,7 @@ function loadHospitalsSettings() {
                             }
                         },
                         tooltip: {
-                            backgroundColor: '#1e293b',
+                            backgroundColor: getCSSVar('--bg-elevated') || '#1e293b',
                             titleFont: { size: 11 },
                             bodyFont: { size: 11 },
                             padding: 12,
@@ -1617,8 +1617,8 @@ function loadHospitalsSettings() {
                         data: {
                             labels: labels,
                             datasets: [
-                                { label: 'Hospital', data: d.clinical_rates.map(r => r.value), backgroundColor: '#3f51b5', borderRadius: 3, minBarLength: 3 },
-                                { label: 'Peer Avg', data: d.clinical_rates.map(r => r.peer_avg ?? null), backgroundColor: '#ff9800', borderRadius: 3, minBarLength: 3 }
+                                { label: 'Hospital', data: d.clinical_rates.map(r => r.value), backgroundColor: getCSSVar('--accent-teal') || '#14b8a6', borderRadius: 3, minBarLength: 3 },
+                                { label: 'Peer Avg', data: d.clinical_rates.map(r => r.peer_avg ?? null), backgroundColor: getCSSVar('--accent-orange') || '#f59e0b', borderRadius: 3, minBarLength: 3 }
                             ]
                         },
                         plugins: [valueLabelPlugin],
