@@ -35,14 +35,20 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent", ""))[:500]
     if user is None or not verify_password(req.password, user.password_hash):
-        db.add(SessionLog(user_id=user.id if user else None, username=req.username,
-                          event="failed_login", ip_address=ip, user_agent=ua))
-        db.commit()
+        try:
+            db.add(SessionLog(user_id=user.id if user else None, username=req.username,
+                              event="failed_login", ip_address=ip, user_agent=ua))
+            db.commit()
+        except Exception:
+            db.rollback()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
-        db.add(SessionLog(user_id=user.id, username=req.username,
-                          event="inactive_account", ip_address=ip, user_agent=ua))
-        db.commit()
+        try:
+            db.add(SessionLog(user_id=user.id, username=req.username,
+                              event="inactive_account", ip_address=ip, user_agent=ua))
+            db.commit()
+        except Exception:
+            db.rollback()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is inactive")
 
     roles = [r.name for r in user.roles]
@@ -55,9 +61,13 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
 
     rt = RefreshToken(user_id=user.id, token_jti=jti, expires_at=expires_at)
     db.add(rt)
-    db.add(SessionLog(user_id=user.id, username=user.username, event="login",
-                      ip_address=ip, user_agent=ua))
     db.commit()
+    try:
+        db.add(SessionLog(user_id=user.id, username=user.username, event="login",
+                          ip_address=ip, user_agent=ua))
+        db.commit()
+    except Exception:
+        db.rollback()
 
     return TokenResponse(
         access_token=access,
@@ -120,12 +130,15 @@ def logout(req: LogoutRequest, request: Request, db: Session = Depends(get_db)):
             rt.revoked = True
             uid = rt.user_id
             uname = None
-            u = db.query(User).get(uid) if uid else None
+            u = db.query(User).filter(User.id == uid).first() if uid else None
             if u:
                 uname = u.username
-            db.add(SessionLog(user_id=uid, username=uname or "unknown", event="logout",
-                              ip_address=ip, user_agent=ua))
-            db.commit()
+            try:
+                db.add(SessionLog(user_id=uid, username=uname or "unknown", event="logout",
+                                  ip_address=ip, user_agent=ua))
+                db.commit()
+            except Exception:
+                db.rollback()
     return {"success": True}
 
 
