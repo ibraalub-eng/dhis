@@ -28,9 +28,18 @@ def _log_session_event(db, user_id, username, event, ip=None, ua=""):
                           ip_address=ip, user_agent=ua[:500] if ua else ""))
         db.commit()
         _session_table_ok = True
-    except Exception as e:
+    except Exception:
         db.rollback()
-        _session_table_ok = False
+        # Table might not exist yet — auto-create it
+        try:
+            SessionLog.__table__.create(db.get_bind(), checkfirst=True)
+            db.add(SessionLog(user_id=user_id, username=username, event=event,
+                              ip_address=ip, user_agent=ua[:500] if ua else ""))
+            db.commit()
+            _session_table_ok = True
+        except Exception:
+            db.rollback()
+            _session_table_ok = False
 
 
 class LoginRequest(BaseModel):
