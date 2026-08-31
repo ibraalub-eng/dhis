@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from bs4 import BeautifulSoup
 from app.engine.comparative import generate_comprehensive_report
-from app.engine.comparative.advanced_comparison import perform_advanced_comparison, AdvancedComparisonResult
+from app.engine.comparative.advanced_comparison import perform_advanced_comparison, AdvancedComparisonResult, PeerComparison
 
 
 def test_build_comprehensive_prompt_returns_string(db_session):
@@ -540,10 +540,10 @@ def test_peer_comparison_fields():
     p = PeerComparison(
         hospital_id="h1", hospital_name="H1",
         percentile=25.0, rank=1, total_hospitals=4,
-        comparison_label="متفوق",
+        comparison_label="حرج",
     )
     assert p.percentile == 25.0
-    assert p.comparison_label == "متفوق"
+    assert p.comparison_label == "حرج"
 
 
 def test_advanced_comparison_result_defaults():
@@ -768,26 +768,271 @@ def test_generate_comparison_chart_colors_stable_for_different_ids():
     assert len(set(colors)) >= 3
 
 
-# --- Peer Comparison Label Tests ---
+# --- Peer Comparison v2: Risk-Based Label Tests ---
 
-def test_peer_comparison_label_percentile_25():
-    p = PeerComparison("h1", "H1", 25.0, 1, 4, "متفوق")
-    assert p.comparison_label == "متفوق"
+def test_peer_risk_label_thresholds():
+    """حواف مئين المخاطرة: 75/50/25 -> critical/high/moderate/low (نصوص ضرورية)."""
+    # نختبر دالة التسمية مباشرة إن وُجدت، وإلا نختبر عبر بناء صفوف
+    from app.engine.comparative.advanced_comparison import _risk_label
+    assert _risk_label(100.0, "ar") == "حرج"
+    assert _risk_label(75.0, "ar") == "حرج"
+    assert _risk_label(74.9, "ar") == "عالي"
+    assert _risk_label(50.0, "ar") == "عالي"
+    assert _risk_label(49.9, "ar") == "متوسط"
+    assert _risk_label(25.0, "ar") == "متوسط"
+    assert _risk_label(24.9, "ar") == "منخفض"
+    assert _risk_label(0.0, "ar") == "منخفض"
+    assert _risk_label(100.0, "en") == "critical"
+    assert _risk_label(60.0, "en") == "high"
 
 
-def test_peer_comparison_label_percentile_50():
-    p = PeerComparison("h1", "H1", 50.0, 2, 4, "متوسط")
-    assert p.comparison_label == "متوسط"
+# --- Peer Comparison v2: Scope Filtering Tests ---
+
+from app.engine.comparative.advanced_comparison import compare_peers
+from app.engine.smart.schemas import (
+    SmartAnalyticsResult, SmartAnomalyResult, GeoAggregationResult,
+)
 
 
-def test_peer_comparison_label_percentile_75():
-    p = PeerComparison("h1", "H1", 75.0, 3, 4, "يحتاج تحسين")
-    assert p.comparison_label == "يحتاج تحسين"
+def _make_scope_analytics(anomalies):
+    """يبني SmartAnalyticsResult ثابتاً بقائمة شذوذ مُتحكَّم بها."""
+    return SmartAnalyticsResult(
+        month="2026-06",
+        hospitals_count=len(anomalies),
+        anomalies=anomalies,
+        clustering=MagicMock(),
+        correlations=MagicMock(),
+        residuals=[],
+        stratified=[],
+        explanations=[],
+        geo=GeoAggregationResult(governorates=[]),
+        kpi=MagicMock(),
+    )
 
 
-def test_peer_comparison_label_percentile_100():
-    p = PeerComparison("h1", "H1", 100.0, 4, 4, "حرج")
-    assert p.comparison_label == "حرج"
+def _make_scope_anomaly(hospital_id, name, score):
+    """يبني SmartAnomalyResult بدرجة تحكم محددة."""
+    return SmartAnomalyResult(
+        hospital_name=name,
+        hospital_id=hospital_id,
+        governorate="X",
+        hospital_type="Y",
+        anomaly_score=score,
+        method_scores={},
+        severity="warning",
+        is_outlier=True,
+    )
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_governorate_filters_by_fk(mock_analytics, db_session):
+    """نطاق governorate يُعيد فقط المستشفيات التي تشارك نفس governorate_id للمستشفى المرجعي."""
+    from app.models import Hospital, Governorate, HospitalType
+
+    gov_a = Governorate(name="Gov A")
+    gov_b = Governorate(name="Gov B")
+    db_session.add_all([gov_a, gov_b])
+    db_session.flush()
+
+    ref = Hospital(name="Ref Scope", is_active=True, governorate_id=gov_a.id)
+    same = Hospital(name="Same Gov", is_active=True, governorate_id=gov_a.id)
+    diff = Hospital(name="Diff Gov", is_active=True, governorate_id=gov_b.id)
+    db_session.add_all([ref, same, diff])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(ref.id, "Ref Scope", 0.9),
+        _make_scope_anomaly(same.id, "Same Gov", 0.7),
+        _make_scope_anomaly(diff.id, "Diff Gov", 0.5),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "governorate",
+                           hospital_id=str(ref.id), analytics=mock_analytics.return_value)
+
+    ids = {int(p.hospital_id) for p in result}
+    # المستشفى المرجعي + مستشفى نفس المحافظة فقط
+    assert ids == {ref.id, same.id}
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_type_filters_by_fk(mock_analytics, db_session):
+    """نطاق type يُعيد فقط المستشفيات التي تشارك نفس hospital_type_id للمستشفى المرجعي."""
+    from app.models import Hospital, Governorate, HospitalType
+
+    t_a = HospitalType(name="Type A")
+    t_b = HospitalType(name="Type B")
+    db_session.add_all([t_a, t_b])
+    db_session.flush()
+
+    ref = Hospital(name="Ref Type", is_active=True, hospital_type_id=t_a.id)
+    same = Hospital(name="Same Type", is_active=True, hospital_type_id=t_a.id)
+    diff = Hospital(name="Diff Type", is_active=True, hospital_type_id=t_b.id)
+    db_session.add_all([ref, same, diff])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(ref.id, "Ref Type", 0.9),
+        _make_scope_anomaly(same.id, "Same Type", 0.7),
+        _make_scope_anomaly(diff.id, "Diff Type", 0.5),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "type",
+                           hospital_id=str(ref.id), analytics=mock_analytics.return_value)
+
+    ids = {int(p.hospital_id) for p in result}
+    assert ids == {ref.id, same.id}
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_requires_hospital_id(mock_analytics, db_session):
+    """نطاق governorate/type بدون hospital_id يُعيد [] ولا يكلّف الاستعلام عن المستشفى المرجعي."""
+    anomalies = [_make_scope_anomaly(1, "H1", 0.5)]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    assert compare_peers(db_session, "2026-06", "governorate",
+                         analytics=mock_analytics.return_value) == []
+    assert compare_peers(db_session, "2026-06", "type",
+                         analytics=mock_analytics.return_value) == []
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_missing_hospital_returns_empty(mock_analytics, db_session):
+    """معرف مستشفى غير موجود يُعيد [] بأمان."""
+    anomalies = [_make_scope_anomaly(1, "H1", 0.5)]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    assert compare_peers(db_session, "2026-06", "governorate",
+                         hospital_id="999999", analytics=mock_analytics.return_value) == []
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_non_numeric_hospital_returns_empty(mock_analytics, db_session):
+    """معرف غير رقمي لا يرفع ValueError بل يُعيد [] بأمان."""
+    anomalies = [_make_scope_anomaly(1, "H1", 0.5)]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    assert compare_peers(db_session, "2026-06", "governorate",
+                         hospital_id="abc", analytics=mock_analytics.return_value) == []
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_scope_null_governorate_does_not_match(mock_analytics, db_session):
+    """مستشفى بلا محافظة (governorate_id=None) لا يطابق مستشفى بمحافظة محددة — مقارنة FK تفصل القيم الفارغة عن القيم الفعلية.
+
+    ملاحظة: عند مقارنة مستشفيين كلاهما بلا محافظة (None != None -> False) يتطابقان؛
+    هذا سلوك متأصل متساوٍ في المقارنة الجديدة (FK) والقديمة (كائن العلاقة)،
+    وليس خطراً جديداً — نتحقق هنا فقط من أن القيمة الفارغة لا تطابق قيمة محددة."""
+    from app.models import Hospital, Governorate
+
+    gov_a = Governorate(name="Gov A")
+    db_session.add(gov_a)
+    db_session.flush()
+
+    ref = Hospital(name="Ref No Gov", is_active=True)
+    ref.governorate_id = None
+    no_gov_peer = Hospital(name="No Gov Peer", is_active=True)
+    no_gov_peer.governorate_id = None
+    with_gov = Hospital(name="With Gov", is_active=True, governorate_id=gov_a.id)
+    db_session.add_all([ref, no_gov_peer, with_gov])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(ref.id, "Ref No Gov", 0.9),
+        _make_scope_anomaly(no_gov_peer.id, "No Gov Peer", 0.7),
+        _make_scope_anomaly(with_gov.id, "With Gov", 0.5),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "governorate",
+                           hospital_id=str(ref.id), analytics=mock_analytics.return_value)
+
+    # المرجع بلا محافظة — مجموعة نظراء فارغة المحافظة تتضمن المرجع والأقران بلا محافظة (None == None)
+    ids = {int(p.hospital_id) for p in result}
+    assert ids == {ref.id, no_gov_peer.id}
+    assert with_gov.id not in ids
+
+
+# --- Peer Comparison v2: Risk Ranking, Percentile, Tie-Break Tests ---
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_rank_desc_by_anomaly_score(mock_analytics, db_session):
+    """الرتبة تُرتّب المستشفيات تنازلياً بالدرجة: الأعلى درجة أولاً (الأخطر)."""
+    from app.models import Hospital
+
+    h1 = Hospital(name="Low Risk", is_active=True)
+    h2 = Hospital(name="Mid Risk", is_active=True)
+    h3 = Hospital(name="High Risk", is_active=True)
+    db_session.add_all([h1, h2, h3])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(h1.id, "Low Risk", 0.2),
+        _make_scope_anomaly(h2.id, "Mid Risk", 0.5),
+        _make_scope_anomaly(h3.id, "High Risk", 0.9),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "all",
+                           analytics=mock_analytics.return_value)
+
+    names = [p.hospital_name for p in result]
+    assert names == ["High Risk", "Mid Risk", "Low Risk"]
+    assert [p.rank for p in result] == [1, 2, 3]
+    assert [p.anomaly_score for p in result] == [0.9, 0.5, 0.2]
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_ascending_risk_percentile(mock_analytics, db_session):
+    """مئين المخاطر صاعد: الرتبة 1 (الأخطر) -> 100، وتنخفض مع الرتبة."""
+    from app.models import Hospital
+
+    h1 = Hospital(name="Low", is_active=True)
+    h2 = Hospital(name="Mid", is_active=True)
+    h3 = Hospital(name="High", is_active=True)
+    db_session.add_all([h1, h2, h3])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(h1.id, "Low", 0.2),
+        _make_scope_anomaly(h2.id, "Mid", 0.5),
+        _make_scope_anomaly(h3.id, "High", 0.9),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "all",
+                           analytics=mock_analytics.return_value)
+
+    assert len(result) == 3
+    assert [p.percentile for p in result] == [100.0, round(100.0 * 2 / 3, 1), round(100.0 * 1 / 3, 1)]
+    # الأعلى درجة (رتبة 1) عمودي مئين 100
+    ranked_by_score = sorted(result, key=lambda p: p.anomaly_score, reverse=True)
+    assert ranked_by_score[0].rank == 1
+    assert ranked_by_score[0].percentile == 100.0
+
+
+@patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
+def test_compare_peers_equalscore_name_tiebreak(mock_analytics, db_session):
+    """درجتان متساويتان تُرتّبان بالاسم تصاعدياً (حتميّ)."""
+    from app.models import Hospital
+
+    h_b = Hospital(name="Zebra", is_active=True)
+    h_a = Hospital(name="Alpha", is_active=True)
+    db_session.add_all([h_b, h_a])
+    db_session.flush()
+
+    anomalies = [
+        _make_scope_anomaly(h_b.id, "Zebra", 0.5),
+        _make_scope_anomaly(h_a.id, "Alpha", 0.5),
+    ]
+    mock_analytics.return_value = _make_scope_analytics(anomalies)
+
+    result = compare_peers(db_session, "2026-06", "all",
+                           analytics=mock_analytics.return_value)
+
+    assert len(result) == 2
+    assert [p.hospital_name for p in result] == ["Alpha", "Zebra"]
 
 
 # --- Endpoint Error Handling Tests ---
@@ -823,16 +1068,45 @@ def test_advanced_comparison_trends_structure(client):
         assert isinstance(trend["values"], dict)
 
 
-def test_advanced_comparison_peer_comparison_structure(client):
+@patch("app.engine.comparative.advanced_comparison.compare_peers")
+def test_advanced_comparison_peer_comparison_structure(mock_compare_peers, client):
+    # seeded DB يعجز عن مقارنة الأقران (لا صفوف IndicatorValue)؛ نحوّل compare_peers
+    # ليُعيد قائمة أقران فعلية حتى تُختبر مسار Serialization وقيم anomaly_score بالفعل.
+    mock_compare_peers.return_value = [
+        PeerComparison(
+            hospital_id="1",
+            hospital_name="Hospital A",
+            percentile=100.0,
+            rank=1,
+            total_hospitals=2,
+            comparison_label="critical",
+            anomaly_score=83.5,
+        ),
+        PeerComparison(
+            hospital_id="2",
+            hospital_name="Hospital B",
+            percentile=50.0,
+            rank=2,
+            total_hospitals=2,
+            comparison_label="high",
+            anomaly_score=42.0,
+        ),
+    ]
     response = client.get("/comparative/advanced-comparison/2026-06")
     data = response.json()
-    for peer in data["comparison_data"]["peer_comparison"]:
+    peers = data["comparison_data"]["peer_comparison"]
+    assert len(peers) == 2
+    for peer in peers:
         assert "hospital_id" in peer
         assert "hospital_name" in peer
         assert "percentile" in peer
         assert "rank" in peer
         assert "total_hospitals" in peer
         assert "comparison_label" in peer
+        assert "anomaly_score" in peer
+    by_id = {peer["hospital_id"]: peer for peer in peers}
+    assert by_id["1"]["anomaly_score"] == 83.5
+    assert by_id["2"]["anomaly_score"] == 42.0
 
 
 def test_advanced_comparison_chart_has_required_keys(client):

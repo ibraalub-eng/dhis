@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 import zlib
 from sqlalchemy.orm import Session
 from app.engine.smart import run_smart_analytics
+from app.models import Hospital
 
 
 @dataclass
@@ -23,6 +24,7 @@ class PeerComparison:
     rank: int
     total_hospitals: int
     comparison_label: str
+    anomaly_score: float = 0.0
 
 
 @dataclass
@@ -76,10 +78,13 @@ def perform_advanced_comparison(
 
     trends = analyze_trends(historical_data, hospital_id)
 
-    peer_comparisons = compare_peers(session, month, comparison_type, lang=lang)
-
     current_analytics = run_smart_analytics(session, month)
     predictions = current_analytics.xgboost_predictions.__dict__ if current_analytics.xgboost_predictions else {}
+
+    peer_comparisons = compare_peers(
+        session, month, comparison_type, hospital_id=hospital_id, lang=lang,
+        analytics=current_analytics,
+    )
 
     chart_config = generate_comparison_chart(trends, peer_comparisons)
 
@@ -126,64 +131,94 @@ def analyze_trends(historical_data: Dict[str, Any], hospital_id: Optional[str] =
     return trends
 
 
-def compare_peers(session: Session, month: str, comparison_type: str, lang: str = "ar") -> List[PeerComparison]:
-    """مقارنة المستشفيات ببعضها"""
-    from app.models import Hospital, IndicatorValue
+_RISK_LABELS = {
+    "ar": {"critical": "حرج", "high": "عالي", "moderate": "متوسط", "low": "منخفض"},
+    "en": {"critical": "critical", "high": "high", "moderate": "moderate", "low": "low"},
+}
 
-    _labels = {
-        "ar": {"top": "متفوق", "mid": "متوسط", "low": "يحتاج تحسين", "crit": "حرج"},
-        "en": {"top": "Excellent", "mid": "Average", "low": "Needs improvement", "crit": "Critical"},
-    }
-    labels = _labels.get(lang, _labels["ar"])
+
+def _risk_label(risk_percentile: float, lang: str = "ar") -> str:
+    """تسمية مستوى الخطر حسب مئين المخاطرة الصاعد (الأعلى = الأخطر)."""
+    labels = _RISK_LABELS.get(lang, _RISK_LABELS["ar"])
+    if risk_percentile >= 75:
+        return labels["critical"]
+    if risk_percentile >= 50:
+        return labels["high"]
+    if risk_percentile >= 25:
+        return labels["moderate"]
+    return labels["low"]
+
+
+def _anomaly_map(analytics) -> Dict[int, dict]:
+    """خريطة hospital_id -> {name, score} من نتائج التحليل."""
+    out = {}
+    for a in (analytics.anomalies or []) if analytics else []:
+        out[a.hospital_id] = {
+            "name": a.hospital_name,
+            "score": a.anomaly_score,
+        }
+    return out
+
+
+def compare_peers(
+    session: Session,
+    month: str,
+    comparison_type: str = "all",
+    hospital_id: Optional[str] = None,
+    lang: str = "ar",
+    analytics=None,
+) -> List[PeerComparison]:
+    """مقارنة المستشفيات بدرجة الخطر (anomaly_score) داخل مجموعة النظير.
+
+    - المعيار: anomaly_score تنازلياً (الرتبة 1 = الأخطر).
+    - مئين المخاطرة صاعد: الرتبة 1 -> 100.
+    - النطاق: all = كل النشطة؛ governorate/type تتطلب hospital_id وتفلتر بالمحافظة/النوع.
+    """
+    ana_map = _anomaly_map(analytics)
 
     hospitals = session.query(Hospital).filter(Hospital.is_active.is_(True)).all()
+    # الفلتر حسب النطاق أولاً
+    ref = None
+    if comparison_type in ("governorate", "type"):
+        if not hospital_id:
+            return []
+        try:
+            ref = session.query(Hospital).get(int(hospital_id))
+        except ValueError:
+            return []
+        if ref is None:
+            return []
 
-    if len(hospitals) < 2:
+    candidates = []
+    for h in hospitals:
+        info = ana_map.get(h.id)
+        if info is None:
+            continue  # لا بيانات للمستشفى هذا الشهر
+        if comparison_type == "governorate" and h.governorate_id != ref.governorate_id:
+            continue
+        if comparison_type == "type" and h.hospital_type_id != ref.hospital_type_id:
+            continue
+        candidates.append((h.id, info["name"], info["score"]))
+
+    if len(candidates) < 2:
         return []
 
-    month_data = {}
-    for hospital in hospitals:
-        values = session.query(IndicatorValue).filter(
-            IndicatorValue.hospital_id == hospital.id,
-            IndicatorValue.month == month
-        ).all()
+    # ترتيب تنازلي بالدرجة، وكسر تعادل حتمي بالاسم
+    candidates.sort(key=lambda c: (-c[2], c[1]))
 
-        if values:
-            total_cases = sum(v.value for v in values if v.value)
-            month_data[hospital.id] = {
-                "hospital_name": hospital.name,
-                "total_cases": total_cases
-            }
-
-    if not month_data:
-        return []
-
-    sorted_hospitals = sorted(month_data.items(), key=lambda x: x[1]["total_cases"], reverse=True)
-
+    total = len(candidates)
     comparisons = []
-    total = len(sorted_hospitals)
-
-    for rank, (hosp_id, data) in enumerate(sorted_hospitals, 1):
-        percentile = (rank / total) * 100
-
-        if percentile <= 25:
-            label = labels["top"]
-        elif percentile <= 50:
-            label = labels["mid"]
-        elif percentile <= 75:
-            label = labels["low"]
-        else:
-            label = labels["crit"]
-
+    for rank, (hosp_id, name, score) in enumerate(candidates, 1):
+        risk_percentile = round(100.0 * (total - rank + 1) / total, 1)
         comparisons.append(PeerComparison(
             hospital_id=str(hosp_id),
-            hospital_name=data["hospital_name"],
-            percentile=percentile,
+            hospital_name=name,
+            percentile=risk_percentile,
             rank=rank,
             total_hospitals=total,
-            comparison_label=label
+            comparison_label=_risk_label(risk_percentile, lang),
+            anomaly_score=round(score, 4),
         ))
-
     return comparisons
 
 

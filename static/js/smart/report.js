@@ -10,19 +10,16 @@ function reportLang() {
 
 // Language-agnostic label-to-severity mapping
 const _LABEL_LEVELS = {
-  // Arabic labels
-  'متفوق': 'normal',   // Excellent
-  'متوسط': 'normal',    // Average
-  'يحتاج تحسين': 'warning',  // Needs improvement
-  'حرج': 'critical',            // Critical
-  'طبيعي': 'normal',    // Normal
-  // English labels
-  'Excellent': 'normal',
-  'Average': 'normal',
-  'Needs improvement': 'warning',
-  'Needs Improvement': 'warning',
-  'Critical': 'critical',
-  'Normal': 'normal',
+  // Arabic risk labels
+  'حرج': 'critical',
+  'عالي': 'warning',
+  'متوسط': 'normal',
+  'منخفض': 'normal',
+  // English risk labels
+  'critical': 'critical',
+  'high': 'warning',
+  'moderate': 'normal',
+  'low': 'normal',
 };
 
 function _labelToLevel(label) {
@@ -213,9 +210,10 @@ export async function renderComparison(scope) {
     const peer = document.getElementById('smart-peer-comparison-table');
     if (peer) {
       peer.innerHTML = `<div class="smart-table-wrap"><table><thead><tr>
-        <th>${_t('Rank')}</th><th>${_t('Hospital')}</th><th>${_t('Percentile')}</th><th>${_t('Assessment')}</th></tr></thead><tbody>` +
+        <th>${_t('Rank')}</th><th>${_t('Hospital')}</th><th>${_t('Anomaly score')}</th><th>${_t('Percentile')}</th><th>${_t('Assessment')}</th></tr></thead><tbody>` +
         peers.map(p => `<tr><td style="text-align:center;font-weight:600;">${p.rank}</td>
           <td>${_smartEscapeHtml(p.hospital_name)}</td>
+          <td style="text-align:center;">${_fmtNum(p.anomaly_score)}</td>
           <td style="text-align:center;">${p.percentile.toFixed(1)}%</td>
           <td>${_riskBadge(p.comparison_label, _labelToLevel(p.comparison_label))}</td></tr>`).join('') +
         `</tbody></table></div>`;
