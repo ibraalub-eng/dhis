@@ -631,14 +631,15 @@ def run_xgboost_predictions(
         )
 
     current_idx = all_months.index(current_month) if current_month in all_months else len(all_months) - 1
-    train_months = all_months[:current_idx + 1]
+    # Include the NEXT month so target labels (next vs cur) can be computed
+    end_idx = min(current_idx + 1, len(all_months))
+    train_months = all_months[:end_idx + 1]
 
     all_rows, hospital_names = _load_multi_month_data(session, train_months)
     if not all_rows or len(hospital_names) < 3:
         return XGBoostPredictionResult(
-            model_r2=0.0, model_mae=0.0, training_months=len(train_months),
-            hospitals_trained=0, predictions=[], global_feature_importance=[],
-            accuracy_note="Not enough hospital data for training.",
+            model_r2=0.0, model_mae=0.0, training_months=len(train_months), hospitals_trained=0,
+            predictions=[], global_feature_importance=[], accuracy_note="Not enough hospital data for training.",
         )
 
     # المتجه الفائق: الميزات الأساسية + المشتقة + الفروق الأربعة + التأخرات والفروق الموسّعة.
@@ -646,8 +647,10 @@ def run_xgboost_predictions(
         all_rows, hospital_names, current_idx
     )
 
+    # Pass ALL loaded months (including next) so target labels can use next-month data
+    all_loaded_months = sorted(set(r["month"] for r in all_rows))
     current_scores, target_scores, labels_defined = _compute_target_scores(
-        all_rows, meta, all_months[:current_idx + 1]
+        all_rows, meta, all_loaded_months
     )
 
     # ── تدريب بلا تسريب: فقط الصفوف ذات هدف مستقبلي معرّف (next vs cur) ──
