@@ -452,19 +452,25 @@ function renderHospitalLagTimeline(lagData, indicators) {
     `;
   }).join('');
 
+  // Store lags data globally for modal access
+  window._currentLagData = lags;
+
   // Nodes
   const nodesHtml = nodes.map(n => {
     const pos = nodePositions[n.code];
-    // Check if this node is a leader (has outgoing lag)
     const isLeader = lags.some(f => f.indicator_a === n.code);
     const isFollower = lags.some(f => f.indicator_b === n.code);
     const borderColor = isLeader ? tc.blue : isFollower ? tc.red : borderDef;
     const bgColor = isLeader ? 'rgba(79,140,255,0.08)' : isFollower ? 'rgba(248,113,113,0.08)' : bgSurface;
+    const escapedCode = n.code.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const escapedLabel = n.label.replace(/'/g, "\\'").replace(/"/g, '&quot;');
     return `
-      <rect x="${pos.x - 35}" y="${pos.y - 18}" width="70" height="36" rx="8" fill="${bgColor}" stroke="${borderColor}" stroke-width="1.5"/>
-      <text x="${pos.x}" y="${pos.y + 1}" text-anchor="middle" font-size="8" font-weight="600" fill="${textPrimary}">
-        ${shortenName(n.label, 10)}
-      </text>
+      <g onclick="window.showLagDetailModal('${escapedCode}', '${escapedLabel}')" style="cursor:pointer;">
+        <rect x="${pos.x - 35}" y="${pos.y - 18}" width="70" height="36" rx="8" fill="${bgColor}" stroke="${borderColor}" stroke-width="1.5"/>
+        <text x="${pos.x}" y="${pos.y + 1}" text-anchor="middle" font-size="8" font-weight="600" fill="${textPrimary}" style="pointer-events:none;">
+          ${shortenName(n.label, 10)}
+        </text>
+      </g>
     `;
   }).join('');
 
@@ -481,11 +487,20 @@ function renderHospitalLagTimeline(lagData, indicators) {
     </div>
   `;
 
+  // Add lag modal container if not exists
+  let lagModal = document.getElementById('lag-detail-modal');
+  if (!lagModal) {
+    lagModal = document.createElement('div');
+    lagModal.id = 'lag-detail-modal';
+    lagModal.className = 'modal-overlay';
+    lagModal.style.cssText = 'display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.45);z-index:1100;align-items:center;justify-content:center;';
+    document.body.appendChild(lagModal);
+  }
+
   c.innerHTML = `
     <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">⏱️ ${_t('Lag Relationships Timeline')}</div>
     <div style="overflow-x:auto;padding:0.5rem 0;">
       <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" style="display:block;">
-        <!-- Timeline axis -->
         <line x1="20" y1="${svgH - 15}" x2="${svgW - 20}" y2="${svgH - 15}" stroke="${borderDef}" stroke-width="1"/>
         <text x="${svgW / 2}" y="${svgH - 3}" text-anchor="middle" font-size="8" fill="var(--text-muted)">
           ${_t('Leading')} ← ${_t('time')} → ${_t('Lagging')}
@@ -496,10 +511,130 @@ function renderHospitalLagTimeline(lagData, indicators) {
     </div>
     ${legendHtml}
     <div style="margin-top:0.4rem;font-size:0.72rem;color:var(--text-muted);font-style:italic;">
+      ${_t('Click any indicator node to view detailed lag analysis.')}<br/>
       ${_t('Arrows show indicator A leading indicator B by the indicated lag. Thickness = correlation strength.')}
     </div>
   `;
 }
+
+window.showLagDetailModal = function(indicatorCode, indicatorLabel) {
+  const lags = window._currentLagData || [];
+  if (!lags.length) return;
+
+  // Find all relationships involving this indicator
+  const outgoing = lags.filter(f => f.indicator_a === indicatorCode);
+  const incoming = lags.filter(f => f.indicator_b === indicatorCode);
+  const total = outgoing.length + incoming.length;
+  if (!total) return;
+
+  const tc = getThemeColors();
+
+  function renderRelationship(f, type) {
+    const isPos = f.direction === 'positive';
+    const r = f.lag_pearson || f.correlation || 0;
+    const absR = Math.abs(r);
+    const strengthColor = absR >= 0.6 ? tc.green : absR >= 0.4 ? tc.orange : tc.red;
+    const confColor = f.confidence === 'high' ? tc.green : f.confidence === 'medium' ? tc.orange : tc.red;
+    const confLabel = f.confidence === 'high' ? _t('High') : f.confidence === 'medium' ? _t('Medium') : _t('Low');
+    const dirIcon = isPos ? '📈' : '📉';
+    const dirColor = isPos ? tc.green : tc.red;
+    const otherName = type === 'outgoing' ? (f.indicator_b_ar || f.indicator_b) : (f.indicator_a_ar || f.indicator_a);
+    const otherCode = type === 'outgoing' ? f.indicator_b : f.indicator_a;
+    const arrowDir = type === 'outgoing' ? '→' : '←';
+    const strengthLabel = absR >= 0.6 ? _t('Strong') : absR >= 0.4 ? _t('Moderate') : _t('Weak');
+
+    return `
+      <div style="background:${tc.bgElevated};border:1px solid ${tc.borderDefault};border-radius:8px;padding:0.7rem 0.8rem;margin-bottom:0.5rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem;">
+          <div style="display:flex;align-items:center;gap:0.5rem;">
+            <span style="font-size:1rem;">${type === 'outgoing' ? '📤' : '📥'}</span>
+            <span style="font-size:0.78rem;font-weight:600;color:${tc.textPrimary};">${_smartEscapeHtml(otherName)}</span>
+          </div>
+          <span style="font-size:0.75rem;color:${tc.textMuted};">${_smartEscapeHtml(otherCode)}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+          <span style="font-size:0.72rem;background:${tc.bgInput};padding:0.2rem 0.5rem;border-radius:4px;color:${dirColor};font-weight:600;">
+            ${dirIcon} ${arrowDir} ${isPos ? _t('Positive') : _t('Negative')}
+          </span>
+          <span style="font-size:0.72rem;background:${tc.bgInput};padding:0.2rem 0.5rem;border-radius:4px;color:${strengthColor};font-weight:600;">
+            r=${_fmtNum(r, 2)} · ${strengthLabel}
+          </span>
+          <span style="font-size:0.72rem;background:${tc.bgInput};padding:0.2rem 0.5rem;border-radius:4px;color:${tc.accentBlue};font-weight:600;">
+            ⏱ ${f.lag} ${_t('months')}
+          </span>
+          <span style="font-size:0.72rem;background:${tc.bgInput};padding:0.2rem 0.5rem;border-radius:4px;color:${confColor};font-weight:600;">
+            🎯 ${confLabel} ${_t('confidence')}
+          </span>
+        </div>
+      </div>
+    `;
+  }
+
+  const outgoingHtml = outgoing.length ? `
+    <div style="margin-top:0.6rem;">
+      <div style="font-size:0.78rem;font-weight:600;color:${tc.blue};margin-bottom:0.4rem;">📤 ${_t('Leads (causes changes in)')}</div>
+      ${outgoing.map(f => renderRelationship(f, 'outgoing')).join('')}
+    </div>
+  ` : '';
+
+  const incomingHtml = incoming.length ? `
+    <div style="margin-top:0.6rem;">
+      <div style="font-size:0.78rem;font-weight:600;color:${tc.red};margin-bottom:0.4rem;">📥 ${_t('Lagged by (affected by)')}</div>
+      ${incoming.map(f => renderRelationship(f, 'incoming')).join('')}
+    </div>
+  ` : '';
+
+  // Summary stats
+  const avgAbsR = total > 0 ? outgoing.concat(incoming).reduce((s, f) => s + Math.abs(f.lag_pearson || f.correlation || 0), 0) / total : 0;
+  const avgLag = total > 0 ? outgoing.concat(incoming).reduce((s, f) => s + (f.lag || 0), 0) / total : 0;
+  const highConf = outgoing.concat(incoming).filter(f => f.confidence === 'high').length;
+
+  const modal = document.getElementById('lag-detail-modal');
+  modal.innerHTML = `
+    <div style="background:${tc.bgSurface};border-radius:12px;padding:1.2rem;max-width:520px;width:92%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.25);">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.8rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span style="font-size:1.1rem;">⏱️</span>
+          <span style="font-size:0.95rem;font-weight:700;color:${tc.textPrimary};">${_smartEscapeHtml(indicatorLabel)}</span>
+        </div>
+        <button onclick="document.getElementById('lag-detail-modal').style.display='none'" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:${tc.textMuted};padding:0.2rem;">✕</button>
+      </div>
+      <div style="font-size:0.75rem;color:${tc.textMuted};margin-bottom:0.8rem;">${_smartEscapeHtml(indicatorCode)}</div>
+
+      <div style="display:flex;gap:0.6rem;margin-bottom:0.8rem;flex-wrap:wrap;">
+        <div style="background:${tc.bgInput};border-radius:6px;padding:0.4rem 0.7rem;text-align:center;min-width:80px;">
+          <div style="font-size:0.65rem;color:${tc.textMuted};">${_t('Relationships')}</div>
+          <div style="font-size:1.1rem;font-weight:700;color:${tc.textPrimary};">${total}</div>
+        </div>
+        <div style="background:${tc.bgInput};border-radius:6px;padding:0.4rem 0.7rem;text-align:center;min-width:80px;">
+          <div style="font-size:0.65rem;color:${tc.textMuted};">${_t('Avg |r|')}</div>
+          <div style="font-size:1.1rem;font-weight:700;color:${tc.textPrimary};">${_fmtNum(avgAbsR, 2)}</div>
+        </div>
+        <div style="background:${tc.bgInput};border-radius:6px;padding:0.4rem 0.7rem;text-align:center;min-width:80px;">
+          <div style="font-size:0.65rem;color:${tc.textMuted};">${_t('Avg Lag')}</div>
+          <div style="font-size:1.1rem;font-weight:700;color:${tc.textPrimary};">${_fmtNum(avgLag, 1)}m</div>
+        </div>
+        <div style="background:${tc.bgInput};border-radius:6px;padding:0.4rem 0.7rem;text-align:center;min-width:80px;">
+          <div style="font-size:0.65rem;color:${tc.textMuted};">${_t('High Conf.')}</div>
+          <div style="font-size:1.1rem;font-weight:700;color:${highConf > 0 ? tc.green : tc.textMuted};">${highConf}/${total}</div>
+        </div>
+      </div>
+
+      ${outgoingHtml}
+      ${incomingHtml}
+
+      <div style="margin-top:0.8rem;padding-top:0.5rem;border-top:1px solid ${tc.borderDefault};font-size:0.7rem;color:${tc.textMuted};font-style:italic;">
+        ${_t('Granger causality and FDR-corrected. Click arrow labels on the timeline for correlation details.')}
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+
+  // Close on backdrop click
+  modal.onclick = function(e) {
+    if (e.target === modal) modal.style.display = 'none';
+  };
+};
 
 export function renderHospitalFactors(anomaly, explanation, containerId) {
   const c = document.getElementById(containerId || 'smart-hospital-factors');
