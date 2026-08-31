@@ -99,38 +99,63 @@ window.unregisterChart = function(chartInstance) {
   _chartRegistry.delete(chartInstance);
 };
 
+var _refreshDebounce = null;
+
 window.refreshAllCharts = function() {
+  // Debounce: collapse rapid consecutive calls (e.g. theme toggle + DOM updates)
+  if (_refreshDebounce) clearTimeout(_refreshDebounce);
+  _refreshDebounce = setTimeout(function() {
+    _refreshDebounce = null;
+    _doRefreshAllCharts();
+  }, 120);
+};
+
+function _doRefreshAllCharts() {
   // 1. Update CHART_COLORS from CSS variables
   if (window.__refreshChartColors) window.__refreshChartColors();
 
   var _cs = getComputedStyle(document.documentElement);
   var textColor = _cs.getPropertyValue('--text-secondary').trim() || '#9AA0AC';
   var gridColor = _cs.getPropertyValue('--border-default').trim() || '#2A2E3B';
+  var primaryColor = CHART_COLORS.primary || '#14b8a6';
+  var secondaryColor = CHART_COLORS.secondary || '#8b5cf6';
+  var warningColor = CHART_COLORS.warning || '#f59e0b';
+  var successColor = CHART_COLORS.success || '#22c55e';
+  var surfaceColor = getCSSVar('--bg-surface') || '#1A1D27';
+  var elevatedColor = getCSSVar('--bg-elevated') || '#1e293b';
 
-  // 2. Update Plotly charts (smart analytics, outliers, validation)
-  document.querySelectorAll('.js-plotly-plot, [id*="smart-"]').forEach(function(el) {
-    if (el.__plotly && typeof Plotly !== 'undefined') {
+  // 2. Update Plotly charts — font, grid, backgrounds, and trace colors
+  document.querySelectorAll('.js-plotly-plot').forEach(function(el) {
+    if (typeof Plotly === 'undefined' || !el.data) return;
+    try {
+      // Update layout (font, grid, background)
       Plotly.relayout(el, {
         'font.color': textColor,
-        'xaxis.gridcolor': gridColor,
-        'yaxis.gridcolor': gridColor,
         'paper.bgcolor': 'rgba(0,0,0,0)',
         'plot.bgcolor': 'rgba(0,0,0,0)',
       });
-    }
+      // Update grid colors on all axes
+      var updateAxes = {};
+      el.data.forEach(function(trace, i) {
+        if (trace.xaxis) updateAxes[trace.xaxis + '.gridcolor'] = gridColor;
+        if (trace.yaxis) updateAxes[trace.yaxis + '.gridcolor'] = gridColor;
+      });
+      if (Object.keys(updateAxes).length) Plotly.relayout(el, updateAxes);
+    } catch(e) { /* ignore */ }
   });
 
-  // 3. Directly update Chart.js instances without destroy/recreate
+  // 3. Update Chart.js instances
   _chartRegistry.forEach(function(chart) {
     try {
       if (!chart || !chart.canvas || !chart.canvas.parentNode) {
         _chartRegistry.delete(chart);
         return;
       }
-      // Update legend and tick colors
+      // Update legend
       if (chart.options && chart.options.plugins && chart.options.plugins.legend && chart.options.plugins.legend.labels) {
         chart.options.plugins.legend.labels.color = CHART_COLORS.neutral;
       }
+      // Update scales (axes, grid, ticks, titles)
       if (chart.options && chart.options.scales) {
         Object.values(chart.options.scales).forEach(function(scale) {
           if (scale.ticks) scale.ticks.color = CHART_COLORS.neutral;
@@ -138,28 +163,44 @@ window.refreshAllCharts = function() {
           if (scale.title && scale.title.color !== undefined) scale.title.color = CHART_COLORS.neutral;
         });
       }
-      // Update tooltip background color
+      // Update tooltip
       if (chart.options && chart.options.plugins && chart.options.plugins.tooltip) {
-        chart.options.plugins.tooltip.backgroundColor = getCSSVar('--bg-elevated') || '#1e293b';
+        chart.options.plugins.tooltip.backgroundColor = elevatedColor;
         chart.options.plugins.tooltip.titleFont = chart.options.plugins.tooltip.titleFont || {};
         chart.options.plugins.tooltip.titleFont.color = getCSSVar('--text-primary') || '#e5e7eb';
         chart.options.plugins.tooltip.bodyFont = chart.options.plugins.tooltip.bodyFont || {};
         chart.options.plugins.tooltip.bodyFont.color = getCSSVar('--text-secondary') || '#9ca3af';
       }
-      // Update dataset border/point colors to match new theme.
+      // Update dataset colors
       if (chart.data && chart.data.datasets) {
-        var colorMap = { primary: CHART_COLORS.primary, secondary: CHART_COLORS.secondary,
-          accent: CHART_COLORS.accent, warning: CHART_COLORS.warning, success: CHART_COLORS.success };
+        var colorMap = {
+          primary: primaryColor, secondary: secondaryColor,
+          accent: CHART_COLORS.accent, warning: warningColor, success: successColor
+        };
         chart.data.datasets.forEach(function(ds, i) {
           var role = ds._colorRole || (i === 0 ? 'primary' : i === 1 ? 'secondary' : 'success');
-          var newColor = colorMap[role] || CHART_COLORS.primary;
+          var newColor = colorMap[role] || primaryColor;
           if (ds.borderColor) ds.borderColor = newColor;
           if (ds.backgroundColor && ds.backgroundColor !== 'transparent' && ds.backgroundColor !== 'rgba(0,0,0,0)') {
             ds.backgroundColor = newColor;
           }
+          if (ds.pointBackgroundColor) ds.pointBackgroundColor = newColor;
         });
       }
-      chart.update('none'); // Update without animation for instant effect
+      chart.update('none');
     } catch(e) { /* ignore */ }
   });
-};
+}
+
+// ── MutationObserver: auto-refresh charts when data-theme changes ──────
+if (typeof MutationObserver !== 'undefined') {
+  var _themeObserver = new MutationObserver(function(mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      if (mutations[i].attributeName === 'data-theme') {
+        if (window.refreshAllCharts) window.refreshAllCharts();
+        break;
+      }
+    }
+  });
+  _themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+}
