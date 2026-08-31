@@ -47,8 +47,8 @@ Located in `_renderRootCauseResult(d, hid, mth)` (line ~569), the trend block sp
 Replace the Plotly block with a Chart.js chart mirroring the existing `drawRcTimelineChart` pattern (lines 233–362) so the codebase stays consistent.
 
 ### Data & Datasets
-- **Quality Score** — line, `yAxisID: 'y'` (left), spline via `tension: 0.3`, `borderColor: CHART_COLORS.primary` (or accent-blue), `backgroundColor` matching, per-point `pointBackgroundColor` computed from value (≥80 success/green, ≥50 warning/orange, else accent-red), `pointRadius: 5`, `pointHoverRadius: 7`, `fill: false`.
-- **Confidence** — line, `yAxisID: 'y'` (left), `borderDash: [5,5]`, `borderColor` success/green, `pointRadius: 3`, `fill: false`, `tension: 0.3`.
+- **Quality Score** — line, `yAxisID: 'y'` (left), spline via `tension: 0.3`, `borderColor: CHART_COLORS.primary` (teal), `backgroundColor` matching, per-point `pointBackgroundColor` computed from value (≥80 `CHART_COLORS.success`, ≥50 `CHART_COLORS.warning`, else `CHART_COLORS.accent`), `pointRadius: 5`, `pointHoverRadius: 7`, `fill: false`.
+- **Confidence** — line, `yAxisID: 'y'` (left), `borderDash: [5,5]`, `borderColor` `CHART_COLORS.success`, `pointRadius: 3`, `fill: false`, `tension: 0.3`.
 - **Critical Issues** — `type: 'bar'` mixed via `new Chart(ctx, { data: { datasets: [...] } })` where the bar dataset has `type: 'bar'`; `yAxisID: 'y1'` (right); `backgroundColor` per-point `rgba(239,68,68,0.35)` where value>0 else `rgba(74,222,128,0.2)`.
 
 > **Note on mixed charts:** Chart.js supports mixed charts by setting `type: 'bar'` on an individual dataset within a `'line'` chart. To keep this simple and robust, the chart uses `type: 'line'` with the bar dataset declaring its own `type: 'bar'`.
