@@ -1,7 +1,7 @@
 """Authentication endpoints: login, refresh, logout, me."""
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -11,7 +11,7 @@ from app.core.security import (
     create_access_token, create_refresh_token, decode_token,
 )
 from app.core.deps import get_current_user
-from app.models import User, RefreshToken
+from app.models import User, RefreshToken, SessionLog
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -30,11 +30,19 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(req: LoginRequest, db: Session = Depends(get_db)):
+def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == req.username).first()
+    ip = request.client.host if request.client else None
+    ua = (request.headers.get("user-agent", ""))[:500]
     if user is None or not verify_password(req.password, user.password_hash):
+        db.add(SessionLog(user_id=user.id if user else None, username=req.username,
+                          event="failed_login", ip_address=ip, user_agent=ua))
+        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
+        db.add(SessionLog(user_id=user.id, username=req.username,
+                          event="inactive_account", ip_address=ip, user_agent=ua))
+        db.commit()
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is inactive")
 
     roles = [r.name for r in user.roles]
@@ -47,6 +55,8 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
     rt = RefreshToken(user_id=user.id, token_jti=jti, expires_at=expires_at)
     db.add(rt)
+    db.add(SessionLog(user_id=user.id, username=user.username, event="login",
+                      ip_address=ip, user_agent=ua))
     db.commit()
 
     return TokenResponse(
@@ -100,12 +110,21 @@ class LogoutRequest(BaseModel):
 
 
 @router.post("/logout")
-def logout(req: LogoutRequest, db: Session = Depends(get_db)):
+def logout(req: LogoutRequest, request: Request, db: Session = Depends(get_db)):
     payload = decode_token(req.refresh_token)
+    ip = request.client.host if request.client else None
+    ua = (request.headers.get("user-agent", ""))[:500]
     if payload and payload.get("jti"):
         rt = db.query(RefreshToken).filter(RefreshToken.token_jti == payload["jti"]).first()
         if rt:
             rt.revoked = True
+            uid = rt.user_id
+            uname = None
+            u = db.query(User).get(uid) if uid else None
+            if u:
+                uname = u.username
+            db.add(SessionLog(user_id=uid, username=uname or "unknown", event="logout",
+                              ip_address=ip, user_agent=ua))
             db.commit()
     return {"success": True}
 
@@ -175,3 +194,60 @@ def change_own_password(req: SelfPasswordChangeRequest, db: Session = Depends(ge
     user.password_hash = hash_password(req.new_password)
     db.commit()
     return {"success": True, "message": "Password changed successfully"}
+
+
+@router.get("/sessions")
+def get_sessions(request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Return recent session events. Superadmin only."""
+    if not user.is_superuser:
+        raise HTTPException(status_code=403, detail="Superadmin only")
+    from sqlalchemy import func
+    limit = int(request.query_params.get("limit", 100))
+    limit = min(limit, 500)
+    logs = db.query(SessionLog).order_by(SessionLog.created_at.desc()).limit(limit).all()
+    # Active sessions: logins without a subsequent logout
+    # Get last event per user
+    last_events = (
+        db.query(
+            SessionLog.user_id,
+            SessionLog.username,
+            func.max(SessionLog.created_at).label("last_at")
+        )
+        .group_by(SessionLog.user_id, SessionLog.username)
+        .subquery()
+    )
+    # Check which users last event was a login (still online)
+    online_rows = (
+        db.query(SessionLog)
+        .join(last_events, (SessionLog.user_id == last_events.c.user_id) & (SessionLog.created_at == last_events.c.last_at))
+        .filter(SessionLog.event.in_("login", "refresh"))
+        .all()
+    )
+    online_user_ids = {r.user_id for r in online_rows if r.user_id}
+    return {
+        "events": [{
+            "id": l.id,
+            "user_id": l.user_id,
+            "username": l.username,
+            "event": l.event,
+            "ip_address": l.ip_address,
+            "user_agent": l.user_agent,
+            "created_at": l.created_at.isoformat() if l.created_at else None,
+        } for l in logs],
+        "online": list(online_user_ids),
+    }
+
+
+@router.post("/sessions/kick")
+def kick_user(req: LogoutRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Force-revoke a refresh token (kick a user offline). Superadmin only."""
+    if not user.is_superuser:
+        raise HTTPException(status_code=403, detail="Superadmin only")
+    payload = decode_token(req.refresh_token)
+    if payload and payload.get("jti"):
+        rt = db.query(RefreshToken).filter(RefreshToken.token_jti == payload["jti"]).first()
+        if rt and not rt.revoked:
+            rt.revoked = True
+            db.commit()
+            return {"success": True, "message": "User kicked"}
+    return {"success": False, "message": "Token already revoked or not found"}

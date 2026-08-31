@@ -346,3 +346,16 @@ class RefreshToken(Base):
     expires_at = Column(DateTime, nullable=False)
     revoked = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class SessionLog(Base):
+    __tablename__ = "session_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    username = Column(String(100), nullable=False)
+    event = Column(String(20), nullable=False)  # login, logout, refresh, expired
+    ip_address = Column(String(100), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    user = relationship("User", backref="session_logs")

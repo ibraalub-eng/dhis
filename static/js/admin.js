@@ -97,6 +97,7 @@ window._adminAssignHospitals = function(id, btn) {
           <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('control')" id="atab-control" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🎛️ Analysis Control</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('logs')" id="atab-logs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('sessions')" id="atab-sessions" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🟢 Sessions</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('tabs')" id="atab-tabs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Tab Order</button>
         </div>
 
@@ -409,6 +410,33 @@ window._adminAssignHospitals = function(id, btn) {
             <div id="logsContainer" style="max-height:500px;overflow-y:auto;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;padding:0.5rem;font-family:monospace;font-size:0.78rem;line-height:1.6;">
               <div style="text-align:center;padding:2rem;color:var(--text-muted);">Loading logs...</div>
             </div>
+        </div>
+        <!-- Sessions Panel -->
+        <div id="adminSessionsPanel" style="display:none;">
+          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">🟢 Active Sessions & Login History</h2>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Monitor who is logged in, login/logout history, and force-logoff users.</p>
+          <div style="display:flex;gap:0.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+            <button class="btn btn-sm" onclick="loadSessions()" style="background:var(--accent-blue);color:white;">↻ Refresh</button>
+            <span id="sessionsOnlineCount" style="font-size:0.82rem;color:var(--accent-green);font-weight:600;"></span>
+            <label style="font-size:0.78rem;color:var(--text-muted);display:flex;align-items:center;gap:0.3rem;margin-left:auto;">
+              <input type="checkbox" id="sessionsAutoRefresh" onchange="toggleSessionsAutoRefresh()"> Auto-refresh (10s)
+            </label>
+          </div>
+          <!-- Online users -->
+          <div id="sessionsOnline" style="margin-bottom:1rem;"></div>
+          <!-- Events table -->
+          <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+              <thead><tr style="background:var(--bg-elevated);">
+                <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">Time</th>
+                <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">User</th>
+                <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">Event</th>
+                <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">IP</th>
+                <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">User Agent</th>
+              </tr></thead>
+              <tbody id="sessionsTableBody"><tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Click Refresh to load sessions</td></tr></tbody>
+            </table>
+          </div>
         </div>
         <!-- Tab Order Panel -->
         <div id="adminTabOrderPanel" style="display:none;">
@@ -909,15 +937,18 @@ window._adminAssignHospitals = function(id, btn) {
     var d=document.getElementById("adminDatabasePanel");
     var c=document.getElementById("adminControlPanel");
     var l=document.getElementById("adminLogsPanel");
+    var s=document.getElementById("adminSessionsPanel");
     var t=document.getElementById("adminTabOrderPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
     if(c)c.style.display=tab==="control"?"block":"none";
     if(l)l.style.display=tab==="logs"?"block":"none";
+    if(s)s.style.display=tab==="sessions"?"block":"none";
     if(t)t.style.display=tab==="tabs"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
     if(tab==="control"){loadAdminControlSettings();}
     if(tab==="logs"){loadAdminLogs();_startLogsAutoRefresh();}
+    if(tab==="sessions"){loadSessions();}
     if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
   };
 
@@ -1233,6 +1264,90 @@ window._adminAssignHospitals = function(id, btn) {
     {id:'settings', label:'⚙️ Settings'},
     {id:'smart-analytics', label:'🛡️ Smart Analytics'},
   ];
+
+  // -- Sessions Panel -----------------------------------------------
+  var _sessionsInterval = null;
+  window.loadSessions = async function() {
+    var tbody = document.getElementById('sessionsTableBody');
+    var onlineEl = document.getElementById('sessionsOnline');
+    var countEl = document.getElementById('sessionsOnlineCount');
+    if (!tbody) return;
+    try {
+      var data = await api('/auth/sessions?limit=100');
+      var events = data.events || [];
+      var onlineIds = data.online || [];
+      var onlineMap = {};
+      events.forEach(function(e) {
+        if (onlineIds.indexOf(e.user_id) >= 0 && e.event === 'login') {
+          onlineMap[e.user_id] = e;
+        }
+      });
+      var onlineList = Object.values(onlineMap);
+      if (countEl) {
+        countEl.textContent = onlineList.length ? '\ud83d\udfe2 ' + onlineList.length + ' online' : '\u2014';
+      }
+      if (onlineEl) {
+        if (onlineList.length) {
+          var oh = '';
+          onlineList.forEach(function(e) {
+            var t = e.created_at ? new Date(e.created_at).toLocaleTimeString() : '';
+            oh += '<div style="background:var(--severity-success-bg);border:1px solid var(--severity-success-border);border-radius:6px;padding:0.4rem 0.7rem;font-size:0.8rem;display:inline-flex;align-items:center;gap:0.4rem;margin:0.2rem;">';
+            oh += '<span style="width:8px;height:8px;border-radius:50%;background:var(--accent-green);display:inline-block;"></span>';
+            oh += '<strong>' + esc(e.username) + '</strong>';
+            oh += '<span style="color:var(--text-muted);font-size:0.72rem;">' + t + '</span>';
+            oh += '<span style="color:var(--text-muted);font-size:0.72rem;">(' + esc(e.ip_address || '\u2014') + ')</span>';
+            oh += '</div>';
+          });
+          onlineEl.innerHTML = oh;
+        } else {
+          onlineEl.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);padding:0.5rem 0;">No active sessions</div>';
+        }
+      }
+      if (events.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--text-muted);">No session events recorded yet</td></tr>';
+        return;
+      }
+      var rows = '';
+      events.forEach(function(e) {
+        var time = e.created_at ? new Date(e.created_at).toLocaleString() : '\u2014';
+        var evBadge = '';
+        if (e.event === 'login') {
+          evBadge = '<span style="background:var(--severity-success-bg);color:var(--accent-green);padding:1px 8px;border-radius:8px;font-size:0.72rem;font-weight:600;">LOGIN</span>';
+        } else if (e.event === 'logout') {
+          evBadge = '<span style="background:var(--severity-warning-bg);color:var(--accent-orange);padding:1px 8px;border-radius:8px;font-size:0.72rem;font-weight:600;">LOGOUT</span>';
+        } else if (e.event === 'refresh') {
+          evBadge = '<span style="background:var(--severity-info-bg);color:var(--accent-blue);padding:1px 8px;border-radius:8px;font-size:0.72rem;font-weight:600;">REFRESH</span>';
+        } else if (e.event === 'failed_login') {
+          evBadge = '<span style="background:var(--severity-critical-bg);color:var(--accent-red);padding:1px 8px;border-radius:8px;font-size:0.72rem;font-weight:600;">FAILED</span>';
+        } else if (e.event === 'inactive_account') {
+          evBadge = '<span style="background:var(--severity-critical-bg);color:var(--accent-red);padding:1px 8px;border-radius:8px;font-size:0.72rem;font-weight:600;">INACTIVE</span>';
+        } else {
+          evBadge = '<span style="background:var(--bg-elevated);color:var(--text-muted);padding:1px 8px;border-radius:8px;font-size:0.72rem;">' + esc(e.event) + '</span>';
+        }
+        var isOnline = onlineIds.indexOf(e.user_id) >= 0;
+        rows += '<tr style="border-bottom:1px solid var(--border-default);">';
+        rows += '<td style="padding:0.35rem 0.5rem;font-size:0.78rem;">' + time + '</td>';
+        rows += '<td style="padding:0.35rem 0.5rem;font-weight:600;">' + esc(e.username);
+        if (isOnline) {
+          rows += ' <span style="width:6px;height:6px;border-radius:50%;background:var(--accent-green);display:inline-block;" title="Online"></span>';
+        }
+        rows += '</td>';
+        rows += '<td style="padding:0.35rem 0.5rem;">' + evBadge + '</td>';
+        rows += '<td style="padding:0.35rem 0.5rem;font-size:0.75rem;color:var(--text-secondary);">' + esc(e.ip_address || '\u2014') + '</td>';
+        rows += '<td style="padding:0.35rem 0.5rem;font-size:0.72rem;color:var(--text-muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(e.user_agent || '') + '">' + esc(e.user_agent || '\u2014') + '</td>';
+        rows += '</tr>';
+      });
+      tbody.innerHTML = rows;
+    } catch(err) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--accent-red);">Error: ' + esc(err.message) + '</td></tr>';
+    }
+  };
+  window.toggleSessionsAutoRefresh = function() {
+    if (_sessionsInterval) { clearInterval(_sessionsInterval); _sessionsInterval = null; }
+    if (document.getElementById('sessionsAutoRefresh') && document.getElementById('sessionsAutoRefresh').checked) {
+      _sessionsInterval = setInterval(loadSessions, 10000);
+    }
+  };
 
   window.loadTabOrder = function() {
     var el = document.getElementById('tabOrderList');
