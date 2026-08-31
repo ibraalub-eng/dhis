@@ -287,20 +287,106 @@
     showLoginPage();
   };
 
-  // ---- Session timeout / inactivity tracking ----
+  // ---- Session timeout / inactivity tracking + JWT token expiry ----
   var _INACTIVITY_TIMEOUT_MS = 8 * 60 * 60 * 1000;  // 8 hours
   var _WARNING_BEFORE_MS = 15 * 60 * 1000;       // warn 15 minutes before timeout
+  var _TOKEN_WARN_SECONDS = 300;                   // warn 5 minutes before JWT expiry
   var _inactivityTimer = null;
   var _warningTimer = null;
+  var _tokenExpiryTimer = null;
+  var _tokenCountdownInterval = null;
   var _lastActivity = Date.now();
+  var _tokenExpiresAt = 0; // epoch seconds when access token expires
+
+  /** Parse JWT payload without verifying -- read only exp claim. */
+  function _parseJwtExp(token) {
+    try {
+      var parts = token.split('.');
+      if (parts.length !== 3) return 0;
+      var payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+      return payload.exp || 0;
+    } catch(e) { return 0; }
+  }
+
+  /** Start or restart the token-expiry countdown. */
+  function _startTokenExpiryWatch() {
+    if (_tokenExpiryTimer) clearTimeout(_tokenExpiryTimer);
+    if (_tokenCountdownInterval) clearInterval(_tokenCountdownInterval);
+    _tokenCountdownInterval = null;
+
+    var token = _getToken();
+    if (!token) return;
+    var exp = _parseJwtExp(token);
+    if (!exp) return;
+    _tokenExpiresAt = exp;
+    var nowSec = Math.floor(Date.now() / 1000);
+    var secondsLeft = exp - nowSec;
+    if (secondsLeft <= 0) return;
+    var warnAt = Math.max(0, secondsLeft - _TOKEN_WARN_SECONDS);
+    _tokenExpiryTimer = setTimeout(_onTokenExpiryWarning, warnAt * 1000);
+  }
+
+  function _onTokenExpiryWarning() {
+    _showTokenExpiryPopup();
+    _tokenCountdownInterval = setInterval(_updateTokenCountdown, 1000);
+  }
+
+  function _showTokenExpiryPopup() {
+    var existing = document.getElementById('session-warning');
+    if (existing) existing.remove();
+    var secondsLeft = Math.max(0, _tokenExpiresAt - Math.floor(Date.now() / 1000));
+    var mins = Math.floor(secondsLeft / 60);
+    var secs = secondsLeft % 60;
+    var timeStr = mins > 0 ? mins + 'm ' + secs + 's' : secs + 's';
+    var urgent = secondsLeft < 120;
+    var bgColor = urgent ? 'var(--severity-critical-bg)' : 'var(--severity-warning-bg)';
+    var borderColor = urgent ? 'var(--accent-red)' : 'var(--accent-yellow)';
+    var titleColor = urgent ? 'var(--accent-red)' : 'var(--accent-yellow)';
+    var icon = urgent ? '\u26a0\ufe0f' : '\u23f0';
+
+    var div = document.createElement('div');
+    div.id = 'session-warning';
+    div.style.cssText = 'position:fixed;top:1rem;right:1rem;background:' + bgColor + ';border:1px solid ' + borderColor + ';border-radius:10px;padding:1rem 1.2rem;box-shadow:var(--shadow-md);z-index:99999;max-width:380px;font-size:0.85rem;transition:all 0.3s;';
+    div.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">' +
+      '<span style="font-size:1.2rem;">' + icon + '</span>' +
+      '<strong style="color:' + titleColor + ';">Session Expiring</strong></div>' +
+      '<p style="margin:0 0 0.3rem;color:var(--text-primary);">Your session expires in:</p>' +
+      '<div id="sw-countdown" style="font-size:1.6rem;font-weight:700;color:' + titleColor + ';margin-bottom:0.5rem;font-variant-numeric:tabular-nums;">' + timeStr + '</div>' +
+      '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;">' +
+      '<button onclick="window._extendSession()" style="background:' + borderColor + ';color:' + (urgent ? '#fff' : 'var(--bg-base)') + ';border:none;border-radius:6px;padding:0.4rem 1rem;font-size:0.82rem;cursor:pointer;font-weight:600;">Extend Session</button>' +
+      '<button onclick="window._logoutFromWarning()" style="background:transparent;color:var(--text-muted);border:1px solid var(--border-default);border-radius:6px;padding:0.4rem 1rem;font-size:0.82rem;cursor:pointer;">Logout</button>' +
+      '</div>';
+    document.body.appendChild(div);
+  }
+
+  function _updateTokenCountdown() {
+    var el = document.getElementById('sw-countdown');
+    if (!el) { clearInterval(_tokenCountdownInterval); _tokenCountdownInterval = null; return; }
+    var secondsLeft = Math.max(0, _tokenExpiresAt - Math.floor(Date.now() / 1000));
+    var mins = Math.floor(secondsLeft / 60);
+    var secs = secondsLeft % 60;
+    el.textContent = mins > 0 ? mins + 'm ' + secs + 's' : secs + 's';
+    if (secondsLeft < 120) {
+      el.style.color = 'var(--accent-red)';
+      var wrapper = document.getElementById('session-warning');
+      if (wrapper) {
+        wrapper.style.background = 'var(--severity-critical-bg)';
+        wrapper.style.borderColor = 'var(--accent-red)';
+      }
+    }
+    if (secondsLeft <= 0) {
+      clearInterval(_tokenCountdownInterval);
+      _tokenCountdownInterval = null;
+      _hideSessionWarning();
+    }
+  }
 
   function _resetInactivityTimer() {
     _lastActivity = Date.now();
     if (_inactivityTimer) clearTimeout(_inactivityTimer);
     if (_warningTimer) clearTimeout(_warningTimer);
-    _hideSessionWarning();
     _inactivityTimer = setTimeout(_onInactivityTimeout, _INACTIVITY_TIMEOUT_MS);
-    _warningTimer = setTimeout(_showSessionWarning, _INACTIVITY_TIMEOUT_MS - _WARNING_BEFORE_MS);
+    _warningTimer = setTimeout(_showInactivityWarning, _INACTIVITY_TIMEOUT_MS - _WARNING_BEFORE_MS);
   }
 
   function _onInactivityTimeout() {
@@ -313,14 +399,14 @@
     }
   }
 
-  function _showSessionWarning() {
-    var remaining = Math.ceil((_INACTIVITY_TIMEOUT_MS - _WARNING_BEFORE_MS) / 60000);
+  function _showInactivityWarning() {
     var existing = document.getElementById('session-warning');
-    if (existing) existing.remove();
+    if (existing) return; // token expiry popup takes priority
+    var remaining = Math.ceil((_INACTIVITY_TIMEOUT_MS - _WARNING_BEFORE_MS) / 60000);
     var div = document.createElement('div');
     div.id = 'session-warning';
     div.style.cssText = 'position:fixed;top:1rem;right:1rem;background:var(--severity-warning-bg);border:1px solid var(--accent-yellow);border-radius:10px;padding:1rem 1.2rem;box-shadow:var(--shadow-md);z-index:99999;max-width:380px;font-size:0.85rem;';
-    div.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;"><span style="font-size:1.2rem;">⏰</span><strong style="color:var(--accent-yellow);">Session Expiring</strong></div>' +
+    div.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;"><span style="font-size:1.2rem;">\u23f0</span><strong style="color:var(--accent-yellow);">Session Expiring</strong></div>' +
       '<p style="margin:0 0 0.5rem;color:var(--text-primary);">Your session will expire in <strong>' + remaining + ' minutes</strong> due to inactivity.</p>' +
       '<button onclick="window._extendSession()" style="background:var(--accent-yellow);color:var(--bg-base);border:none;border-radius:6px;padding:0.35rem 1rem;font-size:0.82rem;cursor:pointer;font-weight:600;">Keep me signed in</button>';
     document.body.appendChild(div);
@@ -329,21 +415,43 @@
   function _hideSessionWarning() {
     var w = document.getElementById('session-warning');
     if (w) w.remove();
+    if (_tokenCountdownInterval) { clearInterval(_tokenCountdownInterval); _tokenCountdownInterval = null; }
   }
 
   window._extendSession = function() {
     _hideSessionWarning();
     _resetInactivityTimer();
-    // Also try to refresh the token silently
-    tryRefresh();
+    tryRefresh().then(function(success) {
+      if (success) {
+        _startTokenExpiryWatch();
+        var t = document.createElement('div');
+        t.style.cssText = 'position:fixed;bottom:1rem;right:1rem;background:var(--severity-success-bg);border:1px solid var(--accent-green);border-radius:8px;padding:0.5rem 1rem;font-size:0.82rem;color:var(--accent-green);z-index:99999;font-weight:600;';
+        t.textContent = '\u2713 Session extended';
+        document.body.appendChild(t);
+        setTimeout(function() { t.remove(); }, 2000);
+      }
+    });
+  };
+
+  window._logoutFromWarning = function() {
+    _hideSessionWarning();
+    if (typeof window.handleLogout === 'function') window.handleLogout();
   };
 
   window._startInactivityTimer = function() {
     _resetInactivityTimer();
-    // Track user activity to reset timer
+    _startTokenExpiryWatch();
     ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(function(evt) {
       document.addEventListener(evt, _resetInactivityTimer, { passive: true });
     });
+  };
+
+  // Re-start token expiry watch whenever tokens are refreshed
+  var _origSetTokens = window.setTokens;
+  window.setTokens = function(access, refresh) {
+    _origSetTokens(access, refresh);
+    _hideSessionWarning();
+    _startTokenExpiryWatch();
   };
 
   window.toggleLoginLang = function() {
