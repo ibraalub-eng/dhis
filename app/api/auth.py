@@ -15,6 +15,23 @@ from app.models import User, RefreshToken, SessionLog
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
+# Track whether session_logs table is known to exist
+_session_table_ok = None
+
+def _log_session_event(db, user_id, username, event, ip=None, ua=""):
+    """Record a session event, auto-creating the table if needed."""
+    global _session_table_ok
+    if _session_table_ok is False:
+        return
+    try:
+        db.add(SessionLog(user_id=user_id, username=username, event=event,
+                          ip_address=ip, user_agent=ua[:500] if ua else ""))
+        db.commit()
+        _session_table_ok = True
+    except Exception as e:
+        db.rollback()
+        _session_table_ok = False
+
 
 class LoginRequest(BaseModel):
     username: str
@@ -35,20 +52,10 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     ip = request.client.host if request.client else None
     ua = (request.headers.get("user-agent", ""))[:500]
     if user is None or not verify_password(req.password, user.password_hash):
-        try:
-            db.add(SessionLog(user_id=user.id if user else None, username=req.username,
-                              event="failed_login", ip_address=ip, user_agent=ua))
-            db.commit()
-        except Exception:
-            pass
+        _log_session_event(db, user.id if user else None, req.username, "failed_login", ip, ua)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not user.is_active:
-        try:
-            db.add(SessionLog(user_id=user.id, username=req.username,
-                              event="inactive_account", ip_address=ip, user_agent=ua))
-            db.commit()
-        except Exception:
-            pass
+        _log_session_event(db, user.id, req.username, "inactive_account", ip, ua)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is inactive")
 
     roles = [r.name for r in user.roles]
@@ -62,16 +69,8 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
     rt = RefreshToken(user_id=user.id, token_jti=jti, expires_at=expires_at)
     db.add(rt)
     db.commit()
-    # Log session event (table may not exist yet on first run)
-    try:
-        db.add(SessionLog(user_id=user.id, username=user.username, event="login",
-                          ip_address=ip, user_agent=ua))
-        db.commit()
-    except Exception as e:
-        import traceback, sys
-        print(f"[session_log] Failed to record login: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
-        db.rollback()
+    # Log session event — auto-create table if needed
+    _log_session_event(db, user.id, user.username, "login", ip, ua)
 
     return TokenResponse(
         access_token=access,
@@ -137,12 +136,7 @@ def logout(req: LogoutRequest, request: Request, db: Session = Depends(get_db)):
             u = db.query(User).filter(User.id == uid).first() if uid else None
             if u:
                 uname = u.username
-            try:
-                db.add(SessionLog(user_id=uid, username=uname or "unknown", event="logout",
-                                  ip_address=ip, user_agent=ua))
-                db.commit()
-            except Exception:
-                db.rollback()
+            _log_session_event(db, uid, uname or "unknown", "logout", ip, ua)
     return {"success": True}
 
 
@@ -235,13 +229,13 @@ def get_sessions(request: Request, db: Session = Depends(get_db), user=Depends(g
         online_rows = (
             db.query(SessionLog)
             .join(last_events, (SessionLog.user_id == last_events.c.user_id) & (SessionLog.created_at == last_events.c.last_at))
-            .filter(SessionLog.event.in_("login", "refresh"))
+            .filter(SessionLog.event.in_(["login", "refresh"]))
             .all()
         )
         online_user_ids = {r.user_id for r in online_rows if r.user_id}
     except Exception as e:
         import traceback, sys
-        print(f"[session_log] Failed to record login: {e}", file=sys.stderr)
+        print(f"[session_log] Failed to load sessions: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         db.rollback()
         # Table might not exist yet — try to create it
