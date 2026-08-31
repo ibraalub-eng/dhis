@@ -456,6 +456,12 @@ function loadHospitalsSettings() {
                     const combinedSummary = summaries.length > 1
                         ? summaries.map((s, i) => '<div style="margin-bottom:0.3rem;"><span style="font-weight:600;color:var(--accent-blue);">' + valid[i].month + ':</span> ' + esc(s) + '</div>').join('')
                         : (summaries[0] || 'No summary available.');
+                    // Build per-month arrays for trend chart
+                    const sortedValid = [...valid].sort((a, b) => (a.month || '').localeCompare(b.month || ''));
+                    const monthLabels = sortedValid.map(d => d.month);
+                    const monthQs = sortedValid.map(d => d.overall_quality_score || 0);
+                    const monthConf = sortedValid.map(d => d.overall_confidence || 0);
+                    const monthCi = sortedValid.map(d => d.critical_issues_count || 0);
                     // Build aggregated report object
                     const agg = {
                         hospital: valid[0].hospital,
@@ -477,7 +483,10 @@ function loadHospitalsSettings() {
                         peer_comparisons: {},
                         _allMonths: true,
                         _monthCount: valid.length,
-                        _months: valid.map(d => d.month),
+                        _months: monthLabels,
+                        _monthQs: monthQs,
+                        _monthConf: monthConf,
+                        _monthCi: monthCi,
                     };
                     document.getElementById('rcLoading').style.display = 'none';
                     document.getElementById('rcContent').style.display = 'block';
@@ -515,6 +524,78 @@ function loadHospitalsSettings() {
                     '<div style="font-size:2rem;font-weight:700;color:' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' + ci + '</div>' +
                     '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">' + (ci > 0 ? 'يتطلب انتباهاً' : 'لا توجد مشاكل حرجة') + '</div>' +
                 '</div>';
+            // ── Month-by-Month Trend Chart (all-months view) ──
+            let trendContainer = document.getElementById('rcTrendChart');
+            if (isAll && d._monthQs && d._monthQs.length) {
+                if (!trendContainer) {
+                    trendContainer = document.createElement('div');
+                    trendContainer.id = 'rcTrendChart';
+                    trendContainer.className = 'card';
+                    trendContainer.style.cssText = 'margin-bottom:0.8rem;padding:0.5rem;';
+                    const kpi = document.getElementById('rcKpiBar');
+                    if (kpi && kpi.nextSibling) kpi.parentNode.insertBefore(trendContainer, kpi.nextSibling);
+                    else document.getElementById('rcContent').prepend(trendContainer);
+                }
+                trendContainer.style.display = 'block';
+                trendContainer.innerHTML = '<div style="font-size:0.82rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">📈 ' + _t('Monthly Quality & Confidence Trend') + '</div><div id="rcTrendPlot" style="width:100%;height:280px;"></div>';
+                // Use setTimeout to ensure DOM is ready
+                setTimeout(() => {
+                    const plotEl = document.getElementById('rcTrendPlot');
+                    if (!plotEl || typeof Plotly === 'undefined') return;
+                    const cs = getComputedStyle(document.documentElement);
+                    const green = cs.getPropertyValue('--accent-green').trim() || '#4ADE80';
+                    const blue = cs.getPropertyValue('--accent-blue').trim() || '#3B82F6';
+                    const red = cs.getPropertyValue('--accent-red').trim() || '#EF4444';
+                    const orange = cs.getPropertyValue('--accent-orange').trim() || '#F59E0B';
+                    const textCol = cs.getPropertyValue('--text-primary').trim() || '#e5e7eb';
+                    const mutedCol = cs.getPropertyValue('--text-muted').trim() || '#9ca3af';
+                    const borderCol = cs.getPropertyValue('--border-default').trim() || '#374151';
+                    const months = d._months;
+                    const qsValues = d._monthQs;
+                    const confValues = d._monthConf;
+                    const ciValues = d._monthCi;
+                    // Color each quality point
+                    const qsColors = qsValues.map(v => v >= 80 ? green : v >= 50 ? orange : red);
+                    const traces = [
+                        {
+                            x: months, y: qsValues, name: _t('Quality Score'),
+                            type: 'scatter', mode: 'lines+markers',
+                            line: { color: blue, width: 2.5, shape: 'spline' },
+                            marker: { size: 8, color: qsColors, line: { color: 'rgba(255,255,255,0.3)', width: 1 } },
+                            yaxis: 'y'
+                        },
+                        {
+                            x: months, y: confValues, name: _t('Confidence'),
+                            type: 'scatter', mode: 'lines+markers',
+                            line: { color: green, width: 2, dash: 'dot', shape: 'spline' },
+                            marker: { size: 6, symbol: 'diamond', color: green },
+                            yaxis: 'y'
+                        },
+                        {
+                            x: months, y: ciValues, name: _t('Critical Issues'),
+                            type: 'bar',
+                            marker: { color: ciValues.map(v => v > 0 ? 'rgba(239,68,68,0.35)' : 'rgba(74,222,128,0.2)') },
+                            yaxis: 'y2'
+                        }
+                    ];
+                    const layout = {
+                        paper_bgcolor: 'rgba(0,0,0,0)',
+                        plot_bgcolor: 'rgba(0,0,0,0)',
+                        font: { color: textCol, size: 11 },
+                        margin: { t: 10, r: 50, b: 40, l: 50 },
+                        legend: { orientation: 'h', y: 1.12, x: 0.5, xanchor: 'center', font: { size: 10 } },
+                        xaxis: { title: _t('Month'), gridcolor: borderCol, tickangle: -30, tickfont: { size: 9 } },
+                        yaxis: { title: _t('Score (0-100)'), range: [0, 105], gridcolor: borderCol + '40', side: 'left', titlefont: { size: 10 } },
+                        yaxis2: { title: _t('Issues'), overlaying: 'y', side: 'right', showgrid: false, titlefont: { size: 10 } },
+                        hovermode: 'x unified',
+                        hoverlabel: { bgcolor: 'rgba(0,0,0,0.85)', font: { size: 11 } }
+                    };
+                    Plotly.newPlot(plotEl, traces, layout, { responsive: true, displayModeBar: false });
+                }, 100);
+            } else if (trendContainer) {
+                if (typeof Plotly !== 'undefined') { try { Plotly.purge('rcTrendPlot'); } catch(e) {} }
+                trendContainer.style.display = 'none';
+            }
             // Summary
             const arSumEl = document.getElementById('rcSummaryArabic');
             if (arSumEl) arSumEl.innerHTML = d.summary_arabic || '';
