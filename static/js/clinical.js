@@ -466,7 +466,16 @@
             document.getElementById('modalBody').innerHTML = html;
             document.getElementById('detailModal').classList.add('show');
         }
-        export function closeModal() { document.getElementById('detailModal').classList.remove('show'); }
+        export function closeModal() {
+            var modal = document.getElementById('detailModal');
+            modal.classList.remove('show');
+            // Destroy any Chart.js instance inside the modal to prevent memory/layout leaks
+            var canvas = document.getElementById('kpiDrilldownChart');
+            if (canvas && typeof Chart !== 'undefined') {
+                var chart = Chart.getChart(canvas);
+                if (chart) chart.destroy();
+            }
+        }
         document.getElementById('detailModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
         document.getElementById('ruleEditModal').addEventListener('click', function(e) { if (e.target === this) closeRuleModal(); });
         document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeModal(); closeRuleModal(); } });

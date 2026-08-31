@@ -243,11 +243,11 @@ tbody tr { transition: background 0.12s; }
 .trend-down { color: var(--accent-blue); }
 .trend-flat { color: var(--accent-green); }
 .sparkline { display: inline-block; width: 76px; height: 22px; vertical-align: middle; }
-#detailModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter:blur(2px); }
+#detailModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter:blur(2px); overflow: hidden; }
 #detailModal.show { display: flex; }
-#ruleEditModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 1001; display: none; align-items: center; justify-content: center; backdrop-filter:blur(2px); }
+#ruleEditModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 1001; display: none; align-items: center; justify-content: center; backdrop-filter:blur(2px); overflow: hidden; }
 #ruleEditModal.show { display: flex; }
-.modal-content { background: var(--bg-elevated); border-radius: 12px; max-width: 920px; width: 92%; max-height: 85vh; overflow-y: auto; padding: 1.5rem 2rem; box-shadow: var(--shadow-lg); border: 1px solid var(--border-default); }
+.modal-content { background: var(--bg-elevated); border-radius: 12px; max-width: 920px; width: 92%; max-height: 85vh; overflow-y: auto; overflow-x: hidden; padding: 1.5rem 2rem; box-shadow: var(--shadow-lg); border: 1px solid var(--border-default); }
 .modal-close { float: right; background: none; border: none; font-size: 1.4rem; cursor: pointer; color: var(--text-muted); transition:color 0.15s; }
 .modal-close:hover { color: var(--text-primary); }
 .modal-content h3 { color: var(--text-primary); margin-bottom: 0.8rem; padding-bottom:0.4rem; border-bottom:2px solid var(--border-default); }

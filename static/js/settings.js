@@ -1348,7 +1348,7 @@ function loadHospitalsSettings() {
                 }
 
                 if (trend.length) {
-                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Quality Trend') + '</h3><canvas id="kpiDrilldownChart" style="height:200px;"></canvas></div>';
+                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Quality Trend') + '</h3><div style="position:relative;height:200px;max-height:200px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div></div>';
                 }
 
                 const componentKeys = Object.keys(radar);
