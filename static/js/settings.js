@@ -1383,8 +1383,8 @@ function loadHospitalsSettings() {
                                 datasets: [{
                                     label: label,
                                     data: trend.map(function(d) { return d.score; }),
-                                    borderColor: '#3f51b5',
-                                    backgroundColor: 'rgba(63,81,181,0.1)',
+                                    borderColor: getCSSVar('--accent-teal') || '#14b8a6',
+                                    backgroundColor: (getCSSVar('--accent-teal') || '#14b8a6') + '1a',
                                     fill: true,
                                     tension: 0.3,
                                     pointRadius: 4,
@@ -1427,14 +1427,15 @@ function loadHospitalsSettings() {
                 y: h - 3 - ((v - min) / range) * (h - 6),
             }));
             ctx.beginPath();
-            ctx.strokeStyle = color || '#3f51b5';
+            const defaultColor = getCSSVar('--accent-teal') || '#14b8a6';
+            ctx.strokeStyle = color || defaultColor;
             ctx.lineWidth = 1.2;
             pts.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
             ctx.stroke();
             ctx.lineTo(pts[pts.length - 1].x, h - 3);
             ctx.lineTo(pts[0].x, h - 3);
             ctx.closePath();
-            ctx.fillStyle = (color || '#3f51b5') + '18';
+            ctx.fillStyle = (color || defaultColor) + '18';
             ctx.fill();
         }
 
@@ -1546,8 +1547,8 @@ function loadHospitalsSettings() {
                             labels: d.quality_trend.map(p => p.month.slice(-2)),
                             datasets: [{
                                 data: d.quality_trend.map(p => p.score),
-                                borderColor: '#3f51b5',
-                                backgroundColor: 'rgba(63,81,181,0.1)',
+                                borderColor: getCSSVar('--accent-teal') || '#14b8a6',
+                                backgroundColor: (getCSSVar('--accent-teal') || '#14b8a6') + '1a',
                                 fill: true, tension: 0.3, pointRadius: 3,
                             }]
                         },
@@ -1693,8 +1694,8 @@ function loadHospitalsSettings() {
                         datasets: [{
                             label: __('Quality Score'),
                             data: data.quality_trend.map(d => d.score),
-                            borderColor: '#3f51b5',
-                            backgroundColor: 'rgba(63,81,181,0.1)',
+                            borderColor: getCSSVar('--accent-teal') || '#14b8a6',
+                            backgroundColor: (getCSSVar('--accent-teal') || '#14b8a6') + '1a',
                             fill: true,
                             tension: 0.3,
                             pointRadius: 4,
@@ -1720,7 +1721,12 @@ function loadHospitalsSettings() {
                         labels: [__('CRITICAL'), __('LOW'), __('MEDIUM'), __('HIGH')],
                         datasets: [{
                             data: [confData.CRITICAL || 0, confData.LOW || 0, confData.MEDIUM || 0, confData.HIGH || 0],
-                            backgroundColor: ['#c62828', '#e65100', '#f9a825', '#2e7d32'],
+                            backgroundColor: [
+                                getCSSVar('--accent-red') || '#c62828',
+                                getCSSVar('--accent-orange') || '#e65100',
+                                getCSSVar('--accent-yellow') || '#f9a825',
+                                getCSSVar('--accent-green') || '#2e7d32'
+                            ],
                             borderWidth: 0,
                         }]
                     },
@@ -1744,9 +1750,9 @@ function loadHospitalsSettings() {
                         datasets: [{
                             label: 'Score',
                             data: Object.values(radar),
-                            backgroundColor: 'rgba(63,81,181,0.2)',
-                            borderColor: '#3f51b5',
-                            pointBackgroundColor: '#3f51b5',
+                            backgroundColor: (getCSSVar('--accent-teal') || '#14b8a6') + '33',
+                            borderColor: getCSSVar('--accent-teal') || '#14b8a6',
+                            pointBackgroundColor: getCSSVar('--accent-teal') || '#14b8a6',
                             pointRadius: 3,
                         }]
                     },
@@ -1762,7 +1768,7 @@ function loadHospitalsSettings() {
 
                 if (data.quality_trend && data.quality_trend.length) {
                     const vals = data.quality_trend.map(d => d.score);
-                    renderSparkline('sparkAvgScore', vals, '#3f51b5');
+                    renderSparkline('sparkAvgScore', vals, getCSSVar('--accent-teal') || '#14b8a6');
                 }
 
                 document.getElementById('dashLoading').style.display = 'none';
