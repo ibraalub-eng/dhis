@@ -382,3 +382,26 @@ class TestTimelineAPIEdgeCases:
             assert len(data["indicators"]) == 0
         finally:
             app.dependency_overrides.clear()
+
+
+class TestMonthlyTrendChart:
+    """The all-months 'Monthly Quality & Confidence Trend' chart must use
+    Chart.js (not Plotly) with a dual-axis setup."""
+
+    def test_monthly_trend_uses_chart_js(self):
+        content = _read("static/js/settings.js")
+        assert "window._rcTrendChartInstance = new Chart(" in content
+
+    def test_monthly_trend_uses_register_chart(self):
+        content = _read("static/js/settings.js")
+        assert "registerChart(window._rcTrendChartInstance)" in content
+
+    def test_monthly_trend_no_plotly(self):
+        content = _read("static/js/settings.js")
+        assert "Plotly.newPlot" not in content
+        assert "Plotly.react" not in content
+
+    def test_monthly_trend_dual_axis(self):
+        content = _read("static/js/settings.js")
+        assert "yAxisID: 'y1'" in content
+        assert "position: 'right'" in content
