@@ -54,89 +54,14 @@
         }
 
         // ── SHAP Waterfall Chart ──────────────────────────────────
-        function renderSHAPWaterfall(containerId, features) {
-            if (!features || !Object.keys(features).length || typeof Plotly === 'undefined') return;
-            const el = document.getElementById(containerId);
-            if (!el) return;
-            const sorted = Object.entries(features)
-                .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-                .slice(0, 8);
-            const names = sorted.map(([f]) => (window.SMART_ARABIC && window.SMART_ARABIC[f]) || f);
-            const vals = sorted.map(([, v]) => v);
-            var _cs = getComputedStyle(document.documentElement);
-            var _teal = _cs.getPropertyValue('--accent-teal').trim() || '#2DD4BF';
-            var _red = _cs.getPropertyValue('--accent-red').trim() || '#F87171';
-            var _txtColor = _cs.getPropertyValue('--text-primary').trim() || '#E8EAED';
-            const colors = vals.map(v => v >= 0 ? _teal : _red);
-            const trace = {
-                type: 'bar',
-                orientation: 'h',
-                y: names,
-                x: vals,
-                marker: { color: colors },
-            };
-            const layout = {
-                margin: { l: 120, r: 10, t: 5, b: 30 },
-                height: 200,
-                width: 350,
-                paper_bgcolor: 'rgba(0,0,0,0)',
-                plot_bgcolor: 'rgba(0,0,0,0)',
-                font: { color: _txtColor },
-                xaxis: { gridcolor: 'rgba(128,128,128,0.2)' },
-                yaxis: { automargin: true },
-                showlegend: false,
-            };
-            Plotly.newPlot(el, [trace], layout, { displayModeBar: false, responsive: true });
-        }
+
 
         // ── Outliers Tab ──────────────────────────────────────────
         export function loadOutliers() {
-            const modeEl = document.getElementById('outlierMode');
-            if (!modeEl) return; // التبويب لم يُحمَّل
-            const mode = modeEl.value;
             const month = document.getElementById('outlierMonthFilter').value;
             const loadingEl = document.getElementById('outlierLoading');
             if (loadingEl) loadingEl.classList.remove('hidden');
-            if (mode === 'ml') {
-                if (!month) {
-                    document.getElementById('outlierLoading').classList.add('hidden');
-                    document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted);">Select a month.</td></tr>';
-                    document.getElementById('outlierCount').textContent = '';
-                    return;
-                }
-                apiGet('/analysis/ml?month=' + month).then(data => {
-                    document.getElementById('outlierLoading').classList.add('hidden');
-                    const anomalies = (data && data.ml_anomalies) || [];
-                    window._lastOutlierData = anomalies;
-                    document.getElementById('outlierCount').textContent = anomalies.length + ' hospital(s) analyzed';
-                    const tbody = document.getElementById('outlierTbody');
-                    if (!anomalies.length) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No ML anomaly data.</td></tr>';
-                        return;
-                    }
-                    tbody.innerHTML = anomalies.map(a => {
-                        const rowClass = a.is_outlier ? 'style="background:var(--severity-warning-bg);"' : '';
-                        return '<tr ' + rowClass + '>' +
-                            '<td>' + esc(a.hospital_name) + '</td>' +
-                            '<td>' + month + '</td>' +
-                            '<td>Multi-variate</td>' +
-                            '<td>' + (a.anomaly_score ? a.anomaly_score.toFixed(3) : '--') + '</td>' +
-                            '<td>' + (a.is_outlier ? '<span class="badge badge-critical">Outlier</span>' : '<span class="badge badge-pass">Normal</span>') + '</td>' +
-                            '<td><div id="shap-' + a.hospital_id + '" style="min-height:200px;"></div></td>' +
-                            '</tr>';
-                    }).join('');
-                    anomalies.forEach(a => {
-                        if (a.contributing_features && Object.keys(a.contributing_features).length) {
-                            renderSHAPWaterfall('shap-' + a.hospital_id, a.contributing_features);
-                        }
-                    });
-                }).catch(err => {
-                    document.getElementById('outlierLoading').classList.add('hidden');
-                    document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="color:red;">Error: ' + err.message + '</td></tr>';
-                });
-                return;
-            }
-            // statistical mode — existing code
+            // statistical mode — Z-Score analysis
             const hosp = document.getElementById('outlierHospitalFilter').value;
             const mon = document.getElementById('outlierMonthFilter').value;
             const rate = document.getElementById('outlierRateFilter').value;

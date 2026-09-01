@@ -13,10 +13,7 @@
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
                                 <select id="outlierMonthFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Mode:</label>
-                                <select id="outlierMode" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
-                                    <option value="statistical">Statistical (Z-Score)</option>
-                                    <option value="ml">ML (IsolationForest)</option>
-                                </select>
+                                <span style="font-size:0.75rem;color:var(--text-secondary);">Mode: <strong>Z-Score</strong></span>
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Rate:</label>
                                 <select id="outlierRateFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
                             </div>
