@@ -946,7 +946,7 @@ window._adminAssignHospitals = function(id, btn) {
     if(s)s.style.display=tab==="sessions"?"block":"none";
     if(t)t.style.display=tab==="tabs"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
-    if(tab==="control"){loadAdminControlSettings();}
+    if(tab==="control"){adminLoadControlSettings();}
     if(tab==="logs"){loadAdminLogs();_startLogsAutoRefresh();}
     if(tab==="sessions"){loadSessions();}
     if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
@@ -1027,28 +1027,7 @@ window._adminAssignHospitals = function(id, btn) {
     }
   });
 
-  function loadAdminControlSettings() {
-    var hospitalSel=document.getElementById('monthHospitalSelect');
-    if(hospitalSel&&hospitalSel.options.length<=1){
-      api('/admin/hospitals').then(function(data){
-        if(!data||data._error)return;
-        var hosp=data.hospitals||[];
-        hospitalSel.innerHTML='<option value="">-- Select Hospital --</option>';
-        hosp.forEach(function(h){
-          hospitalSel.innerHTML+='<option value="'+h.id+'">'+esc(h.name)+'</option>';
-        });
-      });
-    }
-    api('/config/settings').then(function(data){
-      if(!data||data._error)return;
-      var s=data.settings||data;
-      var ids=['cfg_auto_disable_null','cfg_structured_logging','cfg_slow_query_logging','cfg_hide_explanatory'];
-      ids.forEach(function(id){
-        var el=document.getElementById(id);
-        if(el)el.checked=!!s[id.replace('cfg_','')];
-      });
-    });
-  }
+
 
   async function loadAdminDbStatus() {
     var el=document.getElementById("adminDbStatus");
