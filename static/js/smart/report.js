@@ -41,7 +41,9 @@ export function toggleReportLang() {
 
 export async function exportSmartData() {
   const scope = document.getElementById('smart-export-scope')?.value || 'current';
-  const month = scope === 'all' ? 'all' : (smartState.month || '');
+  const _sel = document.getElementById('smart-month-select');
+  const month = scope === 'all' ? 'all' : ((_sel && _sel.value) || smartState.month || '');
+  smartState.month = month;
   const lang = reportLang();
   const base = '';
   const url = `${base}/export/full-data?month=${encodeURIComponent(month)}&lang=${lang}`;
@@ -72,7 +74,10 @@ export async function generateComprehensiveReport() {
   if (smartState.reportGenerating) return;
   const section = document.getElementById('smart-report-section');
   if (!section) return;
-  const month = smartState.month || '';
+  // Always read from the dropdown to avoid stale smartState
+  const sel = document.getElementById('smart-month-select');
+  const month = (sel && sel.value) || smartState.month || '';
+  smartState.month = month; // sync back
   const overlay = document.getElementById('smart-loading-overlay');
   smartState.reportGenerating = true;
   if (overlay) overlay.style.display = 'flex';
@@ -184,7 +189,9 @@ export function initComparisonSelect() {
 
 // Server-side ranked peer comparison (honors scope via comparison_type).
 export async function renderComparison(scope) {
-  const month = smartState.month || '';
+  const _sel2 = document.getElementById('smart-month-select');
+  const month = (_sel2 && _sel2.value) || smartState.month || '';
+  smartState.month = month;
   const hospitalId = document.getElementById('smart-hospital-select')?.value || '';
   setSmartLoader('comparison', true);
   try {
