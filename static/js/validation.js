@@ -5,32 +5,316 @@
         import { toastWarning } from './toast.js';
         import { makeSortable } from './table-utils.js';
 
-        // ── Merged Comparative Analysis (Trends + Comparison) ────
-        export function switchAnalysisMode(mode) {
-            const t = document.getElementById('analysisTrendSection');
-            const c = document.getElementById('analysisCompareSection');
-            const btnT = document.getElementById('analysisModeTrend');
-            const btnC = document.getElementById('analysisModeCompare');
-            if (!t || !c) return;
-            t.style.display = mode === 'trend' ? '' : 'none';
-            c.style.display = mode === 'compare' ? '' : 'none';
-            const base = 'font-size:0.78rem;padding:0.25rem 0.8rem;cursor:pointer;border-radius:4px;';
-            const active = 'background:var(--accent-blue);color:white;border:none;font-weight:600;';
-            const idle = 'background:var(--bg-surface);color:var(--accent-blue);border:1px solid var(--border-default);font-weight:400;';
-            if (btnT) btnT.setAttribute('style', base + (mode === 'trend' ? active : idle));
-            if (btnC) btnC.setAttribute('style', base + (mode === 'compare' ? active : idle));
-            try { localStorage.setItem('analysisMode', mode); } catch(e) {}
-            if (mode === 'trend') {
-                initTrends();
-            } else {
-                initCompare();
-            }
+        // ── Comparative Analysis Sub-tabs ────
+        const _analysisTabs = ['trend','compare','governorates','indicators','timeperiods','performance'];
+        const _analysisTabInits = { trend: initTrends, compare: initCompare, governorates: initGovTab, indicators: initIndTab, timeperiods: initTpTab, performance: initPerfTab };
+
+        export function switchAnalysisSubtab(name) {
+            document.querySelectorAll('.analysis-subtab').forEach(btn => {
+                const isActive = btn.getAttribute('data-subtab') === name;
+                btn.style.fontWeight = isActive ? '600' : '400';
+                btn.style.color = isActive ? 'var(--accent-blue)' : 'var(--text-muted)';
+                btn.style.borderBottom = isActive ? '2px solid var(--accent-blue)' : '2px solid transparent';
+            });
+            document.querySelectorAll('.analysis-subtab-content').forEach(el => el.style.display = 'none');
+            const target = document.getElementById('analysisSub-' + name);
+            if (target) target.style.display = '';
+            try { localStorage.setItem('analysisSubtab', name); } catch(e) {}
+            if (_analysisTabInits[name]) _analysisTabInits[name]();
         }
 
         export function initAnalysis() {
-            let mode = 'trend';
-            try { mode = localStorage.getItem('analysisMode') || 'trend'; } catch(e) {}
-            switchAnalysisMode(mode);
+            let tab = 'trend';
+            try { tab = localStorage.getItem('analysisSubtab') || 'trend'; } catch(e) {}
+            if (!_analysisTabs.includes(tab)) tab = 'trend';
+            switchAnalysisSubtab(tab);
+        }
+
+        // ── Helpers ────
+        function _populateMonthSelect(selId, callback) {
+            const sel = document.getElementById(selId);
+            if (!sel) return;
+            const ph = '<option value="">Select month</option>';
+            sel.innerHTML = ph;
+            apiGet('/analysis/months').then(months => {
+                sel.innerHTML = ph + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                if (callback) callback();
+            }).catch(() => {});
+        }
+
+        function _populateHospitalSelect(selId, callback) {
+            const sel = document.getElementById(selId);
+            if (!sel) return;
+            apiGet('/hospitals/').then(data => {
+                const list = data.value || data || [];
+                sel.innerHTML = '<option value="">All Hospitals</option>' + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
+                if (callback) callback();
+            }).catch(() => {});
+        }
+
+        // ── Governorates Tab ────
+        function initGovTab() {
+            _populateMonthSelect('govMonthSelect', () => {
+                _restoreUIState('analysis');
+            });
+        }
+
+        export async function loadGovComparison() {
+            const month = document.getElementById('govMonthSelect').value;
+            if (!month) { toastWarning('Select a month'); return; }
+            document.getElementById('govLoading').classList.remove('hidden');
+            document.getElementById('govEmpty').style.display = 'block';
+            document.getElementById('govEmpty').innerHTML = '<div style="font-size:1.3rem;margin-bottom:0.3rem;"><span class="spinner"></span></div><p style="margin:0;font-size:0.85rem;">Loading governorate data...</p>';
+            document.getElementById('govTable').style.display = 'none';
+            document.getElementById('govChart').style.display = 'none';
+            try {
+                const data = await apiGet('/regional/governorates/' + month);
+                document.getElementById('govLoading').classList.add('hidden');
+                const govs = data.governorates || [];
+                if (!govs.length) {
+                    document.getElementById('govEmpty').innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">No governorate data for this month.</p>';
+                    return;
+                }
+                document.getElementById('govEmpty').style.display = 'none';
+                document.getElementById('govTable').style.display = '';
+                document.getElementById('govChart').style.display = '';
+                const tbody = document.getElementById('govTbody');
+                tbody.innerHTML = govs.map(g => {
+                    const topIssue = (g.key_indicators && g.key_indicators.length) ? g.key_indicators[0].indicator : '-';
+                    const trend = g.trend_direction || 'stable';
+                    const trendIcon = trend === 'improving' ? '&#9650;' : trend === 'declining' ? '&#9660;' : '&#9654;';
+                    const trendColor = trend === 'improving' ? 'var(--accent-green)' : trend === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)';
+                    const avgQ = g.avg_quality_score != null ? Number(g.avg_quality_score).toFixed(1) : '-';
+                    const avgA = g.avg_anomaly_score != null ? Number(g.avg_anomaly_score).toFixed(3) : '-';
+                    return '<tr><td style="font-weight:600;">' + esc(g.governorate) + '</td><td>' + (g.hospital_count || 0) + '</td><td>' + avgQ + '</td><td>' + avgA + '</td><td>' + (g.outlier_count || 0) + '</td><td style="font-size:0.78rem;">' + esc(topIssue) + '</td><td style="color:' + trendColor + ';font-weight:600;">' + trendIcon + ' ' + trend + '</td></tr>';
+                }).join('');
+                // Bar chart
+                renderGovChart(govs);
+            } catch(e) {
+                document.getElementById('govLoading').classList.add('hidden');
+                document.getElementById('govEmpty').innerHTML = '<p style="color:var(--accent-red);font-size:0.85rem;">Error: ' + e.message + '</p>';
+            }
+        }
+
+        function renderGovChart(govs) {
+            const el = document.getElementById('govChart');
+            if (!el || !govs.length) return;
+            el.innerHTML = '<canvas style="width:100%;height:280px;"></canvas>';
+            const canvas = el.querySelector('canvas');
+            const tc = getComputedStyle(document.documentElement);
+            const txtColor = tc.getPropertyValue('--text-primary').trim() || '#ccc';
+            const gridColor = tc.getPropertyValue('--border-default').trim() || '#2A2E3B';
+            new Chart(canvas, {
+                type: 'bar',
+                data: {
+                    labels: govs.map(g => g.governorate),
+                    datasets: [{
+                        label: 'Avg Quality Score',
+                        data: govs.map(g => g.avg_quality_score != null ? Number(g.avg_quality_score).toFixed(1) : 0),
+                        backgroundColor: govs.map(g => {
+                            const v = g.avg_quality_score || 0;
+                            return v >= 80 ? '#2e7d32' : v >= 50 ? '#e65100' : '#c62828';
+                        }),
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, max: 100, grid: { color: 'rgba(128,128,128,0.2)' }, ticks: { color: txtColor } },
+                        x: { grid: { display: false }, ticks: { color: txtColor } }
+                    }
+                }
+            });
+        }
+
+        // ── Indicators Tab ────
+        function initIndTab() {
+            _populateMonthSelect('indMonthSelect', () => {
+                _restoreUIState('analysis');
+            });
+        }
+
+        export async function loadIndicatorComparison() {
+            const month = document.getElementById('indMonthSelect').value;
+            if (!month) { toastWarning('Select a month'); return; }
+            document.getElementById('indLoading').classList.remove('hidden');
+            document.getElementById('indEmpty').style.display = 'block';
+            document.getElementById('indEmpty').innerHTML = '<div style="font-size:1.3rem;margin-bottom:0.3rem;"><span class="spinner"></span></div><p style="margin:0;font-size:0.85rem;">Loading indicator data...</p>';
+            document.getElementById('indTable').style.display = 'none';
+            document.getElementById('indChart').style.display = 'none';
+            try {
+                const data = await apiGet('/analysis/compare?month=' + month);
+                document.getElementById('indLoading').classList.add('hidden');
+                if (!data || !data.length) {
+                    document.getElementById('indEmpty').innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">No indicator data for this month.</p>';
+                    return;
+                }
+                document.getElementById('indEmpty').style.display = 'none';
+                document.getElementById('indTable').style.display = '';
+                // Aggregate by indicator
+                const agg = {};
+                data.forEach(d => {
+                    if (!agg[d.rate_name]) agg[d.rate_name] = { values: [], worst: { name: d.hospital, val: d.value }, best: { name: d.hospital, val: d.value } };
+                    agg[d.rate_name].values.push(d.value);
+                    if (d.value > agg[d.rate_name].worst.val) agg[d.rate_name].worst = { name: d.hospital, val: d.value };
+                    if (d.value < agg[d.rate_name].best.val) agg[d.rate_name].best = { name: d.hospital, val: d.value };
+                });
+                const tbody = document.getElementById('indTbody');
+                const totalHospitals = new Set(data.map(d => d.hospital)).size;
+                tbody.innerHTML = Object.entries(agg).map(([name, a]) => {
+                    const vals = a.values;
+                    const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+                    const min = Math.min(...vals);
+                    const max = Math.max(...vals);
+                    const stdDev = Math.sqrt(vals.reduce((s, v) => s + (v - avg) ** 2, 0) / vals.length);
+                    const coverage = ((vals.length / totalHospitals) * 100).toFixed(0);
+                    return '<tr><td style="font-weight:600;">' + esc(name) + '</td><td>' + avg.toFixed(2) + '</td><td>' + min.toFixed(2) + '</td><td>' + max.toFixed(2) + '</td><td>' + stdDev.toFixed(2) + '</td><td style="font-size:0.78rem;">' + esc(a.worst.name) + '</td><td style="font-size:0.78rem;">' + esc(a.best.name) + '</td><td>' + coverage + '%</td></tr>';
+                }).join('');
+            } catch(e) {
+                document.getElementById('indLoading').classList.add('hidden');
+                document.getElementById('indEmpty').innerHTML = '<p style="color:var(--accent-red);font-size:0.85rem;">Error: ' + e.message + '</p>';
+            }
+        }
+
+        // ── Time Periods Tab ────
+        function initTpTab() {
+            _populateHospitalSelect('tpHospitalSelect', () => {
+                _restoreUIState('analysis');
+            });
+        }
+
+        export async function loadTimePeriodComparison() {
+            const hid = document.getElementById('tpHospitalSelect').value;
+            if (!hid) { toastWarning('Select a hospital'); return; }
+            document.getElementById('tpLoading').classList.remove('hidden');
+            document.getElementById('tpEmpty').style.display = 'block';
+            document.getElementById('tpEmpty').innerHTML = '<div style="font-size:1.3rem;margin-bottom:0.3rem;"><span class="spinner"></span></div><p style="margin:0;font-size:0.85rem;">Loading time period data...</p>';
+            document.getElementById('tpTable').style.display = 'none';
+            document.getElementById('tpChart').style.display = 'none';
+            try {
+                const data = await apiGet('/analysis/quality-trend/' + hid);
+                document.getElementById('tpLoading').classList.add('hidden');
+                if (!data || !data.data || !data.data.length) {
+                    document.getElementById('tpEmpty').innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">No time period data for this hospital.</p>';
+                    return;
+                }
+                document.getElementById('tpEmpty').style.display = 'none';
+                document.getElementById('tpTable').style.display = '';
+                document.getElementById('tpChart').style.display = '';
+                const scores = data.data;
+                const tbody = document.getElementById('tpTbody');
+                tbody.innerHTML = scores.map((s, i) => {
+                    const change = i > 0 ? (s.score - scores[i-1].score) : null;
+                    const changeHtml = change !== null ? '<span style="color:' + (change >= 0 ? 'var(--accent-green)' : 'var(--accent-red)') + ';font-weight:600;">' + (change >= 0 ? '+' : '') + change.toFixed(1) + '</span>' : '-';
+                    return '<tr><td style="font-weight:600;">' + s.month + '</td><td>' + (s.score != null ? s.score.toFixed(1) : '-') + '</td><td>' + (s.completeness != null ? s.completeness.toFixed(1) : '-') + '</td><td>' + (s.rule_compliance != null ? s.rule_compliance.toFixed(1) : '-') + '</td><td>' + (s.consistency != null ? s.consistency.toFixed(1) : '-') + '</td><td>' + (s.outlier_penalty != null ? s.outlier_penalty.toFixed(2) : '-') + '</td><td>' + changeHtml + '</td></tr>';
+                }).join('');
+                // Line chart
+                renderTpChart(scores);
+            } catch(e) {
+                document.getElementById('tpLoading').classList.add('hidden');
+                document.getElementById('tpEmpty').innerHTML = '<p style="color:var(--accent-red);font-size:0.85rem;">Error: ' + e.message + '</p>';
+            }
+        }
+
+        function renderTpChart(scores) {
+            const el = document.getElementById('tpChart');
+            if (!el || !scores.length) return;
+            el.innerHTML = '<canvas style="width:100%;height:300px;"></canvas>';
+            const canvas = el.querySelector('canvas');
+            const tc = getComputedStyle(document.documentElement);
+            const txtColor = tc.getPropertyValue('--text-primary').trim() || '#ccc';
+            const months = scores.map(s => s.month);
+            new Chart(canvas, {
+                type: 'line',
+                data: {
+                    labels: months,
+                    datasets: [
+                        { label: 'Quality Score', data: scores.map(s => s.score), borderColor: '#1a237e', backgroundColor: '#1a237e22', fill: true, tension: 0.3 },
+                        { label: 'Completeness', data: scores.map(s => s.completeness), borderColor: '#2e7d32', borderDash: [5,3], tension: 0.3 },
+                        { label: 'Compliance', data: scores.map(s => s.rule_compliance), borderColor: '#e65100', borderDash: [5,3], tension: 0.3 },
+                        { label: 'Consistency', data: scores.map(s => s.consistency), borderColor: '#6a1b9a', borderDash: [5,3], tension: 0.3 },
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: txtColor, font: { size: 10 } } } },
+                    scales: {
+                        y: { beginAtZero: true, max: 100, grid: { color: 'rgba(128,128,128,0.2)' }, ticks: { color: txtColor } },
+                        x: { grid: { display: false }, ticks: { color: txtColor, maxRotation: 45 } }
+                    }
+                }
+            });
+        }
+
+        // ── Performance Levels Tab ────
+        function initPerfTab() {}
+
+        export async function loadPerformanceLevels() {
+            document.getElementById('perfLoading').classList.remove('hidden');
+            document.getElementById('perfEmpty').style.display = 'block';
+            document.getElementById('perfEmpty').innerHTML = '<div style="font-size:1.3rem;margin-bottom:0.3rem;"><span class="spinner"></span></div><p style="margin:0;font-size:0.85rem;">Loading performance rankings...</p>';
+            document.getElementById('perfChart').style.display = 'none';
+            document.getElementById('perfTiers').innerHTML = '';
+            try {
+                const data = await apiGet('/dashboard/ranking');
+                document.getElementById('perfLoading').classList.add('hidden');
+                if (!data || !data.length) {
+                    document.getElementById('perfEmpty').innerHTML = '<p style="color:var(--text-muted);font-size:0.85rem;">No ranking data available.</p>';
+                    return;
+                }
+                document.getElementById('perfEmpty').style.display = 'none';
+                document.getElementById('perfChart').style.display = '';
+                // Classify into tiers
+                const excellent = data.filter(h => h.avg_score >= 90);
+                const good = data.filter(h => h.avg_score >= 70 && h.avg_score < 90);
+                const average = data.filter(h => h.avg_score >= 50 && h.avg_score < 70);
+                const poor = data.filter(h => h.avg_score < 50);
+                const tiers = [
+                    { name: 'Excellent (90+)', color: '#2e7d32', icon: '&#127941;', hospitals: excellent },
+                    { name: 'Good (70-89)', color: '#1565c0', icon: '&#128077;', hospitals: good },
+                    { name: 'Average (50-69)', color: '#e65100', icon: '&#128070;', hospitals: average },
+                    { name: 'Poor (&lt;50)', color: '#c62828', icon: '&#9888;', hospitals: poor },
+                ];
+                // Chart
+                renderPerfChart(tiers);
+                // Tier cards
+                const tiersEl = document.getElementById('perfTiers');
+                tiersEl.innerHTML = tiers.map(t => {
+                    if (!t.hospitals.length) return '';
+                    return '<div style="margin-bottom:1rem;">' +
+                        '<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">' +
+                        '<span style="font-size:1rem;">' + t.icon + '</span>' +
+                        '<span style="font-weight:600;color:' + t.color + ';">' + t.name + '</span>' +
+                        '<span style="font-size:0.75rem;color:var(--text-muted);">(' + t.hospitals.length + ')</span></div>' +
+                        '<table style="width:100%;font-size:0.8rem;"><thead><tr><th style="text-align:left;padding:0.3rem;">Hospital</th><th style="text-align:right;padding:0.3rem;">Score</th><th style="text-align:right;padding:0.3rem;">Direction</th></tr></thead><tbody>' +
+                        t.hospitals.map(h => {
+                            const dir = h.direction === 'up' ? '&#9650;' : h.direction === 'down' ? '&#9660;' : '&#9654;';
+                            const dirColor = h.direction === 'up' ? 'var(--accent-green)' : h.direction === 'down' ? 'var(--accent-red)' : 'var(--text-muted)';
+                            return '<tr style="border-bottom:1px solid var(--border-default);"><td style="padding:0.3rem;font-weight:500;">' + esc(h.hospital) + '</td><td style="padding:0.3rem;text-align:right;font-weight:700;color:' + t.color + ';">' + h.avg_score + '</td><td style="padding:0.3rem;text-align:right;color:' + dirColor + ';">' + dir + ' ' + (h.direction || 'stable') + '</td></tr>';
+                        }).join('') +
+                        '</tbody></table></div>';
+                }).join('');
+            } catch(e) {
+                document.getElementById('perfLoading').classList.add('hidden');
+                document.getElementById('perfEmpty').innerHTML = '<p style="color:var(--accent-red);font-size:0.85rem;">Error: ' + e.message + '</p>';
+            }
+        }
+
+        function renderPerfChart(tiers) {
+            const el = document.getElementById('perfChart');
+            if (!el) return;
+            el.innerHTML = '<canvas style="width:100%;height:280px;"></canvas>';
+            const canvas = el.querySelector('canvas');
+            new Chart(canvas, {
+                type: 'doughnut',
+                data: {
+                    labels: tiers.map(t => t.name),
+                    datasets: [{ data: tiers.map(t => t.hospitals.length), backgroundColor: tiers.map(t => t.color), borderWidth: 2, borderColor: 'var(--bg-surface)' }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { font: { size: 11 } } } } }
+            });
         }
 
         // ── Quality Trend ──────────────────────────────────────────

@@ -78,7 +78,11 @@ window.openRootCauseForHospital = _stub('openRootCauseForHospital');
 window.loadTrends = _stub('loadTrends');
 window.loadComparison = _stub('loadComparison');
 window.loadMLClusters = _stub('loadMLClusters');
-window.switchAnalysisMode = _stub('switchAnalysisMode');
+window.switchAnalysisSubtab = _stub('switchAnalysisSubtab');
+window.loadGovComparison = _stub('loadGovComparison');
+window.loadIndicatorComparison = _stub('loadIndicatorComparison');
+window.loadTimePeriodComparison = _stub('loadTimePeriodComparison');
+window.loadPerformanceLevels = _stub('loadPerformanceLevels');
 window.initAnalysis = _stub('initAnalysis');
 window.runAnalysis = _stub('runAnalysis');
 window.applyReportFilter = _stub('applyReportFilter');
@@ -192,7 +196,9 @@ function _bindAll(mod, label) {
       _bind(mod, 'loadClinical'); _bind(mod, 'initClinical');
       _bind(mod, 'openRootCauseForHospital'); _bind(mod, 'loadTrends');
       _bind(mod, 'loadComparison'); _bind(mod, 'loadMLClusters');
-      _bind(mod, 'switchAnalysisMode'); _bind(mod, 'initAnalysis');
+      _bind(mod, 'switchAnalysisSubtab'); _bind(mod, 'initAnalysis');
+      _bind(mod, 'loadGovComparison'); _bind(mod, 'loadIndicatorComparison');
+      _bind(mod, 'loadTimePeriodComparison'); _bind(mod, 'loadPerformanceLevels');
       break;
     case 'clinical':
       _bind(mod, 'runAnalysis'); _bind(mod, 'applyReportFilter');

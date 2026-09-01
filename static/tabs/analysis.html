@@ -1,19 +1,22 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
                         <div>
                             <h2 style="margin:0;" data-i18n="Comparative Analysis">التحليل المقارن</h2>
-                            <span style="font-size:0.82rem;color:var(--text-muted);">Trend analysis & cross-hospital comparison</span>
+                            <span style="font-size:0.82rem;color:var(--text-muted);">Trend analysis &amp; cross-hospital comparison</span>
                         </div>
                     </div>
 
-                    <!-- Mode switcher (merged tabs: Trend Analysis + Hospital Comparison) -->
-                    <div class="card" style="padding:0.5rem 0.8rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                        <span style="font-size:0.78rem;color:var(--text-secondary);">Mode:</span>
-                        <button class="btn btn-sm" id="analysisModeTrend" onclick="switchAnalysisMode('trend')" style="font-size:0.78rem;padding:0.25rem 0.8rem;border:none;cursor:pointer;border-radius:4px;background:var(--accent-blue);color:white;font-weight:600;">Trend Analysis</button>
-                        <button class="btn btn-sm" id="analysisModeCompare" onclick="switchAnalysisMode('compare')" style="font-size:0.78rem;padding:0.25rem 0.8rem;border:1px solid var(--border-default);background:transparent;color:var(--accent-blue);cursor:pointer;border-radius:4px;">Hospital Comparison</button>
+                    <!-- Sub-tab buttons -->
+                    <div style="display:flex;gap:0.3rem;margin-bottom:1rem;border-bottom:2px solid var(--border-default);flex-wrap:wrap;">
+                        <button class="analysis-subtab active" data-subtab="trend" onclick="switchAnalysisSubtab('trend')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--accent-blue);border-bottom:2px solid var(--accent-blue);margin-bottom:-2px;cursor:pointer;font-size:0.82rem;">📈 Trend Analysis</button>
+                        <button class="analysis-subtab" data-subtab="compare" onclick="switchAnalysisSubtab('compare')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">🏥 Hospital Comparison</button>
+                        <button class="analysis-subtab" data-subtab="governorates" onclick="switchAnalysisSubtab('governorates')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">🗺️ Governorates</button>
+                        <button class="analysis-subtab" data-subtab="indicators" onclick="switchAnalysisSubtab('indicators')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">📊 Indicators</button>
+                        <button class="analysis-subtab" data-subtab="timeperiods" onclick="switchAnalysisSubtab('timeperiods')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">📅 Time Periods</button>
+                        <button class="analysis-subtab" data-subtab="performance" onclick="switchAnalysisSubtab('performance')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">📈 Performance Levels</button>
                     </div>
 
-                    <!-- ── Trend Analysis mode ─────────────────────────────── -->
-                    <div id="analysisTrendSection">
+                    <!-- ── Trend Analysis ─────────────────────────────── -->
+                    <div id="analysisSub-trend" class="analysis-subtab-content">
                         <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
                             <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
@@ -39,8 +42,8 @@
                         </div>
                     </div>
 
-                    <!-- ── Hospital Comparison mode ────────────────────────── -->
-                    <div id="analysisCompareSection" style="display:none;">
+                    <!-- ── Hospital Comparison ────────────────────────── -->
+                    <div id="analysisSub-compare" class="analysis-subtab-content" style="display:none;">
                         <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
                             <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
@@ -62,5 +65,89 @@
                             <table id="compareTable" style="display:none;"><thead><tr>
                                 <th>Hospital</th><th>Indicator</th><th>Value</th><th>Benchmark</th><th>Deviation %</th><th>Percentile</th><th>Assessment</th>
                             </tr></thead><tbody id="compareTbody"></tbody></table>
+                        </div>
+                    </div>
+
+                    <!-- ── Governorates ───────────────────────────────── -->
+                    <div id="analysisSub-governorates" class="analysis-subtab-content" style="display:none;">
+                        <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
+                            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
+                                <select id="govMonthSelect" onchange="_saveUIState('analysis')" style="font-size:0.8rem;padding:0.25rem 0.4rem;"></select>
+                                <button class="btn btn-sm" onclick="loadGovComparison()" style="font-size:0.78rem;padding:0.3rem 0.8rem;">Load</button>
+                                <span id="govLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
+                            </div>
+                        </div>
+                        <div id="govContent">
+                            <div id="govEmpty" class="card" style="text-align:center;padding:2rem 1.5rem;color:var(--text-muted);">
+                                <div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#127757;</div>
+                                <p style="margin:0;font-size:0.85rem;">Select a month to compare governorates.</p>
+                            </div>
+                            <div id="govChart" style="display:none;margin-bottom:1rem;"></div>
+                            <table id="govTable" style="display:none;"><thead><tr>
+                                <th>Governorate</th><th>Hospitals</th><th>Avg Quality</th><th>Avg Anomaly</th><th>Outliers</th><th>Top Issue</th><th>Trend</th>
+                            </tr></thead><tbody id="govTbody"></tbody></table>
+                        </div>
+                    </div>
+
+                    <!-- ── Indicators ─────────────────────────────────── -->
+                    <div id="analysisSub-indicators" class="analysis-subtab-content" style="display:none;">
+                        <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
+                            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
+                                <select id="indMonthSelect" onchange="_saveUIState('analysis')" style="font-size:0.8rem;padding:0.25rem 0.4rem;"></select>
+                                <button class="btn btn-sm" onclick="loadIndicatorComparison()" style="font-size:0.78rem;padding:0.3rem 0.8rem;">Load</button>
+                                <span id="indLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
+                            </div>
+                        </div>
+                        <div id="indContent">
+                            <div id="indEmpty" class="card" style="text-align:center;padding:2rem 1.5rem;color:var(--text-muted);">
+                                <div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128202;</div>
+                                <p style="margin:0;font-size:0.85rem;">Select a month to view indicator breakdown across hospitals.</p>
+                            </div>
+                            <div id="indChart" style="display:none;margin-bottom:1rem;"></div>
+                            <table id="indTable" style="display:none;"><thead><tr>
+                                <th>Indicator</th><th>Avg</th><th>Min</th><th>Max</th><th>Std Dev</th><th>Worst Hospital</th><th>Best Hospital</th><th>Coverage</th>
+                            </tr></thead><tbody id="indTbody"></tbody></table>
+                        </div>
+                    </div>
+
+                    <!-- ── Time Periods ──────────────────────────────── -->
+                    <div id="analysisSub-timeperiods" class="analysis-subtab-content" style="display:none;">
+                        <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
+                            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                                <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
+                                <select id="tpHospitalSelect" onchange="_saveUIState('analysis')" style="font-size:0.8rem;padding:0.25rem 0.4rem;"></select>
+                                <button class="btn btn-sm" onclick="loadTimePeriodComparison()" style="font-size:0.78rem;padding:0.3rem 0.8rem;">Load</button>
+                                <span id="tpLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
+                            </div>
+                        </div>
+                        <div id="tpContent">
+                            <div id="tpEmpty" class="card" style="text-align:center;padding:2rem 1.5rem;color:var(--text-muted);">
+                                <div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128197;</div>
+                                <p style="margin:0;font-size:0.85rem;">Select a hospital to view time period comparison.</p>
+                            </div>
+                            <div id="tpChart" style="display:none;margin-bottom:1rem;"></div>
+                            <table id="tpTable" style="display:none;"><thead><tr>
+                                <th>Month</th><th>Quality Score</th><th>Completeness</th><th>Compliance</th><th>Consistency</th><th>Outlier Penalty</th><th>Change</th>
+                            </tr></thead><tbody id="tpTbody"></tbody></table>
+                        </div>
+                    </div>
+
+                    <!-- ── Performance Levels ─────────────────────────── -->
+                    <div id="analysisSub-performance" class="analysis-subtab-content" style="display:none;">
+                        <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
+                            <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
+                                <button class="btn btn-sm" onclick="loadPerformanceLevels()" style="font-size:0.78rem;padding:0.3rem 0.8rem;">Load Rankings</button>
+                                <span id="perfLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
+                            </div>
+                        </div>
+                        <div id="perfContent">
+                            <div id="perfEmpty" class="card" style="text-align:center;padding:2rem 1.5rem;color:var(--text-muted);">
+                                <div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#127942;</div>
+                                <p style="margin:0;font-size:0.85rem;">Click Load Rankings to see performance tiers.</p>
+                            </div>
+                            <div id="perfChart" style="display:none;margin-bottom:1rem;"></div>
+                            <div id="perfTiers"></div>
                         </div>
                     </div>
