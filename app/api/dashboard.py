@@ -576,17 +576,24 @@ def component_diagnostics(
         from collections import Counter
 
         if hospital_id:
-            # Single hospital: find missing indicators per month
+            # Single hospital: find indicators that SHOULD have values but don't
+            from app.engine.pipeline import get_disabled_indicator_ids
             for i, s in enumerate(scores):
+                # Get indicators disabled for this hospital-month (auto + manual)
+                disabled_ids = set(get_disabled_indicator_ids(db, hospital_id, s.month))
+                # Enabled = all indicators minus disabled
+                enabled_for_month = set(all_ind_ids) - disabled_ids
+                # Get which enabled indicators actually have values
                 month_vals = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
                     IndicatorValue.hospital_id == hospital_id,
                     IndicatorValue.month == s.month,
-                    IndicatorValue.indicator_id.in_(all_ind_ids)
+                    IndicatorValue.indicator_id.in_(list(enabled_for_month))
                 ).all()
                 filled_ids = {iv.indicator_id for iv in month_vals if iv.value is not None}
-                missing_ids = set(all_ind_ids) - filled_ids
-                if missing_ids and cp_vals[i] < targets["completeness"]:
-                    missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid in sorted(missing_ids)]
+                # Truly missing = enabled but no value
+                truly_missing = enabled_for_month - filled_ids
+                if truly_missing and cp_vals[i] < targets["completeness"]:
+                    missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid in sorted(truly_missing)]
                     cp_missing_details.append({
                         "month": s.month,
                         "value": cp_vals[i],
@@ -594,33 +601,39 @@ def component_diagnostics(
                         "missing_indicators": missing_names[:10],
                     })
         else:
-            # All hospitals: find most commonly missing indicators
+            # All hospitals: find indicators that have values for SOME hospitals
+            # but not others (truly missing, not universally disabled)
             hosp_ids = [h.id for h in db.query(Hospital.id).filter(Hospital.is_active.is_(True)).all()]
-            # Get all distinct months from scores
             distinct_months = sorted(set(s.month for s in scores))
             for month in distinct_months:
-                # For each month, count how many hospitals are missing each indicator
-                month_indicator_counts = Counter()
+                # Count per indicator: how many hospitals have it vs don't
+                ind_hospital_count = Counter()  # indicator_id -> count of hospitals with values
                 for hid in hosp_ids:
-                    month_vals = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
+                    month_vals = db.query(IndicatorValue.indicator_id).filter(
                         IndicatorValue.hospital_id == hid,
                         IndicatorValue.month == month,
-                        IndicatorValue.indicator_id.in_(all_ind_ids)
+                        IndicatorValue.indicator_id.in_(all_ind_ids),
+                        IndicatorValue.value.isnot(None)
                     ).all()
-                    filled_ids = {iv.indicator_id for iv in month_vals if iv.value is not None}
-                    missing_ids = set(all_ind_ids) - filled_ids
-                    for mid in missing_ids:
-                        month_indicator_counts[mid] += 1
-                if month_indicator_counts:
-                    # Get avg completeness for this month
+                    for iv in month_vals:
+                        ind_hospital_count[iv.indicator_id] += 1
+                # Only show indicators that SOME hospitals have but others don't
+                # (not universally disabled)
+                partially_missing = {}
+                for mid in all_ind_ids:
+                    count = ind_hospital_count.get(mid, 0)
+                    if 0 < count < len(hosp_ids):
+                        partially_missing[mid] = len(hosp_ids) - count
+                if partially_missing:
                     month_cp_vals = [cp_vals[i] for i in range(n) if scores[i].month == month]
                     month_avg = sum(month_cp_vals) / len(month_cp_vals) if month_cp_vals else 0
                     if month_avg < targets["completeness"]:
-                        missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid, cnt in month_indicator_counts.most_common(10)]
+                        sorted_missing = sorted(partially_missing.items(), key=lambda x: -x[1])
+                        missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid, cnt in sorted_missing[:10]]
                         cp_missing_details.append({
                             "month": month,
                             "value": round(month_avg, 1),
-                            "missing_count": sum(month_indicator_counts.values()),
+                            "missing_count": sum(partially_missing.values()),
                             "missing_indicators": missing_names,
                         })
     except Exception:
