@@ -552,13 +552,14 @@ def component_diagnostics(
 
     n = len(scores)
 
-    # Full trend array — aggregate by month
+    # Full trend array — aggregate by month (completeness recalculated)
     from collections import defaultdict
     trend_buckets = defaultdict(lambda: {"rc": [], "cp": [], "co": [], "op": [], "sc": []})
-    for s in scores:
+    _trend_cp = _recalc_completeness(db, scores)
+    for i, s in enumerate(scores):
         b = trend_buckets[s.month]
         b["rc"].append(float(s.rule_compliance or 0))
-        b["cp"].append(float(s.completeness or 0))
+        b["cp"].append(_trend_cp[i])
         b["co"].append(float(s.consistency or 0))
         b["op"].append(max(0, 100 - (s.outlier_penalty or 0)))
         b["sc"].append(float(s.score or 0))
