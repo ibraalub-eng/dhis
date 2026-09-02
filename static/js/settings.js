@@ -1418,7 +1418,7 @@ function loadHospitalsSettings() {
 
                 // Component Trend chart (per-component lines)
                 if (compTrend.length) {
-                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Component Trend') + '</h3>' +
+                    html += '<div class="card" style="margin-top:1rem;"><h3>' + label + ' ' + __('Trend') + '</h3>' +
                         '<div style="position:relative;height:220px;max-height:220px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div>' +
                         '</div>';
                 } else if (trend.length) {
@@ -1554,18 +1554,32 @@ function loadHospitalsSettings() {
                 if (chartCtx) {
                     if (_kpiDrilldownChart) { _kpiDrilldownChart.destroy(); _kpiDrilldownChart = null; }
                     if (compTrend.length) {
-                        // Per-component trend chart
+                        // Build dataset based on clicked metric
+                        var _dsMap = {
+                            rule_compliance: { label: __('Rule Compliance'), key: 'rule_compliance', color: '#e65100' },
+                            completeness: { label: __('Completeness'), key: 'completeness', color: '#2e7d32' },
+                            consistency: { label: __('Consistency'), key: 'consistency', color: '#6a1b9a' },
+                            outlier_score: { label: __('Outlier Score'), key: 'outlier_score', color: '#c62828' },
+                            quality_score: { label: __('Quality Score'), key: 'score', color: getCSSVar('--accent-teal') || '#14b8a6' },
+                        };
+                        var ds = _dsMap[metric];
+                        var datasets = [];
+                        if (ds) {
+                            datasets.push({ label: ds.label, data: compTrend.map(function(d) { return d[ds.key]; }), borderColor: ds.color, borderWidth: 2, tension: 0.3, pointRadius: 4, fill: false });
+                        } else {
+                            // conf_high / report_coverage: show Quality Score as fallback
+                            datasets.push({ label: __('Quality Score'), data: compTrend.map(function(d) { return d.score; }), borderColor: getCSSVar('--accent-teal') || '#14b8a6', borderWidth: 2, tension: 0.3, pointRadius: 4, fill: false });
+                        }
+                        // Always add target reference line if component has one
+                        var _targetMap = { rule_compliance: 85, completeness: 90, consistency: 85, outlier_score: 90 };
+                        if (_targetMap[metric]) {
+                            datasets.push({ label: __('Target') + ' (' + _targetMap[metric] + '%)', data: compTrend.map(function() { return _targetMap[metric]; }), borderColor: 'rgba(128,128,128,0.4)', borderDash: [6,4], borderWidth: 1, pointRadius: 0, fill: false });
+                        }
                         _kpiDrilldownChart = new Chart(chartCtx, {
                             type: 'line',
                             data: {
                                 labels: compTrend.map(function(d) { return d.month; }),
-                                datasets: [
-                                    { label: __('Rule Compliance'), data: compTrend.map(function(d) { return d.rule_compliance; }), borderColor: '#e65100', borderDash: [5,3], tension: 0.3, pointRadius: 3 },
-                                    { label: __('Completeness'), data: compTrend.map(function(d) { return d.completeness; }), borderColor: '#2e7d32', borderDash: [5,3], tension: 0.3, pointRadius: 3 },
-                                    { label: __('Consistency'), data: compTrend.map(function(d) { return d.consistency; }), borderColor: '#6a1b9a', borderDash: [5,3], tension: 0.3, pointRadius: 3 },
-                                    { label: __('Outlier Score'), data: compTrend.map(function(d) { return d.outlier_score; }), borderColor: '#c62828', borderDash: [5,3], tension: 0.3, pointRadius: 3 },
-                                    { label: __('Quality Score'), data: compTrend.map(function(d) { return d.score; }), borderColor: getCSSVar('--accent-teal') || '#14b8a6', borderWidth: 2, tension: 0.3, pointRadius: 4 },
-                                ]
+                                datasets: datasets
                             },
                             options: {
                                 responsive: true, maintainAspectRatio: false, resizeDelay: 200,
