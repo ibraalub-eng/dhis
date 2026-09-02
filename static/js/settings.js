@@ -1512,7 +1512,7 @@ function loadHospitalsSettings() {
                             c.monthly.forEach(function(m) {
                                 var diff = m.value - c.target;
                                 var mCol = m.value >= c.target ? 'var(--accent-green)' : m.value >= c.target - 10 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                                var mStatus = m.value >= c.target ? '\u2705 OK' : m.value >= c.target - 10 ? '\u26a0\ufe0f ' + diff.toFixed(1) + '%' : '\u274c ' + diff.toFixed(1) + '%';
+                                var mStatus = m.value >= c.target ? '\u2705 OK' : m.value >= c.target - 10 ? '\u26a0\ufe0f Warning' : '\u274c Critical';
                                 html += '<tr style="border-bottom:1px solid var(--border-default);">';
                                 html += '<td style="padding:0.25rem 0.4rem;font-weight:500;">' + m.month + '</td>';
                                 html += '<td style="text-align:right;padding:0.25rem 0.4rem;font-weight:700;color:' + mCol + ';">' + m.value + '%</td>';
