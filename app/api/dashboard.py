@@ -445,3 +445,208 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
         "quality_trend": quality_trend, "clinical_rates": clinical_rates,
         "total_alerts": total_alerts, "last_alerts": last_alerts,
     }
+
+
+@router.get("/component-diagnostics")
+def component_diagnostics(
+    hospital_id: int | None = None,
+    month_from: str | None = None,
+    month_to: str | None = None,
+    year: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Detailed per-component diagnostics with causes, impact, and monthly history."""
+    from app.api.analysis import get_enabled_months
+    enabled_months = get_enabled_months(db, hospital_id=hospital_id)
+
+    base = db.query(QualityScore)
+    if hospital_id:
+        base = base.filter(QualityScore.hospital_id == hospital_id)
+    if month_from:
+        base = base.filter(QualityScore.month >= month_from)
+    if month_to:
+        base = base.filter(QualityScore.month <= month_to)
+    elif enabled_months:
+        base = base.filter(QualityScore.month.in_(enabled_months))
+    if year:
+        base = base.filter(QualityScore.month.like(f"{year}-%"))
+
+    scores = base.order_by(QualityScore.month.asc()).all()
+    if not scores:
+        return {"components": [], "trend": []}
+
+    n = len(scores)
+
+    # Full trend array
+    trend = []
+    for s in scores:
+        trend.append({
+            "month": s.month,
+            "rule_compliance": round(float(s.rule_compliance or 0), 1),
+            "completeness": round(float(s.completeness or 0), 1),
+            "consistency": round(float(s.consistency or 0), 1),
+            "outlier_score": round(max(0, 100 - (s.outlier_penalty or 0)), 1),
+            "score": round(float(s.score or 0), 1),
+        })
+
+    # Targets
+    targets = {"rule_compliance": 85, "completeness": 90, "consistency": 85, "outlier_score": 90}
+    try:
+        from app.models import SystemConfig
+        cfg = db.query(SystemConfig).all()
+        cfg_map = {c.key: c.value for c in cfg}
+        if "quality_rule_compliance" in cfg_map:
+            targets["rule_compliance"] = round(float(cfg_map.get("quality_rule_compliance", 0.35)) * 100)
+        if "quality_completeness" in cfg_map:
+            targets["completeness"] = round(float(cfg_map.get("quality_completeness", 0.25)) * 100)
+        if "quality_consistency" in cfg_map:
+            targets["consistency"] = round(float(cfg_map.get("quality_consistency", 0.25)) * 100)
+    except Exception:
+        pass
+
+    def _direction(vals):
+        if len(vals) < 2:
+            return "stable"
+        recent = vals[-2:]
+        if recent[-1] > recent[0] + 2:
+            return "improving"
+        elif recent[-1] < recent[0] - 2:
+            return "declining"
+        return "stable"
+
+    def _first_bad(vals, threshold):
+        for i, v in enumerate(vals):
+            if v < threshold:
+                return i
+        return -1
+
+    def _stdev(vals):
+        if len(vals) < 2:
+            return 0.0
+        m = sum(vals) / len(vals)
+        return round((sum((v - m) ** 2 for v in vals) / len(vals)) ** 0.5, 1)
+
+    # Rule Compliance
+    rc_vals = [round(float(s.rule_compliance or 0), 1) for s in scores]
+    rc_months = [{"month": scores[i].month, "value": rc_vals[i]} for i in range(n)]
+    avg_rc = round(sum(rc_vals) / n, 1)
+    rc_first_bad = _first_bad(rc_vals, targets["rule_compliance"])
+    rc_causes = []
+    rc_bad_count = sum(1 for v in rc_vals if v < targets["rule_compliance"])
+    rc_bad_avg = round(sum(v for v in rc_vals if v < targets["rule_compliance"]) / max(rc_bad_count, 1), 1) if rc_bad_count else 0
+    if rc_bad_count > 0:
+        impact = round((targets["rule_compliance"] - rc_bad_avg) * rc_bad_count / n, 1)
+        rc_causes.append({
+            "cause": "Rule validation failures",
+            "detail": f"{rc_bad_count}/{n} months below {targets['rule_compliance']}% target",
+            "severity": "critical" if rc_bad_avg < 60 else "warning",
+            "impact_pct": impact,
+            "first_month": scores[rc_first_bad].month if rc_first_bad >= 0 else None,
+        })
+    if _direction(rc_vals) == "declining":
+        rc_causes.append({"cause": "Declining trend", "detail": "Recent months show decreasing compliance", "severity": "warning", "impact_pct": round(targets["rule_compliance"] - avg_rc, 1) * 0.3})
+    if not rc_causes:
+        rc_causes.append({"cause": "All rules passing", "detail": f"Average {avg_rc}% across {n} months", "severity": "ok", "impact_pct": 0})
+
+    # Completeness
+    cp_vals = [round(float(s.completeness or 0), 1) for s in scores]
+    cp_months = [{"month": scores[i].month, "value": cp_vals[i]} for i in range(n)]
+    avg_cp = round(sum(cp_vals) / n, 1)
+    cp_first_bad = _first_bad(cp_vals, targets["completeness"])
+    cp_causes = []
+    cp_critical_count = sum(1 for v in cp_vals if v < 50)
+    cp_warn_count = sum(1 for v in cp_vals if 50 <= v < targets["completeness"])
+    if cp_critical_count > 0:
+        cp_causes.append({
+            "cause": "Severely missing indicator data",
+            "detail": f"{cp_critical_count}/{n} months below 50% — most indicators empty",
+            "severity": "critical",
+            "impact_pct": round(sum(targets["completeness"] - v for v in cp_vals if v < 50) / n, 1),
+            "first_month": scores[_first_bad(cp_vals, 50)].month if _first_bad(cp_vals, 50) >= 0 else None,
+        })
+    if cp_warn_count > 0:
+        remaining = [v for v in cp_vals if 50 <= v < targets["completeness"]]
+        cp_causes.append({
+            "cause": "Partial indicator gaps",
+            "detail": f"{cp_warn_count}/{n} months between 50-{targets['completeness']}% — some indicators missing",
+            "severity": "warning",
+            "impact_pct": round(sum(targets["completeness"] - v for v in remaining) / n, 1),
+            "first_month": scores[cp_first_bad].month if cp_first_bad >= 0 else None,
+        })
+    if not cp_causes:
+        cp_causes.append({"cause": "All indicators reported", "detail": f"Average {avg_cp}% — data coverage is good", "severity": "ok", "impact_pct": 0})
+
+    # Consistency
+    co_vals = [round(float(s.consistency or 0), 1) for s in scores]
+    co_months = [{"month": scores[i].month, "value": co_vals[i]} for i in range(n)]
+    avg_co = round(sum(co_vals) / n, 1)
+    co_stdev = _stdev(co_vals)
+    co_first_bad = _first_bad(co_vals, targets["consistency"])
+    co_causes = []
+    co_bad_count = sum(1 for v in co_vals if v < targets["consistency"])
+    if co_stdev > 10:
+        co_causes.append({
+            "cause": "High score volatility",
+            "detail": f"Standard deviation {co_stdev} — scores fluctuate significantly month-to-month",
+            "severity": "warning",
+            "impact_pct": round(co_stdev * 0.8, 1),
+            "first_month": scores[co_first_bad].month if co_first_bad >= 0 else None,
+        })
+    if co_bad_count > 0:
+        co_causes.append({
+            "cause": "Inconsistent rule outcomes",
+            "detail": f"{co_bad_count}/{n} months below {targets['consistency']}% target",
+            "severity": "critical" if avg_co < 70 else "warning",
+            "impact_pct": round(sum(targets["consistency"] - v for v in co_vals if v < targets["consistency"]) / n, 1),
+            "first_month": scores[co_first_bad].month if co_first_bad >= 0 else None,
+        })
+    if not co_causes:
+        co_causes.append({"cause": "Stable and consistent", "detail": f"Average {avg_co}% — low variance (std={co_stdev})", "severity": "ok", "impact_pct": 0})
+
+    # Outlier Score
+    op_vals = [round(max(0, 100 - (s.outlier_penalty or 0)), 1) for s in scores]
+    op_months = [{"month": scores[i].month, "value": op_vals[i]} for i in range(n)]
+    avg_op = round(sum(op_vals) / n, 1)
+    op_first_bad = _first_bad(op_vals, targets["outlier_score"])
+    op_causes = []
+    op_bad_count = sum(1 for v in op_vals if v < targets["outlier_score"])
+    op_severe = sum(1 for v in op_vals if v < 60)
+    if op_severe > 0:
+        op_causes.append({
+            "cause": "Severe outlier penalties",
+            "detail": f"{op_severe}/{n} months with score < 60 — extreme anomalies detected",
+            "severity": "critical",
+            "impact_pct": round(sum(targets["outlier_score"] - v for v in op_vals if v < 60) / n, 1),
+            "first_month": scores[_first_bad(op_vals, 60)].month if _first_bad(op_vals, 60) >= 0 else None,
+        })
+    elif op_bad_count > 0:
+        op_causes.append({
+            "cause": "Moderate outlier penalties",
+            "detail": f"{op_bad_count}/{n} months below {targets['outlier_score']}% target",
+            "severity": "warning",
+            "impact_pct": round(sum(targets["outlier_score"] - v for v in op_vals if v < targets["outlier_score"]) / n, 1),
+            "first_month": scores[op_first_bad].month if op_first_bad >= 0 else None,
+        })
+    if not op_causes:
+        op_causes.append({"cause": "No significant outliers", "detail": f"Average {avg_op}% — data within normal range", "severity": "ok", "impact_pct": 0})
+
+    def _build(name, key, avg, vals, months, direction, causes, target):
+        gap = round(max(0, target - avg), 1)
+        min_val = min(vals) if vals else 0
+        max_val = max(vals) if vals else 0
+        worst_idx = vals.index(min_val) if vals else 0
+        return {
+            "name": name, "key": key, "avg": avg, "target": target, "gap": gap,
+            "min": min_val, "max": max_val, "range": round(max_val - min_val, 1),
+            "direction": direction,
+            "worst_month": scores[worst_idx].month if scores else None,
+            "causes": causes, "monthly": months,
+        }
+
+    components = [
+        _build("Rule Compliance", "rule_compliance", avg_rc, rc_vals, rc_months, _direction(rc_vals), rc_causes, targets["rule_compliance"]),
+        _build("Completeness", "completeness", avg_cp, cp_vals, cp_months, _direction(cp_vals), cp_causes, targets["completeness"]),
+        _build("Consistency", "consistency", avg_co, co_vals, co_months, _direction(co_vals), co_causes, targets["consistency"]),
+        _build("Outlier Score", "outlier_score", avg_op, op_vals, op_months, _direction(op_vals), op_causes, targets["outlier_score"]),
+    ]
+    return {"components": components, "trend": trend}

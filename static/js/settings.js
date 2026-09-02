@@ -1387,13 +1387,21 @@ function loadHospitalsSettings() {
             if (hid) overviewUrl += 'hospital_id=' + hid + '&';
             if (yr) overviewUrl += 'year=' + yr;
 
-            Promise.all([apiGet(kpiUrl), apiGet(overviewUrl)]).then(([kpiData, overviewData]) => {
-                const kpi = (kpiData.kpis || []).find(function(k) { return k.id === metric; });
-                const trend = overviewData.quality_trend || [];
-                const radar = overviewData.radar_components || {};
+            let diagUrl = '/dashboard/component-diagnostics?';
+            if (hid) diagUrl += 'hospital_id=' + hid + '&';
+            if (yr) diagUrl += 'year=' + yr;
 
-                let html = '';
+            Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; })]).then(function(results) {
+                var kpiData = results[0], overviewData = results[1], diag = results[2];
+                var kpi = (kpiData.kpis || []).find(function(k) { return k.id === metric; });
+                var trend = overviewData.quality_trend || [];
+                var radar = overviewData.radar_components || {};
+                var components = (diag && diag.components) || [];
+                var compTrend = (diag && diag.trend) || [];
 
+                var html = '';
+
+                // KPI value + target
                 if (kpi) {
                     html += '<div class="scorecard-kpi-bar">' +
                         '<div class="scorecard-kpi-item" style="border-top-color:var(--accent-blue);background:var(--bg-elevated);">' +
@@ -1407,36 +1415,166 @@ function loadHospitalsSettings() {
                     html += '</div>';
                 }
 
-                if (trend.length) {
-                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Quality Trend') + '</h3><div style="position:relative;height:200px;max-height:200px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div></div>';
+                // Component Trend chart (per-component lines)
+                if (compTrend.length) {
+                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Component Trend') + '</h3>' +
+                        '<div style="position:relative;height:220px;max-height:220px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div>' +
+                        '</div>';
+                } else if (trend.length) {
+                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Quality Trend') + '</h3>' +
+                        '<div style="position:relative;height:200px;max-height:200px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div></div>';
                 }
 
-                const componentKeys = Object.keys(radar);
-                if (componentKeys.length) {
+                // Enhanced Component Breakdown (with diagnostics)
+                if (components.length) {
                     html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Component Breakdown') + '</h3>';
-                    html += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">';
-                    html += '<thead><tr><th style="text-align:left;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);">' + __('Component') + '</th>';
-                    html += '<th style="text-align:right;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);">' + __('Score') + '</th>';
-                    html += '<th style="text-align:left;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);width:40%;"></th></tr></thead><tbody>';
-                    componentKeys.forEach(function(key) {
-                        const val = radar[key];
-                        const col = val >= 80 ? 'var(--accent-green)' : val >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                        html += '<tr>' +
-                            '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);font-weight:500;">' + esc(key) + '</td>' +
-                            '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);text-align:right;font-weight:700;color:' + col + ';">' + val + '%</td>' +
-                            '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);"><div style="height:6px;background:var(--border-default);border-radius:3px;"><div style="width:' + val + '%;height:6px;background:' + col + ';border-radius:3px;"></div></div></td>' +
-                            '</tr>';
+                    components.forEach(function(c) {
+                        var col = c.avg >= 80 ? 'var(--accent-green)' : c.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                        var dirIcon = c.direction === 'improving' ? '\u2191' : c.direction === 'declining' ? '\u2193' : '\u2192';
+                        var dirColor = c.direction === 'improving' ? 'var(--accent-green)' : c.direction === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)';
+                        var gapColor = c.gap > 20 ? 'var(--accent-red)' : c.gap > 5 ? 'var(--accent-orange)' : 'var(--accent-green)';
+                        var statusLabel = c.gap <= 0 ? '<span style="color:var(--accent-green);font-weight:600;">\u2705 On Target</span>' :
+                            c.gap <= 5 ? '<span style="color:var(--accent-orange);font-weight:600;">\u26a0\ufe0f ' + c.gap + '% gap</span>' :
+                            '<span style="color:var(--accent-red);font-weight:600;">\u274c ' + c.gap + '% gap</span>';
+
+                        // Main card
+                        html += '<div style="border:1px solid var(--border-default);border-radius:8px;margin-bottom:0.8rem;overflow:hidden;">';
+
+                        // Header row
+                        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.8rem;background:var(--bg-elevated);cursor:pointer;" onclick="this.parentElement.querySelector(\'._diag-body\').classList.toggle(\'hidden\')">';
+                        html += '<div style="display:flex;align-items:center;gap:0.5rem;">';
+                        html += '<span style="font-weight:600;font-size:0.85rem;">' + esc(c.name) + '</span>';
+                        html += '<span style="font-size:0.75rem;color:' + dirColor + ';">' + dirIcon + '</span>';
+                        html += '</div>';
+                        html += '<div style="display:flex;align-items:center;gap:0.8rem;">';
+                        html += '<span style="font-weight:700;color:' + col + ';font-size:0.95rem;">' + c.avg + '%</span>';
+                        html += '<span style="font-size:0.7rem;color:var(--text-muted);">/ ' + c.target + '%</span>';
+                        html += statusLabel;
+                        html += '<span style="font-size:0.7rem;color:var(--text-muted);">\u25bc</span>';
+                        html += '</div></div>';
+
+                        // Progress bar
+                        html += '<div style="padding:0 0.8rem;">';
+                        html += '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 0;">';
+                        html += '<div style="width:' + Math.min(c.avg, 100) + '%;height:4px;background:' + col + ';border-radius:2px;transition:width 0.4s;"></div>';
+                        html += '</div>';
+                        html += '<div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-muted);margin-bottom:0.2rem;">';
+                        html += '<span>' + __('Actual') + ': ' + c.avg + '%</span>';
+                        html += '<span>' + __('Target') + ': ' + c.target + '%</span>';
+                        html += '<span>' + __('Worst') + ': ' + c.worst_month + ' (' + c.min + '%)</span>';
+                        html += '<span>' + __('Range') + ': ' + c.range + '%</span>';
+                        html += '</div></div>';
+
+                        // Diagnosis body (collapsible)
+                        html += '<div class="_diag-body" style="padding:0.5rem 0.8rem 0.8rem;border-top:1px solid var(--border-default);">';
+
+                        // Causes table
+                        if (c.causes && c.causes.length) {
+                            html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">' + __('Root Causes') + '</div>';
+                            c.causes.forEach(function(cause) {
+                                var sevColor = cause.severity === 'critical' ? 'var(--accent-red)' : cause.severity === 'warning' ? 'var(--accent-orange)' : cause.severity === 'ok' ? 'var(--accent-green)' : 'var(--text-muted)';
+                                var sevBg = cause.severity === 'critical' ? 'rgba(198,40,40,0.08)' : cause.severity === 'warning' ? 'rgba(230,81,0,0.08)' : 'rgba(46,125,50,0.08)';
+                                var sevIcon = cause.severity === 'critical' ? '\u274c' : cause.severity === 'warning' ? '\u26a0\ufe0f' : cause.severity === 'ok' ? '\u2705' : '\u2139\ufe0f';
+                                html += '<div style="display:flex;align-items:flex-start;gap:6px;padding:0.4rem 0.5rem;border-radius:6px;margin-bottom:0.3rem;background:' + sevBg + ';">';
+                                html += '<span style="font-size:0.75rem;flex-shrink:0;margin-top:1px;">' + sevIcon + '</span>';
+                                html += '<div style="flex:1;">';
+                                html += '<div style="font-size:0.78rem;font-weight:600;color:' + sevColor + ';">' + esc(cause.cause) + '</div>';
+                                html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:1px;">' + esc(cause.detail) + '</div>';
+                                html += '</div>';
+                                if (cause.impact_pct > 0) {
+                                    html += '<div style="text-align:right;flex-shrink:0;">';
+                                    html += '<div style="font-size:0.65rem;color:var(--text-muted);">' + __('Impact') + '</div>';
+                                    html += '<div style="font-size:0.8rem;font-weight:700;color:' + sevColor + ';">-' + cause.impact_pct + '%</div>';
+                                    html += '</div>';
+                                }
+                                if (cause.first_month) {
+                                    html += '<div style="text-align:right;flex-shrink:0;">';
+                                    html += '<div style="font-size:0.65rem;color:var(--text-muted);">' + __('Started') + '</div>';
+                                    html += '<div style="font-size:0.72rem;font-weight:600;">' + cause.first_month + '</div>';
+                                    html += '</div>';
+                                }
+                                html += '</div>';
+                            });
+                        }
+
+                        // Monthly detail table
+                        if (c.monthly && c.monthly.length) {
+                            html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin:0.5rem 0 0.3rem;">' + __('Month-by-Month Detail') + '</div>';
+                            html += '<div style="overflow-x:auto;">';
+                            html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem;">';
+                            html += '<thead><tr style="background:var(--bg-surface);">';
+                            html += '<th style="text-align:left;padding:0.25rem 0.4rem;">' + __('Month') + '</th>';
+                            html += '<th style="text-align:right;padding:0.25rem 0.4rem;">' + __('Value') + '</th>';
+                            html += '<th style="text-align:right;padding:0.25rem 0.4rem;">' + __('vs Target') + '</th>';
+                            html += '<th style="text-align:left;padding:0.25rem 0.4rem;width:35%;">' + __('Status') + '</th>';
+                            html += '</tr></thead><tbody>';
+                            c.monthly.forEach(function(m) {
+                                var diff = m.value - c.target;
+                                var mCol = m.value >= c.target ? 'var(--accent-green)' : m.value >= c.target - 10 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                                var mStatus = m.value >= c.target ? '\u2705 OK' : m.value >= c.target - 10 ? '\u26a0\ufe0f ' + diff.toFixed(1) + '%' : '\u274c ' + diff.toFixed(1) + '%';
+                                html += '<tr style="border-bottom:1px solid var(--border-default);">';
+                                html += '<td style="padding:0.25rem 0.4rem;font-weight:500;">' + m.month + '</td>';
+                                html += '<td style="text-align:right;padding:0.25rem 0.4rem;font-weight:700;color:' + mCol + ';">' + m.value + '%</td>';
+                                html += '<td style="text-align:right;padding:0.25rem 0.4rem;color:' + mCol + ';">' + (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%</td>';
+                                html += '<td style="padding:0.25rem 0.4rem;font-size:0.7rem;">' + mStatus + '</td>';
+                                html += '</tr>';
+                            });
+                            html += '</tbody></table></div>';
+                        }
+
+                        html += '</div>'; // _diag-body
+                        html += '</div>'; // card
                     });
-                    html += '</tbody></table></div>';
+                    html += '</div>';
+                } else {
+                    // Fallback: old radar-based table
+                    var componentKeys = Object.keys(radar);
+                    if (componentKeys.length) {
+                        html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Component Breakdown') + '</h3>';
+                        html += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">';
+                        html += '<thead><tr><th style="text-align:left;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);">' + __('Component') + '</th>';
+                        html += '<th style="text-align:right;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);">' + __('Score') + '</th>';
+                        html += '<th style="text-align:left;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);width:40%;"></th></tr></thead><tbody>';
+                        componentKeys.forEach(function(key) {
+                            var val = radar[key];
+                            var col2 = val >= 80 ? 'var(--accent-green)' : val >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                            html += '<tr><td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);font-weight:500;">' + esc(key) + '</td>';
+                            html += '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);text-align:right;font-weight:700;color:' + col2 + ';">' + val + '%</td>';
+                            html += '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);"><div style="height:6px;background:var(--border-default);border-radius:3px;"><div style="width:' + val + '%;height:6px;background:' + col2 + ';border-radius:3px;"></div></div></td></tr>';
+                        });
+                        html += '</tbody></table></div>';
+                    }
                 }
 
                 bodyEl.innerHTML = html || '<p style="color:var(--text-muted);padding:1rem;">' + __('No details available.') + '</p>';
 
-                if (trend.length) {
-                    const trendCtx = document.getElementById('kpiDrilldownChart');
-                    if (trendCtx) {
-                        if (_kpiDrilldownChart) { _kpiDrilldownChart.destroy(); _kpiDrilldownChart = null; }
-                        _kpiDrilldownChart = new Chart(trendCtx, {
+                // Render chart
+                var chartCtx = document.getElementById('kpiDrilldownChart');
+                if (chartCtx) {
+                    if (_kpiDrilldownChart) { _kpiDrilldownChart.destroy(); _kpiDrilldownChart = null; }
+                    if (compTrend.length) {
+                        // Per-component trend chart
+                        _kpiDrilldownChart = new Chart(chartCtx, {
+                            type: 'line',
+                            data: {
+                                labels: compTrend.map(function(d) { return d.month; }),
+                                datasets: [
+                                    { label: __('Rule Compliance'), data: compTrend.map(function(d) { return d.rule_compliance; }), borderColor: '#e65100', borderDash: [5,3], tension: 0.3, pointRadius: 3 },
+                                    { label: __('Completeness'), data: compTrend.map(function(d) { return d.completeness; }), borderColor: '#2e7d32', borderDash: [5,3], tension: 0.3, pointRadius: 3 },
+                                    { label: __('Consistency'), data: compTrend.map(function(d) { return d.consistency; }), borderColor: '#6a1b9a', borderDash: [5,3], tension: 0.3, pointRadius: 3 },
+                                    { label: __('Outlier Score'), data: compTrend.map(function(d) { return d.outlier_score; }), borderColor: '#c62828', borderDash: [5,3], tension: 0.3, pointRadius: 3 },
+                                    { label: __('Quality Score'), data: compTrend.map(function(d) { return d.score; }), borderColor: getCSSVar('--accent-teal') || '#14b8a6', borderWidth: 2, tension: 0.3, pointRadius: 4 },
+                                ]
+                            },
+                            options: {
+                                responsive: true, maintainAspectRatio: false, resizeDelay: 200,
+                                plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } },
+                                scales: { y: { min: 0, max: 100, ticks: { callback: function(v) { return v + '%'; } } } }
+                            }
+                        });
+                    } else if (trend.length) {
+                        // Fallback: single quality score trend
+                        _kpiDrilldownChart = new Chart(chartCtx, {
                             type: 'line',
                             data: {
                                 labels: trend.map(function(d) { return d.month; }),
@@ -1445,21 +1583,17 @@ function loadHospitalsSettings() {
                                     data: trend.map(function(d) { return d.score; }),
                                     borderColor: getCSSVar('--accent-teal') || '#14b8a6',
                                     backgroundColor: (getCSSVar('--accent-teal') || '#14b8a6') + '1a',
-                                    fill: true,
-                                    tension: 0.3,
-                                    pointRadius: 4,
+                                    fill: true, tension: 0.3, pointRadius: 4,
                                 }]
                             },
                             options: {
-                                responsive: true,
-                                maintainAspectRatio: false,
-                                resizeDelay: 200,
+                                responsive: true, maintainAspectRatio: false, resizeDelay: 200,
                                 plugins: { legend: { display: false } },
                                 scales: { y: { min: 0, max: 100, ticks: { callback: function(v) { return v + '%'; } } } }
                             }
                         });
-                        if (window.registerChart) window.registerChart(_kpiDrilldownChart);
                     }
+                    if (_kpiDrilldownChart && window.registerChart) window.registerChart(_kpiDrilldownChart);
                 }
             }).catch(function() {
                 bodyEl.innerHTML = '<p style="color:var(--accent-red);padding:1.5rem;">' + __('Failed to load details.') + '</p>';
