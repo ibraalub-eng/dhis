@@ -565,8 +565,28 @@ def component_diagnostics(
     if not rc_causes:
         rc_causes.append({"cause": "All rules passing", "detail": f"Average {avg_rc}% across {n} months", "severity": "ok", "impact_pct": 0})
 
-    # Completeness
-    cp_vals = [round(float(s.completeness or 0), 1) for s in scores]
+    # Completeness — recalculate using current disabled indicator set
+    from app.engine.pipeline import get_disabled_indicator_ids as _get_disabled
+    cp_vals = []
+    for s in scores:
+        hosp = s.hospital_id
+        month = s.month
+        try:
+            all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
+            disabled = set(_get_disabled(db, hosp, month))
+            enabled_ids = [iid for iid in all_ind_ids if iid not in disabled]
+            if not enabled_ids:
+                cp_vals.append(round(float(s.completeness or 0), 1))
+                continue
+            month_vals = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
+                IndicatorValue.hospital_id == hosp,
+                IndicatorValue.month == month,
+                IndicatorValue.indicator_id.in_(enabled_ids)
+            ).all()
+            filled = sum(1 for iv in month_vals if iv.value is not None)
+            cp_vals.append(round(filled / len(enabled_ids) * 100, 1) if enabled_ids else 0)
+        except Exception:
+            cp_vals.append(round(float(s.completeness or 0), 1))
     cp_by_month = {}
     for i in range(n):
         m = scores[i].month
