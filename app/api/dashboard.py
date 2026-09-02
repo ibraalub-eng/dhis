@@ -568,39 +568,63 @@ def component_diagnostics(
     cp_critical_count = sum(1 for v in cp_vals if v < 50)
     cp_warn_count = sum(1 for v in cp_vals if 50 <= v < targets["completeness"])
 
-    # Find specific missing indicators per month for the worst months
+    # Find specific missing indicators per month
     cp_missing_details = []
-    if hospital_id:
-        try:
-            # Get all enabled indicators for this hospital
-            enabled_ind_ids = [c.indicator_id for c in db.query(HospitalIndicatorConfig).filter(
-                HospitalIndicatorConfig.hospital_id == hospital_id,
-                HospitalIndicatorConfig.is_enabled.is_(True)
-            ).all()]
-            # Fallback: if no config exists, use all indicators
-            if not enabled_ind_ids:
-                enabled_ind_ids = [i.id for i in db.query(Indicator.id).all()]
-            all_indicators = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(enabled_ind_ids)).all()} if enabled_ind_ids else {}
+    try:
+        all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
+        all_indicators = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(all_ind_ids)).all()} if all_ind_ids else {}
+        from collections import Counter
 
-            # For each month, find which indicators have no value
+        if hospital_id:
+            # Single hospital: find missing indicators per month
             for i, s in enumerate(scores):
                 month_vals = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
                     IndicatorValue.hospital_id == hospital_id,
                     IndicatorValue.month == s.month,
-                    IndicatorValue.indicator_id.in_(enabled_ind_ids)
+                    IndicatorValue.indicator_id.in_(all_ind_ids)
                 ).all()
                 filled_ids = {iv.indicator_id for iv in month_vals if iv.value is not None}
-                missing_ids = set(enabled_ind_ids) - filled_ids
+                missing_ids = set(all_ind_ids) - filled_ids
                 if missing_ids and cp_vals[i] < targets["completeness"]:
                     missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid in sorted(missing_ids)]
                     cp_missing_details.append({
                         "month": s.month,
                         "value": cp_vals[i],
                         "missing_count": len(missing_names),
-                        "missing_indicators": missing_names[:10],  # cap at 10
+                        "missing_indicators": missing_names[:10],
                     })
-        except Exception:
-            pass
+        else:
+            # All hospitals: find most commonly missing indicators
+            hosp_ids = [h.id for h in db.query(Hospital.id).filter(Hospital.is_active.is_(True)).all()]
+            # Get all distinct months from scores
+            distinct_months = sorted(set(s.month for s in scores))
+            for month in distinct_months:
+                # For each month, count how many hospitals are missing each indicator
+                month_indicator_counts = Counter()
+                for hid in hosp_ids:
+                    month_vals = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
+                        IndicatorValue.hospital_id == hid,
+                        IndicatorValue.month == month,
+                        IndicatorValue.indicator_id.in_(all_ind_ids)
+                    ).all()
+                    filled_ids = {iv.indicator_id for iv in month_vals if iv.value is not None}
+                    missing_ids = set(all_ind_ids) - filled_ids
+                    for mid in missing_ids:
+                        month_indicator_counts[mid] += 1
+                if month_indicator_counts:
+                    # Get avg completeness for this month
+                    month_cp_vals = [cp_vals[i] for i in range(n) if scores[i].month == month]
+                    month_avg = sum(month_cp_vals) / len(month_cp_vals) if month_cp_vals else 0
+                    if month_avg < targets["completeness"]:
+                        missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid, cnt in month_indicator_counts.most_common(10)]
+                        cp_missing_details.append({
+                            "month": month,
+                            "value": round(month_avg, 1),
+                            "missing_count": sum(month_indicator_counts.values()),
+                            "missing_indicators": missing_names,
+                        })
+    except Exception:
+        pass
 
     if cp_critical_count > 0:
         # Build detail text with missing indicator names
@@ -619,8 +643,6 @@ def component_diagnostics(
         remaining = [v for v in cp_vals if 50 <= v < targets["completeness"]]
         warn_detail = ""
         if cp_missing_details:
-            # Show indicators missing in most warn-level months
-            from collections import Counter
             all_missing = []
             for md in cp_missing_details:
                 if md["value"] >= 50:
