@@ -11,6 +11,31 @@ from sqlalchemy import func, text
 from app.engine.pipeline import get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
 
+
+# ── Shared helper: recalculate completeness with current disabled indicator set ──
+def _recalc_completeness(db, scores):
+    """Recalculate completeness for a list of QualityScore objects using current disabled indicators."""
+    from app.engine.pipeline import get_disabled_indicator_ids as _gcd
+    from app.models import Indicator as _RI, IndicatorValue as _RIV
+    all_ids = [i.id for i in db.query(_RI.id).all()]
+    result = []
+    for s in scores:
+        try:
+            dis = set(_gcd(db, s.hospital_id, s.month))
+            en = [iid for iid in all_ids if iid not in dis]
+            if not en:
+                result.append(float(s.completeness or 0))
+                continue
+            mv = db.query(_RIV.indicator_id, _RIV.value).filter(
+                _RIV.hospital_id == s.hospital_id, _RIV.month == s.month,
+                _RIV.indicator_id.in_(en)).all()
+            filled = sum(1 for iv in mv if iv.value is not None)
+            result.append(filled / len(en) * 100)
+        except Exception:
+            result.append(float(s.completeness or 0))
+    return result
+
+
 router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(require_permission("dashboard.read"))])
 
 # المعدلات السريرية الرئيسية المعروضة في لوحة المستشفى وعمود متوسط المعدل السريري
@@ -169,9 +194,13 @@ def dashboard_overview(
     if year:
         radar_q = radar_q.filter(QualityScore.month.like(f"{year}-%"))
     radar_row = radar_q.first()
+    # Recalculate radar completeness with current disabled indicators
+    _radar_scores = base.all()
+    _radar_cp = _recalc_completeness(db, _radar_scores)
+    _radar_cp_avg = round(sum(_radar_cp) / len(_radar_cp), 1) if _radar_cp else 0
     radar_components = {
         "Rule Compliance": round(float(radar_row.rule_compliance or 0), 1),
-        "Completeness": round(float(radar_row.completeness or 0), 1),
+        "Completeness": _radar_cp_avg,
         "Consistency": round(float(radar_row.consistency or 0), 1),
     }
     outlier_q = db.query(func.avg(func.abs(QualityScore.outlier_penalty)).label("avg_op"))
@@ -222,14 +251,17 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     agg = base.with_entities(
         func.avg(QualityScore.score).label("avg_score"),
         func.avg(QualityScore.rule_compliance).label("avg_compliance"),
-        func.avg(QualityScore.completeness).label("avg_completeness"),
         func.avg(QualityScore.consistency).label("avg_consistency"),
     ).first()
 
     avg_score = round(float(agg.avg_score or 0), 1)
     avg_compliance = round(float(agg.avg_compliance or 0), 1)
-    avg_completeness = round(float(agg.avg_completeness or 0), 1)
     avg_consistency = round(float(agg.avg_consistency or 0), 1)
+
+    # Recalculate completeness using current disabled indicator set
+    _kpi_scores = base.all()
+    _kpi_cp = _recalc_completeness(db, _kpi_scores)
+    avg_completeness = round(sum(_kpi_cp) / len(_kpi_cp), 1) if _kpi_cp else 0
 
     # confidence high %
     cq = db.query(func.count(ConfidenceScore.id))
@@ -295,8 +327,11 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
 
         avg_score = round(sum(s.score for s in scores) / len(scores), 1)
         avg_compliance = round(sum(s.rule_compliance or 0 for s in scores) / len(scores), 1)
-        avg_completeness = round(sum(s.completeness or 0 for s in scores) / len(scores), 1)
         avg_consistency = round(sum(s.consistency or 0 for s in scores) / len(scores), 1)
+
+        # Recalculate completeness using current disabled indicator set
+        _cp_vals = _recalc_completeness(db, scores)
+        avg_completeness = round(sum(_cp_vals) / len(_cp_vals), 1) if _cp_vals else 0
 
         recent_3 = [s.score for s in scores[-3:]]
         if len(recent_3) >= 2:
@@ -369,8 +404,11 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
     quality_trend = [{"month": s.month, "score": round(s.score, 1)} for s in scores]
     avg_score = round(sum(s.score for s in scores) / len(scores), 1) if scores else 0
     avg_compliance = round(sum(s.rule_compliance or 0 for s in scores) / len(scores), 1) if scores else 0
-    avg_completeness = round(sum(s.completeness or 0 for s in scores) / len(scores), 1) if scores else 0
     avg_consistency = round(sum(s.consistency or 0 for s in scores) / len(scores), 1) if scores else 0
+
+    # Recalculate completeness using current disabled indicator set
+    _pcp = _recalc_completeness(db, scores)
+    avg_completeness = round(sum(_pcp) / len(_pcp), 1) if _pcp else 0
 
     if avg_score >= 90: grade = "A"
     elif avg_score >= 75: grade = "B"
