@@ -447,6 +447,40 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
     }
 
 
+@router.post("/recalculate-completeness")
+def recalculate_completeness(db: Session = Depends(get_db)):
+    """Bulk recalculate completeness for all quality_scores using current disabled indicator set."""
+    from app.engine.pipeline import get_disabled_indicator_ids as _get_disabled
+    from app.models import Indicator, IndicatorValue as _IV
+    from sqlalchemy import update
+
+    all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
+    scores = db.query(QualityScore).all()
+    updated = 0
+
+    for s in scores:
+        try:
+            disabled = set(_get_disabled(db, s.hospital_id, s.month))
+            enabled_ids = [iid for iid in all_ind_ids if iid not in disabled]
+            if not enabled_ids:
+                continue
+            month_vals = db.query(_IV.indicator_id, _IV.value).filter(
+                _IV.hospital_id == s.hospital_id,
+                _IV.month == s.month,
+                _IV.indicator_id.in_(enabled_ids)
+            ).all()
+            filled = sum(1 for iv in month_vals if iv.value is not None)
+            new_cp = round(filled / len(enabled_ids) * 100, 1)
+            if abs(new_cp - (s.completeness or 0)) > 0.1:
+                s.completeness = new_cp
+                updated += 1
+        except Exception:
+            pass
+
+    db.commit()
+    return {"updated": updated, "total": len(scores)}
+
+
 @router.get("/component-diagnostics")
 def component_diagnostics(
     hospital_id: int | None = None,
