@@ -195,7 +195,18 @@ def dashboard_overview(
         radar_q = radar_q.filter(QualityScore.month.like(f"{year}-%"))
     radar_row = radar_q.first()
     # Recalculate radar completeness with current disabled indicators
-    _radar_scores = base.all()
+    _radar_q = db.query(QualityScore)
+    if hospital_id:
+        _radar_q = _radar_q.filter(QualityScore.hospital_id == hospital_id)
+    if month_from:
+        _radar_q = _radar_q.filter(QualityScore.month >= month_from)
+    if month_to:
+        _radar_q = _radar_q.filter(QualityScore.month <= month_to)
+    elif enabled_months:
+        _radar_q = _radar_q.filter(QualityScore.month.in_(enabled_months))
+    if year:
+        _radar_q = _radar_q.filter(QualityScore.month.like(f"{year}-%"))
+    _radar_scores = _radar_q.all()
     _radar_cp = _recalc_completeness(db, _radar_scores)
     _radar_cp_avg = round(sum(_radar_cp) / len(_radar_cp), 1) if _radar_cp else 0
     radar_components = {
