@@ -799,18 +799,210 @@ def component_diagnostics(
     if not op_causes:
         op_causes.append({"cause": "No significant outliers", "detail": f"Average {avg_op}% — data within normal range", "severity": "ok", "impact_pct": 0})
 
+    # ── Per-hospital detail for each cause ──
+    _cause_hospitals = {}
+    try:
+        all_hosp = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
+        hosp_names = {h.id: h.name for h in all_hosp}
+
+        # ── Completeness ──
+        _cp_cause_hosp = {}
+        for cause in cp_causes:
+            _cp_cause_hosp[cause["cause"]] = []
+        for s in scores:
+            hid = s.hospital_id
+            idx = scores.index(s)
+            cp_val = cp_vals[idx]
+            if cp_val >= targets["completeness"]:
+                continue
+            # Find missing indicators for this hospital-month
+            missing_names = []
+            try:
+                all_ind_ids_local = [i.id for i in db.query(Indicator.id).all()]
+                all_ind_names_local = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(all_ind_ids_local)).all()}
+                disabled_ids = set(_get_disabled(db, hid, s.month))
+                enabled_ids = [iid for iid in all_ind_ids_local if iid not in disabled_ids]
+                month_vals_db = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
+                    IndicatorValue.hospital_id == hid, IndicatorValue.month == s.month,
+                    IndicatorValue.indicator_id.in_(enabled_ids)
+                ).all()
+                filled_ids = {iv.indicator_id for iv in month_vals_db if iv.value is not None}
+                missing_ids = set(enabled_ids) - filled_ids
+                missing_names = [all_ind_names_local.get(mid, f"Indicator #{mid}") for mid in sorted(missing_ids)][:10]
+            except Exception:
+                pass
+            # Find which cause this hospital belongs to
+            if cp_val < 50:
+                for cause in cp_causes:
+                    if cause["cause"] == "Severely missing indicator data":
+                        _cp_cause_hosp["Severely missing indicator data"].append({
+                            "hospital_id": hid, "hospital_name": hosp_names.get(hid, f"#{hid}"),
+                            "value": cp_val, "month": s.month,
+                            "missing_indicators": missing_names,
+                        })
+            elif cp_val < targets["completeness"]:
+                for cause in cp_causes:
+                    if cause["cause"] == "Partial indicator gaps":
+                        _cp_cause_hosp["Partial indicator gaps"].append({
+                            "hospital_id": hid, "hospital_name": hosp_names.get(hid, f"#{hid}"),
+                            "value": cp_val, "month": s.month,
+                            "missing_indicators": missing_names,
+                        })
+        # Aggregate by hospital: group rows, collect unique months and indicators
+        for cause_key in _cp_cause_hosp:
+            rows = _cp_cause_hosp[cause_key]
+            hosp_agg = {}
+            for r in rows:
+                hkey = r["hospital_id"]
+                if hkey not in hosp_agg:
+                    hosp_agg[hkey] = {"hospital_id": hkey, "hospital_name": r["hospital_name"],
+                                       "problem_months": [], "missing_indicators": set(), "values": []}
+                hosp_agg[hkey]["problem_months"].append(r["month"])
+                hosp_agg[hkey]["values"].append(r["value"])
+                hosp_agg[hkey]["missing_indicators"].update(r["missing_indicators"])
+            result_list = []
+            for hkey, ha in hosp_agg.items():
+                result_list.append({
+                    "hospital_id": ha["hospital_id"],
+                    "hospital_name": ha["hospital_name"],
+                    "avg_value": round(sum(ha["values"]) / len(ha["values"]), 1),
+                    "missing_indicators": sorted(list(ha["missing_indicators"]))[:10],
+                    "problem_months": sorted(set(ha["problem_months"])),
+                })
+            result_list.sort(key=lambda x: x["avg_value"])
+            _cp_cause_hosp[cause_key] = result_list
+        _cause_hospitals["completeness"] = _cp_cause_hosp
+
+        # ── Rule Compliance ──
+        _rc_cause_hosp = {}
+        for cause in rc_causes:
+            _rc_cause_hosp[cause["cause"]] = []
+        for s in scores:
+            val = round(float(s.rule_compliance or 0), 1)
+            if val >= targets["rule_compliance"]:
+                continue
+            hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
+            for cause in rc_causes:
+                if cause["severity"] in ("critical", "warning"):
+                    _rc_cause_hosp[cause["cause"]].append({
+                        "hospital_id": s.hospital_id, "hospital_name": hosp_name,
+                        "value": val, "month": s.month,
+                    })
+        # Aggregate
+        for cause_key in _rc_cause_hosp:
+            rows = _rc_cause_hosp[cause_key]
+            hosp_agg = {}
+            for r in rows:
+                hkey = r["hospital_id"]
+                if hkey not in hosp_agg:
+                    hosp_agg[hkey] = {"hospital_id": hkey, "hospital_name": r["hospital_name"],
+                                       "problem_months": [], "values": []}
+                hosp_agg[hkey]["problem_months"].append(r["month"])
+                hosp_agg[hkey]["values"].append(r["value"])
+            result_list = []
+            for hkey, ha in hosp_agg.items():
+                result_list.append({
+                    "hospital_id": ha["hospital_id"],
+                    "hospital_name": ha["hospital_name"],
+                    "avg_value": round(sum(ha["values"]) / len(ha["values"]), 1),
+                    "problem_months": sorted(set(ha["problem_months"])),
+                })
+            result_list.sort(key=lambda x: x["avg_value"])
+            _rc_cause_hosp[cause_key] = result_list
+        _cause_hospitals["rule_compliance"] = _rc_cause_hosp
+
+        # ── Consistency ──
+        _co_cause_hosp = {}
+        for cause in co_causes:
+            _co_cause_hosp[cause["cause"]] = []
+        for s in scores:
+            val = round(float(s.consistency or 0), 1)
+            if val >= targets["consistency"]:
+                continue
+            hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
+            for cause in co_causes:
+                if cause["severity"] in ("critical", "warning"):
+                    _co_cause_hosp[cause["cause"]].append({
+                        "hospital_id": s.hospital_id, "hospital_name": hosp_name,
+                        "value": val, "month": s.month,
+                    })
+        for cause_key in _co_cause_hosp:
+            rows = _co_cause_hosp[cause_key]
+            hosp_agg = {}
+            for r in rows:
+                hkey = r["hospital_id"]
+                if hkey not in hosp_agg:
+                    hosp_agg[hkey] = {"hospital_id": hkey, "hospital_name": r["hospital_name"],
+                                       "problem_months": [], "values": []}
+                hosp_agg[hkey]["problem_months"].append(r["month"])
+                hosp_agg[hkey]["values"].append(r["value"])
+            result_list = []
+            for hkey, ha in hosp_agg.items():
+                result_list.append({
+                    "hospital_id": ha["hospital_id"],
+                    "hospital_name": ha["hospital_name"],
+                    "avg_value": round(sum(ha["values"]) / len(ha["values"]), 1),
+                    "problem_months": sorted(set(ha["problem_months"])),
+                })
+            result_list.sort(key=lambda x: x["avg_value"])
+            _co_cause_hosp[cause_key] = result_list
+        _cause_hospitals["consistency"] = _co_cause_hosp
+
+        # ── Outlier Score ──
+        _op_cause_hosp = {}
+        for cause in op_causes:
+            _op_cause_hosp[cause["cause"]] = []
+        for s in scores:
+            val = round(max(0, 100 - (s.outlier_penalty or 0)), 1)
+            if val >= targets["outlier_score"]:
+                continue
+            hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
+            for cause in op_causes:
+                if cause["severity"] in ("critical", "warning"):
+                    _op_cause_hosp[cause["cause"]].append({
+                        "hospital_id": s.hospital_id, "hospital_name": hosp_name,
+                        "value": val, "month": s.month,
+                    })
+        for cause_key in _op_cause_hosp:
+            rows = _op_cause_hosp[cause_key]
+            hosp_agg = {}
+            for r in rows:
+                hkey = r["hospital_id"]
+                if hkey not in hosp_agg:
+                    hosp_agg[hkey] = {"hospital_id": hkey, "hospital_name": r["hospital_name"],
+                                       "problem_months": [], "values": []}
+                hosp_agg[hkey]["problem_months"].append(r["month"])
+                hosp_agg[hkey]["values"].append(r["value"])
+            result_list = []
+            for hkey, ha in hosp_agg.items():
+                result_list.append({
+                    "hospital_id": ha["hospital_id"],
+                    "hospital_name": ha["hospital_name"],
+                    "avg_value": round(sum(ha["values"]) / len(ha["values"]), 1),
+                    "problem_months": sorted(set(ha["problem_months"])),
+                })
+            result_list.sort(key=lambda x: x["avg_value"])
+            _op_cause_hosp[cause_key] = result_list
+        _cause_hospitals["outlier_score"] = _op_cause_hosp
+
+    except Exception:
+        pass
+
     def _build(name, key, avg, vals, months, direction, causes, target):
         gap = round(max(0, target - avg), 1)
         min_val = min(vals) if vals else 0
         max_val = max(vals) if vals else 0
         worst_idx = vals.index(min_val) if vals else 0
-        return {
+        result = {
             "name": name, "key": key, "avg": avg, "target": target, "gap": gap,
             "min": min_val, "max": max_val, "range": round(max_val - min_val, 1),
             "direction": direction,
             "worst_month": scores[worst_idx].month if scores else None,
             "causes": causes, "monthly": months,
         }
+        for cause in result["causes"]:
+            cause["affected_hospitals"] = _cause_hospitals.get(key, {}).get(cause["cause"], [])
+        return result
 
     components = [
         _build("Rule Compliance", "rule_compliance", avg_rc, rc_vals, rc_months, _direction(rc_vals), rc_causes, targets["rule_compliance"]),

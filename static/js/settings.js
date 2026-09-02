@@ -1495,6 +1495,40 @@ function loadHospitalsSettings() {
                                     html += '</div>';
                                 }
                                 html += '</div>';
+
+                                // Per-hospital affected list
+                                var affected = cause.affected_hospitals || [];
+                                if (affected.length > 0 && cause.severity !== 'ok') {
+                                    html += '<div style="margin-top:0.4rem;padding:0.4rem 0.5rem;background:var(--bg-surface);border-radius:6px;border:1px solid var(--border-default);">';
+                                    html += '<div style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">\ud83d\udcca ' + __('Affected Hospitals') + ' (' + affected.length + ')</div>';
+                                    html += '<div style="overflow-x:auto;">';
+                                    html += '<table style="width:100%;border-collapse:collapse;font-size:0.68rem;">';
+                                    html += '<thead><tr style="background:var(--bg-elevated);">';
+                                    html += '<th style="text-align:left;padding:0.2rem 0.3rem;border-bottom:1px solid var(--border-default);">' + __('Hospital') + '</th>';
+                                    html += '<th style="text-align:center;padding:0.2rem 0.3rem;border-bottom:1px solid var(--border-default);">' + __('Value') + '</th>';
+                                    html += '<th style="text-align:center;padding:0.2rem 0.3rem;border-bottom:1px solid var(--border-default);">' + __('Months') + '</th>';
+                                    html += '<th style="text-align:left;padding:0.2rem 0.3rem;border-bottom:1px solid var(--border-default);width:40%;">' + __('Missing Indicators') + '</th>';
+                                    html += '</tr></thead><tbody>';
+                                    affected.forEach(function(h) {
+                                        var hCol = h.avg_value >= 80 ? 'var(--accent-green)' : h.avg_value >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                                        html += '<tr style="border-bottom:1px solid var(--border-default);">';
+                                        html += '<td style="padding:0.2rem 0.3rem;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</td>';
+                                        html += '<td style="text-align:center;padding:0.2rem 0.3rem;font-weight:700;color:' + hCol + ';">' + h.avg_value + '%</td>';
+                                        html += '<td style="text-align:center;padding:0.2rem 0.3rem;font-size:0.65rem;color:var(--text-muted);">' + (h.problem_months || []).join(', ') + '</td>';
+                                        if (h.missing_indicators && h.missing_indicators.length) {
+                                            html += '<td style="padding:0.2rem 0.3rem;font-size:0.65rem;">';
+                                            h.missing_indicators.forEach(function(mi) {
+                                                html += '<span style="display:inline-block;background:rgba(198,40,40,0.1);color:var(--accent-red);padding:1px 5px;border-radius:3px;margin:1px 2px;font-size:0.63rem;">' + esc(mi) + '</span>';
+                                            });
+                                            html += '</td>';
+                                        } else {
+                                            html += '<td style="padding:0.2rem 0.3rem;font-size:0.65rem;color:var(--text-muted);">\u2014</td>';
+                                        }
+                                        html += '</tr>';
+                                    });
+                                    html += '</tbody></table></div>';
+                                    html += '</div>';
+                                }
                             });
                         }
 
