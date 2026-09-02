@@ -531,7 +531,11 @@ def component_diagnostics(
 
     # Rule Compliance
     rc_vals = [round(float(s.rule_compliance or 0), 1) for s in scores]
-    rc_months = [{"month": scores[i].month, "value": rc_vals[i]} for i in range(n)]
+    rc_by_month = {}
+    for i in range(n):
+        m = scores[i].month
+        rc_by_month.setdefault(m, []).append(rc_vals[i])
+    rc_months = [{"month": m, "value": round(sum(vs)/len(vs), 1)} for m, vs in sorted(rc_by_month.items())]
     avg_rc = round(sum(rc_vals) / n, 1)
     rc_first_bad = _first_bad(rc_vals, targets["rule_compliance"])
     rc_causes = []
@@ -553,7 +557,11 @@ def component_diagnostics(
 
     # Completeness
     cp_vals = [round(float(s.completeness or 0), 1) for s in scores]
-    cp_months = [{"month": scores[i].month, "value": cp_vals[i]} for i in range(n)]
+    cp_by_month = {}
+    for i in range(n):
+        m = scores[i].month
+        cp_by_month.setdefault(m, []).append(cp_vals[i])
+    cp_months = [{"month": m, "value": round(sum(vs)/len(vs), 1)} for m, vs in sorted(cp_by_month.items())]
     avg_cp = round(sum(cp_vals) / n, 1)
     cp_first_bad = _first_bad(cp_vals, targets["completeness"])
     cp_causes = []
@@ -569,7 +577,7 @@ def component_diagnostics(
                 HospitalIndicatorConfig.hospital_id == hospital_id,
                 HospitalIndicatorConfig.is_enabled.is_(True)
             ).all()]
-            all_indicators = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(enabled_ind_ids)).all()} if enabled_indicators else {}
+            all_indicators = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(enabled_ind_ids)).all()} if enabled_ind_ids else {}
 
             # For each month, find which indicators have no value
             for i, s in enumerate(scores):
@@ -629,7 +637,11 @@ def component_diagnostics(
 
     # Consistency
     co_vals = [round(float(s.consistency or 0), 1) for s in scores]
-    co_months = [{"month": scores[i].month, "value": co_vals[i]} for i in range(n)]
+    co_by_month = {}
+    for i in range(n):
+        m = scores[i].month
+        co_by_month.setdefault(m, []).append(co_vals[i])
+    co_months = [{"month": m, "value": round(sum(vs)/len(vs), 1)} for m, vs in sorted(co_by_month.items())]
     avg_co = round(sum(co_vals) / n, 1)
     co_stdev = _stdev(co_vals)
     co_first_bad = _first_bad(co_vals, targets["consistency"])
@@ -656,7 +668,11 @@ def component_diagnostics(
 
     # Outlier Score
     op_vals = [round(max(0, 100 - (s.outlier_penalty or 0)), 1) for s in scores]
-    op_months = [{"month": scores[i].month, "value": op_vals[i]} for i in range(n)]
+    op_by_month = {}
+    for i in range(n):
+        m = scores[i].month
+        op_by_month.setdefault(m, []).append(op_vals[i])
+    op_months = [{"month": m, "value": round(sum(vs)/len(vs), 1)} for m, vs in sorted(op_by_month.items())]
     avg_op = round(sum(op_vals) / n, 1)
     op_first_bad = _first_bad(op_vals, targets["outlier_score"])
     op_causes = []
