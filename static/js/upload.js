@@ -496,6 +496,130 @@
             return '<th class="sortable ' + cls + '" data-col="' + colKey + '">' + text + '</th>';
         }
 
+        // ── QR sub-tab switching ──
+        window.switchQrTab = function(tab) {
+            document.querySelectorAll('.qr-subtab').forEach(function(b) {
+                b.style.color = 'var(--text-muted)';
+                b.style.borderBottom = 'none';
+                b.style.fontWeight = '600';
+            });
+            document.querySelectorAll('.qr-tab-content').forEach(function(el) {
+                el.style.display = 'none';
+            });
+            var active = document.querySelector('.qr-subtab[onclick*="' + tab + '"]');
+            if (active) {
+                active.style.color = 'var(--accent-blue)';
+                active.style.borderBottom = '2px solid var(--accent-blue)';
+            }
+            var panel = document.getElementById('qrTab-' + tab);
+            if (panel) panel.style.display = 'block';
+        };
+
+        // ── Load Completeness component breakdown for QR detail ──
+        window.loadQrCompleteness = async function(hid, month) {
+            var el = document.getElementById('qrCompletenessContent');
+            if (!el) return;
+            try {
+                var diag = await apiGet('/dashboard/component-diagnostics?hospital_id=' + hid + '&month_from=' + month + '&month_to=' + month);
+                var components = (diag && diag.components) || [];
+                if (!components.length) {
+                    el.innerHTML = '<p style="color:var(--text-muted);">No completeness data for this month.</p>';
+                    return;
+                }
+                var html = '';
+                components.forEach(function(c) {
+                    var col = c.avg >= 80 ? 'var(--accent-green)' : c.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                    var dirIcon = c.direction === 'improving' ? '\u2191' : c.direction === 'declining' ? '\u2193' : '\u2192';
+                    var gapColor = c.gap > 20 ? 'var(--accent-red)' : c.gap > 5 ? 'var(--accent-orange)' : 'var(--accent-green)';
+                    var statusLabel = c.gap <= 0 ? '<span style="color:var(--accent-green);font-weight:600;">\u2705 On Target</span>' :
+                        c.gap <= 5 ? '<span style="color:var(--accent-orange);font-weight:600;">\u26a0\ufe0f ' + c.gap + '% gap</span>' :
+                        '<span style="color:var(--accent-red);font-weight:600;">\u274c ' + c.gap + '% gap</span>';
+
+                    // Component card
+                    html += '<div style="border:1px solid var(--border-default);border-radius:8px;margin-bottom:0.6rem;overflow:hidden;">';
+                    // Header
+                    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0.7rem;background:var(--bg-elevated);cursor:pointer;" onclick="this.parentElement.querySelector(\'._qrDiagBody\').classList.toggle(\'hidden\')">';
+                    html += '<div style="display:flex;align-items:center;gap:0.4rem;">';
+                    html += '<span style="font-weight:600;font-size:0.82rem;">' + esc(c.name) + '</span>';
+                    html += '<span style="font-size:0.7rem;color:' + (c.direction === 'improving' ? 'var(--accent-green)' : c.direction === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)') + ';">' + dirIcon + '</span>';
+                    html += '</div>';
+                    html += '<div style="display:flex;align-items:center;gap:0.6rem;">';
+                    html += '<span style="font-weight:700;color:' + col + ';font-size:0.9rem;">' + c.avg + '%</span>';
+                    html += '<span style="font-size:0.65rem;color:var(--text-muted);">/ ' + c.target + '%</span>';
+                    html += statusLabel;
+                    html += '<span style="font-size:0.65rem;color:var(--text-muted);">\u25bc</span>';
+                    html += '</div></div>';
+                    // Progress bar
+                    html += '<div style="padding:0 0.7rem;">';
+                    html += '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.25rem 0;">';
+                    html += '<div style="width:' + Math.min(c.avg, 100) + '%;height:4px;background:' + col + ';border-radius:2px;"></div>';
+                    html += '</div></div>';
+                    // Diagnosis body
+                    html += '<div class="_qrDiagBody" style="padding:0.4rem 0.7rem 0.7rem;border-top:1px solid var(--border-default);">';
+                    // Causes
+                    if (c.causes && c.causes.length) {
+                        c.causes.forEach(function(cause) {
+                            var sevColor = cause.severity === 'critical' ? 'var(--accent-red)' : cause.severity === 'warning' ? 'var(--accent-orange)' : 'var(--accent-green)';
+                            var sevBg = cause.severity === 'critical' ? 'rgba(198,40,40,0.08)' : cause.severity === 'warning' ? 'rgba(230,81,0,0.08)' : 'rgba(46,125,50,0.08)';
+                            var sevIcon = cause.severity === 'critical' ? '\u274c' : cause.severity === 'warning' ? '\u26a0\ufe0f' : cause.severity === 'ok' ? '\u2705' : '\u2139\ufe0f';
+                            html += '<div style="display:flex;align-items:flex-start;gap:5px;padding:0.3rem 0.4rem;border-radius:5px;margin-bottom:0.25rem;background:' + sevBg + ';">';
+                            html += '<span style="font-size:0.7rem;flex-shrink:0;margin-top:1px;">' + sevIcon + '</span>';
+                            html += '<div style="flex:1;">';
+                            html += '<div style="font-size:0.72rem;font-weight:600;color:' + sevColor + ';">' + esc(cause.cause) + '</div>';
+                            html += '<div style="font-size:0.68rem;color:var(--text-secondary);margin-top:1px;">' + esc(cause.detail) + '</div>';
+                            html += '</div>';
+                            if (cause.impact_pct > 0) {
+                                html += '<div style="text-align:right;flex-shrink:0;"><div style="font-size:0.6rem;color:var(--text-muted);">Impact</div><div style="font-size:0.72rem;font-weight:700;color:' + sevColor + ';">-' + cause.impact_pct + '%</div></div>';
+                            }
+                            html += '</div>';
+                            // Affected hospitals
+                            var affected = cause.affected_hospitals || [];
+                            if (affected.length > 0 && cause.severity !== 'ok') {
+                                html += '<div style="margin:0.2rem 0 0.3rem 0.35rem;padding:0.3rem 0.4rem;background:var(--bg-surface);border-radius:5px;border:1px solid var(--border-default);">';
+                                html += '<div style="font-size:0.65rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.25rem;">\ud83d\udcca Affected Hospitals (' + affected.length + ')</div>';
+                                html += '<div style="display:flex;flex-direction:column;gap:0.25rem;max-height:160px;overflow-y:auto;">';
+                                affected.forEach(function(h, hIdx) {
+                                    var hCol = h.avg_value >= 80 ? 'var(--accent-green)' : h.avg_value >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                                    html += '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.65rem;">';
+                                    html += '<div style="width:16px;height:16px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.55rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' + (hIdx + 1) + '</div>';
+                                    html += '<div style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</div>';
+                                    html += '<span style="font-weight:700;color:' + hCol + ';flex-shrink:0;">' + h.avg_value + '%</span>';
+                                    if (h.problem_months && h.problem_months.length) {
+                                        html += '<span style="color:var(--text-muted);flex-shrink:0;">(' + h.problem_months.join(', ') + ')</span>';
+                                    }
+                                    html += '</div>';
+                                });
+                                html += '</div></div>';
+                            }
+                        });
+                    }
+                    // Monthly detail
+                    if (c.monthly && c.monthly.length) {
+                        html += '<div style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin:0.4rem 0 0.2rem;">Month-by-Month</div>';
+                        html += '<table style="width:100%;border-collapse:collapse;font-size:0.65rem;">';
+                        html += '<thead><tr style="background:var(--bg-surface);"><th style="text-align:left;padding:0.2rem 0.3rem;">Month</th><th style="text-align:right;padding:0.2rem 0.3rem;">Value</th><th style="text-align:right;padding:0.2rem 0.3rem;">vs Target</th><th style="text-align:left;padding:0.2rem 0.3rem;">Status</th></tr></thead><tbody>';
+                        c.monthly.forEach(function(m) {
+                            var diff = m.value - c.target;
+                            var mCol = m.value >= c.target ? 'var(--accent-green)' : m.value >= c.target - 10 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                            var mStatus = m.value >= c.target ? '\u2705 OK' : m.value >= c.target - 10 ? '\u26a0\ufe0f Warning' : '\u274c Critical';
+                            html += '<tr style="border-bottom:1px solid var(--border-default);">';
+                            html += '<td style="padding:0.2rem 0.3rem;font-weight:500;">' + m.month + '</td>';
+                            html += '<td style="text-align:right;padding:0.2rem 0.3rem;font-weight:700;color:' + mCol + ';">' + m.value + '%</td>';
+                            html += '<td style="text-align:right;padding:0.2rem 0.3rem;color:' + mCol + ';">' + (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%</td>';
+                            html += '<td style="padding:0.2rem 0.3rem;">' + mStatus + '</td>';
+                            html += '</tr>';
+                        });
+                        html += '</tbody></table>';
+                    }
+                    html += '</div>'; // _qrDiagBody
+                    html += '</div>'; // card
+                });
+                el.innerHTML = html;
+            } catch(e) {
+                el.innerHTML = '<p style="color:var(--accent-red);">Error loading completeness: ' + e.message + '</p>';
+            }
+        };
+
         function renderDetail(container, r) {
             const score = r.data_quality_score;
             const scoreClass = score >= 80 ? 'score-good' : score >= 50 ? 'score-medium' : 'score-poor';
@@ -552,7 +676,26 @@
                 html += '</div>';
             }
 
-            if (r.validation_results && r.validation_results.length > 0) {
+            // ── Sub-tabs: Validation | Anomaly | Completeness ──
+            const valCount = (r.validation_results || []).length;
+            const anomCount = (r.anomaly_results || []).length;
+            const hasVal = valCount > 0;
+            const hasAnom = anomCount > 0;
+
+            html += '<div style="margin-top:1.2rem;border-top:2px solid var(--border-default);padding-top:0.8rem;">';
+            html += '<div id="qrSubtabs" style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:0.8rem;">';
+            if (hasVal) {
+                html += '<button class="qr-subtab active" onclick="switchQrTab('validation')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--accent-blue);border-bottom:2px solid var(--accent-blue);margin-bottom:-2px;cursor:pointer;font-size:0.82rem;">Validation Results <span class="count-badge">' + valCount + '</span></button>';
+            }
+            if (hasAnom) {
+                html += '<button class="qr-subtab" onclick="switchQrTab('anomaly')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">Anomaly Detection <span class="count-badge">' + anomCount + '</span></button>';
+            }
+            html += '<button class="qr-subtab" onclick="switchQrTab('completeness')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">Completeness</button>';
+            html += '</div>';
+
+            // Validation tab content
+            html += '<div id="qrTab-validation" class="qr-tab-content">';
+            if (hasVal) {
                 const failC = r.validation_results.filter(v=>v.status==='FAIL').length;
                 const passC = r.validation_results.filter(v=>v.status==='PASS').length;
                 const highC = r.validation_results.filter(v=>v.severity==='HIGH').length;
@@ -561,18 +704,42 @@
                 const types = [...new Set(r.validation_results.map(v=>v.rule_type).filter(Boolean))].sort();
                 let typeOpts = '<option value="all">All</option>';
                 types.forEach(t => { typeOpts += '<option value="' + t + '">' + t + '</option>'; });
-                html += '<div style="margin-top:1.5rem;"><h3>Validation Results <span class="count-badge" id="valCount">' + r.validation_results.length + '</span></h3><div class="filter-bar"><label>Status:</label><select id="filterStatus" onchange="valFilterStatus=this.value;rerenderVal();"><option value="all">All (' + r.validation_results.length + ')</option><option value="FAIL">FAIL (' + failC + ')</option><option value="PASS">PASS (' + passC + ')</option></select><label>Severity:</label><select id="filterSeverity" onchange="valFilterSeverity=this.value;rerenderVal();"><option value="all">All</option><option value="HIGH">HIGH (' + highC + ')</option><option value="MEDIUM">MEDIUM (' + medC + ')</option><option value="LOW">LOW (' + lowC + ')</option></select><label>Type:</label><select id="filterType" onchange="valFilterType=this.value;rerenderVal();">' + typeOpts + '</select></div><table><thead><tr>' + sh('Rule','rule_code',valSortCol,valSortDir) + sh(__('Description'),'rule_description',valSortCol,valSortDir) + sh(__('Status'),'status',valSortCol,valSortDir) + sh(__('Severity'),'severity',valSortCol,valSortDir) + sh('Type','rule_type',valSortCol,valSortDir) + '<th>Details</th></tr></thead><tbody id="valTbody"></tbody></table></div>';
+                html += '<div class="filter-bar"><label>Status:</label><select id="filterStatus" onchange="valFilterStatus=this.value;rerenderVal();"><option value="all">All (' + valCount + ')</option><option value="FAIL">FAIL (' + failC + ')</option><option value="PASS">PASS (' + passC + ')</option></select><label>Severity:</label><select id="filterSeverity" onchange="valFilterSeverity=this.value;rerenderVal();"><option value="all">All</option><option value="HIGH">HIGH (' + highC + ')</option><option value="MEDIUM">MEDIUM (' + medC + ')</option><option value="LOW">LOW (' + lowC + ')</option></select><label>Type:</label><select id="filterType" onchange="valFilterType=this.value;rerenderVal();">' + typeOpts + '</select></div><table><thead><tr>' + sh('Rule','rule_code',valSortCol,valSortDir) + sh(__('Description'),'rule_description',valSortCol,valSortDir) + sh(__('Status'),'status',valSortCol,valSortDir) + sh(__('Severity'),'severity',valSortCol,valSortDir) + sh('Type','rule_type',valSortCol,valSortDir) + '<th>Details</th></tr></thead><tbody id="valTbody"></tbody></table>';
+            } else {
+                html += '<p style="color:var(--text-muted);padding:1rem;">No validation results available.</p>';
             }
-            if (r.anomaly_results && r.anomaly_results.length > 0) {
+            html += '</div>';
+
+            // Anomaly tab content
+            html += '<div id="qrTab-anomaly" class="qr-tab-content" style="display:none;">';
+            if (hasAnom) {
                 const outC = r.anomaly_results.filter(a=>a.is_outlier===true).length;
                 const normC = r.anomaly_results.filter(a=>a.is_outlier===false).length;
-                html += '<div style="margin-top:1.5rem;"><h3>Anomaly Detection <span class="count-badge" id="anomCount">' + r.anomaly_results.length + '</span></h3><div class="filter-bar"><label>Outlier:</label><select id="filterOutlier" onchange="anomFilterOutlier=this.value;rerenderAnom();"><option value="all">All (' + r.anomaly_results.length + ')</option><option value="yes">Outliers (' + outC + ')</option><option value="no">Normal (' + normC + ')</option></select></div><table><thead><tr>' + sh('Rate','rate_name',anomSortCol,anomSortDir) + sh(__('Value'),'value',anomSortCol,anomSortDir) + sh(__('Benchmark'),'benchmark',anomSortCol,anomSortDir) + sh(__('Z-Score'),'z_score',anomSortCol,anomSortDir) + sh(__('Outlier'),'is_outlier',anomSortCol,anomSortDir) + '</tr></thead><tbody id="anomTbody"></tbody></table></div>';
+                html += '<div class="filter-bar"><label>Outlier:</label><select id="filterOutlier" onchange="anomFilterOutlier=this.value;rerenderAnom();"><option value="all">All (' + anomCount + ')</option><option value="yes">Outliers (' + outC + ')</option><option value="no">Normal (' + normC + ')</option></select></div><table><thead><tr>' + sh('Rate','rate_name',anomSortCol,anomSortDir) + sh(__('Value'),'value',anomSortCol,anomSortDir) + sh(__('Benchmark'),'benchmark',anomSortCol,anomSortDir) + sh(__('Z-Score'),'z_score',anomSortCol,anomSortDir) + sh(__('Outlier'),'is_outlier',anomSortCol,anomSortDir) + '</tr></thead><tbody id="anomTbody"></tbody></table>';
+            } else {
+                html += '<p style="color:var(--text-muted);padding:1rem;">No anomaly results available.</p>';
             }
+            html += '</div>';
+
+            // Completeness tab content (loaded async)
+            html += '<div id="qrTab-completeness" class="qr-tab-content" style="display:none;">';
+            html += '<div id="qrCompletenessContent" style="padding:1rem;text-align:center;color:var(--text-muted);"><span class="spinner"></span> Loading completeness data...</div>';
+            html += '</div>';
+
+            html += '</div>'; // end sub-tabs wrapper
+
             container.innerHTML = html;
             wireTableSort('valTbody', handleValSort);
             wireTableSort('anomTbody', handleAnomSort);
             rerenderVal();
             rerenderAnom();
+
+            // Load Completeness data async
+            if (currentHospitalId && currentMonth) {
+                loadQrCompleteness(currentHospitalId, currentMonth);
+            } else {
+                document.getElementById('qrCompletenessContent').innerHTML = '<p style="color:var(--text-muted);">Select a hospital and month to view completeness data.</p>';
+            }
         }
 
         function wireTableSort(tbodyId, handler) {
