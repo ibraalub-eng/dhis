@@ -1113,23 +1113,31 @@ window._adminAssignHospitals = function(id, btn) {
     var hideVal = hideCb ? hideCb.checked : false;
     var status = document.getElementById("controlSaveStatus");
     if (status) { status.textContent = "Saving..."; status.style.color = "var(--accent-blue)"; }
-    api("/config/control/settings", {
-      method: "PUT",
-      body: JSON.stringify({
-        auto_disable_null_indicators: val ? "true" : "false",
-        structured_logging_enabled: logVal ? "true" : "false",
-        slow_query_logging_enabled: sqVal ? "true" : "false",
-        hide_explanatory_text: hideVal ? "true" : "false"
-      })
-    }).then(function() {
-      if (status) { status.textContent = "✓ Saved"; status.style.color = "var(--accent-green)"; }
-      api("/dashboard/recalculate-completeness", { method: "POST" }).then(function() {
-        if (status) status.textContent = "✓ Saved & scores updated";
+    (async function() {
+      try {
+        var result = await api("/config/control/settings", {
+          method: "PUT",
+          body: JSON.stringify({
+            auto_disable_null_indicators: val ? "true" : "false",
+            structured_logging_enabled: logVal ? "true" : "false",
+            slow_query_logging_enabled: sqVal ? "true" : "false",
+            hide_explanatory_text: hideVal ? "true" : "false"
+          })
+        });
+        if (!result || result._error || result._forbidden) {
+          if (status) { status.textContent = "✗ Save failed"; status.style.color = "var(--accent-red)"; }
+          return;
+        }
+        if (status) { status.textContent = "✓ Saved"; status.style.color = "var(--accent-green)"; }
+        try {
+          await api("/dashboard/recalculate-completeness", { method: "POST" });
+          if (status) status.textContent = "✓ Saved & scores updated";
+        } catch(e) {}
         if (typeof window.loadDashboard === 'function') window.loadDashboard();
-      }).catch(function() {});
-    }).catch(function(e) {
-      if (status) { status.textContent = "✗ Error: " + e.message; status.style.color = "var(--accent-red)"; }
-    });
+      } catch(e) {
+        if (status) { status.textContent = "✗ Error: " + e.message; status.style.color = "var(--accent-red)"; }
+      }
+    })();
   };
   window.adminToggleDevHints = function(show) {
     window._showDevHints = show;
