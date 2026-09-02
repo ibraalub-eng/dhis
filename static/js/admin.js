@@ -1123,6 +1123,10 @@ window._adminAssignHospitals = function(id, btn) {
       })
     }).then(function() {
       if (status) { status.textContent = "✓ Saved"; status.style.color = "var(--accent-green)"; }
+      api("/dashboard/recalculate-completeness", { method: "POST" }).then(function() {
+        if (status) status.textContent = "✓ Saved & scores updated";
+        if (typeof window.loadDashboard === 'function') window.loadDashboard();
+      }).catch(function() {});
     }).catch(function(e) {
       if (status) { status.textContent = "✗ Error: " + e.message; status.style.color = "var(--accent-red)"; }
     });
