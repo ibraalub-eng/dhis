@@ -1496,38 +1496,46 @@ function loadHospitalsSettings() {
                                 }
                                 html += '</div>';
 
-                                // Per-hospital affected list
+                                // Per-hospital affected list — vertical card layout
                                 var affected = cause.affected_hospitals || [];
                                 if (affected.length > 0 && cause.severity !== 'ok') {
-                                    html += '<div style="margin-top:0.4rem;padding:0.4rem 0.5rem;background:var(--bg-surface);border-radius:6px;border:1px solid var(--border-default);">';
-                                    html += '<div style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">\ud83d\udcca ' + __('Affected Hospitals') + ' (' + affected.length + ')</div>';
-                                    html += '<div style="overflow-x:auto;">';
-                                    html += '<table style="width:100%;border-collapse:collapse;font-size:0.68rem;">';
-                                    html += '<thead><tr style="background:var(--bg-elevated);">';
-                                    html += '<th style="text-align:left;padding:0.2rem 0.3rem;border-bottom:1px solid var(--border-default);">' + __('Hospital') + '</th>';
-                                    html += '<th style="text-align:center;padding:0.2rem 0.3rem;border-bottom:1px solid var(--border-default);">' + __('Value') + '</th>';
-                                    html += '<th style="text-align:center;padding:0.2rem 0.3rem;border-bottom:1px solid var(--border-default);">' + __('Months') + '</th>';
-                                    html += '<th style="text-align:left;padding:0.2rem 0.3rem;border-bottom:1px solid var(--border-default);width:40%;">' + __('Missing Indicators') + '</th>';
-                                    html += '</tr></thead><tbody>';
-                                    affected.forEach(function(h) {
-                                        var hCol = h.avg_value >= 80 ? 'var(--accent-green)' : h.avg_value >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                                        html += '<tr style="border-bottom:1px solid var(--border-default);">';
-                                        html += '<td style="padding:0.2rem 0.3rem;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</td>';
-                                        html += '<td style="text-align:center;padding:0.2rem 0.3rem;font-weight:700;color:' + hCol + ';">' + h.avg_value + '%</td>';
-                                        html += '<td style="text-align:center;padding:0.2rem 0.3rem;font-size:0.65rem;color:var(--text-muted);">' + (h.problem_months || []).join(', ') + '</td>';
-                                        if (h.missing_indicators && h.missing_indicators.length) {
-                                            html += '<td style="padding:0.2rem 0.3rem;font-size:0.65rem;">';
-                                            h.missing_indicators.forEach(function(mi) {
-                                                html += '<span style="display:inline-block;background:rgba(198,40,40,0.1);color:var(--accent-red);padding:1px 5px;border-radius:3px;margin:1px 2px;font-size:0.63rem;">' + esc(mi) + '</span>';
-                                            });
-                                            html += '</td>';
-                                        } else {
-                                            html += '<td style="padding:0.2rem 0.3rem;font-size:0.65rem;color:var(--text-muted);">\u2014</td>';
-                                        }
-                                        html += '</tr>';
-                                    });
-                                    html += '</tbody></table></div>';
+                                    html += '<div style="margin-top:0.5rem;">';
+                                    html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;display:flex;align-items:center;gap:0.4rem;">';
+                                    html += '\ud83d\udcca ' + __('Affected Hospitals') + ' <span style="background:var(--accent-red);color:#fff;padding:0 6px;border-radius:10px;font-size:0.65rem;font-weight:700;">' + affected.length + '</span>';
                                     html += '</div>';
+                                    html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:0.35rem;padding-right:4px;">';
+                                    affected.forEach(function(h, idx) {
+                                        var hCol = h.avg_value >= 80 ? 'var(--accent-green)' : h.avg_value >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                                        var hBg = h.avg_value >= 80 ? 'rgba(46,125,50,0.06)' : h.avg_value >= 50 ? 'rgba(230,81,0,0.06)' : 'rgba(198,40,40,0.06)';
+                                        html += '<div style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);background:' + hBg + ';display:flex;align-items:flex-start;gap:0.6rem;">';
+                                        // Rank number
+                                        html += '<div style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">' + (idx + 1) + '</div>';
+                                        // Hospital info
+                                        html += '<div style="flex:1;min-width:0;">';
+                                        html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</div>';
+                                        // Value bar
+                                        html += '<div style="display:flex;align-items:center;gap:0.4rem;margin-top:3px;">';
+                                        html += '<div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">';
+                                        html += '<div style="width:' + Math.min(h.avg_value, 100) + '%;height:5px;background:' + hCol + ';border-radius:3px;"></div>';
+                                        html += '</div>';
+                                        html += '<span style="font-size:0.7rem;font-weight:700;color:' + hCol + ';white-space:nowrap;">' + h.avg_value + '%</span>';
+                                        html += '</div>';
+                                        // Problem months
+                                        if (h.problem_months && h.problem_months.length) {
+                                            html += '<div style="margin-top:3px;font-size:0.63rem;color:var(--text-muted);">' + __('Months') + ': ' + h.problem_months.join(', ') + '</div>';
+                                        }
+                                        // Missing indicators as tags
+                                        if (h.missing_indicators && h.missing_indicators.length) {
+                                            html += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
+                                            h.missing_indicators.forEach(function(mi) {
+                                                html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.6rem;">' + esc(mi) + '</span>';
+                                            });
+                                            html += '</div>';
+                                        }
+                                        html += '</div>';
+                                        html += '</div>';
+                                    });
+                                    html += '</div></div>';
                                 }
                             });
                         }
