@@ -577,6 +577,9 @@ def component_diagnostics(
                 HospitalIndicatorConfig.hospital_id == hospital_id,
                 HospitalIndicatorConfig.is_enabled.is_(True)
             ).all()]
+            # Fallback: if no config exists, use all indicators
+            if not enabled_ind_ids:
+                enabled_ind_ids = [i.id for i in db.query(Indicator.id).all()]
             all_indicators = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(enabled_ind_ids)).all()} if enabled_ind_ids else {}
 
             # For each month, find which indicators have no value
