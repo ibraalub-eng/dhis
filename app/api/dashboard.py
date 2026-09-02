@@ -520,9 +520,27 @@ def recalculate_completeness(db: Session = Depends(get_db)):
             ).all()
             filled = sum(1 for iv in month_vals if iv.value is not None)
             new_cp = round(filled / len(enabled_ids) * 100, 1)
-            if abs(new_cp - (s.completeness or 0)) > 0.1:
-                s.completeness = new_cp
-                updated += 1
+            s.completeness = new_cp
+
+            # Recalculate overall score using weights from config
+            try:
+                from app.models import SystemConfig
+                cfg_rows = db.query(SystemConfig).all()
+                cfg_map = {c.key: c.value for c in cfg_rows}
+                w_rc = float(cfg_map.get("quality_rule_compliance", "0.35"))
+                w_cp = float(cfg_map.get("quality_completeness", "0.25"))
+                w_co = float(cfg_map.get("quality_consistency", "0.25"))
+                w_op = float(cfg_map.get("quality_outlier_penalty", "0.15"))
+            except Exception:
+                w_rc, w_cp, w_co, w_op = 0.35, 0.25, 0.25, 0.15
+
+            rc = float(s.rule_compliance or 0) / 100
+            cp = new_cp / 100
+            co = float(s.consistency or 0) / 100
+            op = float(s.outlier_penalty or 0) / 100
+            new_score = max(0, min(100, round((rc * w_rc + cp * w_cp + co * w_co + (1.0 - op) * w_op) * 100, 1)))
+            s.score = new_score
+            updated += 1
         except Exception:
             pass
 
