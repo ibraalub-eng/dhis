@@ -228,41 +228,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
 
     avg_score = round(float(agg.avg_score or 0), 1)
     avg_compliance = round(float(agg.avg_compliance or 0), 1)
+    avg_completeness = round(float(agg.avg_completeness or 0), 1)
     avg_consistency = round(float(agg.avg_consistency or 0), 1)
-
-    # Recalculate completeness using current disabled indicator set
-    from app.engine.pipeline import get_disabled_indicator_ids as _get_disabled
-    from app.models import Indicator, IndicatorValue as _IV, Hospital as _Hosp
-    try:
-        all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
-        hosp_list = db.query(QualityScore.hospital_id, QualityScore.month).distinct()
-        if hospital_id:
-            hosp_list = hosp_list.filter(QualityScore.hospital_id == hospital_id)
-        if month_from:
-            hosp_list = hosp_list.filter(QualityScore.month >= month_from)
-        if month_to:
-            hosp_list = hosp_list.filter(QualityScore.month <= month_to)
-        elif month:
-            hosp_list = hosp_list.filter(QualityScore.month == month)
-        elif enabled_months:
-            hosp_list = hosp_list.filter(QualityScore.month.in_(enabled_months))
-        cp_total = 0
-        cp_count = 0
-        for hosp_id, m in hosp_list.all():
-            disabled = set(_get_disabled(db, hosp_id, m))
-            enabled_ids = [iid for iid in all_ind_ids if iid not in disabled]
-            if not enabled_ids:
-                continue
-            month_vals = db.query(_IV.indicator_id, _IV.value).filter(
-                _IV.hospital_id == hosp_id, _IV.month == m,
-                _IV.indicator_id.in_(enabled_ids)
-            ).all()
-            filled = sum(1 for iv in month_vals if iv.value is not None)
-            cp_total += filled / len(enabled_ids) * 100
-            cp_count += 1
-        avg_completeness = round(cp_total / cp_count, 1) if cp_count else 0
-    except Exception:
-        avg_completeness = round(float(agg.avg_completeness or 0), 1)
 
     # confidence high %
     cq = db.query(func.count(ConfidenceScore.id))
