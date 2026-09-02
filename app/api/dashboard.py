@@ -453,10 +453,13 @@ def component_diagnostics(
     month_from: str | None = None,
     month_to: str | None = None,
     year: str | None = None,
+    metric: str | None = None,
     db: Session = Depends(get_db),
 ):
-    """Detailed per-component diagnostics with causes, impact, and monthly history."""
+    """Detailed per-component diagnostics with causes, impact, and monthly history.
+    If metric is specified (e.g. completeness, rule_compliance), return only that component."""
     from app.api.analysis import get_enabled_months
+    from app.models import Indicator, IndicatorValue, HospitalIndicatorConfig
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
     base = db.query(QualityScore)
@@ -556,19 +559,67 @@ def component_diagnostics(
     cp_causes = []
     cp_critical_count = sum(1 for v in cp_vals if v < 50)
     cp_warn_count = sum(1 for v in cp_vals if 50 <= v < targets["completeness"])
+
+    # Find specific missing indicators per month for the worst months
+    cp_missing_details = []
+    if hospital_id:
+        try:
+            # Get all enabled indicators for this hospital
+            enabled_ind_ids = [c.indicator_id for c in db.query(HospitalIndicatorConfig).filter(
+                HospitalIndicatorConfig.hospital_id == hospital_id,
+                HospitalIndicatorConfig.is_enabled.is_(True)
+            ).all()]
+            all_indicators = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(enabled_ind_ids)).all()} if enabled_indicators else {}
+
+            # For each month, find which indicators have no value
+            for i, s in enumerate(scores):
+                month_vals = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
+                    IndicatorValue.hospital_id == hospital_id,
+                    IndicatorValue.month == s.month,
+                    IndicatorValue.indicator_id.in_(enabled_ind_ids)
+                ).all()
+                filled_ids = {iv.indicator_id for iv in month_vals if iv.value is not None}
+                missing_ids = set(enabled_ind_ids) - filled_ids
+                if missing_ids and cp_vals[i] < targets["completeness"]:
+                    missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid in sorted(missing_ids)]
+                    cp_missing_details.append({
+                        "month": s.month,
+                        "value": cp_vals[i],
+                        "missing_count": len(missing_names),
+                        "missing_indicators": missing_names[:10],  # cap at 10
+                    })
+        except Exception:
+            pass
+
     if cp_critical_count > 0:
+        # Build detail text with missing indicator names
+        worst_detail = ""
+        if cp_missing_details:
+            worst = min(cp_missing_details, key=lambda x: x["value"])
+            worst_detail = f" — Worst: {worst['month']} ({worst['value']}%), missing: " + ", ".join(worst["missing_indicators"][:5])
         cp_causes.append({
             "cause": "Severely missing indicator data",
-            "detail": f"{cp_critical_count}/{n} months below 50% — most indicators empty",
+            "detail": f"{cp_critical_count}/{n} months below 50% — most indicators empty" + worst_detail,
             "severity": "critical",
             "impact_pct": round(sum(targets["completeness"] - v for v in cp_vals if v < 50) / n, 1),
             "first_month": scores[_first_bad(cp_vals, 50)].month if _first_bad(cp_vals, 50) >= 0 else None,
         })
     if cp_warn_count > 0:
         remaining = [v for v in cp_vals if 50 <= v < targets["completeness"]]
+        warn_detail = ""
+        if cp_missing_details:
+            # Show indicators missing in most warn-level months
+            from collections import Counter
+            all_missing = []
+            for md in cp_missing_details:
+                if md["value"] >= 50:
+                    all_missing.extend(md["missing_indicators"])
+            if all_missing:
+                common = Counter(all_missing).most_common(5)
+                warn_detail = " — Common gaps: " + ", ".join(f"{name} ({cnt}x)" for name, cnt in common)
         cp_causes.append({
             "cause": "Partial indicator gaps",
-            "detail": f"{cp_warn_count}/{n} months between 50-{targets['completeness']}% — some indicators missing",
+            "detail": f"{cp_warn_count}/{n} months between 50-{targets['completeness']}%" + warn_detail,
             "severity": "warning",
             "impact_pct": round(sum(targets["completeness"] - v for v in remaining) / n, 1),
             "first_month": scores[cp_first_bad].month if cp_first_bad >= 0 else None,
@@ -649,4 +700,8 @@ def component_diagnostics(
         _build("Consistency", "consistency", avg_co, co_vals, co_months, _direction(co_vals), co_causes, targets["consistency"]),
         _build("Outlier Score", "outlier_score", avg_op, op_vals, op_months, _direction(op_vals), op_causes, targets["outlier_score"]),
     ]
+    # Filter by metric if specified
+    if metric:
+        components = [c for c in components if c["key"] == metric]
+
     return {"components": components, "trend": trend}

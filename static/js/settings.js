@@ -1389,7 +1389,8 @@ function loadHospitalsSettings() {
 
             let diagUrl = '/dashboard/component-diagnostics?';
             if (hid) diagUrl += 'hospital_id=' + hid + '&';
-            if (yr) diagUrl += 'year=' + yr;
+            if (yr) diagUrl += 'year=' + yr + '&';
+            if (metric && metric !== 'quality_score' && metric !== 'conf_high' && metric !== 'report_coverage') diagUrl += 'metric=' + metric;
 
             Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; })]).then(function(results) {
                 var kpiData = results[0], overviewData = results[1], diag = results[2];
