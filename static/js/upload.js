@@ -523,97 +523,115 @@
                 var diag = await apiGet('/dashboard/component-diagnostics?hospital_id=' + hid + '&month_from=' + month + '&month_to=' + month);
                 var components = (diag && diag.components) || [];
                 if (!components.length) {
-                    el.innerHTML = '<p style="color:var(--text-muted);">No completeness data for this month.</p>';
+                    el.innerHTML = '<p style="color:var(--text-muted);">No data available for this hospital and month.</p>';
                     return;
                 }
-                var html = '';
-                components.forEach(function(c) {
-                    var col = c.avg >= 80 ? 'var(--accent-green)' : c.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                    var dirIcon = c.direction === 'improving' ? '\u2191' : c.direction === 'declining' ? '\u2193' : '\u2192';
-                    var gapColor = c.gap > 20 ? 'var(--accent-red)' : c.gap > 5 ? 'var(--accent-orange)' : 'var(--accent-green)';
-                    var statusLabel = c.gap <= 0 ? '<span style="color:var(--accent-green);font-weight:600;">\u2705 On Target</span>' :
-                        c.gap <= 5 ? '<span style="color:var(--accent-orange);font-weight:600;">\u26a0\ufe0f ' + c.gap + '% gap</span>' :
-                        '<span style="color:var(--accent-red);font-weight:600;">\u274c ' + c.gap + '% gap</span>';
 
-                    // Component card
-                    html += '<div style="border:1px solid var(--border-default);border-radius:8px;margin-bottom:0.6rem;overflow:hidden;">';
-                    // Header
-                    html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0.7rem;background:var(--bg-elevated);cursor:pointer;" onclick="this.parentElement.querySelector(\'._qrDiagBody\').classList.toggle(\'hidden\')">';
-                    html += '<div style="display:flex;align-items:center;gap:0.4rem;">';
-                    html += '<span style="font-weight:600;font-size:0.82rem;">' + esc(c.name) + '</span>';
-                    html += '<span style="font-size:0.7rem;color:' + (c.direction === 'improving' ? 'var(--accent-green)' : c.direction === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)') + ';">' + dirIcon + '</span>';
+                // Find the Completeness component specifically
+                var cpComp = components.find(function(c) { return c.key === 'completeness'; });
+                if (!cpComp) {
+                    el.innerHTML = '<p style="color:var(--text-muted);">No completeness data available.</p>';
+                    return;
+                }
+
+                var html = '';
+
+                // Summary header
+                var cpCol = cpComp.avg >= 80 ? 'var(--accent-green)' : cpComp.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                var cpStatus = cpComp.gap <= 0 ? '\u2705 On Target' : cpComp.gap <= 5 ? '\u26a0\ufe0f ' + cpComp.gap + '% below target' : '\u274c ' + cpComp.gap + '% below target';
+                html += '<div style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0.8rem;background:var(--bg-elevated);border-radius:8px;border:1px solid var(--border-default);margin-bottom:0.8rem;">';
+                html += '<div style="text-align:center;">';
+                html += '<div style="font-size:1.5rem;font-weight:700;color:' + cpCol + ';">' + cpComp.avg + '%</div>';
+                html += '<div style="font-size:0.65rem;color:var(--text-muted);">Completeness</div>';
+                html += '</div>';
+                html += '<div style="flex:1;">';
+                html += '<div style="height:6px;background:var(--border-default);border-radius:3px;margin-bottom:0.3rem;">';
+                html += '<div style="width:' + Math.min(cpComp.avg, 100) + '%;height:6px;background:' + cpCol + ';border-radius:3px;"></div>';
+                html += '</div>';
+                html += '<div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-muted);">';
+                html += '<span>Target: ' + cpComp.target + '%</span>';
+                html += '<span>' + cpStatus + '</span>';
+                html += '</div></div>';
+                html += '</div>';
+
+                // Find non-ok causes (problems only)
+                var problemCauses = (cpComp.causes || []).filter(function(c) { return c.severity !== 'ok'; });
+
+                if (problemCauses.length === 0) {
+                    // All good
+                    html += '<div style="padding:1rem;text-align:center;background:rgba(46,125,50,0.08);border-radius:8px;border:1px solid rgba(46,125,50,0.2);">';
+                    html += '<div style="font-size:1.2rem;margin-bottom:0.3rem;">\u2705</div>';
+                    html += '<div style="font-size:0.85rem;font-weight:600;color:var(--accent-green);">All indicators complete</div>';
+                    html += '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">No missing or problematic indicators for this hospital and month.</div>';
                     html += '</div>';
-                    html += '<div style="display:flex;align-items:center;gap:0.6rem;">';
-                    html += '<span style="font-weight:700;color:' + col + ';font-size:0.9rem;">' + c.avg + '%</span>';
-                    html += '<span style="font-size:0.65rem;color:var(--text-muted);">/ ' + c.target + '%</span>';
-                    html += statusLabel;
-                    html += '<span style="font-size:0.65rem;color:var(--text-muted);">\u25bc</span>';
-                    html += '</div></div>';
-                    // Progress bar
-                    html += '<div style="padding:0 0.7rem;">';
-                    html += '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.25rem 0;">';
-                    html += '<div style="width:' + Math.min(c.avg, 100) + '%;height:4px;background:' + col + ';border-radius:2px;"></div>';
-                    html += '</div></div>';
-                    // Diagnosis body
-                    html += '<div class="_qrDiagBody" style="padding:0.4rem 0.7rem 0.7rem;border-top:1px solid var(--border-default);">';
-                    // Causes
-                    if (c.causes && c.causes.length) {
-                        c.causes.forEach(function(cause) {
-                            var sevColor = cause.severity === 'critical' ? 'var(--accent-red)' : cause.severity === 'warning' ? 'var(--accent-orange)' : 'var(--accent-green)';
-                            var sevBg = cause.severity === 'critical' ? 'rgba(198,40,40,0.08)' : cause.severity === 'warning' ? 'rgba(230,81,0,0.08)' : 'rgba(46,125,50,0.08)';
-                            var sevIcon = cause.severity === 'critical' ? '\u274c' : cause.severity === 'warning' ? '\u26a0\ufe0f' : cause.severity === 'ok' ? '\u2705' : '\u2139\ufe0f';
-                            html += '<div style="display:flex;align-items:flex-start;gap:5px;padding:0.3rem 0.4rem;border-radius:5px;margin-bottom:0.25rem;background:' + sevBg + ';">';
-                            html += '<span style="font-size:0.7rem;flex-shrink:0;margin-top:1px;">' + sevIcon + '</span>';
-                            html += '<div style="flex:1;">';
-                            html += '<div style="font-size:0.72rem;font-weight:600;color:' + sevColor + ';">' + esc(cause.cause) + '</div>';
-                            html += '<div style="font-size:0.68rem;color:var(--text-secondary);margin-top:1px;">' + esc(cause.detail) + '</div>';
-                            html += '</div>';
-                            if (cause.impact_pct > 0) {
-                                html += '<div style="text-align:right;flex-shrink:0;"><div style="font-size:0.6rem;color:var(--text-muted);">Impact</div><div style="font-size:0.72rem;font-weight:700;color:' + sevColor + ';">-' + cause.impact_pct + '%</div></div>';
-                            }
-                            html += '</div>';
-                            // Affected hospitals
-                            var affected = cause.affected_hospitals || [];
-                            if (affected.length > 0 && cause.severity !== 'ok') {
-                                html += '<div style="margin:0.2rem 0 0.3rem 0.35rem;padding:0.3rem 0.4rem;background:var(--bg-surface);border-radius:5px;border:1px solid var(--border-default);">';
-                                html += '<div style="font-size:0.65rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.25rem;">\ud83d\udcca Affected Hospitals (' + affected.length + ')</div>';
-                                html += '<div style="display:flex;flex-direction:column;gap:0.25rem;max-height:160px;overflow-y:auto;">';
-                                affected.forEach(function(h, hIdx) {
-                                    var hCol = h.avg_value >= 80 ? 'var(--accent-green)' : h.avg_value >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                                    html += '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.65rem;">';
-                                    html += '<div style="width:16px;height:16px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.55rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">' + (hIdx + 1) + '</div>';
-                                    html += '<div style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</div>';
-                                    html += '<span style="font-weight:700;color:' + hCol + ';flex-shrink:0;">' + h.avg_value + '%</span>';
-                                    if (h.problem_months && h.problem_months.length) {
-                                        html += '<span style="color:var(--text-muted);flex-shrink:0;">(' + h.problem_months.join(', ') + ')</span>';
-                                    }
+                } else {
+                    // Show each problem cause
+                    problemCauses.forEach(function(cause) {
+                        var sevColor = cause.severity === 'critical' ? 'var(--accent-red)' : 'var(--accent-orange)';
+                        var sevBg = cause.severity === 'critical' ? 'rgba(198,40,40,0.06)' : 'rgba(230,81,0,0.06)';
+                        var sevIcon = cause.severity === 'critical' ? '\u274c' : '\u26a0\ufe0f';
+
+                        html += '<div style="border:1px solid var(--border-default);border-radius:8px;margin-bottom:0.6rem;overflow:hidden;">';
+
+                        // Cause header
+                        html += '<div style="padding:0.5rem 0.7rem;background:' + sevBg + ';border-bottom:1px solid var(--border-default);">';
+                        html += '<div style="display:flex;align-items:center;gap:0.4rem;">';
+                        html += '<span style="font-size:0.8rem;">' + sevIcon + '</span>';
+                        html += '<span style="font-weight:600;font-size:0.8rem;color:' + sevColor + ';">' + esc(cause.cause) + '</span>';
+                        if (cause.impact_pct > 0) {
+                            html += '<span style="font-size:0.7rem;font-weight:700;color:' + sevColor + ';margin-left:auto;">-' + cause.impact_pct + '% impact</span>';
+                        }
+                        html += '</div>';
+                        html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:2px;">' + esc(cause.detail) + '</div>';
+                        html += '</div>';
+
+                        // Missing indicators from affected hospitals (this hospital only)
+                        var affected = cause.affected_hospitals || [];
+                        if (affected.length > 0) {
+                            affected.forEach(function(h) {
+                                if (h.missing_indicators && h.missing_indicators.length) {
+                                    html += '<div style="padding:0.5rem 0.7rem;">';
+                                    html += '<div style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Missing Indicators:</div>';
+                                    html += '<div style="display:flex;flex-direction:column;gap:0.25rem;">';
+                                    h.missing_indicators.forEach(function(mi) {
+                                        html += '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;padding:0.25rem 0.4rem;background:rgba(198,40,40,0.06);border-radius:4px;border:1px solid rgba(198,40,40,0.15);">';
+                                        html += '<span style="color:var(--accent-red);font-size:0.7rem;">\u25cf</span>';
+                                        html += '<span style="color:var(--text-primary);font-weight:500;">' + esc(mi) + '</span>';
+                                        html += '</div>';
+                                    });
+                                    html += '</div></div>';
+                                }
+                                // Problem months
+                                if (h.problem_months && h.problem_months.length) {
+                                    html += '<div style="padding:0.3rem 0.7rem 0.5rem;font-size:0.68rem;color:var(--text-muted);">';
+                                    html += '\ud83d\udcc5 Problem months: ' + h.problem_months.join(', ');
                                     html += '</div>';
-                                });
-                                html += '</div></div>';
-                            }
-                        });
-                    }
-                    // Monthly detail
-                    if (c.monthly && c.monthly.length) {
-                        html += '<div style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin:0.4rem 0 0.2rem;">Month-by-Month</div>';
-                        html += '<table style="width:100%;border-collapse:collapse;font-size:0.65rem;">';
-                        html += '<thead><tr style="background:var(--bg-surface);"><th style="text-align:left;padding:0.2rem 0.3rem;">Month</th><th style="text-align:right;padding:0.2rem 0.3rem;">Value</th><th style="text-align:right;padding:0.2rem 0.3rem;">vs Target</th><th style="text-align:left;padding:0.2rem 0.3rem;">Status</th></tr></thead><tbody>';
-                        c.monthly.forEach(function(m) {
-                            var diff = m.value - c.target;
-                            var mCol = m.value >= c.target ? 'var(--accent-green)' : m.value >= c.target - 10 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                            var mStatus = m.value >= c.target ? '\u2705 OK' : m.value >= c.target - 10 ? '\u26a0\ufe0f Warning' : '\u274c Critical';
-                            html += '<tr style="border-bottom:1px solid var(--border-default);">';
-                            html += '<td style="padding:0.2rem 0.3rem;font-weight:500;">' + m.month + '</td>';
-                            html += '<td style="text-align:right;padding:0.2rem 0.3rem;font-weight:700;color:' + mCol + ';">' + m.value + '%</td>';
-                            html += '<td style="text-align:right;padding:0.2rem 0.3rem;color:' + mCol + ';">' + (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%</td>';
-                            html += '<td style="padding:0.2rem 0.3rem;">' + mStatus + '</td>';
-                            html += '</tr>';
-                        });
-                        html += '</tbody></table>';
-                    }
-                    html += '</div>'; // _qrDiagBody
-                    html += '</div>'; // card
+                                }
+                            });
+                        }
+                        html += '</div>';
+                    });
+                }
+
+                // Also show other components with problems (Rule Compliance, Consistency, Outlier)
+                var otherProblemComps = components.filter(function(c) {
+                    return c.key !== 'completeness' && c.gap > 0;
                 });
+                if (otherProblemComps.length > 0) {
+                    html += '<div style="margin-top:0.8rem;padding-top:0.6rem;border-top:1px solid var(--border-default);">';
+                    html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">Other Components with Issues:</div>';
+                    otherProblemComps.forEach(function(c) {
+                        var cCol = c.avg >= 80 ? 'var(--accent-green)' : c.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                        html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.3rem 0.5rem;margin-bottom:0.25rem;background:var(--bg-surface);border-radius:5px;font-size:0.72rem;">';
+                        html += '<span style="font-weight:600;">' + esc(c.name) + '</span>';
+                        html += '<div style="flex:1;height:4px;background:var(--border-default);border-radius:2px;"><div style="width:' + Math.min(c.avg, 100) + '%;height:4px;background:' + cCol + ';border-radius:2px;"></div></div>';
+                        html += '<span style="font-weight:700;color:' + cCol + ';">' + c.avg + '%</span>';
+                        html += '<span style="color:var(--accent-red);font-size:0.65rem;">-' + c.gap + '% gap</span>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                }
+
                 el.innerHTML = html;
             } catch(e) {
                 el.innerHTML = '<p style="color:var(--accent-red);">Error loading completeness: ' + e.message + '</p>';
