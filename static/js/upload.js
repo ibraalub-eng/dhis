@@ -418,7 +418,8 @@
         }
 
         let currentValidation = [];
-        let valSortCol = 'rule_code', valSortDir = 'asc', valFilterStatus = 'all', valFilterSeverity = 'all', valFilterType = 'all';
+        let valSortCol = 'rule_code', valSortDir = 'asc';
+        window.valFilterStatus = 'all'; window.valFilterSeverity = 'all'; window.valFilterType = 'all';
         let anomSortCol = 'rate_name', anomSortDir = 'asc', anomFilterOutlier = 'all';
         let currentAnomalies = [];
         const SEVERITY_ORDER = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1};
@@ -455,9 +456,9 @@
 
         function sortAndFilterValidation() {
             let data = [...currentValidation];
-            if (valFilterStatus !== 'all') data = data.filter(v => v.status === valFilterStatus);
-            if (valFilterSeverity !== 'all') data = data.filter(v => v.severity === valFilterSeverity);
-            if (valFilterType !== 'all') data = data.filter(v => v.rule_type === valFilterType);
+            if (window.valFilterStatus !== 'all') data = data.filter(v => v.status === window.valFilterStatus);
+            if (window.valFilterSeverity !== 'all') data = data.filter(v => v.severity === window.valFilterSeverity);
+            if (window.valFilterType !== 'all') data = data.filter(v => v.rule_type === window.valFilterType);
             data.sort((a, b) => {
                 let va, vb;
                 if (valSortCol === 'rule_code') { va = a.rule_code; vb = b.rule_code; }
