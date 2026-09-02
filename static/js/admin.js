@@ -386,6 +386,17 @@ window._adminAssignHospitals = function(id, btn) {
                   <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
               </div>
             </div>
+            <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);margin-top:1rem;">
+              <h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">🔄 Recalculate Scores</h3>
+              <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.8rem;">Recalculate quality scores using current disabled indicator settings. Use after changing auto-disable or indicator tree.</p>
+              <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                  <button class="btn btn-sm" onclick="recalcCompleteness()" id="btnRecalcCP" style="background:var(--accent-blue);color:white;font-size:0.8rem;">📊 Recalculate Completeness</button>
+                  <button class="btn btn-sm" onclick="reanalyzeAll()" id="btnReanalyze" style="background:var(--accent-purple);color:white;font-size:0.8rem;">🧠 Re-analyze All</button>
+              </div>
+              <div style="margin-top:0.5rem;">
+                  <span id="recalcStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+              </div>
+            </div>
         </div>
         <!-- Logs Panel -->
         <div id="adminLogsPanel" style="display:none;">
@@ -1139,6 +1150,44 @@ window._adminAssignHospitals = function(id, btn) {
       }
     })();
   };
+  window.recalcCompleteness = async function() {
+    var status = document.getElementById('recalcStatus');
+    var btn = document.getElementById('btnRecalcCP');
+    if (status) { status.textContent = 'Recalculating completeness...'; status.style.color = 'var(--accent-blue)'; }
+    if (btn) btn.disabled = true;
+    try {
+      var result = await api('/dashboard/recalculate-completeness', { method: 'POST' });
+      if (result && !result._error) {
+        if (status) { status.textContent = '\u2713 Updated ' + (result.updated || 0) + ' / ' + (result.total || 0) + ' scores'; status.style.color = 'var(--accent-green)'; }
+        if (typeof window.loadDashboard === 'function') window.loadDashboard();
+      } else {
+        if (status) { status.textContent = '\u2717 Failed: ' + (result.detail || 'Unknown error'); status.style.color = 'var(--accent-red)'; }
+      }
+    } catch(e) {
+      if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = 'var(--accent-red)'; }
+    }
+    if (btn) btn.disabled = false;
+  };
+
+  window.reanalyzeAll = async function() {
+    var status = document.getElementById('recalcStatus');
+    var btn = document.getElementById('btnReanalyze');
+    if (status) { status.textContent = 'Re-analyzing all hospitals... (this may take a minute)'; status.style.color = 'var(--accent-blue)'; }
+    if (btn) btn.disabled = true;
+    try {
+      var result = await api('/analysis/reanalyze-all?force=true', { method: 'POST' });
+      if (result && !result._error) {
+        if (status) { status.textContent = '\u2713 Re-analysis complete! Updated scores for all hospitals.'; status.style.color = 'var(--accent-green)'; }
+        if (typeof window.loadDashboard === 'function') window.loadDashboard();
+      } else {
+        if (status) { status.textContent = '\u2717 Failed: ' + (result.detail || 'Unknown error'); status.style.color = 'var(--accent-red)'; }
+      }
+    } catch(e) {
+      if (status) { status.textContent = '\u2717 Error: ' + e.message; status.style.color = 'var(--accent-red)'; }
+    }
+    if (btn) btn.disabled = false;
+  };
+
   window.adminToggleDevHints = function(show) {
     window._showDevHints = show;
     localStorage.setItem("dev_hints_enabled", show ? "true" : "false");

@@ -685,12 +685,12 @@
             html += '<div style="margin-top:1.2rem;border-top:2px solid var(--border-default);padding-top:0.8rem;">';
             html += '<div id="qrSubtabs" style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:0.8rem;">';
             if (hasVal) {
-                html += '<button class="qr-subtab active" onclick="switchQrTab('validation')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--accent-blue);border-bottom:2px solid var(--accent-blue);margin-bottom:-2px;cursor:pointer;font-size:0.82rem;">Validation Results <span class="count-badge">' + valCount + '</span></button>';
+                html += '<button class="qr-subtab active" onclick="switchQrTab(\'validation\')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--accent-blue);border-bottom:2px solid var(--accent-blue);margin-bottom:-2px;cursor:pointer;font-size:0.82rem;">Validation Results <span class="count-badge">' + valCount + '</span></button>';
             }
             if (hasAnom) {
-                html += '<button class="qr-subtab" onclick="switchQrTab('anomaly')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">Anomaly Detection <span class="count-badge">' + anomCount + '</span></button>';
+                html += '<button class="qr-subtab" onclick="switchQrTab(\'anomaly\')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">Anomaly Detection <span class="count-badge">' + anomCount + '</span></button>';
             }
-            html += '<button class="qr-subtab" onclick="switchQrTab('completeness')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">Completeness</button>';
+            html += '<button class="qr-subtab" onclick="switchQrTab(\'completeness\')" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">Completeness</button>';
             html += '</div>';
 
             // Validation tab content
