@@ -480,16 +480,26 @@ def component_diagnostics(
 
     n = len(scores)
 
-    # Full trend array
-    trend = []
+    # Full trend array — aggregate by month
+    from collections import defaultdict
+    trend_buckets = defaultdict(lambda: {"rc": [], "cp": [], "co": [], "op": [], "sc": []})
     for s in scores:
+        b = trend_buckets[s.month]
+        b["rc"].append(float(s.rule_compliance or 0))
+        b["cp"].append(float(s.completeness or 0))
+        b["co"].append(float(s.consistency or 0))
+        b["op"].append(max(0, 100 - (s.outlier_penalty or 0)))
+        b["sc"].append(float(s.score or 0))
+    trend = []
+    for month in sorted(trend_buckets.keys()):
+        b = trend_buckets[month]
         trend.append({
-            "month": s.month,
-            "rule_compliance": round(float(s.rule_compliance or 0), 1),
-            "completeness": round(float(s.completeness or 0), 1),
-            "consistency": round(float(s.consistency or 0), 1),
-            "outlier_score": round(max(0, 100 - (s.outlier_penalty or 0)), 1),
-            "score": round(float(s.score or 0), 1),
+            "month": month,
+            "rule_compliance": round(sum(b["rc"]) / len(b["rc"]), 1),
+            "completeness": round(sum(b["cp"]) / len(b["cp"]), 1),
+            "consistency": round(sum(b["co"]) / len(b["co"]), 1),
+            "outlier_score": round(sum(b["op"]) / len(b["op"]), 1),
+            "score": round(sum(b["sc"]) / len(b["sc"]), 1),
         })
 
     # Targets
