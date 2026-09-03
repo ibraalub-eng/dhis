@@ -1621,77 +1621,98 @@ function loadHospitalsSettings() {
                     }
                 }
 
-                // ── High Confidence Detail (5 Signal Factors) ──
+                                // ── High Confidence Detail (5 Signal Factors) ──
                 if (metric === 'conf_high' && confDetail && confDetail.indicators) {
                     try {
                     var sd = confDetail;
-                    html += '<div class="card" style="margin-top:1rem;"><h3>\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u062a\u062d\u0642\u0642</h3>';
-                    html += '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.6rem;">' + esc(sd.summary || '') + '</div>';
-                    var _sigNames = {rule_compliance: '\u0627\u0644\u0642\u0648\u0627\u0639\u062f \u0627\u0644\u062a\u062d\u0642\u0642\u064a\u0629', historical: '\u0627\u0644\u0627\u062a\u0633\u0627\u0639 \u0627\u0644\u062a\u0627\u0631\u064a\u062e\u064a', cross_hospital: '\u0627\u0644\u0645\u0642\u0627\u0631\u0646\u0629 \u0627\u0644\u0637\u0628\u0642\u064a\u0629', trend: '\u062a\u062d\u0644\u064a\u0644 \u0627\u0644\u0627\u062a\u062c\u0627\u0647', completeness: '\u0627\u0643\u062a\u0645\u0627\u0644 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a'};
-                    var _sigWeights = {rule_compliance: 55, historical: 10, cross_hospital: 10, trend: 10, completeness: 15};
-                    var _sigIcons = {rule_compliance: '\u2705', historical: '\ud83d\udcc8', cross_hospital: '\ud83d\udcca', trend: '\ud83d\udcc9', completeness: '\ud83d\udcdd'};
-                    html += '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.8rem;">';
-                    ['rule_compliance', 'historical', 'cross_hospital', 'trend', 'completeness'].forEach(function(sig) {
-                        var w = _sigWeights[sig];
-                        html += '<div style="flex:1;min-width:100px;padding:0.5rem;border-radius:6px;border:1px solid var(--border-default);background:var(--bg-elevated);">';
-                        html += '<div style="font-size:0.65rem;color:var(--text-muted);">' + _sigIcons[sig] + ' ' + _sigNames[sig] + '</div>';
-                        html += '<div style="font-size:0.9rem;font-weight:700;color:var(--accent-blue);">' + w + '%</div>';
-                        html += '<div style="height:3px;background:var(--border-default);border-radius:2px;margin-top:3px;"><div style="width:' + w + '%;height:3px;background:var(--accent-blue);border-radius:2px;"></div></div>';
+                    html += '<div class="card" style="margin-top:1rem;max-height:600px;overflow-y:auto;"><h3>' + __('Confidence Factors') + '</h3>';
+                    html += '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.8rem;">' + esc(sd.summary || '') + '</div>';
+
+                    var _sigData = [
+                        {key: 'rule_compliance', name: __('Validation rule compliance'), weight: 55, icon: '\u2705', color: '#e65100'},
+                        {key: 'historical', name: __('Historical consistency'), weight: 10, icon: '\ud83d\udcc8', color: '#1565c0'},
+                        {key: 'cross_hospital', name: __('Cross-hospital comparison'), weight: 10, icon: '\ud83d\udcca', color: '#6a1b9a'},
+                        {key: 'trend', name: __('Trend analysis'), weight: 10, icon: '\ud83d\udcc9', color: '#2e7d32'},
+                        {key: 'completeness', name: __('Data completeness'), weight: 15, icon: '\ud83d\udcdd', color: '#00838f'}
+                    ];
+
+                    // Compute avg score per signal
+                    var _sigAvgs = {}, _sigCounts = {};
+                    _sigData.forEach(function(s) { _sigAvgs[s.key] = 0; _sigCounts[s.key] = 0; });
+                    sd.indicators.forEach(function(ind) {
+                        if (ind.signals) ind.signals.forEach(function(sig) {
+                            if (_sigAvgs[sig.factor] !== undefined) { _sigAvgs[sig.factor] += sig.score; _sigCounts[sig.factor]++; }
+                        });
+                    });
+                    _sigData.forEach(function(s) { s.avg = _sigCounts[s.key] ? Math.round(_sigAvgs[s.key] / _sigCounts[s.key] * 100) : 0; });
+
+                    // Signal factor cards
+                    html += '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:0.5rem;margin-bottom:1rem;">';
+                    _sigData.forEach(function(s) {
+                        var avgColor = s.avg >= 80 ? 'var(--accent-green)' : s.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                        html += '<div style="padding:0.6rem;border-radius:8px;border:2px solid ' + s.color + '33;background:' + s.color + '0a;">';
+                        html += '<div style="font-size:0.65rem;color:' + s.color + ';font-weight:600;">' + s.icon + ' ' + s.name + '</div>';
+                        html += '<div style="font-size:1.1rem;font-weight:700;color:' + s.color + ';margin:0.2rem 0;">' + s.avg + '%</div>';
+                        html += '<div style="height:4px;background:var(--border-default);border-radius:2px;"><div style="width:' + s.avg + '%;height:4px;background:' + avgColor + ';border-radius:2px;"></div></div>';
+                        html += '<div style="font-size:0.6rem;color:var(--text-muted);margin-top:2px;">' + __('Weight') + ': ' + s.weight + '%</div>';
                         html += '</div>';
                     });
                     html += '</div>';
+
+                    // Level distribution
                     var _levels = sd.by_level || {};
-                    html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">\u062a\u0648\u0632\u064a\u0639 \u0627\u0644\u062a\u062d\u0642\u0642</div>';
-                    html += '<div style="display:flex;gap:0.4rem;margin-bottom:0.8rem;flex-wrap:wrap;">';
+                    html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">' + __('Indicator Confidence Distribution') + '</div>';
+                    html += '<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">';
                     [{k:'HIGH',c:'var(--accent-green)'},{k:'MEDIUM',c:'var(--accent-orange)'},{k:'LOW',c:'var(--accent-red)'},{k:'CRITICAL',c:'#b71c1c'}].forEach(function(lev) {
                         var cnt = _levels[lev.k] || 0;
-                        if (cnt > 0) html += '<span style="padding:3px 8px;border-radius:12px;font-size:0.7rem;font-weight:600;background:' + lev.c + '22;color:' + lev.c + ';">' + lev.k + ': ' + cnt + '</span>';
+                        html += '<div style="padding:0.4rem 0.8rem;border-radius:8px;background:' + lev.c + '15;border:1px solid ' + lev.c + '33;text-align:center;">';
+                        html += '<div style="font-size:0.65rem;color:' + lev.c + ';">' + lev.k + '</div>';
+                        html += '<div style="font-size:1rem;font-weight:700;color:' + lev.c + ';">' + cnt + '</div></div>';
                     });
                     html += '</div>';
+
+                    // Group averages
                     var _groups = sd.by_group || {};
                     if (Object.keys(_groups).length) {
-                        html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">\u0627\u0644\u062a\u062d\u0642\u0642 \u062d\u0633\u0628 \u0627\u0644\u0645\u062c\u0645\u0648\u0639\u0629</div>';
-                        html += '<div style="display:flex;flex-direction:column;gap:0.3rem;margin-bottom:0.8rem;">';
+                        html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">' + __('Confidence by Group') + '</div>';
+                        html += '<div style="display:flex;flex-direction:column;gap:0.35rem;margin-bottom:1rem;">';
                         Object.keys(_groups).forEach(function(grp) {
                             var gv = _groups[grp];
                             var gc = gv >= 80 ? 'var(--accent-green)' : gv >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                            html += '<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.73rem;">';
-                            html += '<span style="width:120px;flex-shrink:0;font-weight:500;">' + esc(grp) + '</span>';
-                            html += '<div style="flex:1;height:6px;background:var(--border-default);border-radius:3px;"><div style="width:' + Math.min(gv,100) + '%;height:6px;background:' + gc + ';border-radius:3px;"></div></div>';
-                            html += '<span style="width:35px;text-align:right;font-weight:700;color:' + gc + ';">' + gv.toFixed(0) + '%</span>';
-                            html += '</div>';
+                            html += '<div style="display:flex;align-items:center;gap:0.6rem;font-size:0.75rem;">';
+                            html += '<span style="width:130px;flex-shrink:0;font-weight:600;">' + esc(grp) + '</span>';
+                            html += '<div style="flex:1;height:8px;background:var(--border-default);border-radius:4px;overflow:hidden;"><div style="width:' + Math.min(gv,100) + '%;height:8px;background:' + gc + ';border-radius:4px;"></div></div>';
+                            html += '<span style="width:40px;text-align:right;font-weight:700;color:' + gc + ';">' + gv.toFixed(1) + '%</span></div>';
                         });
                         html += '</div>';
                     }
-                    var _prio = (sd.indicators || []).filter(function(i) { return i.level !== 'HIGH'; }).slice(0, 15);
+
+                    // Low-confidence indicators
+                    var _prio = (sd.indicators || []).filter(function(i) { return i.level !== 'HIGH'; }).slice(0, 20);
                     if (_prio.length) {
-                        html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">\u0627\u0644\u0645\u0648\u0627\u0634\u0631 \u0627\u0644\u062a\u062d\u062a\u0627\u062c \u062a\u062d\u0642\u0642\u0647\u0627 (' + _prio.length + ')</div>';
-                        html += '<div style="max-height:350px;overflow-y:auto;display:flex;flex-direction:column;gap:0.35rem;">';
+                        html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">' + __('Indicators Needing Verification') + ' (' + _prio.length + ')</div>';
+                        html += '<div style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:0.4rem;padding-right:4px;">';
                         _prio.forEach(function(ind) {
                             var ilc = ind.level === 'CRITICAL' ? '#b71c1c' : ind.level === 'LOW' ? 'var(--accent-red)' : 'var(--accent-orange)';
                             var ilbg = ind.level === 'CRITICAL' ? 'rgba(183,28,28,0.08)' : ind.level === 'LOW' ? 'rgba(198,40,40,0.06)' : 'rgba(230,81,0,0.06)';
-                            html += '<div style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);background:' + ilbg + ';">';
+                            html += '<div style="padding:0.5rem 0.6rem;border-radius:8px;border:1px solid var(--border-default);background:' + ilbg + ';">';
                             html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
-                            html += '<span style="font-size:0.75rem;font-weight:600;">' + esc(ind.indicator_name || ind.indicator_code) + ' <span style="font-size:0.62rem;color:var(--text-muted);">(' + esc(ind.indicator_code) + ')</span></span>';
-                            html += '<span style="font-size:0.7rem;font-weight:700;color:' + ilc + ';">' + ind.confidence + '% \u2022 ' + ind.level + '</span>';
-                            html += '</div>';
-                            if (ind.value !== null && ind.value !== undefined) {
-                                html += '<div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px;">\u0627\u0644\u0642\u064a\u0645\u0629: ' + ind.value + '</div>';
-                            }
+                            html += '<span style="font-size:0.78rem;font-weight:600;">' + esc(ind.indicator_name || ind.indicator_code) + ' <span style="font-size:0.62rem;color:var(--text-muted);">(' + esc(ind.indicator_code) + ')</span></span>';
+                            html += '<span style="font-size:0.72rem;font-weight:700;color:' + ilc + ';">' + ind.confidence + '% \u2022 ' + ind.level + '</span></div>';
+                            if (ind.value !== null && ind.value !== undefined) html += '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:2px;">' + __('Value') + ': ' + ind.value + '</div>';
                             if (ind.signals && ind.signals.length) {
-                                html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;">';
+                                html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:5px;">';
                                 ind.signals.forEach(function(sig) {
                                     var sc = sig.passed ? 'var(--accent-green)' : sig.score >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
                                     var sIcon = sig.passed ? '\u2705' : sig.score >= 0.5 ? '\u26a0\ufe0f' : '\u274c';
-                                    html += '<span style="font-size:0.58rem;padding:2px 5px;border-radius:3px;background:' + sc + '18;color:' + sc + ';cursor:help;" title="' + esc(sig.detail) + '">';
-                                    html += sIcon + ' ' + (_sigNames[sig.factor] || sig.factor) + ': ' + (sig.score * 100).toFixed(0) + '%';
-                                    html += '</span>';
+                                    var sName = _sigData.find(function(s){return s.key===sig.factor;});
+                                    var sLabel = sName ? sName.name : sig.factor;
+                                    html += '<span style="font-size:0.6rem;padding:2px 6px;border-radius:4px;background:' + sc + '18;color:' + sc + ';cursor:help;border:1px solid ' + sc + '33;" title="' + esc(sig.detail) + '">';
+                                    html += sIcon + ' ' + sLabel + ': ' + (sig.score * 100).toFixed(0) + '%</span>';
                                 });
                                 html += '</div>';
                             }
-                            if (ind.recommendations && ind.recommendations.length) {
-                                html += '<div style="margin-top:4px;font-size:0.6rem;color:var(--text-muted);">' + ind.recommendations.slice(0, 2).map(function(r) { return '\u26a0 ' + esc(r); }).join('<br>') + '</div>';
-                            }
+                            if (ind.recommendations && ind.recommendations.length) html += '<div style="margin-top:4px;font-size:0.62rem;color:var(--text-muted);line-height:1.4;">' + ind.recommendations.slice(0, 2).map(function(r) { return '\u26a0 ' + esc(r); }).join(' \u2022 ') + '</div>';
                             html += '</div>';
                         });
                         html += '</div>';
@@ -1700,7 +1721,9 @@ function loadHospitalsSettings() {
                     } catch(e) { console.error('[conf] detail error:', e); }
                 }
 
-                bodyEl.innerHTML = html || '<p style="color:var(--text-muted);padding:1rem;">' + __('No details available.') + '</p>';
+                bodyEl.innerHTML = html
+
+bodyEl.innerHTML = html || '<p style="color:var(--text-muted);padding:1rem;">' + __('No details available.') + '</p>';
 
                 // Render chart
                 var chartCtx = document.getElementById('kpiDrilldownChart');
