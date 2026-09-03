@@ -1395,10 +1395,17 @@ function loadHospitalsSettings() {
             if (yr) diagUrl += 'year=' + yr + '&';
             if (metric && metric !== 'quality_score' && metric !== 'conf_high' && metric !== 'report_coverage') diagUrl += 'metric=' + metric;
 
-            // For conf_high: get month from year param (latest month)
+            // For conf_high: resolve month from year, filter inputs, or default
             var _confMonth = '';
-            if (yr) _confMonth = yr + '-06'; // default to mid-year; will be overridden by trend if available
-            var confUrl = (metric === 'conf_high' && hid && _confMonth) ? '/confidence/' + hid + '?month=' + _confMonth : null;
+            if (yr) _confMonth = yr + '-06';
+            if (!_confMonth) {
+                var _fFrom = document.getElementById('filter-from');
+                var _fTo = document.getElementById('filter-to');
+                if (_fTo && _fTo.value) _confMonth = _fTo.value;
+                else if (_fFrom && _fFrom.value) _confMonth = _fFrom.value;
+            }
+            if (!_confMonth) _confMonth = '2026-06'; // absolute fallback
+            var confUrl = (metric === 'conf_high' && hid) ? '/confidence/' + hid + '?month=' + _confMonth : null;
 
             var _confPromise = confUrl ? apiGet(confUrl).catch(function(){ return null; }) : Promise.resolve(null);
             Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; }), _confPromise]).then(function(results) {
