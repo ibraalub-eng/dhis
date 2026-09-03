@@ -313,27 +313,15 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     _kpi_cp = _recalc_completeness(db, _kpi_scores)
     avg_completeness = round(sum(_kpi_cp) / len(_kpi_cp), 1) if _kpi_cp else 0
 
-    # confidence high %
-    cq = db.query(func.count(ConfidenceScore.id))
+    # confidence: use weighted overall_confidence (not just count of HIGH records)
+    conf_q = db.query(func.avg(ConfidenceScore.overall_confidence).label("avg_conf"))
     if hospital_id:
-        cq = cq.filter(ConfidenceScore.hospital_id == hospital_id)
+        conf_q = conf_q.filter(ConfidenceScore.hospital_id == hospital_id)
     if month_from:
-        cq = cq.filter(ConfidenceScore.month >= month_from)
+        conf_q = conf_q.filter(ConfidenceScore.month >= month_from)
     if month_to:
-        cq = cq.filter(ConfidenceScore.month <= month_to)
-    total_conf = cq.scalar() or 1
-
-    cq_high = db.query(func.count(ConfidenceScore.id)).filter(
-        ConfidenceScore.level == "HIGH"
-    )
-    if hospital_id:
-        cq_high = cq_high.filter(ConfidenceScore.hospital_id == hospital_id)
-    if month_from:
-        cq_high = cq_high.filter(ConfidenceScore.month >= month_from)
-    if month_to:
-        cq_high = cq_high.filter(ConfidenceScore.month <= month_to)
-    high_count = cq_high.scalar() or 0
-    conf_high_pct = round((high_count / total_conf) * 100, 1)
+        conf_q = conf_q.filter(ConfidenceScore.month <= month_to)
+    conf_high_pct = round(float(conf_q.first().avg_conf or 0), 1)
 
     # Outlier score (lower penalty = better)
     _op_q = base.with_entities(func.avg(QualityScore.outlier_penalty).label("avg_op")).first()
@@ -463,15 +451,10 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
     _pcp = _recalc_completeness(db, scores)
     avg_completeness = round(sum(_pcp) / len(_pcp), 1) if _pcp else 0
 
-    # Confidence high %
+    # Confidence: use weighted overall_confidence (matches the engine calculation)
     from app.models import ConfidenceScore as _CS
-    conf_q = db.query(_CS).filter(_CS.hospital_id == hospital_id).all()
-    if conf_q:
-        high_count = sum(c.high_count or 0 for c in conf_q)
-        total_indicators = sum(c.indicator_count or 0 for c in conf_q)
-        avg_confidence = round(high_count / total_indicators * 100, 1) if total_indicators > 0 else 0
-    else:
-        avg_confidence = 0
+    conf_q = db.query(func.avg(_CS.overall_confidence)).filter(_CS.hospital_id == hospital_id).first()
+    avg_confidence = round(float(conf_q[0] or 0), 1)
 
     if avg_score >= 90: grade = "A"
     elif avg_score >= 75: grade = "B"
