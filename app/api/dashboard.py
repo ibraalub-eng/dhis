@@ -667,26 +667,67 @@ def component_diagnostics(
     if not rc_causes:
         rc_causes.append({"cause": "All rules passing", "detail": f"Average {avg_rc}% across {n} months", "severity": "ok", "impact_pct": 0})
 
-    # Completeness — recalculate using current disabled indicator set
+    # Completeness — batch-optimized: pre-fetch all data in one pass
     from app.engine.pipeline import get_disabled_indicator_ids as _get_disabled
+    from app.models import HospitalIndicatorConfig as _HIC
+    # Pre-fetch all indicators once
+    all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
+    all_ind_names_map = {i.id: i.name for i in db.query(Indicator).all()}
+    # Pre-fetch ALL indicator values for this query in one batch
+    hosp_months = [(s.hospital_id, s.month) for s in scores]
+    all_hosp_ids = list(set(h[0] for h in hosp_months))
+    all_months = list(set(h[1] for h in hosp_months))
+    all_iv_rows = db.query(IndicatorValue.hospital_id, IndicatorValue.month,
+                           IndicatorValue.indicator_id, IndicatorValue.value).filter(
+        IndicatorValue.hospital_id.in_(all_hosp_ids),
+        IndicatorValue.month.in_(all_months)
+    ).all()
+    # Index: {(hospital_id, month): {indicator_id: value}}
+    iv_index = {}
+    for row in all_iv_rows:
+        key = (row[0], row[1])
+        if key not in iv_index:
+            iv_index[key] = {}
+        iv_index[key][row[2]] = row[3]
+    # Pre-fetch manually disabled indicators for all hospitals
+    manual_disabled = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
+        _HIC.is_enabled.is_(False),
+        _HIC.hospital_id.in_(all_hosp_ids)
+    ).all()
+    manual_disabled_map = {}  # {hospital_id: set(indicator_ids)}
+    for row in manual_disabled:
+        if row[0] not in manual_disabled_map:
+            manual_disabled_map[row[0]] = set()
+        manual_disabled_map[row[0]].add(row[1])
+    # Pre-fetch auto-disable setting
+    try:
+        auto_disable_setting = db.query(SystemSetting).filter(
+            SystemSetting.key == "auto_disable_null_indicators"
+        ).first()
+        auto_disable = auto_disable_setting and auto_disable_setting.value == "true"
+    except Exception:
+        auto_disable = False
+    # Compute disabled sets per (hospital, month) in memory
+    def _fast_disabled(hid, month):
+        disabled = set(manual_disabled_map.get(hid, set()))
+        if auto_disable:
+            iv_map = iv_index.get((hid, month), {})
+            for ind_id in all_ind_ids:
+                if ind_id not in iv_map or iv_map[ind_id] is None:
+                    disabled.add(ind_id)
+        return disabled
+    # Compute completeness for each score
     cp_vals = []
     for s in scores:
-        hosp = s.hospital_id
-        month = s.month
         try:
-            all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
-            disabled = set(_get_disabled(db, hosp, month))
+            disabled = _fast_disabled(s.hospital_id, s.month)
             enabled_ids = [iid for iid in all_ind_ids if iid not in disabled]
             if not enabled_ids:
                 cp_vals.append(round(float(s.completeness or 0), 1))
                 continue
-            month_vals = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
-                IndicatorValue.hospital_id == hosp,
-                IndicatorValue.month == month,
-                IndicatorValue.indicator_id.in_(enabled_ids)
-            ).all()
-            filled = sum(1 for iv in month_vals if iv.value is not None)
-            cp_vals.append(round(filled / len(enabled_ids) * 100, 1) if enabled_ids else 0)
+            iv_map = iv_index.get((s.hospital_id, s.month), {})
+            filled = sum(1 for iid in enabled_ids if iv_map.get(iid) is not None)
+            cp_vals.append(round(filled / len(enabled_ids) * 100, 1))
         except Exception:
             cp_vals.append(round(float(s.completeness or 0), 1))
     cp_by_month = {}
@@ -703,29 +744,18 @@ def component_diagnostics(
     # Find specific missing indicators per month
     cp_missing_details = []
     try:
-        all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
-        all_indicators = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(all_ind_ids)).all()} if all_ind_ids else {}
         from collections import Counter
 
         if hospital_id:
-            # Single hospital: find indicators that SHOULD have values but don't
-            from app.engine.pipeline import get_disabled_indicator_ids
+            # Single hospital: find indicators that SHOULD have values but don't (uses pre-fetched data)
             for i, s in enumerate(scores):
-                # Get indicators disabled for this hospital-month (auto + manual)
-                disabled_ids = set(get_disabled_indicator_ids(db, hospital_id, s.month))
-                # Enabled = all indicators minus disabled
+                disabled_ids = _fast_disabled(hospital_id, s.month)
                 enabled_for_month = set(all_ind_ids) - disabled_ids
-                # Get which enabled indicators actually have values
-                month_vals = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
-                    IndicatorValue.hospital_id == hospital_id,
-                    IndicatorValue.month == s.month,
-                    IndicatorValue.indicator_id.in_(list(enabled_for_month))
-                ).all()
-                filled_ids = {iv.indicator_id for iv in month_vals if iv.value is not None}
-                # Truly missing = enabled but no value
+                iv_map = iv_index.get((hospital_id, s.month), {})
+                filled_ids = {iid for iid in enabled_for_month if iv_map.get(iid) is not None}
                 truly_missing = enabled_for_month - filled_ids
                 if truly_missing and cp_vals[i] < targets["completeness"]:
-                    missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid in sorted(truly_missing)]
+                    missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid in sorted(truly_missing)]
                     cp_missing_details.append({
                         "month": s.month,
                         "value": cp_vals[i],
@@ -733,22 +763,16 @@ def component_diagnostics(
                         "missing_indicators": missing_names[:10],
                     })
         else:
-            # All hospitals: find indicators that have values for SOME hospitals
-            # but not others (truly missing, not universally disabled)
-            hosp_ids = [h.id for h in db.query(Hospital.id).filter(Hospital.is_active.is_(True)).all()]
+            # All hospitals: use pre-fetched iv_index to count per indicator
+            hosp_ids = list(set(h[0] for h in hosp_months))
             distinct_months = sorted(set(s.month for s in scores))
             for month in distinct_months:
-                # Count per indicator: how many hospitals have it vs don't
-                ind_hospital_count = Counter()  # indicator_id -> count of hospitals with values
+                ind_hospital_count = Counter()
                 for hid in hosp_ids:
-                    month_vals = db.query(IndicatorValue.indicator_id).filter(
-                        IndicatorValue.hospital_id == hid,
-                        IndicatorValue.month == month,
-                        IndicatorValue.indicator_id.in_(all_ind_ids),
-                        IndicatorValue.value.isnot(None)
-                    ).all()
-                    for iv in month_vals:
-                        ind_hospital_count[iv.indicator_id] += 1
+                    iv_map = iv_index.get((hid, month), {})
+                    for iid, val in iv_map.items():
+                        if val is not None:
+                            ind_hospital_count[iid] += 1
                 # Only show indicators that SOME hospitals have but others don't
                 # (not universally disabled)
                 partially_missing = {}
@@ -761,7 +785,7 @@ def component_diagnostics(
                     month_avg = sum(month_cp_vals) / len(month_cp_vals) if month_cp_vals else 0
                     if month_avg < targets["completeness"]:
                         sorted_missing = sorted(partially_missing.items(), key=lambda x: -x[1])
-                        missing_names = [all_indicators.get(mid, f"Indicator #{mid}") for mid, cnt in sorted_missing[:10]]
+                        missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid, cnt in sorted_missing[:10]]
                         cp_missing_details.append({
                             "month": month,
                             "value": round(month_avg, 1),
@@ -883,20 +907,15 @@ def component_diagnostics(
             cp_val = cp_vals[idx]
             if cp_val >= targets["completeness"]:
                 continue
-            # Find missing indicators for this hospital-month
+            # Find missing indicators (uses pre-fetched data)
             missing_names = []
             try:
-                all_ind_ids_local = [i.id for i in db.query(Indicator.id).all()]
-                all_ind_names_local = {i.id: i.name for i in db.query(Indicator).filter(Indicator.id.in_(all_ind_ids_local)).all()}
-                disabled_ids = set(_get_disabled(db, hid, s.month))
-                enabled_ids = [iid for iid in all_ind_ids_local if iid not in disabled_ids]
-                month_vals_db = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
-                    IndicatorValue.hospital_id == hid, IndicatorValue.month == s.month,
-                    IndicatorValue.indicator_id.in_(enabled_ids)
-                ).all()
-                filled_ids = {iv.indicator_id for iv in month_vals_db if iv.value is not None}
+                disabled_ids = _fast_disabled(hid, s.month)
+                enabled_ids = [iid for iid in all_ind_ids if iid not in disabled_ids]
+                iv_map = iv_index.get((hid, s.month), {})
+                filled_ids = {iid for iid in enabled_ids if iv_map.get(iid) is not None}
                 missing_ids = set(enabled_ids) - filled_ids
-                missing_names = [all_ind_names_local.get(mid, f"Indicator #{mid}") for mid in sorted(missing_ids)][:10]
+                missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid in sorted(missing_ids)][:10]
             except Exception:
                 pass
             # Find which cause this hospital belongs to
