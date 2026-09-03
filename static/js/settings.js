@@ -1515,7 +1515,12 @@ function loadHospitalsSettings() {
                                         if (h.failed_rules && h.failed_rules.length) {
                                             html += '<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">';
                                             h.failed_rules.forEach(function(r) {
-                                                html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 5px;border-radius:3px;font-size:0.58rem;font-weight:600;">' + esc(r) + '</span>';
+                                                var rCode = typeof r === 'object' ? r.code : r;
+                                                var rSev = typeof r === 'object' ? (r.severity || 'HIGH') : 'HIGH';
+                                                var rDesc = typeof r === 'object' ? (r.description || r.code) : r;
+                                                var rBg = rSev === 'CRITICAL' ? 'rgba(198,40,40,0.2)' : rSev === 'HIGH' ? 'rgba(198,40,40,0.12)' : 'rgba(230,81,0,0.12)';
+                                                var rFg = rSev === 'CRITICAL' ? 'var(--accent-red)' : rSev === 'HIGH' ? 'var(--accent-red)' : 'var(--accent-orange)';
+                                                html += '<span style="display:inline-block;background:' + rBg + ';color:' + rFg + ';padding:1px 5px;border-radius:3px;font-size:0.58rem;font-weight:600;cursor:help;" title="' + esc(rDesc) + '">' + esc(rCode) + '</span>';
                                             });
                                             html += '</div>';
                                         }

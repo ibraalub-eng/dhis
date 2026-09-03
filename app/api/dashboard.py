@@ -1024,9 +1024,11 @@ def component_diagnostics(
 
         # ── Rule Compliance ──
         # Pre-fetch rule results for affected hospitals
-        _rule_results_map = {}  # {(hospital_id, month): [failed_rule_codes]}
+        _rule_results_map = {}  # {(hospital_id, month): [rule_code, ...]}
+        _rule_desc_map = {}  # {rule_code: {severity, description}}
         try:
-            from app.models import ValidationResult as _VR
+            from app.models import ValidationResult as _VR, Rule as _Rule
+            # Fetch failed rule codes with severity/description
             vr_q = db.query(_VR.hospital_id, _VR.month, _VR.rule_code).filter(
                 _VR.status == "FAIL",
                 _VR.hospital_id.in_(all_hosp_ids),
@@ -1037,6 +1039,16 @@ def component_diagnostics(
                 if key not in _rule_results_map:
                     _rule_results_map[key] = []
                 _rule_results_map[key].append(row[2])
+            # Fetch rule descriptions for display
+            all_codes = set()
+            for codes in _rule_results_map.values():
+                all_codes.update(codes)
+            if all_codes:
+                rules_q = db.query(_Rule.code, _Rule.severity, _Rule.description).filter(
+                    _Rule.code.in_(all_codes)
+                ).all()
+                for rr in rules_q:
+                    _rule_desc_map[rr[0]] = {"severity": rr[1] or "HIGH", "description": rr[2] or rr[0]}
         except Exception:
             pass
         _rc_cause_hosp = {}
@@ -1063,16 +1075,28 @@ def component_diagnostics(
                 hkey = r["hospital_id"]
                 if hkey not in hosp_agg:
                     hosp_agg[hkey] = {"hospital_id": hkey, "hospital_name": r["hospital_name"],
-                                       "problem_months": [], "values": []}
+                                       "problem_months": [], "values": [], "failed_rules_set": set()}
                 hosp_agg[hkey]["problem_months"].append(r["month"])
                 hosp_agg[hkey]["values"].append(r["value"])
+                for fr in r.get("failed_rules", []):
+                    hosp_agg[hkey]["failed_rules_set"].add(fr)
             result_list = []
             for hkey, ha in hosp_agg.items():
+                # Build enriched failed rules list with severity & description
+                enriched_rules = []
+                for code in sorted(ha["failed_rules_set"]):
+                    info = _rule_desc_map.get(code, {})
+                    enriched_rules.append({
+                        "code": code,
+                        "severity": info.get("severity", "HIGH"),
+                        "description": info.get("description", code),
+                    })
                 result_list.append({
                     "hospital_id": ha["hospital_id"],
                     "hospital_name": ha["hospital_name"],
                     "avg_value": round(sum(ha["values"]) / len(ha["values"]), 1),
                     "problem_months": sorted(set(ha["problem_months"])),
+                    "failed_rules": enriched_rules,
                 })
             result_list.sort(key=lambda x: x["avg_value"])
             _rc_cause_hosp[cause_key] = result_list
