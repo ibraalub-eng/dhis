@@ -1342,7 +1342,8 @@ function loadHospitalsSettings() {
                         ? (k.higher_is_better ? (pct >= 1 ? 'var(--accent-green)' : pct >= 0.75 ? 'var(--accent-orange)' : 'var(--accent-red)') : (pct <= 1 ? 'var(--accent-green)' : 'var(--accent-red)'))
                         : '#555';
                     const barPct = Math.min(pct * 100, 100);
-                    return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';cursor:pointer;" onclick="window.openKPIDrilldown(\'' + k.id + '\')">' +
+                    var _noDrill = k.id === 'report_coverage';
+                    return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';' + (_noDrill ? '' : 'cursor:pointer;') + '"' + (_noDrill ? '' : ' onclick="window.openKPIDrilldown(\'' + k.id + '\')"') + '>' +
                         '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
                         '<span style="font-size:0.75rem;color:var(--text-secondary);font-weight:500;">' + k.label + '</span>' +
                         '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? ' <span style="font-size:0.7rem;">' + k.unit + '</span>' : '') + '</span></div>' +
@@ -1354,6 +1355,7 @@ function loadHospitalsSettings() {
 
         let _kpiDrilldownChart = null;
         window.openKPIDrilldown = function(metric) {
+            if (metric === 'report_coverage') return; // no drilldown for report count
             const modal = document.getElementById('detailModal');
             const titleEl = document.getElementById('modalTitle');
             const bodyEl = document.getElementById('modalBody');
