@@ -1365,6 +1365,7 @@ function loadHospitalsSettings() {
                 completeness: __('Completeness'),
                 consistency: __('Consistency'),
                 conf_high: __('High Confidence'),
+                outlier_score: __('Outlier Score'),
                 report_coverage: __('Report Coverage'),
             };
             const label = metricLabels[metric] || metric;
