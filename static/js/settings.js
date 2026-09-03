@@ -1469,57 +1469,71 @@ function loadHospitalsSettings() {
                         // Diagnosis body (collapsible)
                         html += '<div class="_diag-body" style="padding:0.5rem 0.8rem 0.8rem;border-top:1px solid var(--border-default);">';
 
-                        // Causes — separated by severity
+                        // Causes table
                         if (c.causes && c.causes.length) {
-                            var criticalCauses = c.causes.filter(function(cause) { return cause.severity === 'critical'; });
-                            var warningCauses = c.causes.filter(function(cause) { return cause.severity === 'warning'; });
-                            var okCauses = c.causes.filter(function(cause) { return cause.severity === 'ok'; });
-
-                            // Critical issues — red section
-                            if (criticalCauses.length > 0) {
-                                html += '<div style="background:rgba(198,40,40,0.06);border:1px solid rgba(198,40,40,0.2);border-radius:8px;padding:0.6rem;margin-bottom:0.5rem;">';
-                                html += '<div style="font-size:0.72rem;font-weight:700;color:var(--accent-red);margin-bottom:0.4rem;display:flex;align-items:center;gap:0.3rem;">\u274c ' + __('Critical Issues') + '</div>';
-                                criticalCauses.forEach(function(cause) {
-                                    html += '<div style="padding:0.3rem 0;border-bottom:1px solid rgba(198,40,40,0.1);">';
-                                    html += '<div style="font-size:0.75rem;font-weight:600;color:var(--accent-red);">' + esc(cause.cause) + '</div>';
-                                    html += '<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:2px;">' + esc(cause.detail) + '</div>';
-                                    if (cause.impact_pct > 0 || cause.first_month) {
-                                        html += '<div style="display:flex;gap:0.8rem;margin-top:3px;font-size:0.65rem;color:var(--text-muted);">';
-                                        if (cause.impact_pct > 0) html += '<span>' + __('Impact') + ': <b style="color:var(--accent-red);">-' + cause.impact_pct + '%</b></span>';
-                                        if (cause.first_month) html += '<span>' + __('Started') + ': <b>' + cause.first_month + '</b></span>';
-                                        html += '</div>';
-                                    }
-                                    html += '</div>';
-                                });
+                            html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">' + __('Root Causes') + '</div>';
+                            c.causes.forEach(function(cause) {
+                                var sevColor = cause.severity === 'critical' ? 'var(--accent-red)' : cause.severity === 'warning' ? 'var(--accent-orange)' : cause.severity === 'ok' ? 'var(--accent-green)' : 'var(--text-muted)';
+                                var sevBg = cause.severity === 'critical' ? 'rgba(198,40,40,0.08)' : cause.severity === 'warning' ? 'rgba(230,81,0,0.08)' : 'rgba(46,125,50,0.08)';
+                                var sevIcon = cause.severity === 'critical' ? '\u274c' : cause.severity === 'warning' ? '\u26a0\ufe0f' : cause.severity === 'ok' ? '\u2705' : '\u2139\ufe0f';
+                                html += '<div style="display:flex;align-items:flex-start;gap:6px;padding:0.4rem 0.5rem;border-radius:6px;margin-bottom:0.3rem;background:' + sevBg + ';">';
+                                html += '<span style="font-size:0.75rem;flex-shrink:0;margin-top:1px;">' + sevIcon + '</span>';
+                                html += '<div style="flex:1;">';
+                                html += '<div style="font-size:0.78rem;font-weight:600;color:' + sevColor + ';">' + esc(cause.cause) + '</div>';
+                                html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:1px;">' + esc(cause.detail) + '</div>';
                                 html += '</div>';
-                            }
-
-                            // Warning issues — orange section
-                            if (warningCauses.length > 0) {
-                                html += '<div style="background:rgba(230,81,0,0.06);border:1px solid rgba(230,81,0,0.2);border-radius:8px;padding:0.6rem;margin-bottom:0.5rem;">';
-                                html += '<div style="font-size:0.72rem;font-weight:700;color:var(--accent-orange);margin-bottom:0.4rem;display:flex;align-items:center;gap:0.3rem;">\u26a0\ufe0f ' + __('Warnings') + '</div>';
-                                warningCauses.forEach(function(cause) {
-                                    html += '<div style="padding:0.3rem 0;border-bottom:1px solid rgba(230,81,0,0.1);">';
-                                    html += '<div style="font-size:0.75rem;font-weight:600;color:var(--accent-orange);">' + esc(cause.cause) + '</div>';
-                                    html += '<div style="font-size:0.7rem;color:var(--text-secondary);margin-top:2px;">' + esc(cause.detail) + '</div>';
-                                    if (cause.impact_pct > 0 || cause.first_month) {
-                                        html += '<div style="display:flex;gap:0.8rem;margin-top:3px;font-size:0.65rem;color:var(--text-muted);">';
-                                        if (cause.impact_pct > 0) html += '<span>' + __('Impact') + ': <b style="color:var(--accent-orange);">-' + cause.impact_pct + '%</b></span>';
-                                        if (cause.first_month) html += '<span>' + __('Started') + ': <b>' + cause.first_month + '</b></span>';
-                                        html += '</div>';
-                                    }
+                                if (cause.impact_pct > 0) {
+                                    html += '<div style="text-align:right;flex-shrink:0;">';
+                                    html += '<div style="font-size:0.65rem;color:var(--text-muted);">' + __('Impact') + '</div>';
+                                    html += '<div style="font-size:0.8rem;font-weight:700;color:' + sevColor + ';">-' + cause.impact_pct + '%</div>';
                                     html += '</div>';
-                                });
-                                html += '</div>';
-                            }
-
-                            // OK status — compact green badge
-                            if (okCauses.length > 0 && criticalCauses.length === 0 && warningCauses.length === 0) {
-                                html += '<div style="background:rgba(46,125,50,0.06);border:1px solid rgba(46,125,50,0.2);border-radius:8px;padding:0.5rem 0.6rem;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem;">';
-                                html += '<span style="font-size:0.8rem;">\u2705</span>';
-                                html += '<div style="font-size:0.75rem;color:var(--accent-green);font-weight:600;">' + esc(okCauses[0].detail) + '</div>';                                html += '</div>';
                                 }
-                            }
+                                if (cause.first_month) {
+                                    html += '<div style="text-align:right;flex-shrink:0;">';
+                                    html += '<div style="font-size:0.65rem;color:var(--text-muted);">' + __('Started') + '</div>';
+                                    html += '<div style="font-size:0.72rem;font-weight:600;">' + cause.first_month + '</div>';
+                                    html += '</div>';
+                                }
+                                html += '</div>';
+
+                                // Per-hospital affected list
+                                var affected = cause.affected_hospitals || [];
+                                if (affected.length > 0 && cause.severity !== 'ok') {
+                                    html += '<div style="margin-top:0.5rem;">';
+                                    html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;display:flex;align-items:center;gap:0.4rem;">';
+                                    html += '\ud83d\udcca ' + __('Affected Hospitals') + ' <span style="background:var(--accent-red);color:#fff;padding:0 6px;border-radius:10px;font-size:0.65rem;font-weight:700;">' + affected.length + '</span>';
+                                    html += '</div>';
+                                    html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:0.35rem;padding-right:4px;">';
+                                    affected.forEach(function(h, idx) {
+                                        var hCol = h.avg_value >= 80 ? 'var(--accent-green)' : h.avg_value >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                                        var hBg = h.avg_value >= 80 ? 'rgba(46,125,50,0.06)' : h.avg_value >= 50 ? 'rgba(230,81,0,0.06)' : 'rgba(198,40,40,0.06)';
+                                        html += '<div style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);background:' + hBg + ';display:flex;align-items:flex-start;gap:0.6rem;">';
+                                        html += '<div style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">' + (idx + 1) + '</div>';
+                                        html += '<div style="flex:1;min-width:0;">';
+                                        html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</div>';
+                                        html += '<div style="display:flex;align-items:center;gap:0.4rem;margin-top:3px;">';
+                                        html += '<div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">';
+                                        html += '<div style="width:' + Math.min(h.avg_value, 100) + '%;height:5px;background:' + hCol + ';border-radius:3px;"></div>';
+                                        html += '</div>';
+                                        html += '<span style="font-size:0.7rem;font-weight:700;color:' + hCol + ';white-space:nowrap;">' + h.avg_value + '%</span>';
+                                        html += '</div>';
+                                        if (h.problem_months && h.problem_months.length) {
+                                            html += '<div style="margin-top:3px;font-size:0.63rem;color:var(--text-muted);">' + __('Months') + ': ' + h.problem_months.join(', ') + '</div>';
+                                        }
+                                        if (h.missing_indicators && h.missing_indicators.length) {
+                                            html += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
+                                            h.missing_indicators.forEach(function(mi) {
+                                                html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.6rem;">' + esc(mi) + '</span>';
+                                            });
+                                            html += '</div>';
+                                        }
+                                        html += '</div>';
+                                        html += '</div>';
+                                    });
+                                    html += '</div></div>';
+                                }
+                            });
+                        }
 
                         // Monthly detail table
                         if (c.monthly && c.monthly.length) {
