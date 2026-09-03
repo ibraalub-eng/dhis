@@ -42,3 +42,33 @@ jobs:
 
       - name: Validate ES module imports
         run: node scripts/validate-imports.js
+
+  validate-python:
+    name: Validate Python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Syntax check all Python files
+        run: |
+          echo "Running Python syntax validation..."
+          ERRORS=0
+          for f in $(find app -name '*.py' -type f ! -path '*/migrations/*'); do
+            OUTPUT=$(python3 -m py_compile "$f" 2>&1)
+            STATUS=$?
+            if [ $STATUS -ne 0 ]; then
+              echo "SYNTAX ERROR in $f:"
+              echo "$OUTPUT" | head -5
+              echo ""
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+          if [ $ERRORS -gt 0 ]; then
+            echo "FAILED: $ERRORS file(s) have syntax errors."
+            exit 1
+          fi
+          echo "All Python files passed syntax validation."
