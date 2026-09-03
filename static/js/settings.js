@@ -1425,8 +1425,12 @@ function loadHospitalsSettings() {
                     html += '</div>';
                 }
 
-                // Component Trend chart (per-component lines)
-                if (compTrend.length) {
+                // Chart: signal factors for conf_high, component trend for others
+                if (metric === 'conf_high') {
+                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Confidence Signal Factors') + '</h3>' +
+                        '<div style="position:relative;height:220px;max-height:220px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div>' +
+                        '</div>';
+                } else if (compTrend.length) {
                     html += '<div class="card" style="margin-top:1rem;"><h3>' + label + ' ' + __('Trend') + '</h3>' +
                         '<div style="position:relative;height:220px;max-height:220px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div>' +
                         '</div>';
@@ -1689,7 +1693,38 @@ function loadHospitalsSettings() {
                 var chartCtx = document.getElementById('kpiDrilldownChart');
                 if (chartCtx) {
                     if (_kpiDrilldownChart) { _kpiDrilldownChart.destroy(); _kpiDrilldownChart = null; }
-                    if (compTrend.length) {
+                    if (metric === 'conf_high' && confDetail && confDetail.indicators) {
+                        // Signal factor weights bar chart for confidence
+                        var _sigLabels = ['القواعد التحققية', 'الاتساع التاريخي', 'المقارنة الطبقية', 'تحليل الاتجاه', 'اكتمال البيانات'];
+                        var _sigWeights = [55, 10, 10, 10, 15];
+                        var _sigColors = ['#e65100', '#1565c0', '#6a1b9a', '#2e7d32', '#00838f'];
+                        // Compute average score per signal from indicators
+                        var _sigAvgs = [0, 0, 0, 0, 0];
+                        var _sigCounts = [0, 0, 0, 0, 0];
+                        var _sigKeys = ['rule_compliance', 'historical', 'cross_hospital', 'trend', 'completeness'];
+                        confDetail.indicators.forEach(function(ind) {
+                            if (ind.signals) ind.signals.forEach(function(sig, si) {
+                                var kIdx = _sigKeys.indexOf(sig.factor);
+                                if (kIdx >= 0) { _sigAvgs[kIdx] += sig.score; _sigCounts[kIdx]++; }
+                            });
+                        });
+                        for (var si = 0; si < 5; si++) _sigAvgs[si] = _sigCounts[si] ? Math.round(_sigAvgs[si] / _sigCounts[si] * 100) : 0;
+                        _kpiDrilldownChart = new Chart(chartCtx, {
+                            type: 'bar',
+                            data: {
+                                labels: _sigLabels,
+                                datasets: [
+                                    { label: 'الوزن المخصص', data: _sigWeights, backgroundColor: _sigColors.map(function(c) { return c + '44'; }), borderColor: _sigColors, borderWidth: 2, borderRadius: 4 },
+                                    { label: 'متوسط المواشر', data: _sigAvgs, backgroundColor: _sigColors.map(function(c) { return c + '99'; }), borderColor: _sigColors, borderWidth: 2, borderRadius: 4 },
+                                ]
+                            },
+                            options: {
+                                responsive: true, maintainAspectRatio: false, resizeDelay: 200,
+                                plugins: { legend: { position: 'bottom', labels: { font: { size: 10 } } } },
+                                scales: { y: { min: 0, max: 100, ticks: { callback: function(v) { return v + '%'; } } } }
+                            }
+                        });
+                    } else if (compTrend.length) {
                         // Build dataset based on clicked metric
                         var _dsMap = {
                             rule_compliance: { label: __('Validation rule'), key: 'rule_compliance', color: '#e65100' },
@@ -1703,7 +1738,6 @@ function loadHospitalsSettings() {
                         if (ds) {
                             datasets.push({ label: ds.label, data: compTrend.map(function(d) { return d[ds.key]; }), borderColor: ds.color, borderWidth: 2, tension: 0.3, pointRadius: 4, fill: false });
                         } else {
-                            // conf_high / report_coverage: show Quality Score as fallback
                             datasets.push({ label: __('Quality Score'), data: compTrend.map(function(d) { return d.score; }), borderColor: getCSSVar('--accent-teal') || '#14b8a6', borderWidth: 2, tension: 0.3, pointRadius: 4, fill: false });
                         }
                         // Always add target reference line if component has one
