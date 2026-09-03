@@ -432,12 +432,25 @@ def calculate_confidence(
     if key_indicator_codes is None:
         key_indicator_codes = sorted(values.keys(), key=lambda c: (len(c), c))
 
+    # Check auto-disable setting
+    _auto_disable = False
+    if session is not None:
+        try:
+            from app.models import SystemSetting as _SS
+            _ss = session.query(_SS).filter(_SS.key == 'auto_disable_null_indicators').first()
+            _auto_disable = (_ss.value == 'true') if _ss else False
+        except Exception:
+            pass
+
     assessed: List[str] = []
     for code in values.keys():
         if code not in assessed:
             assessed.append(code)
     for code in key_indicator_codes:
         if code not in assessed:
+            # If auto-disable ON, skip indicators not in values (disabled/missing)
+            if _auto_disable and code not in values:
+                continue
             assessed.append(code)
 
     indicators: List[IndicatorConfidence] = []
