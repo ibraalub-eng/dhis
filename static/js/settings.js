@@ -1394,19 +1394,15 @@ function loadHospitalsSettings() {
             if (hid) diagUrl += 'hospital_id=' + hid + '&';
             if (yr) diagUrl += 'year=' + yr + '&';
             if (metric && metric !== 'quality_score' && metric !== 'conf_high' && metric !== 'report_coverage') diagUrl += 'metric=' + metric;
-            // For conf_high: fetch detailed confidence scores
-            var confUrl = null;
-            if (metric === 'conf_high' && hid) {
-                var _confMonth = '';
-                try { var _sSel = document.getElementById('dashMonthSelect'); if (_sSel && _sSel.value) _confMonth = _sSel.value; } catch(e) {}
-                if (!_confMonth && trend.length) _confMonth = trend[trend.length - 1].month;
-                if (_confMonth) confUrl = '/confidence/' + hid + '/scores?month=' + _confMonth;
-            }
+
+            // For conf_high: get month from year param (latest month)
+            var _confMonth = '';
+            if (yr) _confMonth = yr + '-06'; // default to mid-year; will be overridden by trend if available
+            var confUrl = (metric === 'conf_high' && hid && _confMonth) ? '/confidence/' + hid + '?month=' + _confMonth : null;
 
             var _confPromise = confUrl ? apiGet(confUrl).catch(function(){ return null; }) : Promise.resolve(null);
             Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; }), _confPromise]).then(function(results) {
                 var kpiData = results[0], overviewData = results[1], diag = results[2], confDetail = results[3];
-                var kpiData = results[0], overviewData = results[1], diag = results[2];
                 var kpi = (kpiData.kpis || []).find(function(k) { return k.id === metric; });
                 var trend = overviewData.quality_trend || [];
                 var radar = overviewData.radar_components || {};
