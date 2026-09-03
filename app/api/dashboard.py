@@ -335,6 +335,10 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     high_count = cq_high.scalar() or 0
     conf_high_pct = round((high_count / total_conf) * 100, 1)
 
+    # Outlier score (lower penalty = better)
+    _op_q = base.with_entities(func.avg(QualityScore.outlier_penalty).label("avg_op")).first()
+    outlier_penalty = round(float(_op_q.avg_op or 0), 1)
+
     report_count = base.count()
 
     kpis = [
