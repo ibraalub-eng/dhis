@@ -1520,8 +1520,6 @@ function loadHospitalsSettings() {
                                 html += '<div style="font-size:0.75rem;color:var(--accent-green);font-weight:600;">' + esc(okCauses[0].detail) + '</div>';                                html += '</div>';
                                 }
                             }
-                            });
-                        }
 
                         // Monthly detail table
                         if (c.monthly && c.monthly.length) {
