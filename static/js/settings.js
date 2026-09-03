@@ -1730,7 +1730,7 @@ function loadHospitalsSettings() {
                     if (_kpiDrilldownChart) { _kpiDrilldownChart.destroy(); _kpiDrilldownChart = null; }
                     if (metric === 'conf_high' && confDetail && confDetail.indicators) {
                         // Signal factor weights bar chart for confidence
-                        var _sigLabels = ['القواعد التحققية', 'الاتساع التاريخي', 'المقارنة الطبقية', 'تحليل الاتجاه', 'اكتمال البيانات'];
+                        var _sigLabels = [__('Validation rule compliance'), __('Historical consistency'), __('Cross-hospital comparison'), __('Trend analysis'), __('Data completeness')];
                         var _sigWeights = [55, 10, 10, 10, 15];
                         var _sigColors = ['#e65100', '#1565c0', '#6a1b9a', '#2e7d32', '#00838f'];
                         // Compute average score per signal from indicators

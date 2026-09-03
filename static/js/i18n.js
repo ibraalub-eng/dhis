@@ -310,6 +310,7 @@
             'Rate Benchmarks': 'معايير المعدلات',
             'Quality Score Formula Weights': 'أوزان معادلة درجة الجودة',
             'Confidence Signal Weights': 'أوزان إشارات الثقة',
+            'Confidence Signal Factors': 'إشارات التحقق',
             'Confidence Level Cutoffs': 'حدود مستويات الثقة',
             'Global Z-Score Threshold': 'حد درجة Z العام',
             'Rule Thresholds': 'حدود القواعد',
