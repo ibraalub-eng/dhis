@@ -1498,7 +1498,7 @@ function loadHospitalsSettings() {
 
                                 // Per-hospital affected list
                                 var affected = cause.affected_hospitals || [];
-                                if (affected.length > 0 && cause.severity !== 'ok') {
+                                if (affected.length > 0) {
                                     html += '<div style="margin-top:0.5rem;">';
                                     html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;display:flex;align-items:center;gap:0.4rem;">';
                                     html += '\ud83d\udcca ' + __('Affected Hospitals') + ' <span style="background:var(--accent-red);color:#fff;padding:0 6px;border-radius:10px;font-size:0.65rem;font-weight:700;">' + affected.length + '</span>';

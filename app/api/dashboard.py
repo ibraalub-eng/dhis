@@ -1062,23 +1062,33 @@ def component_diagnostics(
                     _rule_desc_map[rr[0]] = {"severity": rr[1] or "HIGH", "description": rr[2] or rr[0]}
         except Exception:
             pass
+        # Build per-hospital rule failure data (always show even if on target)
+        _rc_hosp_entries = []  # flat list of (hospital_id, month, val, hosp_name, failed_rules)
+        for s in scores:
+            val = round(float(s.rule_compliance or 0), 1)
+            hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
+            failed_rules = _rule_results_map.get((s.hospital_id, s.month), [])
+            if failed_rules:  # only include hospitals that actually have rule failures
+                _rc_hosp_entries.append({
+                    "hospital_id": s.hospital_id, "hospital_name": hosp_name,
+                    "value": val, "month": s.month,
+                    "failed_rules": failed_rules[:10],
+                })
+        # Group entries into cause buckets
         _rc_cause_hosp = {}
         for cause in rc_causes:
             _rc_cause_hosp[cause["cause"]] = []
-        for s in scores:
-            val = round(float(s.rule_compliance or 0), 1)
-            if val >= targets["rule_compliance"]:
-                continue
-            hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
-            failed_rules = _rule_results_map.get((s.hospital_id, s.month), [])
-            for cause in rc_causes:
-                if cause["severity"] in ("critical", "warning"):
-                    _rc_cause_hosp[cause["cause"]].append({
-                        "hospital_id": s.hospital_id, "hospital_name": hosp_name,
-                        "value": val, "month": s.month,
-                        "failed_rules": failed_rules[:5],
-                    })
-        # Aggregate
+        for entry in _rc_hosp_entries:
+            val = entry["value"]
+            if val < targets["rule_compliance"] - 15:
+                cause_label = next((c["cause"] for c in rc_causes if c["severity"] == "critical"), rc_causes[0]["cause"] if rc_causes else None)
+            elif val < targets["rule_compliance"]:
+                cause_label = next((c["cause"] for c in rc_causes if c["severity"] == "warning"), rc_causes[0]["cause"] if rc_causes else None)
+            else:
+                cause_label = next((c["cause"] for c in rc_causes if c["severity"] == "ok"), None)
+            if cause_label and cause_label in _rc_cause_hosp:
+                _rc_cause_hosp[cause_label].append(entry)
+        # Aggregate per hospital across months
         for cause_key in _rc_cause_hosp:
             rows = _rc_cause_hosp[cause_key]
             hosp_agg = {}
@@ -1093,7 +1103,6 @@ def component_diagnostics(
                     hosp_agg[hkey]["failed_rules_set"].add(fr)
             result_list = []
             for hkey, ha in hosp_agg.items():
-                # Build enriched failed rules list with severity & description
                 enriched_rules = []
                 for code in sorted(ha["failed_rules_set"]):
                     info = _rule_desc_map.get(code, {})
@@ -1216,29 +1225,54 @@ def component_diagnostics(
     if metric:
         components = [c for c in components if c["key"] == metric]
 
-    # When a specific hospital is selected, build hospital-specific trend
-    hosp_trend = []
-    if hospital_id:
-        hosp_scores = [s for s in scores if s.hospital_id == hospital_id]
-        hosp_trend_buckets = defaultdict(lambda: {"rc": [], "cp": [], "co": [], "op": [], "sc": []})
-        for s in hosp_scores:
-            b = hosp_trend_buckets[s.month]
-            b["rc"].append(float(s.rule_compliance or 0))
-            b["co"].append(float(s.consistency or 0))
-            b["op"].append(max(0, 100 - (s.outlier_penalty or 0)))
-            b["sc"].append(float(s.score or 0))
-        # Use recalculated completeness for this hospital
-        hosp_cp = _recalc_completeness(db, hosp_scores)
-        for i, s in enumerate(hosp_scores):
-            hosp_trend_buckets[s.month]["cp"].append(hosp_cp[i])
-        for month in sorted(hosp_trend_buckets.keys()):
-            b = hosp_trend_buckets[month]
-            hosp_trend.append({
-                "month": month,
-                "rule_compliance": round(sum(b["rc"]) / len(b["rc"]), 1),
-                "completeness": round(sum(b["cp"]) / len(b["cp"]), 1),
-                "consistency": round(sum(b["co"]) / len(b["co"]), 1),
-                "outlier_score": round(sum(b["op"]) / len(b["op"]), 1),
-                "score": round(sum(b["sc"]) / len(b["sc"]), 1),
-            })
+    # When a specific hospital is selected, build hospital-specific trend
+
+    hosp_trend = []
+
+    if hospital_id:
+
+        hosp_scores = [s for s in scores if s.hospital_id == hospital_id]
+
+        hosp_trend_buckets = defaultdict(lambda: {"rc": [], "cp": [], "co": [], "op": [], "sc": []})
+
+        for s in hosp_scores:
+
+            b = hosp_trend_buckets[s.month]
+
+            b["rc"].append(float(s.rule_compliance or 0))
+
+            b["co"].append(float(s.consistency or 0))
+
+            b["op"].append(max(0, 100 - (s.outlier_penalty or 0)))
+
+            b["sc"].append(float(s.score or 0))
+
+        # Use recalculated completeness for this hospital
+
+        hosp_cp = _recalc_completeness(db, hosp_scores)
+
+        for i, s in enumerate(hosp_scores):
+
+            hosp_trend_buckets[s.month]["cp"].append(hosp_cp[i])
+
+        for month in sorted(hosp_trend_buckets.keys()):
+
+            b = hosp_trend_buckets[month]
+
+            hosp_trend.append({
+
+                "month": month,
+
+                "rule_compliance": round(sum(b["rc"]) / len(b["rc"]), 1),
+
+                "completeness": round(sum(b["cp"]) / len(b["cp"]), 1),
+
+                "consistency": round(sum(b["co"]) / len(b["co"]), 1),
+
+                "outlier_score": round(sum(b["op"]) / len(b["op"]), 1),
+
+                "score": round(sum(b["sc"]) / len(b["sc"]), 1),
+
+            })
+
     return {"components": components, "trend": trend, "hosp_trend": hosp_trend}
