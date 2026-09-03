@@ -1726,7 +1726,6 @@ function loadHospitalsSettings() {
                 { key: "name", label: "Hospital", render: r => "<strong>" + esc(r.name) + "</strong>", getValue: r => r.name },
                 { key: "avg_score", label: "Quality Score", render: r => scoreBadge(r.avg_score) },
                 { key: "trend_direction", label: "Trend", render: r => trendIcon(r.trend_direction), getValue: r => r.trend_direction === "up" ? 1 : r.trend_direction === "down" ? -1 : 0 },
-                { key: "avg_clinical_rate", label: "Clinical Rate", render: r => r.avg_clinical_rate + "%" },
                 { key: "confidence", label: "Confidence", render: r => confidenceBar(r.confidence) },
                 { key: "completeness", label: "Completeness", render: r => scoreBadge(r.completeness, { decimals: 0 }) },
                 { key: "consistency", label: "Consistency", render: r => scoreBadge(r.consistency, { decimals: 0 }) },
