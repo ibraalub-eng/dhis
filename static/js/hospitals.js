@@ -1,4 +1,4 @@
-import { apiGet, apiPut, apiDelete, apiPostJSON } from './api.js';
+import { apiGet, apiPut, apiDelete, apiPostJSON, apiPost } from './api.js';
 import { esc } from './tree.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
 
@@ -289,7 +289,12 @@ async function deleteHospital(id) {
 window.deleteHospital = deleteHospital;
 
 function toggleHospitalActive(id, active) {
-    apiPut('/hospitals/' + id + '/toggle-active').then(() => loadHospitalsList()).catch(err => toastError('Failed: ' + (err.message || err)));
+    apiPut('/hospitals/' + id + '/toggle-active').then(() => {
+        loadHospitalsList();
+        // Auto-refresh dashboard and recalculate scores
+        if (typeof window.loadDashboard === 'function') window.loadDashboard();
+        apiPost('/dashboard/recalculate-completeness').catch(() => {});
+    }).catch(err => toastError('Failed: ' + (err.message || err)));
 }
 window.toggleHospitalActive = toggleHospitalActive;
 

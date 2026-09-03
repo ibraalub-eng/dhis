@@ -42,6 +42,57 @@ def _get_all_descendant_ids(db: Session, indicator_id: int) -> List[int]:
     return result
 
 
+
+def _recalc_hospital_scores(db: Session, hospital_id: int):
+    """Recalculate completeness and overall score for a specific hospital's quality scores."""
+    from app.engine.pipeline import get_disabled_indicator_ids as _gcd
+    from app.models import QualityScore, Indicator as _RI, SystemConfig
+    all_ids = [i.id for i in db.query(_RI.id).all()]
+    scores = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id).all()
+    if not scores:
+        return
+    # Get weights
+    try:
+        cfg_rows = db.query(SystemConfig).all()
+        cfg_map = {c.key: c.value for c in cfg_rows}
+        w_rc = float(cfg_map.get("quality_rule_compliance", "0.35"))
+        w_cp = float(cfg_map.get("quality_completeness", "0.25"))
+        w_co = float(cfg_map.get("quality_consistency", "0.25"))
+        w_op = float(cfg_map.get("quality_outlier_penalty", "0.15"))
+    except Exception:
+        w_rc, w_cp, w_co, w_op = 0.35, 0.25, 0.25, 0.15
+    for s in scores:
+        try:
+            dis = set(_gcd(db, s.hospital_id, s.month))
+            en = [iid for iid in all_ids if iid not in dis]
+            if not en:
+                continue
+            mv = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
+                IndicatorValue.hospital_id == s.hospital_id,
+                IndicatorValue.month == s.month,
+                IndicatorValue.indicator_id.in_(en)
+            ).all()
+            filled = sum(1 for iv in mv if iv.value is not None)
+            new_cp = round(filled / len(en) * 100, 1)
+            s.completeness = new_cp
+            rc = float(s.rule_compliance or 0) / 100
+            cp = new_cp / 100
+            co = float(s.consistency or 0) / 100
+            op = float(s.outlier_penalty or 0) / 100
+            s.score = max(0, min(100, round((rc * w_rc + cp * w_cp + co * w_co + (1.0 - op) * w_op) * 100, 1)))
+        except Exception:
+            pass
+    db.commit()
+
+
+def _recalc_all_hospital_scores(db: Session):
+    """Recalculate completeness and overall score for ALL hospitals."""
+    from sqlalchemy import func
+    hospital_ids = [h.id for h in db.query(Hospital.id).filter(Hospital.is_active.is_(True)).all()]
+    for hid in hospital_ids:
+        _recalc_hospital_scores(db, hid)
+
+
 @router.get("/{hospital_id}/indicator-config", response_model=List[HospitalIndicatorConfigOut])
 def get_hospital_indicator_config(hospital_id: int, db: Session = Depends(get_db)):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
@@ -109,6 +160,10 @@ def toggle_indicator(
 
     db.commit()
     db.refresh(config)
+    try:
+        _recalc_hospital_scores(db, hospital_id)
+    except Exception:
+        pass
     return ConfigToggleOut(
         hospital_id=hospital_id,
         indicator_id=indicator_id,
@@ -326,6 +381,10 @@ def global_toggle_indicator(
     ).update({"is_enabled": new_state}, synchronize_session=False)
 
     db.commit()
+    try:
+        _recalc_all_hospital_scores(db)
+    except Exception:
+        pass
     count = len(target_ids) * len(hospitals)
     return {
         "indicator_id": indicator_id,

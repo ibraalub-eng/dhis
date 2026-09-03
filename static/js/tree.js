@@ -210,6 +210,10 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                     .then(data => {
                         node.is_enabled = data.is_enabled;
                         loadIndicatorTree();
+                        // Auto-refresh dashboard if visible
+                        if (typeof window.loadDashboard === 'function') {
+                            window.loadDashboard();
+                        }
                     })
                     .catch(e => {
                         toggle.classList.remove('loading');
