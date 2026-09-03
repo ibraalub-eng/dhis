@@ -71,7 +71,7 @@ def get_calculation_steps(db: Session, hospital_id: int, month: str) -> dict:
         quality_score_steps = {
             "final_score": qs.score,
             "components": [
-                {"name": "Rule Compliance", "weight": 0.35, "value": qs.rule_compliance, "weighted": rc_w, "formula": "passed_rules / total_rules"},
+                {"name": "Validation rule", "weight": 0.35, "value": qs.rule_compliance, "weighted": rc_w, "formula": "passed_rules / total_rules"},
                 {"name": "Completeness", "weight": 0.25, "value": qs.completeness, "weighted": comp_w, "formula": "filled_indicators / active_indicators"},
                 {"name": "Consistency", "weight": 0.25, "value": qs.consistency, "weighted": cons_w, "formula": "1.0 - (weighted_fail / total_weight)"},
                 {"name": "Outlier Penalty (inverted)", "weight": 0.15, "value": op_inv, "weighted": op_w, "formula": "1 - min(1.0, (outliers / total) * multiplier)"},

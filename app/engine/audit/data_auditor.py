@@ -96,7 +96,7 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
         qs_breakdown = {
             "score": qs.score,
             "components": [
-                {"name": "Rule Compliance", "raw": qs.rule_compliance, "weight": 0.35, "weighted": rc_w, "contribution_pct": round(rc_w / total_weighted * 100, 1) if total_weighted else 0},
+                {"name": "Validation rule", "raw": qs.rule_compliance, "weight": 0.35, "weighted": rc_w, "contribution_pct": round(rc_w / total_weighted * 100, 1) if total_weighted else 0},
                 {"name": "Completeness", "raw": qs.completeness, "weight": 0.25, "weighted": comp_w, "contribution_pct": round(comp_w / total_weighted * 100, 1) if total_weighted else 0},
                 {"name": "Consistency", "raw": qs.consistency, "weight": 0.25, "weighted": cons_w, "contribution_pct": round(cons_w / total_weighted * 100, 1) if total_weighted else 0},
                 {"name": "Outlier (inverted)", "raw": op_inv, "weight": 0.15, "weighted": op_w, "contribution_pct": round(op_w / total_weighted * 100, 1) if total_weighted else 0},

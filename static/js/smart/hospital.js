@@ -174,7 +174,7 @@ function renderHospitalGauges(drill) {
   if (c != null) items.push({ label: _t('Confidence'), value: c, max: 100, color: tc.teal });
   if (q.completeness != null) items.push({ label: _t('Completeness'), value: q.completeness, max: 100, color: tc.green });
   if (q.consistency != null) items.push({ label: _t('Consistency'), value: q.consistency, max: 100, color: tc.orange });
-  if (q.rule_compliance != null) items.push({ label: _t('Rule Compliance'), value: q.rule_compliance, max: 100, color: tc.purple });
+  if (q.rule_compliance != null) items.push({ label: _t('Validation rule'), value: q.rule_compliance, max: 100, color: tc.purple });
   el.innerHTML = items.map(it => {
     const pct = Math.min(100, Math.max(0, it.value));
     const barColor = pct >= 80 ? tc.green : pct >= 60 ? tc.orange : tc.red;

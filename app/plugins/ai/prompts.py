@@ -85,7 +85,7 @@ def _build_executive_summary_prompt(
     lines.append(f"  Overall: {quality_score}/100")
     lines.append(f"  Completeness: {completeness}%")
     lines.append(f"  Consistency: {consistency}%")
-    lines.append(f"  Rule Compliance: {rule_compliance}%")
+    lines.append(f"  Validation rule: {rule_compliance}%")
     lines.append(f"  Outlier Penalty: {outlier_penalty}%")
     lines.append("")
 

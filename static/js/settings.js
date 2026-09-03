@@ -1361,7 +1361,7 @@ function loadHospitalsSettings() {
 
             const metricLabels = {
                 quality_score: __('Quality Score'),
-                rule_compliance: __('Rule Compliance'),
+                rule_compliance: __('Validation rule'),
                 completeness: __('Completeness'),
                 consistency: __('Consistency'),
                 conf_high: __('High Confidence'),
@@ -1624,7 +1624,7 @@ function loadHospitalsSettings() {
                     if (compTrend.length) {
                         // Build dataset based on clicked metric
                         var _dsMap = {
-                            rule_compliance: { label: __('Rule Compliance'), key: 'rule_compliance', color: '#e65100' },
+                            rule_compliance: { label: __('Validation rule'), key: 'rule_compliance', color: '#e65100' },
                             completeness: { label: __('Completeness'), key: 'completeness', color: '#2e7d32' },
                             consistency: { label: __('Consistency'), key: 'consistency', color: '#6a1b9a' },
                             outlier_score: { label: __('Outlier Score'), key: 'outlier_score', color: '#c62828' },

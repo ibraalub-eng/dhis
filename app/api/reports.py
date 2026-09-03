@@ -316,7 +316,7 @@ def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = D
 
         sub_data = [
             ["Metric", "Value"],
-            ["Rule Compliance", f"{r.get('rule_compliance', 0):.1f}%" if r.get('rule_compliance') is not None else "--"],
+            ["Validation rule", f"{r.get('rule_compliance', 0):.1f}%" if r.get('rule_compliance') is not None else "--"],
             ["Completeness", f"{r.get('completeness', 0):.1f}%" if r.get('completeness') is not None else "--"],
             ["Consistency", f"{r.get('consistency', 0):.1f}%" if r.get('consistency') is not None else "--"],
             ["Outlier Penalty", f"{r.get('outlier_penalty', 0):.2f}" if r.get('outlier_penalty') is not None else "--"],
@@ -442,7 +442,7 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
         c.border = border
         c.alignment = Alignment(horizontal="center")
     row += 1
-    for label, key in [("Data Quality Score", "data_quality_score"), ("Rule Compliance", "rule_compliance"),
+    for label, key in [("Data Quality Score", "data_quality_score"), ("Validation rule", "rule_compliance"),
                         ("Completeness", "completeness"), ("Consistency", "consistency"),
                         ("Outlier Penalty", "outlier_penalty")]:
         val = r.get(key)

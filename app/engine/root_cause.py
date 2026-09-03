@@ -819,7 +819,7 @@ def build_causal_chains(nodes: List[CausalNode]) -> List[CausalChain]:
     Build causal chains by linking related factors.
 
     Example chain:
-    R001 fails (70%) -> Rule Compliance low (55%) -> Quality Score low (62)
+    R001 fails (70%) -> Validation rule low (55%) -> Quality Score low (62)
     -> Confidence drops (40) -> Anomaly detected (Z=3.2)
     """
     rule_factors = [n for n in nodes if n.factor_type == "rule"]
@@ -1125,7 +1125,7 @@ def analyze_quality_drivers(
     if not quality_data:
         return drivers
     components = [
-        ("Rule Compliance", quality_data.get("rule_compliance", 0), 0.35),
+        ("Validation rule", quality_data.get("rule_compliance", 0), 0.35),
         ("Completeness", quality_data.get("completeness", 0), 0.25),
         ("Consistency", quality_data.get("consistency", 0), 0.25),
         ("Outlier Penalty", (1 - quality_data.get("outlier_penalty", 0)) * 100, 0.15),
@@ -1442,7 +1442,7 @@ def _build_local_recommendations(
         worst = quality_drivers[0]
         if worst.status != "good":
             _ar_component = {
-                "Rule Compliance": "الالتزام بالقواعد", "Completeness": "الاكتمال",
+                "Validation rule": "الالتزام بالقواعد", "Completeness": "الاكتمال",
                 "Consistency": "الاتساق", "Outlier Penalty": "جزاء الشذوذ",
             }.get(worst.component, worst.component)
             ar_rec = (f"{_ar_component} عند {worst.value:.1f}% دون الهدف — راجع الإجراءات ذات الصلة."

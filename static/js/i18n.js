@@ -366,7 +366,7 @@
             'High Confidence': 'ثقة عالية',
             'Completeness': 'الاكتمال',
             'Consistency': 'الاتساق',
-            'Rule Compliance': 'الامتثال للقواعد',
+            'Validation rule': 'قواعد التحقق',
             'Score': 'الدرجة',
             'target': 'الهدف',
             'Good': 'جيد',

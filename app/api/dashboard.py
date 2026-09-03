@@ -249,7 +249,7 @@ def dashboard_overview(
     _radar_cp = _recalc_completeness(db, _radar_scores)
     _radar_cp_avg = round(sum(_radar_cp) / len(_radar_cp), 1) if _radar_cp else 0
     radar_components = {
-        "Rule Compliance": round(float(radar_row.rule_compliance or 0), 1),
+        "Validation rule": round(float(radar_row.rule_compliance or 0), 1),
         "Completeness": _radar_cp_avg,
         "Consistency": round(float(radar_row.consistency or 0), 1),
     }
@@ -340,7 +340,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     kpis = [
         {"id": "quality_score", "label": "Quality Score", "value": avg_score,
          "target": 80, "unit": "%", "higher_is_better": True},
-        {"id": "rule_compliance", "label": "Rule Compliance", "value": avg_compliance,
+        {"id": "rule_compliance", "label": "Validation rule", "value": avg_compliance,
          "target": 85, "unit": "%", "higher_is_better": True},
         {"id": "completeness", "label": "Completeness", "value": avg_completeness,
          "target": 90, "unit": "%", "higher_is_better": True},
@@ -1154,7 +1154,7 @@ def component_diagnostics(
         return result
 
     components = [
-        _build("Rule Compliance", "rule_compliance", avg_rc, rc_vals, rc_months, _direction(rc_vals), rc_causes, targets["rule_compliance"]),
+        _build("Validation rule", "rule_compliance", avg_rc, rc_vals, rc_months, _direction(rc_vals), rc_causes, targets["rule_compliance"]),
         _build("Completeness", "completeness", avg_cp, cp_vals, cp_months, _direction(cp_vals), cp_causes, targets["completeness"]),
         _build("Consistency", "consistency", avg_co, co_vals, co_months, _direction(co_vals), co_causes, targets["consistency"]),
         _build("Outlier Score", "outlier_score", avg_op, op_vals, op_months, _direction(op_vals), op_causes, targets["outlier_score"]),

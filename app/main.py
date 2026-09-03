@@ -26,7 +26,7 @@ setup_structured_logging(logging.INFO)
 
 
 APP_CONFIG_DEFAULTS = [
-    ("quality_rule_compliance", 0.35, "quality", "Rule Compliance Weight"),
+    ("quality_rule_compliance", 0.35, "quality", "Validation rule Weight"),
     ("quality_completeness", 0.25, "quality", "Completeness Weight"),
     ("quality_consistency", 0.25, "quality", "Consistency Weight"),
     ("quality_outlier_penalty", 0.15, "quality", "Outlier Penalty Weight"),
