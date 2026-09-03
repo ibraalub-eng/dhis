@@ -12,24 +12,63 @@ from app.engine.pipeline import get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
 
 
-# ── Shared helper: recalculate completeness with current disabled indicator set ──
+# ── Shared helper: recalculate completeness (batch-optimized) ──
 def _recalc_completeness(db, scores):
-    """Recalculate completeness for a list of QualityScore objects using current disabled indicators."""
-    from app.engine.pipeline import get_disabled_indicator_ids as _gcd
-    from app.models import Indicator as _RI, IndicatorValue as _RIV
+    """Recalculate completeness for QualityScore objects using batch pre-fetching.
+    Replaces N+1 queries with ~4 batch queries + in-memory lookups."""
+    from app.models import Indicator as _RI, IndicatorValue as _RIV, HospitalIndicatorConfig as _HIC, SystemSetting
+    if not scores:
+        return []
+    # 1. Pre-fetch all indicators ONCE
     all_ids = [i.id for i in db.query(_RI.id).all()]
+    # 2. Collect unique (hospital, month) pairs
+    hosp_months = list(set((s.hospital_id, s.month) for s in scores))
+    all_hids = list(set(h[0] for h in hosp_months))
+    all_months = list(set(h[1] for h in hosp_months))
+    # 3. Pre-fetch ALL indicator values in ONE query
+    iv_rows = db.query(_RIV.hospital_id, _RIV.month, _RIV.indicator_id, _RIV.value).filter(
+        _RIV.hospital_id.in_(all_hids), _RIV.month.in_(all_months)
+    ).all()
+    iv_index = {}  # {(hid, month): {ind_id: value}}
+    for row in iv_rows:
+        key = (row[0], row[1])
+        if key not in iv_index:
+            iv_index[key] = {}
+        iv_index[key][row[2]] = row[3]
+    # 4. Pre-fetch ALL manually disabled indicators in ONE query
+    manual_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
+        _HIC.is_enabled.is_(False), _HIC.hospital_id.in_(all_hids)
+    ).all()
+    manual_map = {}  # {hid: set(ind_ids)}
+    for row in manual_rows:
+        manual_map.setdefault(row[0], set()).add(row[1])
+    # 5. Read auto-disable setting ONCE
+    auto_disable = False
+    try:
+        ads = db.query(SystemSetting).filter(SystemSetting.key == "auto_disable_null_indicators").first()
+        auto_disable = ads is not None and ads.value == "true"
+    except Exception:
+        pass
+    # 6. Compute disabled set for (hid, month) in memory
+    def _dis(hid, month):
+        d = set(manual_map.get(hid, ()))
+        if auto_disable:
+            ivm = iv_index.get((hid, month), {})
+            for iid in all_ids:
+                if iid not in ivm or ivm[iid] is None:
+                    d.add(iid)
+        return d
+    # 7. Compute completeness for each score
     result = []
     for s in scores:
         try:
-            dis = set(_gcd(db, s.hospital_id, s.month))
+            dis = _dis(s.hospital_id, s.month)
             en = [iid for iid in all_ids if iid not in dis]
             if not en:
                 result.append(float(s.completeness or 0))
                 continue
-            mv = db.query(_RIV.indicator_id, _RIV.value).filter(
-                _RIV.hospital_id == s.hospital_id, _RIV.month == s.month,
-                _RIV.indicator_id.in_(en)).all()
-            filled = sum(1 for iv in mv if iv.value is not None)
+            ivm = iv_index.get((s.hospital_id, s.month), {})
+            filled = sum(1 for iid in en if ivm.get(iid) is not None)
             result.append(filled / len(en) * 100)
         except Exception:
             result.append(float(s.completeness or 0))
@@ -498,42 +537,65 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
 
 @router.post("/recalculate-completeness")
 def recalculate_completeness(db: Session = Depends(get_db)):
-    """Bulk recalculate completeness for all quality_scores using current disabled indicator set."""
-    from app.engine.pipeline import get_disabled_indicator_ids as _get_disabled
-    from app.models import Indicator, IndicatorValue as _IV
-    from sqlalchemy import update
-
+    """Bulk recalculate completeness for all quality_scores (batch-optimized)."""
+    from app.models import Indicator, IndicatorValue as _IV, HospitalIndicatorConfig as _HIC, SystemSetting, SystemConfig
+    # Pre-fetch all data in batch
     all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
     scores = db.query(QualityScore).all()
+    if not scores:
+        return {"updated": 0, "total": 0}
+    all_hids = list(set(s.hospital_id for s in scores))
+    all_months = list(set(s.month for s in scores))
+    # Batch fetch indicator values
+    iv_rows = db.query(_IV.hospital_id, _IV.month, _IV.indicator_id, _IV.value).filter(
+        _IV.hospital_id.in_(all_hids), _IV.month.in_(all_months)
+    ).all()
+    iv_index = {}
+    for row in iv_rows:
+        key = (row[0], row[1])
+        if key not in iv_index:
+            iv_index[key] = {}
+        iv_index[key][row[2]] = row[3]
+    # Batch fetch disabled indicators
+    manual_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
+        _HIC.is_enabled.is_(False), _HIC.hospital_id.in_(all_hids)
+    ).all()
+    manual_map = {}
+    for row in manual_rows:
+        manual_map.setdefault(row[0], set()).add(row[1])
+    auto_disable = False
+    try:
+        ads = db.query(SystemSetting).filter(SystemSetting.key == "auto_disable_null_indicators").first()
+        auto_disable = ads is not None and ads.value == "true"
+    except Exception:
+        pass
+    # Pre-fetch weights
+    try:
+        cfg_rows = db.query(SystemConfig).all()
+        cfg_map = {c.key: c.value for c in cfg_rows}
+        w_rc = float(cfg_map.get("quality_rule_compliance", "0.35"))
+        w_cp = float(cfg_map.get("quality_completeness", "0.25"))
+        w_co = float(cfg_map.get("quality_consistency", "0.25"))
+        w_op = float(cfg_map.get("quality_outlier_penalty", "0.15"))
+    except Exception:
+        w_rc, w_cp, w_co, w_op = 0.35, 0.25, 0.25, 0.15
     updated = 0
-
     for s in scores:
         try:
-            disabled = set(_get_disabled(db, s.hospital_id, s.month))
-            enabled_ids = [iid for iid in all_ind_ids if iid not in disabled]
+            # Compute disabled set in memory
+            dis = set(manual_map.get(s.hospital_id, ()))
+            if auto_disable:
+                ivm = iv_index.get((s.hospital_id, s.month), {})
+                for iid in all_ind_ids:
+                    if iid not in dis and (iid not in ivm or ivm[iid] is None):
+                        dis.add(iid)
+            enabled_ids = [iid for iid in all_ind_ids if iid not in dis]
             if not enabled_ids:
                 continue
-            month_vals = db.query(_IV.indicator_id, _IV.value).filter(
-                _IV.hospital_id == s.hospital_id,
-                _IV.month == s.month,
-                _IV.indicator_id.in_(enabled_ids)
-            ).all()
-            filled = sum(1 for iv in month_vals if iv.value is not None)
+            ivm = iv_index.get((s.hospital_id, s.month), {})
+            filled = sum(1 for iid in enabled_ids if ivm.get(iid) is not None)
             new_cp = round(filled / len(enabled_ids) * 100, 1)
             s.completeness = new_cp
-
-            # Recalculate overall score using weights from config
-            try:
-                from app.models import SystemConfig
-                cfg_rows = db.query(SystemConfig).all()
-                cfg_map = {c.key: c.value for c in cfg_rows}
-                w_rc = float(cfg_map.get("quality_rule_compliance", "0.35"))
-                w_cp = float(cfg_map.get("quality_completeness", "0.25"))
-                w_co = float(cfg_map.get("quality_consistency", "0.25"))
-                w_op = float(cfg_map.get("quality_outlier_penalty", "0.15"))
-            except Exception:
-                w_rc, w_cp, w_co, w_op = 0.35, 0.25, 0.25, 0.15
-
             rc = float(s.rule_compliance or 0) / 100
             cp = new_cp / 100
             co = float(s.consistency or 0) / 100
