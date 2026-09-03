@@ -1641,6 +1641,7 @@ function loadHospitalsSettings() {
                     var _sigAvgs = {}, _sigCounts = {};
                     _sigData.forEach(function(s) { _sigAvgs[s.key] = 0; _sigCounts[s.key] = 0; });
                     sd.indicators.forEach(function(ind) {
+                        if (ind.value === null || ind.value === undefined) return; // skip indicators with no data
                         if (ind.signals) ind.signals.forEach(function(sig) {
                             if (_sigAvgs[sig.factor] !== undefined) { _sigAvgs[sig.factor] += sig.score; _sigCounts[sig.factor]++; }
                         });
@@ -1689,7 +1690,7 @@ function loadHospitalsSettings() {
                     }
 
                     // Low-confidence indicators
-                    var _prio = (sd.indicators || []).filter(function(i) { return i.level !== 'HIGH'; }).slice(0, 20);
+                    var _prio = (sd.indicators || []).filter(function(i) { return i.level !== 'HIGH' && i.value !== null && i.value !== undefined; }).slice(0, 20);
                     if (_prio.length) {
                         html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">' + __('Indicators Needing Verification') + ' (' + _prio.length + ')</div>';
                         html += '<div style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:0.4rem;padding-right:4px;">';
