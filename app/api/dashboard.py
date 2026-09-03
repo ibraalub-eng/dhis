@@ -348,10 +348,10 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
          "target": 90, "unit": "%", "higher_is_better": True},
         {"id": "consistency", "label": "Consistency", "value": avg_consistency,
          "target": 85, "unit": "%", "higher_is_better": True},
-        {"id": "conf_high", "label": "High Confidence", "value": conf_high_pct,
-         "target": 60, "unit": "%", "higher_is_better": True},
         {"id": "outlier_score", "label": "Outlier Score", "value": 100 - outlier_penalty,
          "target": 90, "unit": "%", "higher_is_better": True},
+        {"id": "conf_high", "label": "High Confidence", "value": conf_high_pct,
+         "target": 60, "unit": "%", "higher_is_better": True},
     ]
     return {"kpis": kpis}
 
