@@ -1637,16 +1637,22 @@ function loadHospitalsSettings() {
                         {key: 'completeness', name: __('Data completeness'), weight: 15, icon: '\ud83d\udcdd', color: '#00838f'}
                     ];
 
-                    // Compute avg score per signal
-                    var _sigAvgs = {}, _sigCounts = {};
-                    _sigData.forEach(function(s) { _sigAvgs[s.key] = 0; _sigCounts[s.key] = 0; });
+                    // Compute WEIGHTED avg score per signal (matches backend formula)
+                    var _sigAvgs = {}, _sigTotalW = {};
+                    _sigData.forEach(function(s) { _sigAvgs[s.key] = 0; _sigTotalW[s.key] = 0; });
+                    // Clinical indicator weights (must match backend INDICATOR_CLINICAL_WEIGHTS)
+                    var _indWeights = {'11':5,'17':5,'2':3,'6':3,'5':2.5,'10':2,'7':2,'6.f':2,'6.g':2,'16':1.5,'8':1,'3':1.5,'4':1.5,'9':1,'12':1,'13':1,'14':0.5,'18':0.5,'26':1.5};
                     sd.indicators.forEach(function(ind) {
-                        if (ind.value === null || ind.value === undefined) return; // skip indicators with no data
+                        if (ind.value === null || ind.value === undefined) return;
+                        var w = _indWeights[ind.indicator_code] || 1;
                         if (ind.signals) ind.signals.forEach(function(sig) {
-                            if (_sigAvgs[sig.factor] !== undefined) { _sigAvgs[sig.factor] += sig.score; _sigCounts[sig.factor]++; }
+                            if (_sigAvgs[sig.factor] !== undefined) {
+                                _sigAvgs[sig.factor] += sig.score * w;
+                                _sigTotalW[sig.factor] += w;
+                            }
                         });
                     });
-                    _sigData.forEach(function(s) { s.avg = _sigCounts[s.key] ? Math.round(_sigAvgs[s.key] / _sigCounts[s.key] * 100) : 0; });
+                    _sigData.forEach(function(s) { s.avg = _sigTotalW[s.key] ? Math.round(_sigAvgs[s.key] / _sigTotalW[s.key] * 100) : 0; });
 
                     // Signal factor cards
                     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:0.5rem;margin-bottom:1rem;">';
