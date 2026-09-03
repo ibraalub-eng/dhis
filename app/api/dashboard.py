@@ -430,6 +430,7 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
             "confidence": conf_score,
             "completeness": avg_completeness,
             "consistency": avg_consistency,
+            "rule_compliance": avg_compliance,
             "reports": len(scores),
             "alerts": alerts_count,
         })

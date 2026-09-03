@@ -1730,6 +1730,7 @@ function loadHospitalsSettings() {
                 { key: "confidence", label: "Confidence", render: r => confidenceBar(r.confidence) },
                 { key: "completeness", label: "Completeness", render: r => scoreBadge(r.completeness, { decimals: 0 }) },
                 { key: "consistency", label: "Consistency", render: r => scoreBadge(r.consistency, { decimals: 0 }) },
+                { key: "rule_compliance", label: __('Validation rule'), render: r => scoreBadge(r.rule_compliance || 0, { decimals: 0 }) },
                 { key: "reports", label: "Reports", width: "60px" },
                 { key: 'alerts', label: 'Alerts', width: '60px', render: function(r) { var s = "color:var(--accent-red);font-weight:600;"; return r.alerts > 0 ? '<span style="' + s + '">' + r.alerts + '</span>' : '0'; } },
             ], rankingData, { onRowClick: (row) => showHospitalScorecard(row.id) });
