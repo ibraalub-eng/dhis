@@ -1398,7 +1398,7 @@ function loadHospitalsSettings() {
                 var trend = overviewData.quality_trend || [];
                 var radar = overviewData.radar_components || {};
                 var components = (diag && diag.components) || [];
-                var compTrend = (diag && diag.trend) || [];
+                var compTrend = (diag && (diag.hosp_trend && diag.hosp_trend.length ? diag.hosp_trend : diag.trend)) || [];
 
                 var html = '';
 
@@ -1511,6 +1511,14 @@ function loadHospitalsSettings() {
                                         html += '<div style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">' + (idx + 1) + '</div>';
                                         html += '<div style="flex:1;min-width:0;">';
                                         html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</div>';
+                                        // Show failed rules if available
+                                        if (h.failed_rules && h.failed_rules.length) {
+                                            html += '<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">';
+                                            h.failed_rules.forEach(function(r) {
+                                                html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 5px;border-radius:3px;font-size:0.58rem;font-weight:600;">' + esc(r) + '</span>';
+                                            });
+                                            html += '</div>';
+                                        }
                                         html += '<div style="display:flex;align-items:center;gap:0.4rem;margin-top:3px;">';
                                         html += '<div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">';
                                         html += '<div style="width:' + Math.min(h.avg_value, 100) + '%;height:5px;background:' + hCol + ';border-radius:3px;"></div>';

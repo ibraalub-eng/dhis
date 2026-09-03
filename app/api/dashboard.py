@@ -1023,6 +1023,22 @@ def component_diagnostics(
         _cause_hospitals["completeness"] = _cp_cause_hosp
 
         # ── Rule Compliance ──
+        # Pre-fetch rule results for affected hospitals
+        _rule_results_map = {}  # {(hospital_id, month): [failed_rule_codes]}
+        try:
+            from app.models import ValidationResult as _VR
+            vr_q = db.query(_VR.hospital_id, _VR.month, _VR.rule_code).filter(
+                _VR.status == "FAIL",
+                _VR.hospital_id.in_(all_hosp_ids),
+                _VR.month.in_(all_months)
+            ).all()
+            for row in vr_q:
+                key = (row[0], row[1])
+                if key not in _rule_results_map:
+                    _rule_results_map[key] = []
+                _rule_results_map[key].append(row[2])
+        except Exception:
+            pass
         _rc_cause_hosp = {}
         for cause in rc_causes:
             _rc_cause_hosp[cause["cause"]] = []
@@ -1031,11 +1047,13 @@ def component_diagnostics(
             if val >= targets["rule_compliance"]:
                 continue
             hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
+            failed_rules = _rule_results_map.get((s.hospital_id, s.month), [])
             for cause in rc_causes:
                 if cause["severity"] in ("critical", "warning"):
                     _rc_cause_hosp[cause["cause"]].append({
                         "hospital_id": s.hospital_id, "hospital_name": hosp_name,
                         "value": val, "month": s.month,
+                        "failed_rules": failed_rules[:5],
                     })
         # Aggregate
         for cause_key in _rc_cause_hosp:
@@ -1163,4 +1181,29 @@ def component_diagnostics(
     if metric:
         components = [c for c in components if c["key"] == metric]
 
-    return {"components": components, "trend": trend}
+    # When a specific hospital is selected, build hospital-specific trend
+    hosp_trend = []
+    if hospital_id:
+        hosp_scores = [s for s in scores if s.hospital_id == hospital_id]
+        hosp_trend_buckets = defaultdict(lambda: {"rc": [], "cp": [], "co": [], "op": [], "sc": []})
+        for s in hosp_scores:
+            b = hosp_trend_buckets[s.month]
+            b["rc"].append(float(s.rule_compliance or 0))
+            b["co"].append(float(s.consistency or 0))
+            b["op"].append(max(0, 100 - (s.outlier_penalty or 0)))
+            b["sc"].append(float(s.score or 0))
+        # Use recalculated completeness for this hospital
+        hosp_cp = _recalc_completeness(db, hosp_scores)
+        for i, s in enumerate(hosp_scores):
+            hosp_trend_buckets[s.month]["cp"].append(hosp_cp[i])
+        for month in sorted(hosp_trend_buckets.keys()):
+            b = hosp_trend_buckets[month]
+            hosp_trend.append({
+                "month": month,
+                "rule_compliance": round(sum(b["rc"]) / len(b["rc"]), 1),
+                "completeness": round(sum(b["cp"]) / len(b["cp"]), 1),
+                "consistency": round(sum(b["co"]) / len(b["co"]), 1),
+                "outlier_score": round(sum(b["op"]) / len(b["op"]), 1),
+                "score": round(sum(b["sc"]) / len(b["sc"]), 1),
+            })
+    return {"components": components, "trend": trend, "hosp_trend": hosp_trend}
