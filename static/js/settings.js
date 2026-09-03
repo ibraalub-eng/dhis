@@ -2084,10 +2084,15 @@ function loadHospitalsSettings() {
                     months.forEach(m => {
                         const v = d[m];
                         if (v === null) { html += '<td style="text-align:center;padding:0.2rem;background:var(--bg-surface);color:var(--text-muted);">--</td>'; return; }
-                        const pct = Math.min(v / 100, 1);
-                        const r = Math.round(255 * (1 - pct));
-                        const g = Math.round(255 * pct);
-                        html += '<td style="text-align:center;padding:0.2rem;background:rgb(' + r + ',' + g + ',50);color:' + (pct > 0.5 ? 'white' : '#333') + ';font-weight:600;">' + v.toFixed(1) + '</td>';
+                        var bg, fg;
+                        if (v >= 90) { bg = '#1b5e20'; fg = '#fff'; }
+                        else if (v >= 80) { bg = '#388e3c'; fg = '#fff'; }
+                        else if (v >= 70) { bg = '#7cb342'; fg = '#fff'; }
+                        else if (v >= 60) { bg = '#fbc02d'; fg = '#333'; }
+                        else if (v >= 50) { bg = '#f57c00'; fg = '#fff'; }
+                        else if (v >= 40) { bg = '#e64a19'; fg = '#fff'; }
+                        else { bg = '#b71c1c'; fg = '#fff'; }
+                        html += '<td style="text-align:center;padding:0.2rem;background:' + bg + ';color:' + fg + ';font-weight:600;">' + v.toFixed(1) + '</td>';
                     });
                     html += '<td style="text-align:center;padding:0.2rem;font-weight:700;">' + avg + '</td></tr>';
                 });
