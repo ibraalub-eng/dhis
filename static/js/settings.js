@@ -1623,6 +1623,7 @@ function loadHospitalsSettings() {
 
                 // ── High Confidence Detail (5 Signal Factors) ──
                 if (metric === 'conf_high' && confDetail && confDetail.indicators) {
+                    try {
                     var sd = confDetail;
                     html += '<div class="card" style="margin-top:1rem;"><h3>\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u062a\u062d\u0642\u0642</h3>';
                     html += '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.6rem;">' + esc(sd.summary || '') + '</div>';
@@ -1696,6 +1697,7 @@ function loadHospitalsSettings() {
                         html += '</div>';
                     }
                     html += '</div>';
+                    } catch(e) { console.error('[conf] detail error:', e); }
                 }
 
                 bodyEl.innerHTML = html || '<p style="color:var(--text-muted);padding:1rem;">' + __('No details available.') + '</p>';
