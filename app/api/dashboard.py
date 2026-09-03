@@ -460,6 +460,15 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
     _pcp = _recalc_completeness(db, scores)
     avg_completeness = round(sum(_pcp) / len(_pcp), 1) if _pcp else 0
 
+    # Confidence high %
+    from app.models import ConfidenceScore as _CS
+    conf_q = db.query(_CS).filter(_CS.hospital_id == hospital_id).all()
+    if conf_q:
+        high_count = sum(1 for c in conf_q if (c.confidence_score or 0) >= 80)
+        avg_confidence = round(high_count / len(conf_q) * 100, 1)
+    else:
+        avg_confidence = 0
+
     if avg_score >= 90: grade = "A"
     elif avg_score >= 75: grade = "B"
     elif avg_score >= 60: grade = "C"
@@ -530,6 +539,7 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
         "id": hospital.id, "name": hospital.name, "grade": grade,
         "avg_score": avg_score, "avg_compliance": avg_compliance,
         "avg_completeness": avg_completeness, "avg_consistency": avg_consistency,
+        "avg_confidence": avg_confidence,
         "quality_trend": quality_trend, "clinical_rates": clinical_rates,
         "total_alerts": total_alerts, "last_alerts": last_alerts,
     }

@@ -233,7 +233,7 @@
                     datasets: [
                         { label: 'Quality Score', data: scores.map(s => s.score), borderColor: '#1a237e', backgroundColor: '#1a237e22', fill: true, tension: 0.3 },
                         { label: 'Completeness', data: scores.map(s => s.completeness), borderColor: '#2e7d32', borderDash: [5,3], tension: 0.3 },
-                        { label: 'Compliance', data: scores.map(s => s.rule_compliance), borderColor: '#e65100', borderDash: [5,3], tension: 0.3 },
+                        { label: 'Validation rule', data: scores.map(s => s.rule_compliance), borderColor: '#e65100', borderDash: [5,3], tension: 0.3 },
                         { label: 'Consistency', data: scores.map(s => s.consistency), borderColor: '#6a1b9a', borderDash: [5,3], tension: 0.3 },
                     ]
                 },
@@ -435,7 +435,7 @@
         const QUALITY_METRICS = {
             score: { label: 'درجة الجودة', color: '#1a237e' },
             completeness: { label: 'الاكتمال', color: '#2e7d32' },
-            rule_compliance: { label: 'الالتزام', color: '#e65100' },
+            rule_compliance: { label: 'قاعدة التحقق', color: '#e65100' },
             consistency: { label: 'الاتساق', color: '#6a1b9a' },
         };
 

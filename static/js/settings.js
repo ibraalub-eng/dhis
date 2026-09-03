@@ -1761,13 +1761,15 @@ function loadHospitalsSettings() {
                     '<div class="scorecard-kpi-item" style="border-top-color:' + qc + ';background:var(--bg-elevated);">' +
                         '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Quality Score</div>' +
                         '<div style="font-size:1.5rem;font-weight:700;color:' + qc + ';">' + d.avg_score + '%</div></div>' +
-                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Compliance</div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">' + __('Validation rule') + '</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;">' + d.avg_compliance + '%</div></div>' +
-                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Completeness</div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">' + __('Completeness') + '</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;">' + d.avg_completeness + '%</div></div>' +
-                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Consistency</div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">' + __('Consistency') + '</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;">' + d.avg_consistency + '%</div></div>' +
-                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Alerts</div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">' + __('High Confidence') + '</div>' +
+                        '<div style="font-size:1.1rem;font-weight:600;color:' + ((d.avg_confidence || 0) >= 60 ? 'var(--accent-green)' : (d.avg_confidence || 0) >= 40 ? 'var(--accent-orange)' : 'var(--accent-red)') + ';">' + (d.avg_confidence || 0) + '%</div></div>' +
+                    '<div class="scorecard-kpi-item"><div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">' + __('Alerts') + '</div>' +
                         '<div style="font-size:1.1rem;font-weight:600;color:' + (d.total_alerts > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' + d.total_alerts + '</div></div>' +
                 '</div>';
 
