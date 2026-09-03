@@ -464,8 +464,9 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
     from app.models import ConfidenceScore as _CS
     conf_q = db.query(_CS).filter(_CS.hospital_id == hospital_id).all()
     if conf_q:
-        high_count = sum(1 for c in conf_q if (c.confidence_score or 0) >= 80)
-        avg_confidence = round(high_count / len(conf_q) * 100, 1)
+        high_count = sum(c.high_count or 0 for c in conf_q)
+        total_indicators = sum(c.indicator_count or 0 for c in conf_q)
+        avg_confidence = round(high_count / total_indicators * 100, 1) if total_indicators > 0 else 0
     else:
         avg_confidence = 0
 
