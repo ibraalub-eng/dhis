@@ -339,8 +339,6 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     _op_q = base.with_entities(func.avg(QualityScore.outlier_penalty).label("avg_op")).first()
     outlier_penalty = round(float(_op_q.avg_op or 0), 1)
 
-    report_count = base.count()
-
     kpis = [
         {"id": "quality_score", "label": "Quality Score", "value": avg_score,
          "target": 80, "unit": "%", "higher_is_better": True},
@@ -354,8 +352,6 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
          "target": 60, "unit": "%", "higher_is_better": True},
         {"id": "outlier_score", "label": "Outlier Score", "value": 100 - outlier_penalty,
          "target": 90, "unit": "%", "higher_is_better": True},
-        {"id": "report_coverage", "label": "Report Coverage", "value": report_count,
-         "target": None, "unit": "reports", "higher_is_better": True},
     ]
     return {"kpis": kpis}
 
