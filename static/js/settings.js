@@ -1394,8 +1394,18 @@ function loadHospitalsSettings() {
             if (hid) diagUrl += 'hospital_id=' + hid + '&';
             if (yr) diagUrl += 'year=' + yr + '&';
             if (metric && metric !== 'quality_score' && metric !== 'conf_high' && metric !== 'report_coverage') diagUrl += 'metric=' + metric;
+            // For conf_high: fetch detailed confidence scores
+            var confUrl = null;
+            if (metric === 'conf_high' && hid) {
+                var _confMonth = '';
+                try { var _sSel = document.getElementById('dashMonthSelect'); if (_sSel && _sSel.value) _confMonth = _sSel.value; } catch(e) {}
+                if (!_confMonth && trend.length) _confMonth = trend[trend.length - 1].month;
+                if (_confMonth) confUrl = '/confidence/' + hid + '/scores?month=' + _confMonth;
+            }
 
-            Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; })]).then(function(results) {
+            var _confPromise = confUrl ? apiGet(confUrl).catch(function(){ return null; }) : Promise.resolve(null);
+            Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; }), _confPromise]).then(function(results) {
+                var kpiData = results[0], overviewData = results[1], diag = results[2], confDetail = results[3];
                 var kpiData = results[0], overviewData = results[1], diag = results[2];
                 var kpi = (kpiData.kpis || []).find(function(k) { return k.id === metric; });
                 var trend = overviewData.quality_trend || [];
@@ -1598,6 +1608,83 @@ function loadHospitalsSettings() {
                         });
                         html += '</tbody></table></div>';
                     }
+                }
+
+                // ── High Confidence Detail (5 Signal Factors) ──
+                if (metric === 'conf_high' && confDetail && confDetail.indicators) {
+                    var sd = confDetail;
+                    html += '<div class="card" style="margin-top:1rem;"><h3>\u0639\u0646\u0627\u0635\u0631 \u0627\u0644\u062a\u062d\u0642\u0642</h3>';
+                    html += '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.6rem;">' + esc(sd.summary || '') + '</div>';
+                    var _sigNames = {rule_compliance: '\u0627\u0644\u0642\u0648\u0627\u0639\u062f \u0627\u0644\u062a\u062d\u0642\u0642\u064a\u0629', historical: '\u0627\u0644\u0627\u062a\u0633\u0627\u0639 \u0627\u0644\u062a\u0627\u0631\u064a\u062e\u064a', cross_hospital: '\u0627\u0644\u0645\u0642\u0627\u0631\u0646\u0629 \u0627\u0644\u0637\u0628\u0642\u064a\u0629', trend: '\u062a\u062d\u0644\u064a\u0644 \u0627\u0644\u0627\u062a\u062c\u0627\u0647', completeness: '\u0627\u0643\u062a\u0645\u0627\u0644 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a'};
+                    var _sigWeights = {rule_compliance: 55, historical: 10, cross_hospital: 10, trend: 10, completeness: 15};
+                    var _sigIcons = {rule_compliance: '\u2705', historical: '\ud83d\udcc8', cross_hospital: '\ud83d\udcca', trend: '\ud83d\udcc9', completeness: '\ud83d\udcdd'};
+                    html += '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.8rem;">';
+                    ['rule_compliance', 'historical', 'cross_hospital', 'trend', 'completeness'].forEach(function(sig) {
+                        var w = _sigWeights[sig];
+                        html += '<div style="flex:1;min-width:100px;padding:0.5rem;border-radius:6px;border:1px solid var(--border-default);background:var(--bg-elevated);">';
+                        html += '<div style="font-size:0.65rem;color:var(--text-muted);">' + _sigIcons[sig] + ' ' + _sigNames[sig] + '</div>';
+                        html += '<div style="font-size:0.9rem;font-weight:700;color:var(--accent-blue);">' + w + '%</div>';
+                        html += '<div style="height:3px;background:var(--border-default);border-radius:2px;margin-top:3px;"><div style="width:' + w + '%;height:3px;background:var(--accent-blue);border-radius:2px;"></div></div>';
+                        html += '</div>';
+                    });
+                    html += '</div>';
+                    var _levels = sd.by_level || {};
+                    html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">\u062a\u0648\u0632\u064a\u0639 \u0627\u0644\u062a\u062d\u0642\u0642</div>';
+                    html += '<div style="display:flex;gap:0.4rem;margin-bottom:0.8rem;flex-wrap:wrap;">';
+                    [{k:'HIGH',c:'var(--accent-green)'},{k:'MEDIUM',c:'var(--accent-orange)'},{k:'LOW',c:'var(--accent-red)'},{k:'CRITICAL',c:'#b71c1c'}].forEach(function(lev) {
+                        var cnt = _levels[lev.k] || 0;
+                        if (cnt > 0) html += '<span style="padding:3px 8px;border-radius:12px;font-size:0.7rem;font-weight:600;background:' + lev.c + '22;color:' + lev.c + ';">' + lev.k + ': ' + cnt + '</span>';
+                    });
+                    html += '</div>';
+                    var _groups = sd.by_group || {};
+                    if (Object.keys(_groups).length) {
+                        html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">\u0627\u0644\u062a\u062d\u0642\u0642 \u062d\u0633\u0628 \u0627\u0644\u0645\u062c\u0645\u0648\u0639\u0629</div>';
+                        html += '<div style="display:flex;flex-direction:column;gap:0.3rem;margin-bottom:0.8rem;">';
+                        Object.keys(_groups).forEach(function(grp) {
+                            var gv = _groups[grp];
+                            var gc = gv >= 80 ? 'var(--accent-green)' : gv >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                            html += '<div style="display:flex;align-items:center;gap:0.5rem;font-size:0.73rem;">';
+                            html += '<span style="width:120px;flex-shrink:0;font-weight:500;">' + esc(grp) + '</span>';
+                            html += '<div style="flex:1;height:6px;background:var(--border-default);border-radius:3px;"><div style="width:' + Math.min(gv,100) + '%;height:6px;background:' + gc + ';border-radius:3px;"></div></div>';
+                            html += '<span style="width:35px;text-align:right;font-weight:700;color:' + gc + ';">' + gv.toFixed(0) + '%</span>';
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                    }
+                    var _prio = (sd.indicators || []).filter(function(i) { return i.level !== 'HIGH'; }).slice(0, 15);
+                    if (_prio.length) {
+                        html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">\u0627\u0644\u0645\u0648\u0627\u0634\u0631 \u0627\u0644\u062a\u062d\u062a\u0627\u062c \u062a\u062d\u0642\u0642\u0647\u0627 (' + _prio.length + ')</div>';
+                        html += '<div style="max-height:350px;overflow-y:auto;display:flex;flex-direction:column;gap:0.35rem;">';
+                        _prio.forEach(function(ind) {
+                            var ilc = ind.level === 'CRITICAL' ? '#b71c1c' : ind.level === 'LOW' ? 'var(--accent-red)' : 'var(--accent-orange)';
+                            var ilbg = ind.level === 'CRITICAL' ? 'rgba(183,28,28,0.08)' : ind.level === 'LOW' ? 'rgba(198,40,40,0.06)' : 'rgba(230,81,0,0.06)';
+                            html += '<div style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);background:' + ilbg + ';">';
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
+                            html += '<span style="font-size:0.75rem;font-weight:600;">' + esc(ind.indicator_name || ind.indicator_code) + ' <span style="font-size:0.62rem;color:var(--text-muted);">(' + esc(ind.indicator_code) + ')</span></span>';
+                            html += '<span style="font-size:0.7rem;font-weight:700;color:' + ilc + ';">' + ind.confidence + '% \u2022 ' + ind.level + '</span>';
+                            html += '</div>';
+                            if (ind.value !== null && ind.value !== undefined) {
+                                html += '<div style="font-size:0.62rem;color:var(--text-muted);margin-top:2px;">\u0627\u0644\u0642\u064a\u0645\u0629: ' + ind.value + '</div>';
+                            }
+                            if (ind.signals && ind.signals.length) {
+                                html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;">';
+                                ind.signals.forEach(function(sig) {
+                                    var sc = sig.passed ? 'var(--accent-green)' : sig.score >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                                    var sIcon = sig.passed ? '\u2705' : sig.score >= 0.5 ? '\u26a0\ufe0f' : '\u274c';
+                                    html += '<span style="font-size:0.58rem;padding:2px 5px;border-radius:3px;background:' + sc + '18;color:' + sc + ';cursor:help;" title="' + esc(sig.detail) + '">';
+                                    html += sIcon + ' ' + (_sigNames[sig.factor] || sig.factor) + ': ' + (sig.score * 100).toFixed(0) + '%';
+                                    html += '</span>';
+                                });
+                                html += '</div>';
+                            }
+                            if (ind.recommendations && ind.recommendations.length) {
+                                html += '<div style="margin-top:4px;font-size:0.6rem;color:var(--text-muted);">' + ind.recommendations.slice(0, 2).map(function(r) { return '\u26a0 ' + esc(r); }).join('<br>') + '</div>';
+                            }
+                            html += '</div>';
+                        });
+                        html += '</div>';
+                    }
+                    html += '</div>';
                 }
 
                 bodyEl.innerHTML = html || '<p style="color:var(--text-muted);padding:1rem;">' + __('No details available.') + '</p>';
