@@ -1410,9 +1410,10 @@ function loadHospitalsSettings() {
             var confUrl = (metric === 'conf_high') ? '/confidence/' + (confHid || '12') + '?month=' + _confMonth : null;
 
             var _confPromise = confUrl ? apiGet(confUrl).catch(function(e){ console.log('[conf] fetch failed:', e); return null; }) : Promise.resolve(null);
+            var _ctrlPromise = apiGet('/config/control/settings').catch(function(){ return {}; });
             console.log('[conf] confUrl:', confUrl, 'hid:', hid, 'month:', _confMonth);
-            Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; }), _confPromise]).then(function(results) {
-                var kpiData = results[0], overviewData = results[1], diag = results[2], confDetail = results[3];
+            Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; }), _confPromise, _ctrlPromise]).then(function(results) {
+                var kpiData = results[0], overviewData = results[1], diag = results[2], confDetail = results[3], ctrlSettings = results[4] || {};
                 console.log('[conf] confDetail:', confDetail ? (confDetail.indicators || []).length + ' indicators' : 'null');
                 var kpi = (kpiData.kpis || []).find(function(k) { return k.id === metric; });
                 var trend = overviewData.quality_trend || [];
@@ -1640,11 +1641,15 @@ function loadHospitalsSettings() {
                     // Compute WEIGHTED avg score per signal (matches backend formula)
                     var _sigAvgs = {}, _sigTotalW = {};
                     _sigData.forEach(function(s) { _sigAvgs[s.key] = 0; _sigTotalW[s.key] = 0; });
-                    // Clinical indicator weights (must match backend INDICATOR_CLINICAL_WEIGHTS)
                     var _indWeights = {'11':5,'17':5,'2':3,'6':3,'5':2.5,'10':2,'7':2,'6.f':2,'6.g':2,'16':1.5,'8':1,'3':1.5,'4':1.5,'9':1,'12':1,'13':1,'14':0.5,'18':0.5,'26':1.5};
+                    // Check auto-disable setting from control panel
+                    var _autoDisable = !!ctrlSettings.auto_disable_null_indicators;
                     sd.indicators.forEach(function(ind) {
-                        if (ind.value === null || ind.value === undefined) return;
                         var w = _indWeights[ind.indicator_code] || 1;
+                        if (ind.value === null || ind.value === undefined) {
+                            if (_autoDisable) return; // skip nulls if auto-disable ON
+                            // If OFF, include with 0% signals (data missing but counted)
+                        }
                         if (ind.signals) ind.signals.forEach(function(sig) {
                             if (_sigAvgs[sig.factor] !== undefined) {
                                 _sigAvgs[sig.factor] += sig.score * w;
@@ -1696,7 +1701,11 @@ function loadHospitalsSettings() {
                     }
 
                     // Low-confidence indicators
-                    var _prio = (sd.indicators || []).filter(function(i) { return i.level !== 'HIGH' && i.value !== null && i.value !== undefined; }).slice(0, 20);
+                    var _prio = (sd.indicators || []).filter(function(i) {
+                        if (i.level === 'HIGH') return false;
+                        if (_autoDisable && (i.value === null || i.value === undefined)) return false;
+                        return true;
+                    }).slice(0, 20);
                     if (_prio.length) {
                         html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">' + __('Indicators Needing Verification') + ' (' + _prio.length + ')</div>';
                         html += '<div style="max-height:400px;overflow-y:auto;display:flex;flex-direction:column;gap:0.4rem;padding-right:4px;">';
