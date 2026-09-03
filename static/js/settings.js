@@ -1745,28 +1745,18 @@ function loadHospitalsSettings() {
                 if (chartCtx) {
                     if (_kpiDrilldownChart) { _kpiDrilldownChart.destroy(); _kpiDrilldownChart = null; }
                     if (metric === 'conf_high' && confDetail && confDetail.indicators) {
-                        // Signal factor weights bar chart for confidence
-                        var _sigLabels = [__('Validation rule compliance'), __('Historical consistency'), __('Cross-hospital comparison'), __('Trend analysis'), __('Data completeness')];
-                        var _sigWeights = [55, 10, 10, 10, 15];
-                        var _sigColors = ['#e65100', '#1565c0', '#6a1b9a', '#2e7d32', '#00838f'];
-                        // Compute average score per signal from indicators
-                        var _sigAvgs = [0, 0, 0, 0, 0];
-                        var _sigCounts = [0, 0, 0, 0, 0];
-                        var _sigKeys = ['rule_compliance', 'historical', 'cross_hospital', 'trend', 'completeness'];
-                        confDetail.indicators.forEach(function(ind) {
-                            if (ind.signals) ind.signals.forEach(function(sig, si) {
-                                var kIdx = _sigKeys.indexOf(sig.factor);
-                                if (kIdx >= 0) { _sigAvgs[kIdx] += sig.score; _sigCounts[kIdx]++; }
-                            });
-                        });
-                        for (var si = 0; si < 5; si++) _sigAvgs[si] = _sigCounts[si] ? Math.round(_sigAvgs[si] / _sigCounts[si] * 100) : 0;
+                        // Reuse _sigData from the detail section (weighted, auto-disable aware)
+                        var _barLabels = _sigData.map(function(s) { return s.name; });
+                        var _barWeights = _sigData.map(function(s) { return s.weight; });
+                        var _barAvgs = _sigData.map(function(s) { return s.avg; });
+                        var _barColors = _sigData.map(function(s) { return s.color; });
                         _kpiDrilldownChart = new Chart(chartCtx, {
                             type: 'bar',
                             data: {
-                                labels: _sigLabels,
+                                labels: _barLabels,
                                 datasets: [
-                                    { label: 'الوزن المخصص', data: _sigWeights, backgroundColor: _sigColors.map(function(c) { return c + '44'; }), borderColor: _sigColors, borderWidth: 2, borderRadius: 4 },
-                                    { label: 'متوسط المواشر', data: _sigAvgs, backgroundColor: _sigColors.map(function(c) { return c + '99'; }), borderColor: _sigColors, borderWidth: 2, borderRadius: 4 },
+                                    { label: __('Weight'), data: _barWeights, backgroundColor: _barColors.map(function(c) { return c + '44'; }), borderColor: _barColors, borderWidth: 2, borderRadius: 4 },
+                                    { label: __('Score'), data: _barAvgs, backgroundColor: _barColors.map(function(c) { return c + '99'; }), borderColor: _barColors, borderWidth: 2, borderRadius: 4 },
                                 ]
                             },
                             options: {
