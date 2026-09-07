@@ -389,6 +389,23 @@ def _process_preview_worker(file_path: str) -> dict:
         comparisons_dict = _run_hospital_comparisons(db, hospitals_list, all_months)
         clinical_analyses = _run_clinical_analyses(db, hospitals_list, hospital_months)
 
+        # Invalidate ALL cached analysis results so the generated reports,
+        # quality scores, months list, and dashboard reflect the new data.
+        # Without this, /reports/, /analysis/months, /analysis/quality-trend,
+        # /analysis/outliers, /analysis/rule-failures, /analysis/heatmap and the
+        # dashboard all keep serving stale 24h-cached results after an upload.
+        try:
+            from app.cache import cache as _cache
+            _cache.invalidate()
+        except Exception as e:
+            logger.warning("Analysis cache invalidation failed: %s", e)
+
+        try:
+            from app.engine.comparative.report_cache import invalidate_report_cache
+            invalidate_report_cache(db)
+        except Exception as e:
+            logger.warning("Report cache invalidation failed: %s", e)
+
         # Pre-compute smart analytics in background so the dashboard loads instantly
         try:
             from app.api.upload import _precompute_smart_bg
@@ -437,10 +454,26 @@ def _run_quality_reports(db: Session, hospitals_list: list, hospital_months: dic
     for h in hospitals_list:
         for m in hospital_months.get(h.id, []):
             try:
+                # Clear any previously stored analysis results for this
+                # (hospital, month) so run_full_analysis recomputes fresh
+                # scores instead of early-returning stale cached QualityScore
+                # rows (run_full_analysis skips re-analysis when a row exists).
+                db.query(QualityScore).filter(
+                    QualityScore.hospital_id == h.id, QualityScore.month == m).delete()
+                db.query(ValidationResult).filter(
+                    ValidationResult.hospital_id == h.id, ValidationResult.month == m).delete()
+                from app.models import AnomalyResult, ConfidenceScore
+                db.query(AnomalyResult).filter(
+                    AnomalyResult.hospital_id == h.id, AnomalyResult.month == m).delete()
+                db.query(ConfidenceScore).filter(
+                    ConfidenceScore.hospital_id == h.id, ConfidenceScore.month == m).delete()
+                db.commit()
+
                 report = run_full_analysis(db, h.id, m)
                 if report:
                     reports.append(report)
             except Exception as e:
+                db.rollback()
                 logger.error(f"Quality report failed: {h.name}/{m}: {e}")
     return reports
 
