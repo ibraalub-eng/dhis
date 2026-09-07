@@ -361,6 +361,15 @@ window._adminAssignHospitals = function(id, btn) {
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+                      <input type="checkbox" id="cfg_incremental_months" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <div>
+                          <strong>Incremental Update (Keep Old Months)</strong><br>
+                          <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, re-saving a file only updates data for the months present in the file and keeps previously uploaded months. When disabled, re-saving replaces all existing data from that file.</span>
+                      </div>
+                  </label>
+              </div>
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                  <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
                       <input type="checkbox" id="cfg_dev_hints" onchange="adminToggleDevHints(this.checked)" style="margin-top:0.2rem;width:18px;height:18px;">
                       <div>
                           <strong>Show Developer Hints</strong><br>
@@ -1105,6 +1114,8 @@ window._adminAssignHospitals = function(id, btn) {
         if (sqCb) sqCb.checked = data.slow_query_logging_enabled !== false;
         var hideCb = document.getElementById("cfg_hide_explanatory");
         if (hideCb) hideCb.checked = !!data.hide_explanatory_text;
+        var incCb = document.getElementById("cfg_incremental_months");
+        if (incCb) incCb.checked = !!data.upload_incremental_months;
       }
     } catch(e) {}
     var enabled = localStorage.getItem("dev_hints_enabled") !== "false";
@@ -1118,10 +1129,12 @@ window._adminAssignHospitals = function(id, btn) {
     var logCb = document.getElementById("cfg_structured_logging");
     var sqCb = document.getElementById("cfg_slow_query_logging");
     var hideCb = document.getElementById("cfg_hide_explanatory");
+    var incCb = document.getElementById("cfg_incremental_months");
     var val = cb ? cb.checked : false;
     var logVal = logCb ? logCb.checked : true;
     var sqVal = sqCb ? sqCb.checked : true;
     var hideVal = hideCb ? hideCb.checked : false;
+    var incVal = incCb ? incCb.checked : false;
     var status = document.getElementById("controlSaveStatus");
     if (status) { status.textContent = "Saving..."; status.style.color = "var(--accent-blue)"; }
     (async function() {
@@ -1132,7 +1145,8 @@ window._adminAssignHospitals = function(id, btn) {
             auto_disable_null_indicators: val ? "true" : "false",
             structured_logging_enabled: logVal ? "true" : "false",
             slow_query_logging_enabled: sqVal ? "true" : "false",
-            hide_explanatory_text: hideVal ? "true" : "false"
+            hide_explanatory_text: hideVal ? "true" : "false",
+            upload_incremental_months: incVal ? "true" : "false"
           })
         });
         if (!result || result._error || result._forbidden) {

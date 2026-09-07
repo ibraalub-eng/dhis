@@ -350,10 +350,35 @@ def process_preview_file(
     # If override, delete existing records for this file before reprocessing
     if override:
         try:
-            from app.models import IndicatorValue
-            deleted = db.query(IndicatorValue).filter(IndicatorValue.source_file == filename).delete()
-            db.commit()
-            logger.info(f"Override: deleted {deleted} existing records for {filename}")
+            from app.models import SystemSetting
+            incremental = db.query(SystemSetting).filter(
+                SystemSetting.key == "upload_incremental_months"
+            ).first()
+            if incremental and incremental.value == "true":
+                # Incremental mode: replace only the months present in the new
+                # file so previously uploaded months for this file are kept.
+                new_months = []
+                try:
+                    from app.utils.excel_parser import parse_excel, normalize_data
+                    new_records = normalize_data(parse_excel(file_path))
+                    new_months = sorted(set(r["month"] for r in new_records))
+                except Exception as e:
+                    logger.warning("Could not extract new months for incremental override (%s); falling back to full replace", e)
+                if new_months:
+                    deleted = db.query(IndicatorValue).filter(
+                        IndicatorValue.source_file == filename,
+                        IndicatorValue.month.in_(new_months),
+                    ).delete()
+                    db.commit()
+                    logger.info(f"Incremental override: replaced {deleted} existing records for {filename} for months {new_months}")
+                else:
+                    deleted = db.query(IndicatorValue).filter(IndicatorValue.source_file == filename).delete()
+                    db.commit()
+                    logger.info(f"Override: deleted {deleted} existing records for {filename}")
+            else:
+                deleted = db.query(IndicatorValue).filter(IndicatorValue.source_file == filename).delete()
+                db.commit()
+                logger.info(f"Override: deleted {deleted} existing records for {filename}")
         except Exception as e:
             logger.warning(f"Override delete failed for {filename}: {e}")
             db.rollback()

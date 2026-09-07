@@ -46,6 +46,22 @@ class TestControlSettings:
         data = resp.json()
         assert data["auto_disable_null_indicators"] is True
 
+    def test_incremental_upload_default_false(self, client):
+        resp = client.get("/config/control/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "upload_incremental_months" in data
+        assert data["upload_incremental_months"] is False
+
+    def test_incremental_upload_roundtrip(self, client):
+        resp = client.put("/config/control/settings", json={"upload_incremental_months": True})
+        assert resp.status_code == 200
+        assert resp.json()["upload_incremental_months"] is True
+        resp = client.get("/config/control/settings")
+        assert resp.json()["upload_incremental_months"] is True
+        resp = client.put("/config/control/settings", json={"upload_incremental_months": False})
+        assert resp.json()["upload_incremental_months"] is False
+
 
 class TestGetAllConfig:
     def test_returns_categories(self, client):
