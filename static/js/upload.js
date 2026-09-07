@@ -277,7 +277,13 @@
                                 previewFiles = null;
                                 previewFileName = null;
                                 refreshSavedFiles();
-                                _tabInited.delete('dashboard');
+                                // Analysis tabs are initialized once on first visit and capture a
+                                // snapshot of reports/data. After an upload, reset them so they
+                                // re-fetch the freshly generated reports, months, and scores.
+                                ['dashboard', 'quality', 'alerts', 'outliers', 'analysis',
+                                 'clinical', 'smart-analytics', 'root-cause', 'indicator-tree'].forEach(function(t) {
+                                    _tabInited.delete(t);
+                                });
                                 switchTab('dashboard');
                             } else if (task.status === 'error') {
                                 throw new Error(task.error || 'Analysis failed');
