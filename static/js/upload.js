@@ -1,4 +1,4 @@
-        import { API, apiGet } from './api.js';
+        import { API, apiGet, clearApiCache } from './api.js';
         import { __ } from './i18n.js';
         import { esc, setStatus } from './tree.js';
         import { _restoreUIState } from './main.js';
@@ -264,6 +264,11 @@
                                 txt.textContent = __('Analysis complete.');
                                 setTimeout(() => { progress.classList.add('hidden'); fill.style.width = '0%'; }, 2000);
                                 uploadedData = result;
+                                // The upload created new months/quality scores. The client caches
+                                // /analysis/months and /hospitals/ for the session, so clear that
+                                // cache now — otherwise the new month stays invisible in the month,
+                                // year, and dashboard dropdowns until a hard refresh.
+                                clearApiCache();
                                 updateStep(4);
                                 setStatus('ok', result.message + ' ' + __('View results in Dashboard tab.'));
                                 displayResults(result);
