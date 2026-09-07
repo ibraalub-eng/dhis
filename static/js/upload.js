@@ -389,7 +389,7 @@
             qLoading.classList.remove('hidden');
             try {
                 const [data, months] = await Promise.all([
-                    apiGet('/reports/'),
+                    apiGet('/reports/?limit=1000'),
                     apiGet('/analysis/months')
                 ]);
                 document.getElementById('qualityLoading').classList.add('hidden');

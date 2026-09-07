@@ -47,7 +47,7 @@ def list_reports(
     if cached:
         return cached
 
-    scores = query.order_by(QualityScore.month).offset(skip).limit(limit).all()
+    scores = query.order_by(QualityScore.month.desc()).offset(skip).limit(limit).all()
     if not scores:
         return []
 
