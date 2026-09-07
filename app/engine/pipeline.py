@@ -14,6 +14,9 @@ from sqlalchemy.orm import Session
 import json
 
 from app.indicators import PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME
+import logging
+
+logger = logging.getLogger(__name__)
 
 USE_DB_RULES = True
 
@@ -153,7 +156,7 @@ def check_analysis_exists(session: Session, hospital_id: int, month: str) -> boo
     ).first() is not None
 
 
-def run_full_analysis(session: Session, hospital_id: int, month: str, force: bool = False) -> Dict:
+def _compute_full_analysis(session: Session, hospital_id: int, month: str, force: bool = False) -> Dict:
     hospital = session.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital:
         raise ValueError(f"Hospital id {hospital_id} not found")
@@ -221,7 +224,12 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
 
     ml_config = get_config_dict(session, "ml")
     ml_config_nested = _build_ml_config(ml_config)
-    ml_results = run_ml_analysis(all_hospital_data, ml_config_nested) if ml_config_nested.get("enabled", False) else {}
+    ml_results = {}
+    if ml_config_nested.get("enabled", False):
+        try:
+            ml_results = run_ml_analysis(all_hospital_data, ml_config_nested) or {}
+        except Exception:
+            logger.exception("ML analysis failed for %s/%s; continuing without ML results", hospital.name, month)
 
     if USE_DB_RULES:
         rule_results = run_rules_from_db(session, ctx)
@@ -269,25 +277,33 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
     indicator_map = {ind.code: ind.name for ind in all_indicators_db}
     indicator_map.update(INDICATOR_CODE_TO_NAME)
 
-    confidence_result = calculate_confidence(
-        hospital_name=hospital.name,
-        month=month,
-        values=values,
-        rule_results=rule_results,
-        historical_data=historical if historical else {},
-        all_hospital_data=all_hospital_data,
-        indicator_map=indicator_map,
-        indicator_children=PARENT_CHILD_MAP,
-        indicator_rule_map=indicator_rule_map,
-        key_indicator_codes=KEY_INDICATOR_CODES,
-        session=session,
-    )
-    confidence_data = confidence_result.to_dict()
+    confidence_data = {}
+    try:
+        confidence_result = calculate_confidence(
+            hospital_name=hospital.name,
+            month=month,
+            values=values,
+            rule_results=rule_results,
+            historical_data=historical if historical else {},
+            all_hospital_data=all_hospital_data,
+            indicator_map=indicator_map,
+            indicator_children=PARENT_CHILD_MAP,
+            indicator_rule_map=indicator_rule_map,
+            key_indicator_codes=KEY_INDICATOR_CODES,
+            session=session,
+        )
+        confidence_data = confidence_result.to_dict()
+    except Exception:
+        logger.exception("Confidence analysis failed for %s/%s; continuing with core results", hospital.name, month)
 
     _save_validation_results(session, hospital_id, month, rule_results)
     _save_anomaly_results(session, hospital_id, month, anomaly_results)
     _save_quality_score(session, hospital_id, month, quality)
-    _save_confidence_score(session, hospital_id, month, confidence_data)
+    if confidence_data:
+        try:
+            _save_confidence_score(session, hospital_id, month, confidence_data)
+        except Exception:
+            logger.exception("Saving confidence score failed for %s/%s", hospital.name, month)
 
     outliers = []
     for a in anomaly_results:
@@ -311,25 +327,78 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
         "outliers": outliers,
         "cached": False,
         "confidence": {
-            "overall_confidence": confidence_data["overall_confidence"],
-            "level": confidence_data["level"],
-            "by_level": confidence_data["by_level"],
-            "by_group": confidence_data["by_group"],
+            "overall_confidence": confidence_data.get("overall_confidence", 0),
+            "level": confidence_data.get("level", "UNKNOWN"),
+            "by_level": confidence_data.get("by_level", {}),
+            "by_group": confidence_data.get("by_group", {}),
             "priority_verify": [
                 {
-                    "indicator_code": i["indicator_code"],
-                    "indicator_name": i["indicator_name"],
-                    "value": i["value"],
-                    "confidence": i["confidence"],
-                    "level": i["level"],
-                    "recommendations": i["recommendations"],
+                    "indicator_code": i.get("indicator_code"),
+                    "indicator_name": i.get("indicator_name"),
+                    "value": i.get("value"),
+                    "confidence": i.get("confidence"),
+                    "level": i.get("level"),
+                    "recommendations": i.get("recommendations", []),
                 }
-                for i in confidence_data["priority_verify"]
+                for i in (confidence_data.get("priority_verify") or [])
             ],
-            "summary": confidence_data["summary"],
+            "summary": confidence_data.get("summary", ""),
         },
         **ml_results,
     }
+
+
+def run_full_analysis(session: Session, hospital_id: int, month: str, force: bool = False) -> Dict:
+    """Run full analysis for a hospital/month, guaranteeing a QualityScore row is
+    persisted so the report always appears in /reports/ and /analysis/months.
+
+    If analysis reports that no data was found, a score-0 QualityScore is still
+    saved (so detected-but-empty months stay visible). If any analysis step
+    raises, a minimal quality report is persisted with the error recorded in the
+    issues list, instead of the month silently disappearing.
+    """
+    try:
+        result = _compute_full_analysis(session, hospital_id, month, force=force)
+        # Empty/missing-data path returns early without persisting — persist it
+        # so the detected month still shows a report row.
+        if not result.get("cached") and not check_analysis_exists(session, hospital_id, month):
+            _save_quality_score(session, hospital_id, month, {
+                "score": result.get("data_quality_score", 0),
+                "rule_compliance": result.get("rule_compliance", 0),
+                "completeness": result.get("completeness", 0),
+                "consistency": result.get("consistency", 0),
+                "outlier_penalty": result.get("outlier_penalty", 0),
+                "issues": result.get("issues") or [],
+            })
+        return result
+    except ValueError:
+        raise
+    except Exception:
+        logger.exception("Full analysis failed for %s/%s; saving fallback quality report", hospital_id, month)
+        try:
+            _save_quality_score(session, hospital_id, month, {
+                "score": 0,
+                "rule_compliance": 0,
+                "completeness": 0,
+                "consistency": 0,
+                "outlier_penalty": 0,
+                "issues": ["Analysis failed during report generation"],
+            })
+        except Exception:
+            logger.exception("Could not save fallback quality report for %s/%s", hospital_id, month)
+        hospital = session.query(Hospital).filter(Hospital.id == hospital_id).first()
+        return {
+            "hospital": hospital.name if hospital else None,
+            "month": month,
+            "data_quality_score": 0,
+            "rule_compliance": 0,
+            "completeness": 0,
+            "consistency": 0,
+            "outlier_penalty": 0,
+            "issues": ["Analysis failed during report generation"],
+            "outliers": [],
+            "cached": False,
+        }
 
 
 def _save_validation_results(session: Session, hospital_id: int, month: str, results: List[RuleResult]):
