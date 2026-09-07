@@ -185,6 +185,11 @@
     return false;
   }
 
+  // Exposed for non-fetch transports (e.g. XMLHttpRequest in upload.js) that
+  // cannot go through the window.fetch interceptor. Resolves true if a fresh
+  // token was obtained, false otherwise.
+  window.refreshToken = tryRefresh;
+
   // ---- Login page ----
   window.showLoginPage = function() {
     // Always hide any active loader overlay

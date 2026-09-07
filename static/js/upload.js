@@ -16,6 +16,35 @@
         const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
         const ALLOWED_EXTS = ['.xlsx', '.xls', '.csv', '.xlsm', '.xlsb'];
 
+        // Send an XMLHttpRequest with the current access token. XMLHttpRequest
+        // bypasses the window.fetch interceptor in auth.js, so the token must be
+        // attached manually. On a 401 the token is refreshed and the request is
+        // retried once, mirroring the interceptor's behavior. Resolves with the
+        // final XMLHttpRequest (after any retry); rejects on network error.
+        function _authedXhr(method, url, body, onProgress) {
+            return new Promise(function(resolve, reject) {
+                function attempt(retry) {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open(method, url);
+                    if (onProgress) xhr.upload.onprogress = onProgress;
+                    var tok = (typeof window.getAccessToken === 'function') ? window.getAccessToken() : null;
+                    if (tok) xhr.setRequestHeader('Authorization', 'Bearer ' + tok);
+                    xhr.onerror = function() { reject(new Error('Network error')); };
+                    xhr.onload = function() {
+                        if (xhr.status === 401 && !retry && typeof window.refreshToken === 'function') {
+                            window.refreshToken().then(function(ok) {
+                                if (ok) { attempt(true); } else { resolve(xhr); }
+                            });
+                        } else {
+                            resolve(xhr);
+                        }
+                    };
+                    xhr.send(body);
+                }
+                attempt(false);
+            });
+        }
+
         dropZone.addEventListener('click', () => fileInput.click());
         dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
         dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
@@ -72,9 +101,8 @@
             setStatus('loading', 'Checking for duplicates...');
             var checkFd = new FormData();
             checkFd.append('file', files[0]);
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', API() + '/upload/check-duplicate');
-            xhr.onload = function() {
+            _authedXhr('POST', API() + '/upload/check-duplicate', checkFd)
+            .then(function(xhr) {
                 var result;
                 try { result = JSON.parse(xhr.responseText); } catch(e) { result = null; }
                 if (result && result.is_duplicate) {
@@ -82,12 +110,11 @@
                 } else {
                     doPreviewUpload(files, false);
                 }
-            };
-            xhr.onerror = function() {
+            })
+            .catch(function() {
                 // Network error — proceed anyway with override=false
                 doPreviewUpload(files, false);
-            };
-            xhr.send(checkFd);
+            });
         }
 
         function doPreviewUpload(files, override) {
@@ -107,9 +134,7 @@
             uploadFill.style.background = '#3f51b5';
             uploadTxt.textContent = 'Uploading ' + files[0].name + '...';
             setStatus('loading', 'Uploading file: ' + files[0].name + '...');
-            const xhr = new XMLHttpRequest();
-            xhr.open('POST', API() + '/upload/preview');
-            xhr.upload.onprogress = function(e) {
+            _authedXhr('POST', API() + '/upload/preview', fd, function(e) {
                 if (e.lengthComputable) {
                     var pct = Math.round((e.loaded / e.total) * 90);
                     uploadFill.style.width = pct + '%';
@@ -117,8 +142,8 @@
                     var totalMB = (e.total / (1024 * 1024)).toFixed(1);
                     uploadTxt.textContent = 'Uploading ' + files[0].name + '... ' + loadedMB + '/' + totalMB + ' MB (' + pct + '%)';
                 }
-            };
-            xhr.onload = function() {
+            })
+            .then(function(xhr) {
                 uploadFill.style.width = '95%';
                 uploadTxt.textContent = 'Processing file...';
                 var data;
@@ -147,12 +172,11 @@
                 document.querySelector('#previewTable thead').innerHTML = thead;
                 document.querySelector('#previewTable tbody').innerHTML = tbody;
                 setStatus('ok', 'Preview ready — ' + totalRows + ' records from ' + hospitals.length + ' hospitals across ' + months.length + ' months. Scroll to review, then click Confirm.');
-            };
-            xhr.onerror = function() {
+            })
+            .catch(function(err) {
                 uploadProg.classList.add('hidden');
-                setStatus('err', 'Preview failed: Network error');
-            };
-            xhr.send(fd);
+                setStatus('err', 'Preview failed: ' + err.message);
+            });
         }
 
         function showDuplicateModal(result, files) {
