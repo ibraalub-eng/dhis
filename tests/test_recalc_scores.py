@@ -201,3 +201,49 @@ def test_component_diagnostics_drilldown_excludes_covered_children(client, db_se
     ).limit(1).first()
     if non_covered_missing:
         assert listed_missing, "expected some genuinely missing indicators in drilldown"
+
+
+def test_component_diagnostics_missing_by_indicator_months(client, db_session):
+    """Affected-hospital drilldown must report, per missing indicator, the months
+    it was missing in (so users know the missing month for every indicator)."""
+    from app.models import QualityScore
+
+    # Hospital 1 missing e.g. '3' in two months. Hospital 1 has values for '2' only.
+    for month in ("2027-05", "2027-06"):
+        _insert_indicator_value(db_session, 1, month, "2", 10)
+        db_session.add(QualityScore(hospital_id=1, month=month, score=30.0))
+    db_session.commit()
+
+    resp = client.get(
+        "/dashboard/component-diagnostics?",
+        params={"metric": "completeness", "month_from": "2027-05", "month_to": "2027-06"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    hospital_rows = []
+    for comp in data.get("components", []):
+        for cause in comp.get("causes", []):
+            for h in cause.get("affected_hospitals", []):
+                if h["hospital_id"] == 1:
+                    hospital_rows.append(h)
+
+    assert hospital_rows, "hospital 1 should appear as affected"
+    for h in hospital_rows:
+        assert "missing_by_indicator" in h
+        if h["missing_by_indicator"]:
+            for item in h["missing_by_indicator"]:
+                assert "indicator" in item and "months" in item
+                missing_month = item["months"]
+                assert set(missing_month) <= {"2027-05", "2027-06"}
+
+    # Every indicator reported missing overall must map to at least one month
+    all_months_by_ind = {}
+    for comp in data.get("components", []):
+        for cause in comp.get("causes", []):
+            for h in cause.get("affected_hospitals", []):
+                if h["hospital_id"] == 1:
+                    for item in h.get("missing_by_indicator", []):
+                        all_months_by_ind.setdefault(item["indicator"], set()).update(item["months"])
+    for name, months in all_months_by_ind.items():
+        assert months, f"indicator {name!r} missing but has no reported months"

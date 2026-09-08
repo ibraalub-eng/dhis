@@ -1026,7 +1026,7 @@ def component_diagnostics(
                 iv_map = iv_index.get((hid, s.month), {})
                 filled_ids = {iid for iid in enabled_ids if iv_map.get(iid) is not None}
                 missing_ids = set(enabled_ids) - filled_ids
-                missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid in sorted(missing_ids)][:10]
+                missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid in sorted(missing_ids)]
             except Exception:
                 pass
             # Find which cause this hospital belongs to
@@ -1054,10 +1054,13 @@ def component_diagnostics(
                 hkey = r["hospital_id"]
                 if hkey not in hosp_agg:
                     hosp_agg[hkey] = {"hospital_id": hkey, "hospital_name": r["hospital_name"],
-                                       "problem_months": [], "missing_indicators": set(), "values": []}
+                                       "problem_months": [], "missing_indicators": set(),
+                                       "missing_by_indicator": {}, "values": []}
                 hosp_agg[hkey]["problem_months"].append(r["month"])
                 hosp_agg[hkey]["values"].append(r["value"])
                 hosp_agg[hkey]["missing_indicators"].update(r["missing_indicators"])
+                for mi in r["missing_indicators"]:
+                    hosp_agg[hkey]["missing_by_indicator"].setdefault(mi, set()).add(r["month"])
             result_list = []
             for hkey, ha in hosp_agg.items():
                 result_list.append({
@@ -1065,6 +1068,10 @@ def component_diagnostics(
                     "hospital_name": ha["hospital_name"],
                     "avg_value": round(sum(ha["values"]) / len(ha["values"]), 1),
                     "missing_indicators": sorted(list(ha["missing_indicators"]))[:10],
+                    "missing_by_indicator": [
+                        {"indicator": k, "months": sorted(v)}
+                        for k, v in sorted(ha["missing_by_indicator"].items())
+                    ],
                     "problem_months": sorted(set(ha["problem_months"])),
                 })
             result_list.sort(key=lambda x: x["avg_value"])

@@ -634,7 +634,21 @@
                         var affected = cause.affected_hospitals || [];
                         if (affected.length > 0) {
                             affected.forEach(function(h) {
-                                if (h.missing_indicators && h.missing_indicators.length) {
+                                if (h.missing_by_indicator && h.missing_by_indicator.length) {
+                                    html += '<div style="padding:0.5rem 0.7rem;">';
+                                    html += '<div style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Missing Indicators:</div>';
+                                    html += '<div style="display:flex;flex-direction:column;gap:0.25rem;">';
+                                    h.missing_by_indicator.forEach(function(m) {
+                                        html += '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.72rem;padding:0.25rem 0.4rem;background:rgba(198,40,40,0.06);border-radius:4px;border:1px solid rgba(198,40,40,0.15);">';
+                                        html += '<span style="color:var(--accent-red);font-size:0.7rem;">\u25cf</span>';
+                                        html += '<span style="color:var(--text-primary);font-weight:500;">' + esc(m.indicator) + '</span>';
+                                        if (m.months && m.months.length) {
+                                            html += '<span style="margin-left:auto;font-size:0.65rem;color:var(--text-muted);">' + m.months.join(', ') + '</span>';
+                                        }
+                                        html += '</div>';
+                                    });
+                                    html += '</div></div>';
+                                } else if (h.missing_indicators && h.missing_indicators.length) {
                                     html += '<div style="padding:0.5rem 0.7rem;">';
                                     html += '<div style="font-size:0.7rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">Missing Indicators:</div>';
                                     html += '<div style="display:flex;flex-direction:column;gap:0.25rem;">';

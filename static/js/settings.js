@@ -1558,7 +1558,13 @@ function loadHospitalsSettings() {
                                         if (h.problem_months && h.problem_months.length) {
                                             html += '<div style="margin-top:3px;font-size:0.63rem;color:var(--text-muted);">' + __('Months') + ': ' + h.problem_months.join(', ') + '</div>';
                                         }
-                                        if (h.missing_indicators && h.missing_indicators.length) {
+                                        if (h.missing_by_indicator && h.missing_by_indicator.length) {
+                                            html += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
+                                            h.missing_by_indicator.forEach(function(m) {
+                                                html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.6rem;" title="' + esc(m.indicator) + ': ' + (m.months || []).join(', ') + '">' + esc(m.indicator) + ' <b style="color:var(--text-secondary);">(' + (m.months || []).join(', ') + ')</b></span>';
+                                            });
+                                            html += '</div>';
+                                        } else if (h.missing_indicators && h.missing_indicators.length) {
                                             html += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
                                             h.missing_indicators.forEach(function(mi) {
                                                 html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.6rem;">' + esc(mi) + '</span>';
