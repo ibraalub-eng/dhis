@@ -47,7 +47,10 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
     """Recalculate completeness and overall score for a specific hospital's quality scores."""
     from app.engine.pipeline import get_disabled_indicator_ids as _gcd
     from app.models import QualityScore, Indicator as _RI, AppConfig
-    all_ids = [i.id for i in db.query(_RI.id).all()]
+    all_ind_rows = db.query(_RI.id, _RI.code).all()
+    all_ids = [i for i, _ in all_ind_rows]
+    id_to_code = {i: c for i, c in all_ind_rows}
+    code_to_id = {c: i for i, c in all_ind_rows}
     scores = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id).all()
     if not scores:
         return
@@ -64,14 +67,18 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
     for s in scores:
         try:
             dis = set(_gcd(db, s.hospital_id, s.month))
-            en = [iid for iid in all_ids if iid not in dis]
-            if not en:
-                continue
-            mv = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
+            from app.engine.quality import compute_covered_codes as _ccc
+            mv_full = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
                 IndicatorValue.hospital_id == s.hospital_id,
                 IndicatorValue.month == s.month,
-                IndicatorValue.indicator_id.in_(en)
             ).all()
+            values = {id_to_code[iid]: val for iid, val in mv_full if iid in id_to_code and val is not None}
+            disabled_codes = {id_to_code[d] for d in dis if d in id_to_code}
+            cov = {code_to_id[c] for c in _ccc(values, disabled_codes, db) if c in code_to_id}
+            en = [iid for iid in all_ids if iid not in dis and iid not in cov]
+            if not en:
+                continue
+            mv = [row for row in mv_full if row[0] in en]
             filled = sum(1 for iv in mv if iv.value is not None)
             new_cp = round(filled / len(en) * 100, 1)
             s.completeness = new_cp

@@ -19,8 +19,11 @@ def _recalc_completeness(db, scores):
     from app.models import Indicator as _RI, IndicatorValue as _RIV, HospitalIndicatorConfig as _HIC, SystemSetting
     if not scores:
         return []
-    # 1. Pre-fetch all indicators ONCE
-    all_ids = [i.id for i in db.query(_RI.id).all()]
+    # 1. Pre-fetch all indicators ONCE (id -> code for covered-code mapping)
+    all_ind = db.query(_RI.id, _RI.code).all()
+    all_ids = [i for i, _ in all_ind]
+    id_to_code = dict(all_ind)
+    code_to_id = {c: i for i, c in all_ind}
     # 2. Collect unique (hospital, month) pairs
     hosp_months = list(set((s.hospital_id, s.month) for s in scores))
     all_hids = list(set(h[0] for h in hosp_months))
@@ -58,12 +61,28 @@ def _recalc_completeness(db, scores):
                 if iid not in ivm or ivm[iid] is None:
                     d.add(iid)
         return d
-    # 7. Compute completeness for each score
+    # 7. Compute covered child IDs for (hid, month) in memory
+    from app.engine.quality import compute_covered_codes
+    _covered_cache = {}
+    def _covered_ids(hid, month):
+        key = (hid, month)
+        if key in _covered_cache:
+            return _covered_cache[key]
+        dis = _dis(hid, month)
+        ivm = iv_index.get(key, {})
+        values = {id_to_code[iid]: ivm[iid] for iid in ivm if iid in id_to_code and ivm[iid] is not None}
+        disabled_codes = {id_to_code[iid] for iid in dis if iid in id_to_code}
+        covered_codes = compute_covered_codes(values, disabled_codes, db)
+        covered_ids = {code_to_id[c] for c in covered_codes if c in code_to_id}
+        _covered_cache[key] = covered_ids
+        return covered_ids
+    # 8. Compute completeness for each score
     result = []
     for s in scores:
         try:
             dis = _dis(s.hospital_id, s.month)
-            en = [iid for iid in all_ids if iid not in dis]
+            cov = _covered_ids(s.hospital_id, s.month)
+            en = [iid for iid in all_ids if iid not in dis and iid not in cov]
             if not en:
                 result.append(float(s.completeness or 0))
                 continue
@@ -537,7 +556,10 @@ def recalculate_completeness(db: Session = Depends(get_db)):
     """Bulk recalculate completeness for all quality_scores (batch-optimized)."""
     from app.models import Indicator, IndicatorValue as _IV, HospitalIndicatorConfig as _HIC, SystemSetting, AppConfig
     # Pre-fetch all data in batch
-    all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
+    all_ind = [i for i in db.query(Indicator.id, Indicator.code).all()]
+    all_ind_ids = [i for i, _ in all_ind]
+    id_to_code = {i: c for i, c in all_ind}
+    code_to_id = {c: i for i, c in all_ind}
     scores = db.query(QualityScore).all()
     if not scores:
         return {"updated": 0, "total": 0}
@@ -577,19 +599,29 @@ def recalculate_completeness(db: Session = Depends(get_db)):
     except Exception:
         w_rc, w_cp, w_co, w_op = 0.35, 0.25, 0.25, 0.15
     updated = 0
+    from app.engine.quality import compute_covered_codes
+    _covered_cache = {}
     for s in scores:
         try:
+            key = (s.hospital_id, s.month)
             # Compute disabled set in memory
             dis = set(manual_map.get(s.hospital_id, ()))
             if auto_disable:
-                ivm = iv_index.get((s.hospital_id, s.month), {})
+                ivm = iv_index.get(key, {})
                 for iid in all_ind_ids:
                     if iid not in dis and (iid not in ivm or ivm[iid] is None):
                         dis.add(iid)
-            enabled_ids = [iid for iid in all_ind_ids if iid not in dis]
+            # Compute covered child IDs in memory
+            if key not in _covered_cache:
+                ivm = iv_index.get(key, {})
+                values = {id_to_code[iid]: ivm[iid] for iid in ivm if iid in id_to_code and ivm[iid] is not None}
+                disabled_codes = {id_to_code[iid] for iid in dis if iid in id_to_code}
+                _covered_cache[key] = {code_to_id[c] for c in compute_covered_codes(values, disabled_codes, db) if c in code_to_id}
+            cov = _covered_cache[key]
+            enabled_ids = [iid for iid in all_ind_ids if iid not in dis and iid not in cov]
             if not enabled_ids:
                 continue
-            ivm = iv_index.get((s.hospital_id, s.month), {})
+            ivm = iv_index.get(key, {})
             filled = sum(1 for iid in enabled_ids if ivm.get(iid) is not None)
             new_cp = round(filled / len(enabled_ids) * 100, 1)
             s.completeness = new_cp
@@ -730,8 +762,11 @@ def component_diagnostics(
     from app.engine.pipeline import get_disabled_indicator_ids as _get_disabled
     from app.models import HospitalIndicatorConfig as _HIC
     # Pre-fetch all indicators once
-    all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
-    all_ind_names_map = {i.id: i.name for i in db.query(Indicator).all()}
+    all_ind_rows = db.query(Indicator.id, Indicator.code, Indicator.name).all()
+    all_ind_ids = [r[0] for r in all_ind_rows]
+    id_to_code = {r[0]: r[1] for r in all_ind_rows}
+    code_to_id = {r[1]: r[0] for r in all_ind_rows}
+    all_ind_names_map = {r[0]: r[2] for r in all_ind_rows}
     # Pre-fetch ALL indicator values for this query in one batch
     hosp_months = [(s.hospital_id, s.month) for s in scores]
     all_hosp_ids = list(set(h[0] for h in hosp_months))
@@ -775,12 +810,23 @@ def component_diagnostics(
                 if ind_id not in iv_map or iv_map[ind_id] is None:
                     disabled.add(ind_id)
         return disabled
+    from app.engine.quality import compute_covered_codes as _ccc
+    _covered_cache = {}
+    def _fast_covered(hid, month):
+        key = (hid, month)
+        if key not in _covered_cache:
+            iv_map = iv_index.get(key, {})
+            values = {id_to_code[iid]: iv_map[iid] for iid in iv_map if iid in id_to_code and iv_map[iid] is not None}
+            disabled_codes = {id_to_code[d] for d in _fast_disabled(hid, month) if d in id_to_code}
+            _covered_cache[key] = {code_to_id[c] for c in _ccc(values, disabled_codes, db) if c in code_to_id}
+        return _covered_cache[key]
     # Compute completeness for each score
     cp_vals = []
     for s in scores:
         try:
             disabled = _fast_disabled(s.hospital_id, s.month)
-            enabled_ids = [iid for iid in all_ind_ids if iid not in disabled]
+            covered = _fast_covered(s.hospital_id, s.month)
+            enabled_ids = [iid for iid in all_ind_ids if iid not in disabled and iid not in covered]
             if not enabled_ids:
                 cp_vals.append(round(float(s.completeness or 0), 1))
                 continue
@@ -809,7 +855,8 @@ def component_diagnostics(
             # Single hospital: find indicators that SHOULD have values but don't (uses pre-fetched data)
             for i, s in enumerate(scores):
                 disabled_ids = _fast_disabled(hospital_id, s.month)
-                enabled_for_month = set(all_ind_ids) - disabled_ids
+                covered_ids = _fast_covered(hospital_id, s.month)
+                enabled_for_month = set(all_ind_ids) - disabled_ids - covered_ids
                 iv_map = iv_index.get((hospital_id, s.month), {})
                 filled_ids = {iid for iid in enabled_for_month if iv_map.get(iid) is not None}
                 truly_missing = enabled_for_month - filled_ids
@@ -829,8 +876,9 @@ def component_diagnostics(
                 ind_hospital_count = Counter()
                 for hid in hosp_ids:
                     iv_map = iv_index.get((hid, month), {})
+                    covered_ids = _fast_covered(hid, month)
                     for iid, val in iv_map.items():
-                        if val is not None:
+                        if val is not None and iid not in covered_ids:
                             ind_hospital_count[iid] += 1
                 # Only show indicators that SOME hospitals have but others don't
                 # (not universally disabled)

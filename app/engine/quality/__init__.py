@@ -13,6 +13,7 @@ from .rules import (
     dispatch_rule,
     load_rules_from_db,
     get_covered_child_codes,
+    compute_covered_codes,
     set_rules_config,
 )
 from .scoring import calculate_quality_score
@@ -41,12 +42,15 @@ def run_quality_analysis(
 
     rule_results = run_all_rules(ctx)
 
+    covered_codes = compute_covered_codes(values, disabled_codes or set())
+
     score = calculate_quality_score(
         rule_results=rule_results,
         values=values,
         anomaly_results=anomaly_results or [],
         active_indicator_count=active_indicator_count,
         config=score_config,
+        covered_codes=covered_codes,
     )
 
     return {
@@ -69,6 +73,7 @@ __all__ = [
     "dispatch_rule",
     "load_rules_from_db",
     "get_covered_child_codes",
+    "compute_covered_codes",
     "set_rules_config",
     "calculate_quality_score",
     "run_quality_analysis",

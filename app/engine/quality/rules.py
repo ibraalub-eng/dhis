@@ -369,8 +369,8 @@ def _iter_sum_rules(session: Session = None):
         yield (expr, parent, children)
 
 
-def get_covered_child_codes(ctx: ValidationContext, session: Session = None) -> set:
-    """Return sibling child codes whose absence is already explained by a total.
+def compute_covered_codes(values: Dict[str, float], disabled_codes: set, session: Session = None) -> set:
+    """Return sibling child *codes* whose absence is already explained by a total.
 
     For every sum rule (parent == sum of children, parent >= sum of children), when
     the reported child values already add up to the parent value within tolerance,
@@ -379,16 +379,26 @@ def get_covered_child_codes(ctx: ValidationContext, session: Session = None) -> 
     """
     tolerance = _RULES_CONFIG.get("eq_tolerance", 0.01)
     covered = set()
+    disabled_codes = disabled_codes or set()
     for _op, parent, children in _iter_sum_rules(session):
-        pv = _v(ctx, parent)
+        pv = values.get(parent)
         if pv is None:
             continue
-        cs = _vs(ctx, children)
+        cs = sum(values.get(c) or 0 for c in children)
         if abs(pv - cs) <= tolerance:
             for c in children:
-                if _v(ctx, c) is None and c not in ctx.disabled_codes:
+                if values.get(c) is None and c not in disabled_codes:
                     covered.add(c)
     return covered
+
+
+def get_covered_child_codes(ctx: ValidationContext, session: Session = None) -> set:
+    """Return sibling child codes whose absence is already explained by a total.
+
+    Thin wrapper over :func:`compute_covered_codes` using the context's values and
+    disabled codes.
+    """
+    return compute_covered_codes(ctx.values, ctx.disabled_codes, session)
 
 
 def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
