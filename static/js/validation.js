@@ -290,9 +290,9 @@
                         '<span style="font-size:0.75rem;color:var(--text-muted);">(' + t.hospitals.length + ')</span></div>' +
                         '<table style="width:100%;font-size:0.8rem;"><thead><tr><th style="text-align:left;padding:0.3rem;">Hospital</th><th style="text-align:right;padding:0.3rem;">Score</th><th style="text-align:right;padding:0.3rem;">Direction</th></tr></thead><tbody>' +
                         t.hospitals.map(h => {
-                            const dir = h.direction === 'up' ? '&#9650;' : h.direction === 'down' ? '&#9660;' : '&#9654;';
-                            const dirColor = h.direction === 'up' ? 'var(--accent-green)' : h.direction === 'down' ? 'var(--accent-red)' : 'var(--text-muted)';
-                            return '<tr style="border-bottom:1px solid var(--border-default);"><td style="padding:0.3rem;font-weight:500;">' + esc(h.hospital) + '</td><td style="padding:0.3rem;text-align:right;font-weight:700;color:' + t.color + ';">' + h.avg_score + '</td><td style="padding:0.3rem;text-align:right;color:' + dirColor + ';">' + dir + ' ' + (h.direction || 'stable') + '</td></tr>';
+                            const dir = h.trend_direction === 'up' ? '&#9650;' : h.trend_direction === 'down' ? '&#9660;' : '&#9654;';
+                            const dirColor = h.trend_direction === 'up' ? 'var(--accent-green)' : h.trend_direction === 'down' ? 'var(--accent-red)' : 'var(--text-muted)';
+                            return '<tr style="border-bottom:1px solid var(--border-default);"><td style="padding:0.3rem;font-weight:500;">' + esc(h.name || h.hospital) + '</td><td style="padding:0.3rem;text-align:right;font-weight:700;color:' + t.color + ';">' + h.avg_score + '</td><td style="padding:0.3rem;text-align:right;color:' + dirColor + ';">' + dir + ' ' + (h.trend_direction || 'stable') + '</td></tr>';
                         }).join('') +
                         '</tbody></table></div>';
                 }).join('');

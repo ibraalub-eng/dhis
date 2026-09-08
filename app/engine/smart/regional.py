@@ -888,6 +888,40 @@ def run_regional_analysis(session, month: str, months_back: int = 6) -> Dict[str
     metrics_by_gov = {gov: _gov_metrics(govs[gov]) for gov in gov_names}
     benchmarks = _benchmarks(metrics_by_gov)
 
+    trends = _regional_trends(session, month, months_back=months_back)
+    anomalies = _regional_anomalies(session, month, metrics_by_gov, benchmarks, gov_names,
+                                    months_back=months_back)
+
+    # ── بيانات مساعدة لمقارنة المحافظات (متوسط الجودة/الشذوذ وعدّاد القيم الشاذة) ──
+    from app.models import QualityScore, AnomalyResult
+    qs_by_hosp = {
+        q.hospital_id: q
+        for q in session.query(QualityScore).filter(QualityScore.month == month).all()
+    }
+    outlier_hosp_ids = {
+        a.hospital_id
+        for a in session.query(AnomalyResult).filter(
+            AnomalyResult.month == month, AnomalyResult.is_outlier.is_(True)
+        ).all()
+    }
+    hosp_ids_by_gov = {}
+    for entry in all_data.values():
+        gov = entry.get("governorate") or "unknown"
+        hid = entry.get("hospital_id")
+        if hid is not None:
+            hosp_ids_by_gov.setdefault(gov, set()).add(hid)
+
+    # اتجاه كل محافظة: تدهور/تحسّن/مستقر (الأسوأ يفوز)
+    trend_by_gov = {}
+    for t in trends:
+        d = "declining" if t["direction"] in ("worsening", "spike") else "improving"
+        if t["governorate"] not in trend_by_gov or d == "declining":
+            trend_by_gov[t["governorate"]] = d
+
+    findings_by_gov = {}
+    for f in anomalies:
+        findings_by_gov.setdefault(f["governorate"], []).append(f)
+
     # ── بيانات المحافظات مع الترتيب والمئوي والانحراف ──
     governorates = []
     for gov in gov_names:
@@ -925,6 +959,21 @@ def run_regional_analysis(session, month: str, months_back: int = 6) -> Dict[str
                     if value is not None and bm.get("mean") is not None and bm.get("std") else None
                 ),
             }
+
+        # ملخصات الجدول: متوسط الجودة/الشذوذ وعدد القيم الشاذة وأبرز مؤشر وأتجاه
+        ids = hosp_ids_by_gov.get(gov, set())
+        scores = [qs_by_hosp[i].score for i in ids if i in qs_by_hosp and qs_by_hosp[i].score is not None]
+        ops = [qs_by_hosp[i].outlier_penalty for i in ids if i in qs_by_hosp and qs_by_hosp[i].outlier_penalty is not None]
+        row["avg_quality_score"] = round(sum(scores) / len(scores), 1) if scores else None
+        row["avg_anomaly_score"] = round(sum(ops) / len(ops), 3) if ops else None
+        row["outlier_count"] = len(ids & outlier_hosp_ids)
+        top = sorted(findings_by_gov.get(gov, []), key=lambda f: -abs(f.get("z_score") or 0))[:3]
+        row["key_indicators"] = [
+            {"indicator": f["metric_en"], "indicator_ar": f["metric_ar"], "severity": f.get("severity")}
+            for f in top
+        ]
+        row["trend_direction"] = trend_by_gov.get(gov, "stable")
+
         governorates.append(row)
 
     # ── تحليل الوفيات الموحّد ──
@@ -966,10 +1015,9 @@ def run_regional_analysis(session, month: str, months_back: int = 6) -> Dict[str
         "mortality": mortality,
         "births_vs_mortality": _births_vs_mortality(metrics_by_gov, gov_names),
         "observed_expected": _observed_expected(metrics_by_gov, gov_names),
-        "trends": _regional_trends(session, month, months_back=months_back),
+        "trends": trends,
         "risk_scores": risk_scores,
-        "anomalies": _regional_anomalies(session, month, metrics_by_gov, benchmarks, gov_names,
-                                          months_back=months_back),
+        "anomalies": anomalies,
         "risk_explanations": _explain_risk(metrics_by_gov, benchmarks, risk_scores),
         "mortality_benchmarks": _mortality_benchmark_lines(session, month, benchmarks,
                                                              months_back=months_back),

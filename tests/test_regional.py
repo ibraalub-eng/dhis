@@ -412,6 +412,37 @@ def test_run_regional_analysis_includes_new_keys(db_session):
         assert e["governorate"] and "factors" in e
 
 
+def test_run_regional_analysis_governorate_summaries(db_session):
+    """صفوف المحافظات تتضمن ملخصات جدول التحليل المقارن: متوسط الجودة والشذوذ
+    وعدد القيم الشاذة وأبرز مؤشر والاتجاه (الحقول التي يعرضها جدول المحافظات)."""
+    from app.models import QualityScore, AnomalyResult, Hospital, Governorate
+
+    gov = _seed_gov(db_session, "محافظة جودة", ["م ج1", "م ج2"])
+    hospitals = db_session.query(Hospital).filter(Hospital.governorate_id == gov.id).all()
+    for i, h in enumerate(hospitals):
+        db_session.add(QualityScore(hospital_id=h.id, month="2026-06", score=70.0 + i,
+                                    completeness=90.0, consistency=85.0,
+                                    rule_compliance=80.0, outlier_penalty=5.0))
+    db_session.add(AnomalyResult(hospital_id=hospitals[0].id, month="2026-06",
+                                 indicator_code="17", rate_name="nmr", value=30.0,
+                                 z_score=2.5, is_outlier=True))
+    db_session.commit()
+
+    res = run_regional_analysis(db_session, "2026-06")
+    row = next(g for g in res["governorates"] if g["governorate"] == "محافظة جودة")
+    assert row["avg_quality_score"] == 70.5
+    assert row["avg_anomaly_score"] == 5.0
+    assert row["outlier_count"] == 1
+    assert row["trend_direction"] in ("improving", "declining", "stable")
+    assert isinstance(row["key_indicators"], list)
+
+
+def test_run_regional_analysis_empty_month(db_session):
+    """شهر بلا بيانات => قائمة محافظات فارغة دون خطأ."""
+    res = run_regional_analysis(db_session, "2026-06")
+    assert res["governorates"] == []
+
+
 # ── التجميع الكامل والواجهة ──
 
 def test_run_regional_analysis_structure(db_session):
