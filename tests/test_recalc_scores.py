@@ -216,7 +216,7 @@ def test_component_diagnostics_missing_by_indicator_months(client, db_session):
 
     resp = client.get(
         "/dashboard/component-diagnostics?",
-        params={"metric": "completeness", "month_from": "2027-05", "month_to": "2027-06"},
+        params={"metric": "completeness", "hospital_id": 1, "month_from": "2027-05", "month_to": "2027-06"},
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -247,3 +247,11 @@ def test_component_diagnostics_missing_by_indicator_months(client, db_session):
                         all_months_by_ind.setdefault(item["indicator"], set()).update(item["months"])
     for name, months in all_months_by_ind.items():
         assert months, f"indicator {name!r} missing but has no reported months"
+
+    # Month-by-Month Detail must include a per-month missing indicator list
+    cp_comp = next((c for c in data.get("components", []) if c.get("key") == "completeness"), None)
+    assert cp_comp is not None
+    monthly_rows = cp_comp.get("monthly", [])
+    assert any(r.get("missing_indicators") for r in monthly_rows), (
+        "expected missing_indicators in completeness monthly rows"
+    )

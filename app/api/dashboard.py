@@ -860,7 +860,7 @@ def component_diagnostics(
                 iv_map = iv_index.get((hospital_id, s.month), {})
                 filled_ids = {iid for iid in enabled_for_month if iv_map.get(iid) is not None}
                 truly_missing = enabled_for_month - filled_ids
-                if truly_missing and cp_vals[i] < targets["completeness"]:
+                if truly_missing:
                     missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid in sorted(truly_missing)]
                     cp_missing_details.append({
                         "month": s.month,
@@ -893,17 +893,22 @@ def component_diagnostics(
                 if partially_missing:
                     month_cp_vals = [cp_vals[i] for i in range(n) if scores[i].month == month]
                     month_avg = sum(month_cp_vals) / len(month_cp_vals) if month_cp_vals else 0
-                    if month_avg < targets["completeness"]:
-                        sorted_missing = sorted(partially_missing.items(), key=lambda x: -x[1])
-                        missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid, cnt in sorted_missing[:10]]
-                        cp_missing_details.append({
-                            "month": month,
-                            "value": round(month_avg, 1),
-                            "missing_count": sum(partially_missing.values()),
-                            "missing_indicators": missing_names,
-                        })
+                    sorted_missing = sorted(partially_missing.items(), key=lambda x: -x[1])
+                    missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid, cnt in sorted_missing[:10]]
+                    cp_missing_details.append({
+                        "month": month,
+                        "value": round(month_avg, 1),
+                        "missing_count": sum(partially_missing.values()),
+                        "missing_indicators": missing_names,
+                    })
     except Exception:
         pass
+
+    # Attach per-month missing indicators to the completeness monthly rows so the
+    # drilldown can show which indicators were missing in which month.
+    _missing_by_month = {md["month"]: md.get("missing_indicators", []) for md in cp_missing_details}
+    for _m in cp_months:
+        _m["missing_indicators"] = _missing_by_month.get(_m["month"], [])
 
     if cp_critical_count > 0:
         # Build detail text with missing indicator names

@@ -1581,6 +1581,7 @@ function loadHospitalsSettings() {
 
                         // Monthly detail table
                         if (c.monthly && c.monthly.length) {
+                            var anyMissing = c.monthly.some(function(mm) { return mm.missing_indicators && mm.missing_indicators.length; });
                             html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-secondary);margin:0.5rem 0 0.3rem;">' + __('Month-by-Month Detail') + '</div>';
                             html += '<div style="overflow-x:auto;">';
                             html += '<table style="width:100%;border-collapse:collapse;font-size:0.72rem;">';
@@ -1589,6 +1590,9 @@ function loadHospitalsSettings() {
                             html += '<th style="text-align:right;padding:0.25rem 0.4rem;">' + __('Value') + '</th>';
                             html += '<th style="text-align:right;padding:0.25rem 0.4rem;">' + __('vs Target') + '</th>';
                             html += '<th style="text-align:left;padding:0.25rem 0.4rem;width:35%;">' + __('Status') + '</th>';
+                            if (anyMissing) {
+                                html += '<th style="text-align:left;padding:0.25rem 0.4rem;">' + __('Missing Indicators per Month') + '</th>';
+                            }
                             html += '</tr></thead><tbody>';
                             c.monthly.forEach(function(m) {
                                 var diff = m.value - c.target;
@@ -1599,6 +1603,20 @@ function loadHospitalsSettings() {
                                 html += '<td style="text-align:right;padding:0.25rem 0.4rem;font-weight:700;color:' + mCol + ';">' + m.value + '%</td>';
                                 html += '<td style="text-align:right;padding:0.25rem 0.4rem;color:' + mCol + ';">' + (diff >= 0 ? '+' : '') + diff.toFixed(1) + '%</td>';
                                 html += '<td style="padding:0.25rem 0.4rem;font-size:0.7rem;">' + mStatus + '</td>';
+                                if (anyMissing) {
+                                    var mMissing = m.missing_indicators || [];
+                                    html += '<td style="padding:0.25rem 0.4rem;">';
+                                    if (mMissing.length) {
+                                        html += '<div style="display:flex;flex-wrap:wrap;gap:2px;max-width:320px;">';
+                                        mMissing.forEach(function(mi) {
+                                            html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:0 4px;border-radius:3px;font-size:0.6rem;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis;" title="' + esc(mi) + '">' + esc(mi) + '</span>';
+                                        });
+                                        html += '</div>';
+                                    } else {
+                                        html += '<span style="color:var(--text-muted);font-size:0.65rem;">—</span>';
+                                    }
+                                    html += '</td>';
+                                }
                                 html += '</tr>';
                             });
                             html += '</tbody></table></div>';
