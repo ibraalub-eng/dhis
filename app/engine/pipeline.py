@@ -1,6 +1,6 @@
 import re
 from typing import List, Dict
-from app.engine.quality import ValidationContext, run_all_rules, run_rules_from_db, RuleResult, set_rules_config, calculate_quality_score
+from app.engine.quality import ValidationContext, run_all_rules, run_rules_from_db, RuleResult, set_rules_config, calculate_quality_score, get_covered_child_codes
 from app.engine.anomaly import detect_anomalies, detect_monthly_trend, set_trends_config
 
 from app.engine.confidence import calculate_confidence, build_indicator_rule_map
@@ -270,7 +270,8 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
     active_indicator_count = total_indicators - len(all_disabled_ids)
     from app.config_utils import get_config_dict
     quality_config = get_config_dict(session, "quality")
-    quality = calculate_quality_score(rule_results, values, anomaly_results, active_indicator_count, quality_config)
+    covered_codes = get_covered_child_codes(ctx, session)
+    quality = calculate_quality_score(rule_results, values, anomaly_results, active_indicator_count, quality_config, covered_codes=covered_codes)
 
     indicator_rule_map = build_indicator_rule_map(session)
     all_indicators_db = session.query(Indicator.code, Indicator.name).all()

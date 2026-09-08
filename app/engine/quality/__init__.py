@@ -12,6 +12,7 @@ from .rules import (
     run_rules_from_db,
     dispatch_rule,
     load_rules_from_db,
+    get_covered_child_codes,
     set_rules_config,
 )
 from .scoring import calculate_quality_score
@@ -67,6 +68,7 @@ __all__ = [
     "run_rules_from_db",
     "dispatch_rule",
     "load_rules_from_db",
+    "get_covered_child_codes",
     "set_rules_config",
     "calculate_quality_score",
     "run_quality_analysis",

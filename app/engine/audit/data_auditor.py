@@ -1,6 +1,7 @@
 import json
 from sqlalchemy.orm import Session
 from app.models import Hospital, IndicatorValue, Indicator, ValidationResult, QualityScore, AnomalyResult, HospitalIndicatorConfig, ConfidenceScore
+from app.engine.quality import ValidationContext, get_covered_child_codes
 
 
 def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
@@ -14,21 +15,35 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
         IndicatorValue.month == month,
     ).all()
 
+    values_map = {}
+    code_by_id = {ind.id: ind.code for ind in all_indicators}
+    for v in values_q:
+        code = code_by_id.get(v.indicator_id)
+        if code is not None and v.value is not None:
+            values_map[code] = float(v.value)
+    ctx = ValidationContext(values=values_map, hospital_name=hospital.name, month=month)
+    covered_codes = get_covered_child_codes(ctx, db)
+
     completeness = []
     missing_count = 0
     present_count = 0
+    covered_count = 0
     for ind in all_indicators:
+        code = ind.code
         val_row = next((v for v in values_q if v.indicator_id == ind.id), None)
         is_present = val_row is not None and val_row.value is not None
+        is_covered = (not is_present) and code in covered_codes
         if is_present:
             present_count += 1
+        elif is_covered:
+            covered_count += 1
         else:
             missing_count += 1
         completeness.append({
-            "indicator_code": ind.code,
+            "indicator_code": code,
             "indicator_name": ind.name,
             "value": val_row.value if val_row else None,
-            "status": "present" if is_present else "missing",
+            "status": "present" if is_present else ("covered" if is_covered else "missing"),
         })
 
     qs = db.query(QualityScore).filter(
@@ -109,6 +124,7 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
         "completeness": {
             "total": len(all_indicators),
             "present": present_count,
+            "covered": covered_count,
             "missing": missing_count,
             "indicators": completeness,
         },

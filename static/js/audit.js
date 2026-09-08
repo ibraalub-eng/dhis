@@ -178,16 +178,26 @@ function renderAudit() {
 
     if (da.completeness) {
         const comp = da.completeness;
-        const pct = comp.total > 0 ? Math.round(comp.present / comp.total * 100) : 0;
+        const effectivePresent = comp.present + (comp.covered || 0);
+        const pct = comp.total > 0 ? Math.round(effectivePresent / comp.total * 100) : 0;
         const pctColor = pct >= 80 ? 'var(--accent-green)' : pct >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
         html += '<div style="margin:0.3rem 0;font-weight:600;font-size:0.8rem;color:var(--text-primary);">Completeness <span style="font-weight:400;color:' + pctColor + ';">(' + pct + '%)</span></div>';
-        html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem;">' + comp.present + ' / ' + comp.total + ' indicators present (' + comp.missing + ' missing)</div>';
+        html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem;">' + effectivePresent + ' / ' + comp.total + ' indicators present (' + (comp.missing || 0) + ' missing' + ((comp.covered || 0) ? ', ' + comp.covered + ' covered by parent total' : '') + ')</div>';
 
         const missing = (comp.indicators || []).filter(i => i.status === 'missing');
         if (missing.length) {
             html += '<details style="margin:0.2rem 0;font-size:0.72rem;">';
             html += '<summary style="cursor:pointer;color:var(--accent-red);">' + missing.length + ' missing indicators</summary>';
             missing.forEach(i => {
+                html += '<div style="padding:0.1rem 0.5rem;color:var(--text-secondary);">' + esc(i.indicator_code) + ' - ' + esc(i.indicator_name) + '</div>';
+            });
+            html += '</details>';
+        }
+        const covered = (comp.indicators || []).filter(i => i.status === 'covered');
+        if (covered.length) {
+            html += '<details style="margin:0.2rem 0;font-size:0.72rem;">';
+            html += '<summary style="cursor:pointer;color:var(--accent-green);">' + covered.length + ' covered by parent total</summary>';
+            covered.forEach(i => {
                 html += '<div style="padding:0.1rem 0.5rem;color:var(--text-secondary);">' + esc(i.indicator_code) + ' - ' + esc(i.indicator_name) + '</div>';
             });
             html += '</details>';

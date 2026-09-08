@@ -228,27 +228,43 @@ def _all_zero_check(ctx: ValidationContext, code: str, desc: str) -> RuleResult:
 ALL_RULES = []
 
 
-def _build_rules():
-    ALL_RULES.append(lambda ctx: _ge("2", ["3", "4", "5"], "R001", "Total Deliveries >= NVD + Assisted + C-sections", Severity.HIGH, RuleType.LOGIC, ctx))
-    ALL_RULES.append(lambda ctx: _eq("2", ["2.a", "2.b"], "R002", "Primigravida + Multigravida ≈ Total Deliveries", Severity.MEDIUM, RuleType.LOGIC, ctx))
-    ALL_RULES.append(lambda ctx: _eq("2", ["2.c", "2.d", "2.e", "2.f", "2.g", "2.h", "2.i", "2.j"], "R003", "Age group sum ≈ Total Deliveries", Severity.LOW, RuleType.LOGIC, ctx))
-    ALL_RULES.append(lambda ctx: _eq("2", ["2.k", "2.l"], "R004", "In-facility + Out-of-facility ≈ Total Deliveries", Severity.HIGH, RuleType.LOGIC, ctx))
-    ALL_RULES.append(lambda ctx: _eq("2", ["2.m", "2.n"], "R005", "Low Risk + High Risk ≈ Total Deliveries", Severity.MEDIUM, RuleType.LOGIC, ctx))
+# Single source of truth for parent/child sum rules (eq: parent == sum of children,
+# ge: parent >= sum of children). Used both to register compiled rules and to compute
+# "covered" children whose absence is already explained by a reported total.
+SUM_RULE_SPECS = [
+    ("R001", "ge", "2", ["3", "4", "5"], "Total Deliveries >= NVD + Assisted + C-sections", Severity.HIGH, RuleType.LOGIC),
+    ("R002", "eq", "2", ["2.a", "2.b"], "Primigravida + Multigravida ≈ Total Deliveries", Severity.MEDIUM, RuleType.LOGIC),
+    ("R003", "eq", "2", ["2.c", "2.d", "2.e", "2.f", "2.g", "2.h", "2.i", "2.j"], "Age group sum ≈ Total Deliveries", Severity.LOW, RuleType.LOGIC),
+    ("R004", "eq", "2", ["2.k", "2.l"], "In-facility + Out-of-facility ≈ Total Deliveries", Severity.HIGH, RuleType.LOGIC),
+    ("R005", "eq", "2", ["2.m", "2.n"], "Low Risk + High Risk ≈ Total Deliveries", Severity.MEDIUM, RuleType.LOGIC),
+    ("R006", "eq", "5", ["5.b.1", "5.b.2"], "Emergency + Planned C/S = Total C-sections", Severity.HIGH, RuleType.LOGIC),
+    ("R007", "eq", "5", ["5.c", "5.d"], "Primary + Repeat C/S = Total C-sections", Severity.HIGH, RuleType.LOGIC),
+    ("R011", "eq", "6", ["6.a", "6.b", "6.c"], "Male + Female + Unknown sex = Live Births", Severity.HIGH, RuleType.LOGIC),
+    ("R016", "eq", "7", ["7.a", "7.b"], "Fresh + Macerated Stillbirth = Fetal Deaths >24w", Severity.HIGH, RuleType.LOGIC),
+    ("R017", "eq", "8", ["8.a", "8.b"], "First + Second Trimester = Abortions", Severity.MEDIUM, RuleType.LOGIC),
+    ("R024", "ge", "10.a.1", ["10.a.1.1", "10.a.1.2"], "Primary + Secondary Severe <= Postpartum Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL),
+    ("R025", "ge", "10.a.2", ["10.a.2.1", "10.a.2.2"], "Placental Abruption + Previa <= Antepartum Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL),
+    ("R026", "ge", "10.a.3", ["10.a.3.1", "10.a.3.2", "10.a.3.3"], "Ectopic + Abortion Bleeding + Molar <= Early Pregnancy Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL),
+    ("R030", "ge", "10.e", ["10.e.1", "10.e.2", "10.e.3"], "Preeclampsia + HELLP + Eclampsia <= Hypertensive Disorders", Severity.HIGH, RuleType.CLINICAL),
+]
 
-    ALL_RULES.append(lambda ctx: _eq("5", ["5.b.1", "5.b.2"], "R006", "Emergency + Planned C/S = Total C-sections", Severity.HIGH, RuleType.LOGIC, ctx))
-    ALL_RULES.append(lambda ctx: _eq("5", ["5.c", "5.d"], "R007", "Primary + Repeat C/S = Total C-sections", Severity.HIGH, RuleType.LOGIC, ctx))
+
+def _build_rules():
+    for code, expr, parent, children, desc, sev, rtype in SUM_RULE_SPECS:
+        if expr == "ge":
+            ALL_RULES.append(lambda ctx, p=parent, ch=children, c=code, d=desc, s=sev, t=rtype: _ge(p, ch, c, d, s, t, ctx))
+        else:
+            ALL_RULES.append(lambda ctx, p=parent, ch=children, c=code, d=desc, s=sev, t=rtype: _eq(p, ch, c, d, s, t, ctx))
+
     ALL_RULES.append(lambda ctx: _le("5.b.1", "5", "R008", "Emergency C/S <= Total C-sections", Severity.HIGH, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("5.b.2", "5", "R009", "Planned C/S <= Total C-sections", Severity.HIGH, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("5.d", "5", "R010", "Repeat C/S <= Total C-sections", Severity.HIGH, RuleType.LOGIC, ctx))
 
-    ALL_RULES.append(lambda ctx: _eq("6", ["6.a", "6.b", "6.c"], "R011", "Male + Female + Unknown sex = Live Births", Severity.HIGH, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("6.d", "6", "R012", "Multiple Pregnancy <= Live Births", Severity.MEDIUM, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("6.e", "6", "R013", "Twins/Multiples count <= Live Births", Severity.MEDIUM, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("6.f", "6", "R014", "Preterm Births <= Live Births", Severity.HIGH, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("6.g", "6", "R015", "Low Birth Weight <= Live Births", Severity.HIGH, RuleType.LOGIC, ctx))
 
-    ALL_RULES.append(lambda ctx: _eq("7", ["7.a", "7.b"], "R016", "Fresh + Macerated Stillbirth = Fetal Deaths >24w", Severity.HIGH, RuleType.LOGIC, ctx))
-    ALL_RULES.append(lambda ctx: _eq("8", ["8.a", "8.b"], "R017", "First + Second Trimester = Abortions", Severity.MEDIUM, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("7", "2", "R018", "Fetal Deaths <= Total Deliveries", Severity.HIGH, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("8", "2", "R019", "Abortions <= Total Deliveries", Severity.MEDIUM, RuleType.LOGIC, ctx))
     ALL_RULES.append(lambda ctx: _le("9", "6", "R020", "Congenital Anomalies <= Live Births", Severity.MEDIUM, RuleType.LOGIC, ctx))
@@ -256,14 +272,10 @@ def _build_rules():
     ALL_RULES.append(lambda ctx: _le("10.a.1", "10.a", "R021", "Postpartum Hemorrhage <= Hemorrhage", Severity.HIGH, RuleType.CLINICAL, ctx))
     ALL_RULES.append(lambda ctx: _le("10.a.2", "10.a", "R022", "Antepartum Hemorrhage <= Hemorrhage", Severity.HIGH, RuleType.CLINICAL, ctx))
     ALL_RULES.append(lambda ctx: _le("10.a.3", "10.a", "R023", "Early Pregnancy Hemorrhage <= Hemorrhage", Severity.HIGH, RuleType.CLINICAL, ctx))
-    ALL_RULES.append(lambda ctx: _ge("10.a.1", ["10.a.1.1", "10.a.1.2"], "R024", "Primary + Secondary Severe <= Postpartum Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL, ctx))
-    ALL_RULES.append(lambda ctx: _ge("10.a.2", ["10.a.2.1", "10.a.2.2"], "R025", "Placental Abruption + Previa <= Antepartum Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL, ctx))
-    ALL_RULES.append(lambda ctx: _ge("10.a.3", ["10.a.3.1", "10.a.3.2", "10.a.3.3"], "R026", "Ectopic + Abortion Bleeding + Molar <= Early Pregnancy Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL, ctx))
 
     ALL_RULES.append(lambda ctx: _le("10.e.1", "10.e", "R027", "Severe Preeclampsia <= Hypertensive Disorders", Severity.HIGH, RuleType.CLINICAL, ctx))
     ALL_RULES.append(lambda ctx: _le("10.e.2", "10.e", "R028", "HELLP Syndrome <= Hypertensive Disorders", Severity.HIGH, RuleType.CLINICAL, ctx))
     ALL_RULES.append(lambda ctx: _le("10.e.3", "10.e", "R029", "Eclampsia <= Hypertensive Disorders", Severity.HIGH, RuleType.CLINICAL, ctx))
-    ALL_RULES.append(lambda ctx: _ge("10.e", ["10.e.1", "10.e.2", "10.e.3"], "R030", "Preeclampsia + HELLP + Eclampsia <= Hypertensive Disorders", Severity.HIGH, RuleType.CLINICAL, ctx))
 
     ALL_RULES.append(lambda ctx: _le("10.a", "10", "R031", "Hemorrhage <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
     ALL_RULES.append(lambda ctx: _le("10.e", "10", "R032", "Hypertensive Disorders <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
@@ -327,6 +339,56 @@ def run_all_rules(ctx: ValidationContext) -> List[RuleResult]:
 def load_rules_from_db(session: Session) -> list:
     from app.models import Rule
     return session.query(Rule).filter(Rule.enabled).order_by(Rule.sort_order, Rule.code).all()
+
+
+def _iter_sum_rules(session: Session = None):
+    """Yield (op, parent, children) for every active sum-rule.
+
+    Uses DB rules (expression_type ge/eq/le_sum) when present, else falls back to
+    the compiled SUM_RULE_SPECS. Keeps a single source of truth with _build_rules.
+    """
+    if session is not None:
+        try:
+            db_rules = load_rules_from_db(session)
+        except Exception:
+            db_rules = []
+        if db_rules:
+            for rule in db_rules:
+                if rule.expression_type not in ("ge", "eq", "le_sum"):
+                    continue
+                params = json.loads(rule.params) if isinstance(rule.params, str) else (rule.params or {})
+                if rule.expression_type == "le_sum":
+                    parent = params.get("child")
+                else:
+                    parent = params.get("parent")
+                children = params.get("children") or []
+                if parent and children:
+                    yield (rule.expression_type, parent, children)
+            return
+    for code, expr, parent, children, *_ in SUM_RULE_SPECS:
+        yield (expr, parent, children)
+
+
+def get_covered_child_codes(ctx: ValidationContext, session: Session = None) -> set:
+    """Return sibling child codes whose absence is already explained by a total.
+
+    For every sum rule (parent == sum of children, parent >= sum of children), when
+    the reported child values already add up to the parent value within tolerance,
+    any unreported sibling is considered "covered" — it should not be flagged as
+    missing nor penalize completeness.
+    """
+    tolerance = _RULES_CONFIG.get("eq_tolerance", 0.01)
+    covered = set()
+    for _op, parent, children in _iter_sum_rules(session):
+        pv = _v(ctx, parent)
+        if pv is None:
+            continue
+        cs = _vs(ctx, children)
+        if abs(pv - cs) <= tolerance:
+            for c in children:
+                if _v(ctx, c) is None and c not in ctx.disabled_codes:
+                    covered.add(c)
+    return covered
 
 
 def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:

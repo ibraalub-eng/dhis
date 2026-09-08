@@ -9,6 +9,7 @@ def calculate_quality_score(
     anomaly_results: list,
     active_indicator_count: int,
     config: Optional[Dict[str, float]] = None,
+    covered_codes: Optional[set] = None,
 ) -> Dict:
     cfg = config or {}
     w_rc = cfg.get("quality_rule_compliance", 0.35)
@@ -17,7 +18,7 @@ def calculate_quality_score(
     w_op = cfg.get("quality_outlier_penalty", 0.15)
 
     rule_compliance = _calc_rule_compliance(rule_results)
-    completeness = _calc_completeness(values, active_indicator_count)
+    completeness = _calc_completeness(values, active_indicator_count, covered_codes or set())
     consistency = _calc_consistency(rule_results, cfg)
     outlier_penalty = _calc_outlier_penalty(anomaly_results, cfg)
 
@@ -56,11 +57,13 @@ def _calc_rule_compliance(rule_results: List[RuleResult]) -> float:
     return passed / total
 
 
-def _calc_completeness(values: Dict[str, float], active_indicator_count: int) -> float:
-    if active_indicator_count == 0:
+def _calc_completeness(values: Dict[str, float], active_indicator_count: int, covered_codes: set = None) -> float:
+    if active_indicator_count <= 0:
         return 0.0
     filled = sum(1 for v in values.values() if v is not None)
-    return filled / active_indicator_count
+    covered = covered_codes or set()
+    active = max(1, active_indicator_count - len(covered))
+    return min(1.0, filled / active)
 
 
 def _calc_consistency(rule_results: List[RuleResult], config: Optional[Dict[str, float]] = None) -> float:

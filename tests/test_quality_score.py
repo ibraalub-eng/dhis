@@ -53,6 +53,31 @@ def test_completeness_zero_indicators():
     assert score["completeness"] == 0.0
 
 
+def test_completeness_covered_children_not_penalized():
+    # 3 active (total "2", "2.a", "2.b"); "2.a" reported and equals total "2",
+    # sibling "2.b" missing but covered by the eq total rule.
+    results = []
+    values = {"2": 100.0, "2.a": 100.0}
+    score = calculate_quality_score(results, values, [], 3, covered_codes={"2.b"})
+    assert score["completeness"] == 100.0
+
+
+def test_completeness_covered_counted_from_active():
+    # 3 active, 1 filled, 1 covered -> denominator 2 -> 50%.
+    results = []
+    values = {"2": 10.0}
+    score = calculate_quality_score(results, values, [], 3, covered_codes={"2.a"})
+    assert score["completeness"] == 50.0
+
+
+def test_completeness_no_covered_change():
+    results = []
+    values = {"2": 10.0}
+    before = calculate_quality_score(results, values, [], 3)
+    after = calculate_quality_score(results, values, [], 3, covered_codes=set())
+    assert before["completeness"] == after["completeness"]
+
+
 def test_score_clamps_to_100():
     results = [_rr("R01", "Test", RuleStatus.PASS, Severity.HIGH)]
     values = {str(i): float(i) for i in range(100)}
