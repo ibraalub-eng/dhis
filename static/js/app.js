@@ -234,6 +234,22 @@ function _bindAll(mod, label) {
 // Start loading modules immediately (non-blocking)
 _loadModules();
 
+// ── Version badge: show which build/commit this deploy is running ──
+async function _loadVersionBadge() {
+  try {
+    const vb = document.getElementById('version-badge');
+    if (!vb) return;
+    const v = await apiGet('/api/version', { noCache: true });
+    if (v && v.build) {
+      vb.textContent = 'v' + (v.version || '0.1.0') + ' · ' + v.build;
+      vb.title = (v.render ? 'Render deploy ' : 'Local build ') + '— commit ' + v.build;
+      vb.style.display = 'inline-block';
+    }
+  } catch (e) {
+    // Non-fatal: hide badge if endpoint unavailable
+  }
+}
+
 // ── Global error boundary ──
 window.addEventListener('error', function(e) {
   console.error('[app] Uncaught error:', e.message, e.filename, e.lineno);
@@ -246,6 +262,7 @@ window.addEventListener('unhandledrejection', function(e) {
 (async function bootstrap() {
   try {
     const _token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token');
+    _loadVersionBadge();
     if (!_token) {
         const lp = document.getElementById('login-page');
         if (lp) lp.style.display = 'flex';

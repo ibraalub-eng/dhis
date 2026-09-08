@@ -546,6 +546,50 @@ def health():
         )
 
 
+def _build_version() -> str:
+    """Best-effort build/commit identifier so users can tell if a deployed
+    instance is running the latest code.
+
+    Priority:
+      1. Render injects RENDER_GIT_COMMIT for every deploy from GitHub.
+      2. Local git checkout: HEAD commit short hash.
+      3. Fallback: RENDER_DEPLOY_ID / RENDER_INSTANCE_ID, else "dev".
+    """
+    commit = os.getenv("RENDER_GIT_COMMIT", "").strip()
+    if commit:
+        return commit[:12]
+    try:
+        head_file = os.path.join(BASE_DIR, ".git", "HEAD")
+        if os.path.exists(head_file):
+            with open(head_file, encoding="utf-8") as fh:
+                ref = fh.read().strip()
+            if ref.startswith("ref:"):
+                ref_path = os.path.join(BASE_DIR, ".git", ref[5:].strip())
+                if os.path.exists(ref_path):
+                    with open(ref_path, encoding="utf-8") as fh:
+                        return fh.read().strip()[:12]
+                return ref[5:].strip()
+            return ref[:12]
+    except Exception:
+        pass
+    for var in ("RENDER_DEPLOY_ID", "RENDER_INSTANCE_ID"):
+        val = os.getenv(var, "").strip()
+        if val:
+            return val[:12]
+    return "dev"
+
+
+@app.get("/api/version")
+def version_info():
+    """Return build metadata so the UI can show whether this deploy is up to date."""
+    return {
+        "version": "0.1.0",
+        "build": _build_version(),
+        "render": bool(os.getenv("RENDER_GIT_COMMIT", "").strip()),
+        "server_time": None,
+    }
+
+
 @app.get("/setup")
 def setup_page():
     """Show setup instructions when DATABASE_URL is not configured."""

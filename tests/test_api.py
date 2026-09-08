@@ -19,6 +19,25 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
+def test_version_endpoint_no_auth(client):
+    """Version/build endpoint must be publicly reachable (used by the header badge)."""
+    response = client.get("/api/version")
+    assert response.status_code == 200
+    data = response.json()
+    assert "version" in data
+    assert "build" in data
+    assert data["build"], "build identifier must not be empty"
+
+
+def test_health_endpoint(client):
+    """Health endpoint returns 200 and a version field."""
+    response = client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert "version" in data
+
+
 def test_root_cause_base_fields(client, db_session):
     """Test root cause endpoint returns base fields."""
     hospital = db_session.query(Hospital).first()
