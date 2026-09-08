@@ -255,3 +255,12 @@ def test_component_diagnostics_missing_by_indicator_months(client, db_session):
     assert any(r.get("missing_indicators") for r in monthly_rows), (
         "expected missing_indicators in completeness monthly rows"
     )
+
+    # Single-hospital responses must carry the FULL missing list (no 10-cap),
+    # since the QR Completeness tab uses it to list everything still missing.
+    for r in monthly_rows:
+        if r.get("missing_indicators"):
+            assert len(r["missing_indicators"]) == r["missing_count"], (
+                f"month {r['month']}: expected {r['missing_count']} missing indicators, "
+                f"got {len(r['missing_indicators'])}"
+            )

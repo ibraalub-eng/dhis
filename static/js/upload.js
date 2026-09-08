@@ -599,10 +599,23 @@
                 html += '</div></div>';
                 html += '</div>';
 
+                // Missing indicators still to report in the selected month
+                var monthMissing = (cpComp.monthly || []).filter(function(m) { return m.month === month && m.missing_indicators && m.missing_indicators.length; }).map(function(m) { return m.missing_indicators; })[0] || [];
+                if (monthMissing.length > 0) {
+                    html += '<div style="padding:0.7rem 0.8rem;background:rgba(230,81,0,0.08);border-radius:8px;border:1px solid rgba(230,81,0,0.25);margin-bottom:0.8rem;">';
+                    html += '<div style="font-size:0.8rem;font-weight:600;color:var(--accent-orange);margin-bottom:0.35rem;">\ud83d\udcc5 ' + __('Still missing in') + ' ' + esc(month) + ' (' + monthMissing.length + ')</div>';
+                    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;">';
+                    monthMissing.forEach(function(mi) {
+                        html += '<span style="display:inline-block;background:rgba(230,81,0,0.12);color:var(--accent-orange);padding:2px 7px;border-radius:4px;font-size:0.66rem;font-weight:600;">' + esc(mi) + '</span>';
+                    });
+                    html += '</div>';
+                    html += '</div>';
+                }
+
                 // Find non-ok causes (problems only)
                 var problemCauses = (cpComp.causes || []).filter(function(c) { return c.severity !== 'ok'; });
 
-                if (problemCauses.length === 0) {
+                if (problemCauses.length === 0 && monthMissing.length === 0) {
                     // All good
                     html += '<div style="padding:1rem;text-align:center;background:rgba(46,125,50,0.08);border-radius:8px;border:1px solid rgba(46,125,50,0.2);">';
                     html += '<div style="font-size:1.2rem;margin-bottom:0.3rem;">\u2705</div>';

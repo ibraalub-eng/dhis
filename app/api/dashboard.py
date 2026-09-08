@@ -866,7 +866,7 @@ def component_diagnostics(
                         "month": s.month,
                         "value": cp_vals[i],
                         "missing_count": len(missing_names),
-                        "missing_indicators": missing_names[:10],
+                        "missing_indicators": missing_names,
                     })
         else:
             # All hospitals: use pre-fetched iv_index to count per indicator
@@ -907,8 +907,10 @@ def component_diagnostics(
     # Attach per-month missing indicators to the completeness monthly rows so the
     # drilldown can show which indicators were missing in which month.
     _missing_by_month = {md["month"]: md.get("missing_indicators", []) for md in cp_missing_details}
+    _missing_count_by_month = {md["month"]: md.get("missing_count", 0) for md in cp_missing_details}
     for _m in cp_months:
         _m["missing_indicators"] = _missing_by_month.get(_m["month"], [])
+        _m["missing_count"] = _missing_count_by_month.get(_m["month"], 0)
 
     if cp_critical_count > 0:
         # Build detail text with missing indicator names
