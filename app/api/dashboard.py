@@ -878,8 +878,11 @@ def component_diagnostics(
                     iv_map = iv_index.get((hid, month), {})
                     covered_ids = _fast_covered(hid, month)
                     for iid, val in iv_map.items():
-                        if val is not None and iid not in covered_ids:
+                        if val is not None:
                             ind_hospital_count[iid] += 1
+                    # Covered children are "present by implication" — treat them as filled
+                    for iid in covered_ids:
+                        ind_hospital_count[iid] += 1
                 # Only show indicators that SOME hospitals have but others don't
                 # (not universally disabled)
                 partially_missing = {}
@@ -1018,7 +1021,8 @@ def component_diagnostics(
             missing_names = []
             try:
                 disabled_ids = _fast_disabled(hid, s.month)
-                enabled_ids = [iid for iid in all_ind_ids if iid not in disabled_ids]
+                covered_ids = _fast_covered(hid, s.month)
+                enabled_ids = [iid for iid in all_ind_ids if iid not in disabled_ids and iid not in covered_ids]
                 iv_map = iv_index.get((hid, s.month), {})
                 filled_ids = {iid for iid in enabled_ids if iv_map.get(iid) is not None}
                 missing_ids = set(enabled_ids) - filled_ids

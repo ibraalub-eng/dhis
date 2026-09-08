@@ -152,3 +152,52 @@ def test_recalc_completeness_still_penalizes_real_gaps(client, db_session):
     # present=6 (parent + 5 children), missing=3 not covered -> all active.
     expected_pct = round(6 / total_indicators * 100, 1)
     assert qs.completeness == expected_pct
+
+
+def test_component_diagnostics_drilldown_excludes_covered_children(client, db_session):
+    """The Completeness KPI drilldown must NOT list covered-by-parent indicators
+    among its missing indicators."""
+    from app.models import QualityScore
+
+    month = "2027-04"
+    # Parent fully accounted for by reported age groups; 2.c, 2.d, 2.j are covered.
+    _insert_indicator_value(db_session, 1, month, "2", 27)
+    for code, val in [("2.e", 9), ("2.f", 12), ("2.g", 4), ("2.h", 1), ("2.i", 1)]:
+        _insert_indicator_value(db_session, 1, month, code, val)
+    db_session.add(QualityScore(hospital_id=1, month=month, score=30.0))
+    db_session.commit()
+
+    resp = client.get(
+        "/dashboard/component-diagnostics?",
+        params={
+            "hospital_id": 1,
+            "month_from": month,
+            "month_to": month,
+            "metric": "completeness",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # Collect every missing indicator listed anywhere in the completeness drilldown
+    listed_missing = set()
+    for comp in data.get("components", []):
+        for cause in comp.get("causes", []):
+            for h in cause.get("affected_hospitals", []):
+                listed_missing.update(h.get("missing_indicators", []))
+
+    # Covered children must not appear as missing
+    from app.models import Indicator
+    covered_names = {ind.name for ind in db_session.query(Indicator).filter(
+        Indicator.code.in_(["2.c", "2.d", "2.j"])
+    ).all()}
+    overlap = listed_missing & covered_names
+    assert not overlap, f"covered children listed as missing: {overlap}"
+
+    # Genuinely missing indicators (e.g. 3, 4, 5) still appear
+    non_covered_missing = db_session.query(Indicator.name).filter(
+        Indicator.parent_id.is_not(None),
+        Indicator.code.notin_(["2.c", "2.d", "2.j", "2.e", "2.f", "2.g", "2.h", "2.i"]),
+    ).limit(1).first()
+    if non_covered_missing:
+        assert listed_missing, "expected some genuinely missing indicators in drilldown"
