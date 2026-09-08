@@ -9,6 +9,23 @@ _CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file
 os.makedirs(_CACHE_DIR, exist_ok=True)
 
 
+_ILLEGAL_FILENAME_CHARS = ("/", "|", ":", "\\", "*", "?", '"', "<", ">")
+
+
+def _safe_filename(key: str) -> str:
+    """Make a cache key safe as a filename on Windows.
+
+    Cache keys contain colons and pipes (e.g. "analysis:months" or
+    "v2|reports|month=2026-08"). On Windows/NTFS a colon in a filename
+    creates an alternate data stream, so the data is hidden in a 0-byte
+    "base" file that never matches "*.json" — which broke cache
+    invalidation after uploads (stale months/results kept being served).
+    """
+    for ch in _ILLEGAL_FILENAME_CHARS:
+        key = key.replace(ch, "_")
+    return key
+
+
 class TTLCache:
     def __init__(self, default_ttl: int = 86400):  # 24 hours default
         self._default_ttl = default_ttl
@@ -31,7 +48,7 @@ class TTLCache:
 
     def _get_file(self, key: str) -> Optional[Any]:
         try:
-            safe_key = key.replace("/", "_").replace("|", "_")
+            safe_key = _safe_filename(key)
             path = os.path.join(_CACHE_DIR, f"{safe_key}.json")
             if not os.path.exists(path):
                 return None
@@ -57,7 +74,7 @@ class TTLCache:
 
         # Also persist to file for restart resilience
         try:
-            safe_key = key.replace("/", "_").replace("|", "_")
+            safe_key = _safe_filename(key)
             path = os.path.join(_CACHE_DIR, f"{safe_key}.json")
             with open(path, "w", encoding="utf-8") as f:
                 f.write(json_str)
@@ -80,22 +97,27 @@ class TTLCache:
         with self._lock:
             if not key_prefix:
                 self._cache.clear()
-                # Clear file cache too
+                # Clear the whole file cache. Delete every file (not only
+                # "*.json"): older cache files created before filename
+                # sanitization may not end in .json on Windows.
                 try:
-                    for f in os.listdir(_CACHE_DIR):
-                        if f.endswith(".json"):
-                            os.remove(os.path.join(_CACHE_DIR, f))
+                    for name in os.listdir(_CACHE_DIR):
+                        path = os.path.join(_CACHE_DIR, name)
+                        if os.path.isfile(path):
+                            os.remove(path)
                 except Exception:
                     pass
             else:
                 expired = [k for k in self._cache if k.startswith(key_prefix)]
                 for k in expired:
                     del self._cache[k]
-                # Clear matching file cache
+                # Clear matching file cache (prefix sanitized the same way
+                # as file names so colon/pipe keys match)
                 try:
-                    for f in os.listdir(_CACHE_DIR):
-                        if f.startswith(key_prefix.replace("/", "_").replace("|", "_")):
-                            os.remove(os.path.join(_CACHE_DIR, f))
+                    file_prefix = _safe_filename(key_prefix)
+                    for name in os.listdir(_CACHE_DIR):
+                        if name.startswith(file_prefix):
+                            os.remove(os.path.join(_CACHE_DIR, name))
                 except Exception:
                     pass
 
