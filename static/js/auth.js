@@ -477,6 +477,7 @@
   // but we also include it here for the reset-all logic.
   var _TAB_PERMISSIONS = {
     'tab-dashboard': 'dashboard.read',
+    'tab-upload': 'data.upload',
     'tab-analysis': 'analysis.read',
     'tab-quality': 'quality.read',
     'tab-outliers': 'outliers.read',

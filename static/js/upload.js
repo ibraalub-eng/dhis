@@ -4,10 +4,47 @@
         import { _restoreUIState } from './main.js';
 
         // ── Smart Data Entry ──────────────────────────────────────
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
-        const statusDiv = document.getElementById('status');
-        const fileListDiv = document.getElementById('fileList');
+        let dropZone = null;
+        let fileInput = null;
+
+        export function initUploadTab() {
+            // The upload UI lives in a lazily-loaded tab, so bind the events
+            // (once) when the tab is first opened instead of at module load.
+            dropZone = document.getElementById('dropZone') || null;
+            fileInput = document.getElementById('fileInput') || null;
+            if (!dropZone || !fileInput) return;
+            if (!dropZone.dataset._uploadBound) {
+                dropZone.dataset._uploadBound = '1';
+                dropZone.addEventListener('click', () => fileInput.click());
+                dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+                dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+                dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if(e.dataTransfer.files.length) { var f = e.dataTransfer.files[0]; var ext3 = '.' + f.name.split('.').pop().toLowerCase(); if (ALLOWED_EXTS.indexOf(ext3) === -1) { setStatus('error', f.name + ': Unsupported file type (' + ext3 + '). Allowed: ' + ALLOWED_EXTS.join(', ')); return; } showPreview(e.dataTransfer.files); } });
+                fileInput.addEventListener('change', () => { if(fileInput.files.length) showPreview(fileInput.files); });
+                // Show file names on selection
+                fileInput.addEventListener('input', () => {
+                    const list = document.getElementById('fileList');
+                    if (fileInput.files.length) {
+                        list.classList.remove('hidden');
+                        list.innerHTML = Array.from(fileInput.files).map(f => {
+                            var ext2 = '.' + f.name.split('.').pop().toLowerCase();
+                            var tooLarge = f.size > MAX_FILE_SIZE;
+                            var badType = ALLOWED_EXTS.indexOf(ext2) === -1;
+                            var sizeStr = (f.size / 1024).toFixed(1) + ' KB';
+                            var warns = [];
+                            if (badType) warns.push('⚠️ unsupported type (' + ext2 + ')');
+                            if (tooLarge) warns.push('⚠️ exceeds 20 MB');
+                            var warnStr = warns.length ? ' ' + warns.join(', ') : '';
+                            var warnColor = (badType || tooLarge) ? 'var(--accent-red)' : 'var(--text-muted)';
+                            return '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;">' +
+                                '<span style="color:var(--accent-blue);">📄</span><span>' + f.name + '</span>' +
+                                '<span style="color:' + warnColor + ';font-size:0.75rem;">(' + sizeStr + warnStr + ')</span></div>';
+                        }).join('');
+                    } else { list.classList.add('hidden'); list.innerHTML = ''; }
+                });
+            }
+            updateStep(1);
+            if (typeof window.refreshSavedFiles === 'function') window.refreshSavedFiles();
+        }
         let previewFilePath = null;
         let previewFiles = null;
         let previewFileName = null;
@@ -44,33 +81,6 @@
                 attempt(false);
             });
         }
-
-        dropZone.addEventListener('click', () => fileInput.click());
-        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
-        dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); if(e.dataTransfer.files.length) { var f = e.dataTransfer.files[0]; var ext3 = '.' + f.name.split('.').pop().toLowerCase(); if (ALLOWED_EXTS.indexOf(ext3) === -1) { setStatus('error', f.name + ': Unsupported file type (' + ext3 + '). Allowed: ' + ALLOWED_EXTS.join(', ')); return; } showPreview(e.dataTransfer.files); } });
-        fileInput.addEventListener('change', () => { if(fileInput.files.length) showPreview(fileInput.files); });
-        // Show file names on selection
-        fileInput.addEventListener('input', () => {
-            const list = document.getElementById('fileList');
-            if (fileInput.files.length) {
-                list.classList.remove('hidden');
-                list.innerHTML = Array.from(fileInput.files).map(f => {
-                    var ext2 = '.' + f.name.split('.').pop().toLowerCase();
-                    var tooLarge = f.size > MAX_FILE_SIZE;
-                    var badType = ALLOWED_EXTS.indexOf(ext2) === -1;
-                    var sizeStr = (f.size / 1024).toFixed(1) + ' KB';
-                    var warns = [];
-                    if (badType) warns.push('⚠️ unsupported type (' + ext2 + ')');
-                    if (tooLarge) warns.push('⚠️ exceeds 20 MB');
-                    var warnStr = warns.length ? ' ' + warns.join(', ') : '';
-                    var warnColor = (badType || tooLarge) ? 'var(--accent-red)' : 'var(--text-muted)';
-                    return '<div style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;">' +
-                        '<span style="color:var(--accent-blue);">📄</span><span>' + f.name + '</span>' +
-                        '<span style="color:' + warnColor + ';font-size:0.75rem;">(' + sizeStr + warnStr + ')</span></div>';
-                }).join('');
-            } else { list.classList.add('hidden'); list.innerHTML = ''; }
-        });
 
         function updateStep(step) {
             for (let i = 1; i <= 4; i++) {

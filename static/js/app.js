@@ -32,6 +32,7 @@ function _stub(name) { return function() { console.warn('[app] Module not loaded
 // Placeholders — replaced async by _loadModules()
 window.confirmImport = _stub('confirmImport');
 window.cancelPreview = _stub('cancelPreview');
+window.initUploadTab = _stub('initUploadTab');
 window.displayResults = _stub('displayResults');
 window.filterPriorityTable = _stub('filterPriorityTable');
 window.filterQualityReports = _stub('filterQualityReports');
@@ -165,7 +166,8 @@ function _bindAll(mod, label) {
   if (!mod) return;
   switch (label) {
     case 'upload':
-      _bind(mod, 'confirmImport'); _bind(mod, 'cancelPreview'); _bind(mod, 'displayResults');
+      _bind(mod, 'confirmImport'); _bind(mod, 'cancelPreview'); _bind(mod, 'initUploadTab');
+      _bind(mod, 'displayResults');
       _bind(mod, 'filterPriorityTable'); _bind(mod, 'filterQualityReports');
       _bind(mod, 'rerenderVal'); _bind(mod, 'rerenderAnom'); _bind(mod, 'loadQualityReports');
       break;

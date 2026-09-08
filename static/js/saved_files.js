@@ -24,7 +24,11 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             }).then(files => {
                 const container = document.getElementById('savedFilesList');
                 const actions = document.getElementById('savedActions');
-                document.getElementById('savedCount').textContent = files.length + ' file(s)';
+                const countEl = document.getElementById('savedCount');
+                // Upload tab content may not be loaded yet (it's loaded lazily
+                // on first visit), so bail out gracefully.
+                if (!container || !actions || !countEl) return;
+                countEl.textContent = files.length + ' file(s)';
                 if (!files.length) {
                     container.innerHTML = '<p style="font-size:0.85rem;color:var(--text-muted);">No saved files found.</p>';
                     actions.style.display = 'none';
@@ -45,7 +49,9 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                         '</tr>').join('') +
                     '</tbody></table>';
             }).catch(err => {
-                document.getElementById('savedFilesList').innerHTML = '<p style="font-size:0.85rem;color:red;">Error: ' + err.message + '</p>';
+                const cl = document.getElementById('savedFilesList');
+                if (!cl) return;
+                cl.innerHTML = '<p style="font-size:0.85rem;color:red;">Error: ' + err.message + '</p>';
             });
         }
 

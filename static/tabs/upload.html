@@ -1,0 +1,56 @@
+<!-- Upload Card -->
+        <div class="card">
+            <h2 data-i18n="Smart Data Entry">إدخال البيانات الذكي</h2>
+            <!-- Step indicator -->
+            <div id="uploadSteps" style="display:flex;gap:0.3rem;margin-bottom:1rem;font-size:0.78rem;align-items:center;">
+                <span class="step-dot active" data-step="1" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:var(--accent-blue);color:white;font-weight:600;">1. Upload</span>
+                <span style="color:var(--text-muted);">→</span>
+                <span class="step-dot" data-step="2" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:var(--border-default);color:var(--text-muted);">2. Preview</span>
+                <span style="color:var(--text-muted);">→</span>
+                <span class="step-dot" data-step="3" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:var(--border-default);color:var(--text-muted);">3. Analyze</span>
+                <span style="color:var(--text-muted);">→</span>
+                <span class="step-dot" data-step="4" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.2rem 0.6rem;border-radius:12px;background:var(--border-default);color:var(--text-muted);">4. Results</span>
+            </div>
+            <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+                <div style="flex:1;min-width:300px;">
+                    <h3 data-i18n="Upload Excel File">رفع ملف إكسل</h3>
+                    <div class="upload-area" id="dropZone">
+                        <div class="upload-icon">📂</div>
+                        <div class="upload-text"><span data-i18n="Drag & drop or click to browse">اسحب وأفلت أو انقر للتصفح</span></div>
+                        <div class="upload-hint" data-i18n=".xlsx, .xls, .csv | Multi-file supported">يدعم ملفات متعددة</div>
+                        <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" multiple>
+                    </div>
+                    <div id="fileList" class="file-list hidden" style="margin-top:0.5rem;"></div>
+                </div>
+            </div>
+            <div id="previewArea" style="margin-top:1rem;display:none;">
+                <h3 data-i18n="Preview Before Import">معاينة قبل الاستيراد <span id="previewInfo" style="font-size:0.8rem;color:var(--text-muted);"></span></h3>
+                <div style="max-height:300px;overflow-y:auto;border:1px solid var(--border-default);border-radius:4px;">
+                    <table id="previewTable" style="font-size:0.78rem;"><thead></thead><tbody></tbody></table>
+                </div>
+                <div style="margin-top:0.5rem;display:flex;gap:0.5rem;">
+                    <button class="btn btn-sm" onclick="confirmImport()" data-i18n="Confirm & Import">تأكيد واستيراد</button>
+                    <button class="btn btn-sm btn-outline" onclick="cancelPreview()" data-i18n="Cancel">إلغاء</button>
+                </div>
+            </div>
+            <div id="status"></div>
+            <div id="uploadProgress" class="hidden" style="margin-top:0.5rem;">
+                <div class="progress-bar"><div class="progress-bar-fill" id="uploadProgressFill" style="width:0%;background:var(--accent-blue);"></div></div>
+                <p id="uploadProgressText" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.3rem;"></p>
+            </div>
+        </div>
+
+        <!-- Saved Files Card -->
+        <div class="card" id="savedFilesCard">
+            <h2 data-i18n="Previously Uploaded Files">الملفات المرفوعة سابقاً
+                <span id="savedCount" class="count-badge" style="font-size:0.75rem;"></span>
+                <button class="btn btn-sm btn-outline" onclick="refreshSavedFiles()" style="float:right;font-size:0.75rem;" data-i18n="Refresh">تحديث</button>
+            </h2>
+            <div id="savedFilesList">
+                <p style="font-size:0.85rem;color:var(--text-muted);" data-i18n="Loading saved files...">جاري تحميل الملفات المحفوظة...</p>
+            </div>
+            <div style="margin-top:0.5rem;display:none;" id="savedActions">
+                <button class="btn btn-sm" onclick="analyzeSelectedSaved()" id="analyzeSavedBtn" data-i18n="Analyze Selected">تحليل المحدد</button>
+                <button class="btn btn-sm btn-outline" onclick="deleteSelectedSaved()" style="margin-left:0.5rem;" data-i18n="Delete Selected">حذف المحدد</button>
+            </div>
+        </div>
