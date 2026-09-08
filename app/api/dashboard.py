@@ -535,7 +535,7 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
 @router.post("/recalculate-completeness")
 def recalculate_completeness(db: Session = Depends(get_db)):
     """Bulk recalculate completeness for all quality_scores (batch-optimized)."""
-    from app.models import Indicator, IndicatorValue as _IV, HospitalIndicatorConfig as _HIC, SystemSetting, SystemConfig
+    from app.models import Indicator, IndicatorValue as _IV, HospitalIndicatorConfig as _HIC, SystemSetting, AppConfig
     # Pre-fetch all data in batch
     all_ind_ids = [i.id for i in db.query(Indicator.id).all()]
     scores = db.query(QualityScore).all()
@@ -568,7 +568,7 @@ def recalculate_completeness(db: Session = Depends(get_db)):
         pass
     # Pre-fetch weights
     try:
-        cfg_rows = db.query(SystemConfig).all()
+        cfg_rows = db.query(AppConfig).all()
         cfg_map = {c.key: c.value for c in cfg_rows}
         w_rc = float(cfg_map.get("quality_rule_compliance", "0.35"))
         w_cp = float(cfg_map.get("quality_completeness", "0.25"))
@@ -666,8 +666,8 @@ def component_diagnostics(
     # Targets
     targets = {"rule_compliance": 85, "completeness": 90, "consistency": 85, "outlier_score": 90}
     try:
-        from app.models import SystemConfig
-        cfg = db.query(SystemConfig).all()
+        from app.models import AppConfig
+        cfg = db.query(AppConfig).all()
         cfg_map = {c.key: c.value for c in cfg}
         if "quality_rule_compliance" in cfg_map:
             targets["rule_compliance"] = round(float(cfg_map.get("quality_rule_compliance", 0.35)) * 100)

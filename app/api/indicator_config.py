@@ -46,14 +46,14 @@ def _get_all_descendant_ids(db: Session, indicator_id: int) -> List[int]:
 def _recalc_hospital_scores(db: Session, hospital_id: int):
     """Recalculate completeness and overall score for a specific hospital's quality scores."""
     from app.engine.pipeline import get_disabled_indicator_ids as _gcd
-    from app.models import QualityScore, Indicator as _RI, SystemConfig
+    from app.models import QualityScore, Indicator as _RI, AppConfig
     all_ids = [i.id for i in db.query(_RI.id).all()]
     scores = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id).all()
     if not scores:
         return
     # Get weights
     try:
-        cfg_rows = db.query(SystemConfig).all()
+        cfg_rows = db.query(AppConfig).all()
         cfg_map = {c.key: c.value for c in cfg_rows}
         w_rc = float(cfg_map.get("quality_rule_compliance", "0.35"))
         w_cp = float(cfg_map.get("quality_completeness", "0.25"))

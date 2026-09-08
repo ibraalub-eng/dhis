@@ -2386,28 +2386,31 @@ function loadHospitalsSettings() {
         }
 
         export function reanalyzeAll(btn) {
-            const originalText = btn.textContent;
-            btn.textContent = '...';
-            btn.disabled = true;
+            // May be called without a button (e.g. System Control's inline onclick), so fall back to #btnReanalyze
+            btn = btn || document.getElementById('btnReanalyze');
+            const originalText = btn ? btn.textContent : '';
+            if (btn) { btn.textContent = '...'; btn.disabled = true; }
+            const statusEl = document.getElementById('settingsStatus') || document.getElementById('recalcStatus');
             showLoader('Re-analyzing all hospitals...');
             apiPost('/analysis/reanalyze-all?force=true').then(data => {
-                const statusEl = document.getElementById('settingsStatus');
-                statusEl.textContent = '\u2713 Re-analyzed ' + data.total_runs + ' combinations (' + data.hospitals_processed + ' hospitals, ' + data.months_processed + ' months)';
-                statusEl.style.color = 'var(--accent-green)';
-                if (data.errors && data.errors.length) {
-                    statusEl.textContent += ' | Errors: ' + data.errors.length;
-                    statusEl.style.color = 'var(--accent-orange)';
+                if (statusEl) {
+                    statusEl.textContent = '\u2713 Re-analyzed ' + data.total_runs + ' combinations (' + data.hospitals_processed + ' hospitals, ' + data.months_processed + ' months)';
+                    statusEl.style.color = 'var(--accent-green)';
+                    if (data.errors && data.errors.length) {
+                        statusEl.textContent += ' | Errors: ' + data.errors.length;
+                        statusEl.style.color = 'var(--accent-orange)';
+                    }
                 }
                 // Redirect to dashboard to show fresh data
-                switchTab('dashboard');
+                if (typeof switchTab === 'function') switchTab('dashboard');
             }).catch(e => {
-                const statusEl = document.getElementById('settingsStatus');
-                statusEl.textContent = '\u2717 Error: ' + e.message;
-                statusEl.style.color = 'var(--accent-red)';
+                if (statusEl) {
+                    statusEl.textContent = '\u2717 Error: ' + e.message;
+                    statusEl.style.color = 'var(--accent-red)';
+                }
             }).finally(() => {
                 hideLoader();
-                btn.textContent = originalText;
-                btn.disabled = false;
+                if (btn) { btn.textContent = originalText; btn.disabled = false; }
             });
         }
 
