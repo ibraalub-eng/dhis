@@ -1305,6 +1305,7 @@ window._adminAssignHospitals = function(id, btn) {
   // ── Tab Order Manager ──
   var DEFAULT_TAB_ORDER = [
     {id:'dashboard', label:'📊 Dashboard'},
+    {id:'upload', label:'📤 Upload Data'},
     {id:'quality', label:'📋 Quality Reports'},
     {id:'analysis', label:'📈 Comparative Analysis'},
     {id:'clinical', label:'🏥 Clinical Intelligence'},

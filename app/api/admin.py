@@ -243,6 +243,7 @@ def list_permissions(db: Session = Depends(get_db)):
 # Tab definitions: tab_id -> (label, required_permission)
 _TAB_DEFS = {
     "dashboard": ("📊 Dashboard", "dashboard.read"),
+    "upload": ("📤 Upload", "data.upload"),
     "analysis": ("📈 Analysis", "analysis.read"),
     "quality": ("✅ Quality", "quality.read"),
     "outliers": ("⚠️ Outliers", "outliers.read"),
