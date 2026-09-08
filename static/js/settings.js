@@ -1521,24 +1521,48 @@ function loadHospitalsSettings() {
                                 }
                                 html += '</div>';
 
-                                // Per-hospital affected list
+                                // Per-hospital affected list (expandable/collapsible cards)
                                 var affected = cause.affected_hospitals || [];
                                 if (affected.length > 0) {
                                     html += '<div style="margin-top:0.5rem;">';
                                     html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;display:flex;align-items:center;gap:0.4rem;">';
                                     html += '\ud83d\udcca ' + __('Affected Hospitals') + ' <span style="background:var(--accent-red);color:#fff;padding:0 6px;border-radius:10px;font-size:0.65rem;font-weight:700;">' + affected.length + '</span>';
                                     html += '</div>';
-                                    html += '<div style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:0.35rem;padding-right:4px;">';
+                                    html += '<div style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:0.4rem;padding-right:4px;">';
                                     affected.forEach(function(h, idx) {
                                         var hCol = h.avg_value >= 80 ? 'var(--accent-green)' : h.avg_value >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                                        var hBg = h.avg_value >= 80 ? 'rgba(46,125,50,0.06)' : h.avg_value >= 50 ? 'rgba(230,81,0,0.06)' : 'rgba(198,40,40,0.06)';
-                                        html += '<div style="padding:0.45rem 0.6rem;border-radius:6px;border:1px solid var(--border-default);background:' + hBg + ';display:flex;align-items:flex-start;gap:0.6rem;">';
-                                        html += '<div style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1px;">' + (idx + 1) + '</div>';
-                                        html += '<div style="flex:1;min-width:0;">';
-                                        html += '<div style="font-size:0.75rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</div>';
-                                        // Show failed rules if available
+                                        var missList = (h.missing_by_indicator && h.missing_by_indicator.length) ? h.missing_by_indicator : null;
+                                        var missCount = missList ? missList.length : (h.missing_indicators ? h.missing_indicators.length : 0);
+                                        html += '<div style="border:1px solid var(--border-default);border-radius:6px;overflow:hidden;">';
+
+                                        // Hospital header (click to expand/collapse)
+                                        html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.6rem;background:var(--bg-surface-hover);cursor:pointer;" onclick="var b=this.parentElement.querySelector(\'._hosp-body\');var c=this.querySelector(\'._hosp-chev\');var isHidden=b.classList.toggle(\'hidden\');c.textContent=isHidden?\'\u25b8\':\'\u25be\';if(!isHidden&&!b.dataset.loaded)b.dataset.loaded=1;">';
+                                        html += '<span style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;">' + (idx + 1) + '</span>';
+                                        html += '<div style="flex:1;min-width:0;font-size:0.75rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(h.hospital_name) + '">' + esc(h.hospital_name) + '</div>';
+                                        if (missCount > 0) {
+                                            html += '<span style="flex-shrink:0;background:rgba(198,40,40,0.15);color:var(--accent-red);padding:1px 7px;border-radius:10px;font-size:0.6rem;font-weight:700;" title="Missing indicators">' + missCount + ' ' + __('missing') + '</span>';
+                                        }
+                                        html += '<span style="flex-shrink:0;font-size:0.7rem;font-weight:700;color:' + hCol + ';">' + h.avg_value + '%</span>';
+                                        html += '<span class="_hosp-chev" style="flex-shrink:0;font-size:0.7rem;color:var(--text-muted);">\u25b8</span>';
+                                        html += '</div>';
+
+                                        // Hospital body (hidden until expanded)
+                                        html += '<div class="_hosp-body hidden" style="padding:0.55rem 0.6rem;border-top:1px solid var(--border-default);">';
+
+                                        // Progress / months summary
+                                        html += '<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.4rem;">';
+                                        html += '<div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">';
+                                        html += '<div style="width:' + Math.min(h.avg_value, 100) + '%;height:5px;background:' + hCol + ';border-radius:3px;"></div>';
+                                        html += '</div>';
+                                        html += '<span style="font-size:0.7rem;font-weight:700;color:' + hCol + ';white-space:nowrap;">' + h.avg_value + '%</span>';
+                                        html += '</div>';
+                                        if (h.problem_months && h.problem_months.length) {
+                                            html += '<div style="margin-bottom:0.4rem;font-size:0.63rem;color:var(--text-muted);">' + __('Months') + ': ' + h.problem_months.join(', ') + '</div>';
+                                        }
+
+                                        // Failed rules
                                         if (h.failed_rules && h.failed_rules.length) {
-                                            html += '<div style="margin-top:3px;display:flex;flex-wrap:wrap;gap:3px;">';
+                                            html += '<div style="margin-bottom:0.4rem;display:flex;flex-wrap:wrap;gap:3px;">';
                                             h.failed_rules.forEach(function(r) {
                                                 var rCode = typeof r === 'object' ? r.code : r;
                                                 var rSev = typeof r === 'object' ? (r.severity || 'HIGH') : 'HIGH';
@@ -1549,21 +1573,34 @@ function loadHospitalsSettings() {
                                             });
                                             html += '</div>';
                                         }
-                                        html += '<div style="display:flex;align-items:center;gap:0.4rem;margin-top:3px;">';
-                                        html += '<div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">';
-                                        html += '<div style="width:' + Math.min(h.avg_value, 100) + '%;height:5px;background:' + hCol + ';border-radius:3px;"></div>';
-                                        html += '</div>';
-                                        html += '<span style="font-size:0.7rem;font-weight:700;color:' + hCol + ';white-space:nowrap;">' + h.avg_value + '%</span>';
-                                        html += '</div>';
-                                        if (h.problem_months && h.problem_months.length) {
-                                            html += '<div style="margin-top:3px;font-size:0.63rem;color:var(--text-muted);">' + __('Months') + ': ' + h.problem_months.join(', ') + '</div>';
-                                        }
-                                        if (h.missing_by_indicator && h.missing_by_indicator.length) {
-                                            html += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
-                                            h.missing_by_indicator.forEach(function(m) {
-                                                html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.6rem;" title="' + esc(m.indicator) + ': ' + (m.months || []).join(', ') + '">' + esc(m.indicator) + ' <b style="color:var(--text-secondary);">(' + (m.months || []).join(', ') + ')</b></span>';
+
+                                        // Missing indicators: 2-column table (indicator | months)
+                                        if (missList) {
+                                            html += '<div style="font-size:0.68rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.3rem;">' + __('Missing Indicators') + '</div>';
+                                            html += '<div style="overflow-x:auto;">';
+                                            html += '<table style="width:100%;border-collapse:collapse;font-size:0.68rem;">';
+                                            html += '<thead><tr style="background:var(--bg-surface);">';
+                                            html += '<th style="text-align:left;padding:0.25rem 0.4rem;width:55%;">' + __('Indicator') + '</th>';
+                                            html += '<th style="text-align:left;padding:0.25rem 0.4rem;">' + __('Missing in Month(s)') + '</th>';
+                                            html += '</tr></thead><tbody>';
+                                            missList.forEach(function(m) {
+                                                var months = m.months || [];
+                                                html += '<tr style="border-bottom:1px solid var(--border-default);">';
+                                                html += '<td style="padding:0.25rem 0.4rem;font-weight:500;">' + esc(m.indicator) + '</td>';
+                                                html += '<td style="padding:0.25rem 0.4rem;">';
+                                                if (months.length) {
+                                                    html += '<div style="display:flex;flex-wrap:wrap;gap:3px;">';
+                                                    months.forEach(function(mo) {
+                                                        html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.62rem;font-weight:600;">' + esc(mo) + '</span>';
+                                                    });
+                                                    html += '</div>';
+                                                } else {
+                                                    html += '<span style="color:var(--text-muted);font-size:0.62rem;">—</span>';
+                                                }
+                                                html += '</td>';
+                                                html += '</tr>';
                                             });
-                                            html += '</div>';
+                                            html += '</tbody></table></div>';
                                         } else if (h.missing_indicators && h.missing_indicators.length) {
                                             html += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
                                             h.missing_indicators.forEach(function(mi) {
@@ -1571,8 +1608,9 @@ function loadHospitalsSettings() {
                                             });
                                             html += '</div>';
                                         }
-                                        html += '</div>';
-                                        html += '</div>';
+
+                                        html += '</div>'; // _hosp-body
+                                        html += '</div>'; // hospital card
                                     });
                                     html += '</div></div>';
                                 }
