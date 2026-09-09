@@ -206,6 +206,15 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 });
         }
 
+        function perHospitalHtml(node) {
+            if (!node.per_hospital || node.per_hospital.length === 0) return '';
+            const total = node.value;
+            const items = node.per_hospital.map(p =>
+                '<span class="tree-ph-item" title="' + esc(p.hospital) + '">' + esc(p.hospital) + ': ' + esc(p.value) + '</span>'
+            ).join('<span class="tree-ph-sep">·</span>');
+            return '<div class="tree-ph" title="' + esc(total) + '">' + items + '</div>';
+        }
+
         function renderTreeNodes(node, depth, hospitalId) {
             const wrapper = document.createElement('div');
             wrapper.className = 'tree-node';
@@ -266,6 +275,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 summary.insertAdjacentHTML('beforeend', '<span class="tree-code">' + esc(node.code) + '</span> ' +
                     '<span class="tree-name">' + esc(node.name) + '</span>' + valHtml +
                     ' <span class="tree-branch-badge">branch</span>');
+                if (isDefault && node.per_hospital) summary.insertAdjacentHTML('beforeend', perHospitalHtml(node));
                 details.appendChild(summary);
 
                 node.children.forEach(child => {
@@ -281,6 +291,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                     : ' <span class="tree-val tree-val-null">—</span>';
                 line.insertAdjacentHTML('beforeend', '<span class="tree-code">' + esc(node.code) + '</span> ' +
                     '<span class="tree-name">' + esc(node.name) + '</span>' + leafVal);
+                if (isDefault && node.per_hospital) line.insertAdjacentHTML('beforeend', perHospitalHtml(node));
                 wrapper.appendChild(line);
             }
             return wrapper;

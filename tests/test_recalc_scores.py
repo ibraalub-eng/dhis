@@ -246,6 +246,44 @@ def test_default_tree_aggregates_hospital_values(client, db_session):
     node = _find({"children": data["children"]})
     assert node is not None
     assert node["value"] == 12
+    assert sorted(node["per_hospital"], key=lambda p: p["hospital_id"]) == [
+        {"hospital_id": 1, "hospital": "General Hospital", "value": 5.0},
+        {"hospital_id": 2, "hospital": "Central Medical", "value": 7.0},
+    ]
+
+
+def test_default_tree_per_hospital_breakdown_all_months(client, db_session):
+    """Default-scope __all__ must aggregate per hospital across months."""
+    from app.models import Indicator, IndicatorValue
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorValue(hospital_id=1, month="2027-01", indicator_id=ind.id, value=5))
+    db_session.add(IndicatorValue(hospital_id=1, month="2027-02", indicator_id=ind.id, value=3))
+    db_session.add(IndicatorValue(hospital_id=2, month="2027-01", indicator_id=ind.id, value=7))
+    db_session.add(IndicatorValue(hospital_id=3, month="2027-03", indicator_id=ind.id, value=9))
+    db_session.commit()
+
+    resp = client.get("/hospitals/indicator-tree/default?month=__all__")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    def _find(node):
+        if node.get("indicator_id") == ind.id:
+            return node
+        for child in node.get("children", []):
+            found = _find(child)
+            if found is not None:
+                return found
+        return None
+
+    node = _find({"children": data["children"]})
+    assert node is not None
+    assert node["value"] == 24
+    assert sorted(node["per_hospital"], key=lambda p: p["hospital_id"]) == [
+        {"hospital_id": 1, "hospital": "General Hospital", "value": 8.0},
+        {"hospital_id": 2, "hospital": "Central Medical", "value": 7.0},
+        {"hospital_id": 3, "hospital": "Community Clinic", "value": 9.0},
+    ]
 
 
 def test_toggle_default_endpoint(client, db_session):

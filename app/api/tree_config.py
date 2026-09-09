@@ -203,7 +203,18 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
             )
             value_map = {code: val for code, val in rows if val is not None}
     elif default_scope:
-        # Aggregate across ALL hospitals so the default tree shows real data.
+        # Aggregate across ALL hospitals so the default tree shows real data,
+        # and keep a per-hospital breakdown for each indicator.
+        breakdown_map: dict[str, list[dict]] = {}
+
+        def _sum_rows(_rows):
+            _fm: dict[str, float] = {}
+            for code, val in _rows:
+                if val is None:
+                    continue
+                _fm[code] = _fm.get(code, 0.0) + val
+            return {code: float(v) for code, v in _fm.items()}
+
         if month == "__all__":
             rows = (
                 db.query(Indicator.code, sa_func.sum(IndicatorValue.value))
@@ -212,7 +223,24 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
                 .group_by(Indicator.code)
                 .all()
             )
-            value_map = {code: float(val) for code, val in rows}
+            value_map = _sum_rows(rows)
+            b_rows = (
+                db.query(
+                    Indicator.code,
+                    IndicatorValue.hospital_id,
+                    Hospital.name,
+                    sa_func.sum(IndicatorValue.value),
+                )
+                .join(Indicator, Indicator.id == IndicatorValue.indicator_id)
+                .join(Hospital, Hospital.id == IndicatorValue.hospital_id)
+                .filter(IndicatorValue.value.isnot(None))
+                .group_by(Indicator.code, IndicatorValue.hospital_id, Hospital.name)
+                .all()
+            )
+            for code, hid, hname, val in b_rows:
+                breakdown_map.setdefault(code, []).append(
+                    {"hospital_id": hid, "hospital": hname, "value": float(val)}
+                )
         else:
             rows = (
                 db.query(Indicator.code, sa_func.sum(IndicatorValue.value))
@@ -224,7 +252,26 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
                 .group_by(Indicator.code)
                 .all()
             )
-            value_map = {code: float(val) for code, val in rows}
+            value_map = _sum_rows(rows)
+            b_rows = (
+                db.query(
+                    Indicator.code,
+                    IndicatorValue.hospital_id,
+                    Hospital.name,
+                    IndicatorValue.value,
+                )
+                .join(Indicator, Indicator.id == IndicatorValue.indicator_id)
+                .join(Hospital, Hospital.id == IndicatorValue.hospital_id)
+                .filter(
+                    IndicatorValue.month == month,
+                    IndicatorValue.value.isnot(None),
+                )
+                .all()
+            )
+            for code, hid, hname, val in b_rows:
+                breakdown_map.setdefault(code, []).append(
+                    {"hospital_id": hid, "hospital": hname, "value": float(val)}
+                )
 
     all_indicators = {ind.code: ind for ind in db.query(Indicator).all()}
     configs = {}
@@ -298,6 +345,10 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
             "leaf": not bool(node.get("children")),
             "tooltip": tooltip,
         }
+        if default_scope and raw_value is not None:
+            parts = breakdown_map.get(code) or []
+            parts = sorted(parts, key=lambda p: p["hospital"])
+            enriched["per_hospital"] = parts
         if node.get("children"):
             child_values = []
             for child in node["children"]:

@@ -294,6 +294,12 @@ tbody tr { transition: background 0.12s; }
 .tree-val { font-family: 'Consolas','Courier New',monospace; font-weight: 700; color: var(--accent-green); margin-left: 0.5rem; }
 .tree-val-sum { color: var(--accent-blue); }
 .tree-val-null { color: var(--text-muted); font-weight: 400; }
+.tree-ph { margin-left: 2.2rem; margin-top: 0.15rem; font-size: 0.74rem; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 0 0.6rem; }
+.tree-leaf > .tree-ph { margin-left: 2.05rem; }
+.tree-ph-item { white-space: nowrap; }
+.tree-ph-sep { color: var(--border-default); }
+body.rtl .tree-ph { margin-right: 2.2rem; margin-left: 0; }
+body.rtl .tree-leaf > .tree-ph { margin-right: 2.05rem; margin-left: 0; }
 .tree-toggle { display:inline-flex; align-items:center; justify-content:center; width:1.35rem; height:1.35rem; border-radius:4px; cursor:pointer; font-size:0.78rem; font-weight:700; margin-right:0.4rem; vertical-align:middle; user-select:none; border:1.5px solid var(--border-default); background:transparent; flex-shrink:0; }
 .tree-toggle.on { background:var(--severity-success-bg); color:var(--accent-green); border-color:var(--accent-green); }
 .tree-toggle.on:hover { background:var(--severity-success-border); }
