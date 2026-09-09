@@ -167,11 +167,15 @@ _startup_done = False
 def _db_already_initialized(session):
     """Check if migrations + seeding have already run (idempotent startup).
 
-    Returns True when:
-    1. alembic_version table exists AND has the head revision, AND
+    Returns True only when:
+    1. alembic_version table exists AND is stamped at the head revision, AND
     2. at least one AppConfig row exists (seeding has run).
+
+    A stale alembic stamp (e.g. after a failed migration) must NOT count as
+    initialized, otherwise pending migrations are never retried and code that
+    references the new tables 500s (e.g. /dashboard/overview).
     """
-    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import inspect as sa_inspect, text
     try:
         inspector = sa_inspect(session.get_bind())
         tables = inspector.get_table_names()
@@ -179,8 +183,11 @@ def _db_already_initialized(session):
             return False
         if "app_config" not in tables:
             return False
-        row = session.query(AppConfig).first()
-        return row is not None
+        if session.query(AppConfig).first() is None:
+            return False
+        script = ScriptDirectory.from_config(Config(os.path.join(BASE_DIR, "alembic.ini")))
+        current = session.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        return current == script.get_current_head()
     except Exception:
         return False
 
