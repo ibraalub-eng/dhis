@@ -413,6 +413,14 @@ def _data_fingerprint(session, months: List[str], config: Dict[str, Any]) -> str
     ):
         h.update(f"c|{hid}|{iid}|{enabled}\n".encode())
 
+    from app.models import IndicatorDefaultConfig
+    for mid, iid, enabled in (
+        session.query(IndicatorDefaultConfig.month,
+                      IndicatorDefaultConfig.indicator_id,
+                      IndicatorDefaultConfig.is_enabled).all()
+    ):
+        h.update(f"dc|{mid}|{iid}|{enabled}\n".encode())
+
     for key in sorted(config):
         h.update(f"k|{key}|{config[key]}\n".encode())
 

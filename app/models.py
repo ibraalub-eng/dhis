@@ -85,6 +85,7 @@ class Indicator(Base):
     parent = relationship("Indicator", remote_side=[id], backref="children")
     values = relationship("IndicatorValue", back_populates="indicator")
     hospital_configs = relationship("HospitalIndicatorConfig", back_populates="indicator", cascade="all, delete-orphan")
+    default_configs = relationship("IndicatorDefaultConfig", back_populates="indicator", cascade="all, delete-orphan")
 
 
 class HospitalIndicatorConfig(Base):
@@ -101,6 +102,24 @@ class HospitalIndicatorConfig(Base):
 
     __table_args__ = (
         UniqueConstraint("hospital_id", "indicator_id", name="uq_hospital_indicator"),
+    )
+
+
+class IndicatorDefaultConfig(Base):
+    """Default (All Hospitals) enabled/disabled state per indicator per month.
+    A hospital's own HospitalIndicatorConfig row overrides this default."""
+    __tablename__ = "indicator_default_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    indicator_id = Column(Integer, ForeignKey("indicators.id"), nullable=False, index=True)
+    month = Column(String(7), nullable=False, index=True)
+    is_enabled = Column(Boolean, default=True)
+    weight_override = Column(Float, nullable=True)
+
+    indicator = relationship("Indicator", back_populates="default_configs")
+
+    __table_args__ = (
+        UniqueConstraint("indicator_id", "month", name="uq_indicator_default_month"),
     )
 
 

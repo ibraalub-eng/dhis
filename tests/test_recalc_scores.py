@@ -79,6 +79,139 @@ def test_toggle_indicator_endpoint(client, db_session):
     assert "message" in data
 
 
+def test_default_disabled_inherited_by_hospital(client, db_session):
+    """A default-disabled indicator must be disabled for a hospital with no override."""
+    from app.engine.pipeline import get_effective_manual_disabled_ids
+    from app.models import Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
+    db_session.commit()
+
+    disabled = get_effective_manual_disabled_ids(db_session, hospital_id=1, month="2027-02")
+    assert ind.id in disabled
+
+
+def test_hospital_override_exempts_from_default_disabled(client, db_session):
+    """A per-hospital enabled override must exempt that hospital from the default-disable."""
+    from app.engine.pipeline import get_effective_manual_disabled_ids
+    from app.models import HospitalIndicatorConfig, Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
+    db_session.add(HospitalIndicatorConfig(hospital_id=1, indicator_id=ind.id, is_enabled=True))
+    db_session.commit()
+
+    disabled = get_effective_manual_disabled_ids(db_session, hospital_id=1, month="2027-02")
+    assert ind.id not in disabled
+
+    # Other hospitals without an override still inherit the default.
+    disabled2 = get_effective_manual_disabled_ids(db_session, hospital_id=2, month="2027-02")
+    assert ind.id in disabled2
+
+
+def test_hospital_own_disabled_stays_disabled_even_if_default_enabled(client, db_session):
+    """A per-hospital disabled override must keep the indicator disabled even when the default is enabled."""
+    from app.engine.pipeline import get_effective_manual_disabled_ids
+    from app.models import HospitalIndicatorConfig, Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=True))
+    db_session.add(HospitalIndicatorConfig(hospital_id=1, indicator_id=ind.id, is_enabled=False))
+    db_session.commit()
+
+    disabled = get_effective_manual_disabled_ids(db_session, hospital_id=1, month="2027-02")
+    assert ind.id in disabled
+
+
+def test_default_is_month_scoped(client, db_session):
+    """A default-disable for one month must NOT leak into another month."""
+    from app.engine.pipeline import get_effective_manual_disabled_ids
+    from app.models import Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
+    db_session.commit()
+
+    disabled_feb = get_effective_manual_disabled_ids(db_session, hospital_id=1, month="2027-02")
+    disabled_mar = get_effective_manual_disabled_ids(db_session, hospital_id=1, month="2027-03")
+    assert ind.id in disabled_feb
+    assert ind.id not in disabled_mar
+
+
+def test_toggle_default_endpoint(client, db_session):
+    """PUT /hospitals/indicators/{id}/toggle-default must write an IndicatorDefaultConfig row."""
+    from app.models import Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    resp = client.put(f"/hospitals/indicators/{ind.id}/toggle-default?month=2027-02")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["is_enabled"] is False
+
+    cfg = db_session.query(IndicatorDefaultConfig).filter(
+        IndicatorDefaultConfig.indicator_id == ind.id,
+        IndicatorDefaultConfig.month == "2027-02",
+    ).first()
+    assert cfg is not None
+    assert cfg.is_enabled is False
+
+
+def test_default_tree_endpoint_reflects_default_config(client, db_session):
+    """The default-scope tree endpoint must show disabled state from IndicatorDefaultConfig."""
+    from app.models import Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
+    db_session.commit()
+
+    resp = client.get("/hospitals/indicator-tree/default?month=2027-02")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["default_scope"] is True
+    assert data["hospital"] == "Default (All Hospitals)"
+
+    def _find(node, indicator_id):
+        if node.get("indicator_id") == indicator_id:
+            return node
+        for child in node.get("children", []):
+            found = _find(child, indicator_id)
+            if found is not None:
+                return found
+        return None
+
+    node = _find({"children": data["children"]}, ind.id)
+    assert node is not None
+    assert node["is_enabled"] is False
+
+
+def test_hospital_tree_reflects_inherited_default(client, db_session):
+    """A hospital with no override must show the inherited default state in its tree."""
+    from app.models import Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
+    db_session.commit()
+
+    resp = client.get("/hospitals/1/indicator-tree?month=2027-02")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["default_scope"] is False
+
+    def _find(node, indicator_id):
+        if node.get("indicator_id") == indicator_id:
+            return node
+        for child in node.get("children", []):
+            found = _find(child, indicator_id)
+            if found is not None:
+                return found
+        return None
+
+    node = _find({"children": data["children"]}, ind.id)
+    assert node is not None
+    assert node["is_enabled"] is False
+
+
 def _insert_indicator_value(db_session, hospital_id, month, code, value):
     from app.models import Indicator, IndicatorValue
 

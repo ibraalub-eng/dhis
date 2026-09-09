@@ -6,6 +6,12 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         // ── Indicator Tree ────────────────────────────────────────
         let currentTreeData = null;
 
+        const DEFAULT_HOSPITAL_VALUE = '__default__';
+
+        function treeDefaultOption() {
+            return '<option value="' + DEFAULT_HOSPITAL_VALUE + '">' + __('Default (All Hospitals)') + '</option>';
+        }
+
         export function expandAllTree() {
             document.querySelectorAll('#treeContainer details').forEach(d => d.open = true);
         }
@@ -24,12 +30,12 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             }
             const phH = '<option value="">' + __('Select Hospital') + '</option>';
             const phM = '<option value="">' + __('Select Month') + '</option>';
-            hsel.innerHTML = phH;
+            hsel.innerHTML = phH + treeDefaultOption();
             msel.innerHTML = phM;
             Promise.all([
                 apiGet('/hospitals/').then(data => {
                     const list = data.value || data || [];
-                    hsel.innerHTML = phH + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
+                    hsel.innerHTML = phH + treeDefaultOption() + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
                 }).catch(() => {}),
                 apiGet('/analysis/months').then(months => {
                     msel.innerHTML = phM + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
@@ -57,7 +63,10 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             document.getElementById('treeLoading').classList.remove('hidden');
             el.innerHTML = '';
             const summary = document.getElementById('treeSummary');
-            authFetch(API() + '/hospitals/' + hospId + '/indicator-tree?month=' + month)
+            const url = hospId === DEFAULT_HOSPITAL_VALUE
+                ? '/hospitals/indicator-tree/default?month=' + month
+                : '/hospitals/' + hospId + '/indicator-tree?month=' + month;
+            authFetch(API() + url)
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('treeLoading').classList.add('hidden');
@@ -115,7 +124,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         export function reanalyzeHospital() {
             const hospId = document.getElementById('treeHospitalSelect').value;
             const month = document.getElementById('treeMonthSelect').value;
-            if (!hospId || !month) return;
+            if (!hospId || !month || hospId === DEFAULT_HOSPITAL_VALUE) return;
             const btn = document.getElementById('treeReanalyzeBtn');
             if (btn) { btn.textContent = 'Analyzing...'; btn.disabled = true; }
             setStatus('loading', 'Re-analyzing ' + month + '...');
@@ -147,12 +156,16 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             const hospId = document.getElementById('treeHospitalSelect').value;
             const month = document.getElementById('treeMonthSelect').value;
             if (!currentTreeData || !hospId || !month) return;
+            const isDefault = hospId === DEFAULT_HOSPITAL_VALUE;
             const items = [];
             currentTreeData.children.forEach(c => collectTreeState(c, items));
             const btn = document.getElementById('treeSaveBtn');
             btn.textContent = __('Saving...');
             btn.disabled = true;
-            authFetch(API() + '/hospitals/' + hospId + '/save-tree-config?month=' + month, {
+            const url = isDefault
+                ? API() + '/hospitals/save-default-tree-config?month=' + month
+                : API() + '/hospitals/' + hospId + '/save-tree-config?month=' + month;
+            authFetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ items: items }),
@@ -161,18 +174,20 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 .then(data => {
                     btn.textContent = __('Saved!');
                     btn.disabled = false;
-                    // Show re-analyze button
-                    let raBtn = document.getElementById('treeReanalyzeBtn');
-                    if (!raBtn) {
-                        raBtn = document.createElement('button');
-                        raBtn.id = 'treeReanalyzeBtn';
-                        raBtn.className = 'btn btn-sm';
-                        raBtn.textContent = __('Re-analyze');
-                        raBtn.style.marginLeft = '0.5rem';
-                        raBtn.onclick = reanalyzeHospital;
-                        btn.parentNode.insertBefore(raBtn, btn.nextSibling);
+                    if (!isDefault) {
+                        // Show re-analyze button
+                        let raBtn = document.getElementById('treeReanalyzeBtn');
+                        if (!raBtn) {
+                            raBtn = document.createElement('button');
+                            raBtn.id = 'treeReanalyzeBtn';
+                            raBtn.className = 'btn btn-sm';
+                            raBtn.textContent = __('Re-analyze');
+                            raBtn.style.marginLeft = '0.5rem';
+                            raBtn.onclick = reanalyzeHospital;
+                            btn.parentNode.insertBefore(raBtn, btn.nextSibling);
+                        }
+                        raBtn.style.display = 'inline-block';
                     }
-                    raBtn.style.display = 'inline-block';
                     setTimeout(() => {
                         btn.style.display = 'none';
                     }, 2000);
@@ -190,6 +205,8 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             if (node.is_enabled === false) wrapper.classList.add('tree-disabled');
 
             const isParent = node.children && node.children.length > 0;
+            const month = document.getElementById('treeMonthSelect').value;
+            const isDefault = hospitalId === DEFAULT_HOSPITAL_VALUE;
 
             const toggle = document.createElement('span');
             toggle.className = 'tree-toggle ' + (node.is_enabled !== false ? 'on' : 'off');
@@ -203,8 +220,9 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 if (toggle.classList.contains('loading')) return;
                 toggle.classList.add('loading');
                 if (!indicatorId) { toggle.classList.remove('loading'); toastWarning('Indicator ID not found.'); return; }
-                const url = API() + '/hospitals/' + hospitalId + '/indicators/' + indicatorId + '/toggle' +
-                    (isParent ? '?cascade=true' : '');
+                const url = isDefault
+                    ? API() + '/hospitals/indicators/' + indicatorId + '/toggle-default?month=' + month + (isParent ? '&cascade=true' : '')
+                    : API() + '/hospitals/' + hospitalId + '/indicators/' + indicatorId + '/toggle?month=' + month + (isParent ? '&cascade=true' : '');
                 authFetch(url, { method: 'PUT' })
                     .then(r => r.json())
                     .then(data => {

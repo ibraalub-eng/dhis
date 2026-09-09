@@ -16,7 +16,7 @@ from app.core.deps import require_permission, get_user_hospital_ids
 def _recalc_completeness(db, scores):
     """Recalculate completeness for QualityScore objects using batch pre-fetching.
     Replaces N+1 queries with ~4 batch queries + in-memory lookups."""
-    from app.models import Indicator as _RI, IndicatorValue as _RIV, HospitalIndicatorConfig as _HIC, SystemSetting
+    from app.models import Indicator as _RI, IndicatorValue as _RIV, HospitalIndicatorConfig as _HIC, SystemSetting, IndicatorDefaultConfig as _DIC
     if not scores:
         return []
     # 1. Pre-fetch all indicators ONCE (id -> code for covered-code mapping)
@@ -45,6 +45,19 @@ def _recalc_completeness(db, scores):
     manual_map = {}  # {hid: set(ind_ids)}
     for row in manual_rows:
         manual_map.setdefault(row[0], set()).add(row[1])
+    # 4b. Pre-fetch default (All Hospitals) disabled per month + hospital overrides
+    default_disable_rows = db.query(_DIC.month, _DIC.indicator_id).filter(
+        _DIC.month.in_(all_months), _DIC.is_enabled.is_(False)
+    ).all()
+    default_map = {}  # {month: set(ind_ids)}
+    for m, iid in default_disable_rows:
+        default_map.setdefault(m, set()).add(iid)
+    override_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
+        _HIC.hospital_id.in_(all_hids)
+    ).all()
+    override_map = {}  # {hid: set(ind_ids)} — any explicit per-hospital config wins over default
+    for row in override_rows:
+        override_map.setdefault(row[0], set()).add(row[1])
     # 5. Read auto-disable setting ONCE
     auto_disable = False
     try:
@@ -55,6 +68,9 @@ def _recalc_completeness(db, scores):
     # 6. Compute disabled set for (hid, month) in memory
     def _dis(hid, month):
         d = set(manual_map.get(hid, ()))
+        for iid in default_map.get(month, ()):
+            if iid not in override_map.get(hid, ()):
+                d.add(iid)
         if auto_disable:
             ivm = iv_index.get((hid, month), {})
             for iid in all_ids:
@@ -582,6 +598,20 @@ def recalculate_completeness(db: Session = Depends(get_db)):
     manual_map = {}
     for row in manual_rows:
         manual_map.setdefault(row[0], set()).add(row[1])
+    # Batch fetch default (All Hospitals) disabled per month + hospital overrides
+    from app.models import IndicatorDefaultConfig as _DIC
+    default_rows = db.query(_DIC.month, _DIC.indicator_id).filter(
+        _DIC.month.in_(all_months), _DIC.is_enabled.is_(False)
+    ).all()
+    default_map = {}
+    for m, iid in default_rows:
+        default_map.setdefault(m, set()).add(iid)
+    override_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
+        _HIC.hospital_id.in_(all_hids)
+    ).all()
+    override_map = {}
+    for row in override_rows:
+        override_map.setdefault(row[0], set()).add(row[1])
     auto_disable = False
     try:
         ads = db.query(SystemSetting).filter(SystemSetting.key == "auto_disable_null_indicators").first()
@@ -606,6 +636,9 @@ def recalculate_completeness(db: Session = Depends(get_db)):
             key = (s.hospital_id, s.month)
             # Compute disabled set in memory
             dis = set(manual_map.get(s.hospital_id, ()))
+            for iid in default_map.get(s.month, ()):
+                if iid not in override_map.get(s.hospital_id, ()):
+                    dis.add(iid)
             if auto_disable:
                 ivm = iv_index.get(key, {})
                 for iid in all_ind_ids:
@@ -793,6 +826,20 @@ def component_diagnostics(
         if row[0] not in manual_disabled_map:
             manual_disabled_map[row[0]] = set()
         manual_disabled_map[row[0]].add(row[1])
+    # Pre-fetch default (All Hospitals) disabled per month + hospital overrides
+    from app.models import IndicatorDefaultConfig as _DIC
+    default_disable_rows = db.query(_DIC.month, _DIC.indicator_id).filter(
+        _DIC.month.in_(all_months), _DIC.is_enabled.is_(False)
+    ).all()
+    default_disabled_map = {}  # {month: set(indicator_ids)}
+    for m, iid in default_disable_rows:
+        default_disabled_map.setdefault(m, set()).add(iid)
+    override_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
+        _HIC.hospital_id.in_(all_hosp_ids)
+    ).all()
+    override_disabled_map = {}  # {hospital_id: set(indicator_ids)} — any per-hospital config wins
+    for row in override_rows:
+        override_disabled_map.setdefault(row[0], set()).add(row[1])
     # Pre-fetch auto-disable setting
     try:
         auto_disable_setting = db.query(SystemSetting).filter(
@@ -804,6 +851,9 @@ def component_diagnostics(
     # Compute disabled sets per (hospital, month) in memory
     def _fast_disabled(hid, month):
         disabled = set(manual_disabled_map.get(hid, set()))
+        for iid in default_disabled_map.get(month, ()):
+            if iid not in override_disabled_map.get(hid, set()):
+                disabled.add(iid)
         if auto_disable:
             iv_map = iv_index.get((hid, month), {})
             for ind_id in all_ind_ids:

@@ -9,7 +9,7 @@ from app.cache import cache
 from app.models import (
     Hospital, IndicatorValue, Indicator, QualityScore,
     AnomalyResult, ValidationResult, ConfidenceScore,
-    HospitalIndicatorConfig,
+    HospitalIndicatorConfig, IndicatorDefaultConfig,
 )
 from app.engine.pipeline import run_full_analysis, get_enabled_values_for_hospital_month, get_all_hospital_data_for_month
 from app.engine.anomaly import detect_anomalies
@@ -285,6 +285,23 @@ def compare_all_hospitals(
     for row in disabled_rows:
         disabled_by_hospital.setdefault(row.hospital_id, set()).add(row.indicator_id)
 
+    # Default (All Hospitals) disabled for this month — inherited unless hospital overrides
+    default_disabled = set(
+        r[0] for r in db.query(IndicatorDefaultConfig.indicator_id).filter(
+            IndicatorDefaultConfig.month == month,
+            IndicatorDefaultConfig.is_enabled.is_(False),
+        ).all()
+    )
+    override_ids_by_hospital: dict[int, set[int]] = {}
+    override_rows = db.query(HospitalIndicatorConfig.hospital_id, HospitalIndicatorConfig.indicator_id).filter(
+        HospitalIndicatorConfig.hospital_id.in_(hospital_ids),
+    ).all()
+    for row in override_rows:
+        override_ids_by_hospital.setdefault(row.hospital_id, set()).add(row.indicator_id)
+    for hid in hospital_ids:
+        inherited = default_disabled - override_ids_by_hospital.get(hid, set())
+        disabled_by_hospital.setdefault(hid, set()).update(inherited)
+
     value_rows = (
         db.query(IndicatorValue, Indicator)
         .join(Indicator, IndicatorValue.indicator_id == Indicator.id)
@@ -390,6 +407,21 @@ def get_ml_analysis(
     ).all()
     for dr in disabled_rows:
         disabled_ids.add((dr.hospital_id, dr.indicator_id))
+
+    # Default (All Hospitals) disabled for this month — inherited unless hospital overrides
+    default_disabled_ids = set()
+    for iid, in db.query(IndicatorDefaultConfig.indicator_id).filter(
+        IndicatorDefaultConfig.month == month,
+        IndicatorDefaultConfig.is_enabled.is_(False),
+    ).all():
+        default_disabled_ids.add(iid)
+    override_ids_by_hospital: dict[int, set[int]] = {}
+    for row in db.query(HospitalIndicatorConfig.hospital_id, HospitalIndicatorConfig.indicator_id).all():
+        override_ids_by_hospital.setdefault(row.hospital_id, set()).add(row.indicator_id)
+    for hid in [h.id for h in hospitals]:
+        inherited = {iid for iid in default_disabled_ids if iid not in override_ids_by_hospital.get(hid, set())}
+        for iid in inherited:
+            disabled_ids.add((hid, iid))
 
     hosp_map = {h.id: h for h in hospitals}
 
@@ -672,6 +704,21 @@ def generate_report(
     for row in disabled_rows:
         disabled_by_hospital.setdefault(row.hospital_id, set()).add(row.indicator_id)
 
+    # Default (All Hospitals) disabled per month — inherited unless hospital overrides
+    default_disabled_by_month: dict[str, set[int]] = {}
+    default_rows = db.query(IndicatorDefaultConfig.month, IndicatorDefaultConfig.indicator_id).filter(
+        IndicatorDefaultConfig.month.in_(months_list),
+        IndicatorDefaultConfig.is_enabled.is_(False),
+    ).all()
+    for m, iid in default_rows:
+        default_disabled_by_month.setdefault(m, set()).add(iid)
+    override_ids_by_hospital: dict[int, set[int]] = {}
+    override_rows = db.query(HospitalIndicatorConfig.hospital_id, HospitalIndicatorConfig.indicator_id).filter(
+        HospitalIndicatorConfig.hospital_id.in_(hospital_ids),
+    ).all()
+    for row in override_rows:
+        override_ids_by_hospital.setdefault(row.hospital_id, set()).add(row.indicator_id)
+
     value_rows = (
         db.query(IndicatorValue, Indicator)
         .join(Indicator, IndicatorValue.indicator_id == Indicator.id)
@@ -683,7 +730,10 @@ def generate_report(
     )
     values_by_key: dict[tuple[int, str], dict[str, float]] = {}
     for val, ind in value_rows:
-        disabled = disabled_by_hospital.get(val.hospital_id, set())
+        disabled = set(disabled_by_hospital.get(val.hospital_id, set()))
+        for iid in default_disabled_by_month.get(val.month, ()):
+            if iid not in override_ids_by_hospital.get(val.hospital_id, set()):
+                disabled.add(iid)
         if ind.id in disabled or val.value is None:
             continue
         values_by_key.setdefault((val.hospital_id, val.month), {})[ind.code] = val.value

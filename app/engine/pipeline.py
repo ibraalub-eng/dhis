@@ -8,6 +8,7 @@ from app.engine.ml import run_ml_analysis
 
 from app.models import (
     Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig,
+    IndicatorDefaultConfig,
     ValidationResult, AnomalyResult, QualityScore, ConfidenceScore,
 )
 from sqlalchemy.orm import Session
@@ -58,14 +59,45 @@ def _is_auto_disable_null(session):
     return bool(row and row.value == "true")
 
 
-def get_enabled_values_for_hospital_month(session: Session, hospital_id: int, month: str) -> Dict[str, float]:
-    disabled_ids = [
+def get_default_disabled_indicator_ids(session, month):
+    """Return indicator IDs disabled by the default (All Hospitals) config for a month."""
+    return [
+        c.indicator_id
+        for c in session.query(IndicatorDefaultConfig).filter(
+            IndicatorDefaultConfig.month == month,
+            IndicatorDefaultConfig.is_enabled.is_(False),
+        ).all()
+    ]
+
+
+def get_hospital_override_indicator_ids(session, hospital_id):
+    """Return indicator IDs that have an explicit per-hospital config (override) — any state."""
+    return [
+        c.indicator_id
+        for c in session.query(HospitalIndicatorConfig).filter(
+            HospitalIndicatorConfig.hospital_id == hospital_id,
+        ).all()
+    ]
+
+
+def get_effective_manual_disabled_ids(session, hospital_id, month):
+    """Return the effective manually-disabled indicator IDs for a hospital/month.
+    A hospital's own config (whether enabled or disabled) always overrides the
+    default (All Hospitals) config for that month."""
+    hospital_disabled = {
         c.indicator_id
         for c in session.query(HospitalIndicatorConfig).filter(
             HospitalIndicatorConfig.hospital_id == hospital_id,
             HospitalIndicatorConfig.is_enabled.is_(False),
         ).all()
-    ]
+    }
+    override_ids = set(get_hospital_override_indicator_ids(session, hospital_id))
+    default_disabled = set(get_default_disabled_indicator_ids(session, month))
+    return list(hospital_disabled | (default_disabled - override_ids))
+
+
+def get_enabled_values_for_hospital_month(session: Session, hospital_id: int, month: str) -> Dict[str, float]:
+    disabled_ids = set(get_effective_manual_disabled_ids(session, hospital_id, month))
     rows = (
         session.query(IndicatorValue, Indicator)
         .join(Indicator, IndicatorValue.indicator_id == Indicator.id)
@@ -86,13 +118,7 @@ def get_enabled_values_for_hospital_month(session: Session, hospital_id: int, mo
 
 def get_disabled_indicator_ids(session, hospital_id, month):
     """Return all indicator IDs that should be considered disabled — manual + auto (null values + missing rows)."""
-    manually_disabled = [
-        c.indicator_id
-        for c in session.query(HospitalIndicatorConfig).filter(
-            HospitalIndicatorConfig.hospital_id == hospital_id,
-            HospitalIndicatorConfig.is_enabled.is_(False),
-        ).all()
-    ]
+    manually_disabled = get_effective_manual_disabled_ids(session, hospital_id, month)
     if _is_auto_disable_null(session):
         null_rows = (
             session.query(IndicatorValue.indicator_id)

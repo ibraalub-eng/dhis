@@ -42,6 +42,27 @@ def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
     for d in all_disabled:
         disabled_map.setdefault(d.hospital_id, set()).add(d.indicator_id)
 
+    # ── Default (All Hospitals) disabled for this month — inherited unless hospital overrides ──
+    from app.models import IndicatorDefaultConfig
+    default_disabled = set(
+        c.indicator_id for c in session.query(IndicatorDefaultConfig).filter(
+            IndicatorDefaultConfig.month == month,
+            IndicatorDefaultConfig.is_enabled.is_(False),
+        ).all()
+    )
+    override_map = {}
+    for c in session.query(HospitalIndicatorConfig).filter(
+        HospitalIndicatorConfig.is_enabled.is_(True),
+    ).all():
+        override_map.setdefault(c.hospital_id, set()).add(c.indicator_id)
+
+    # Combine: hospital-explicit wins, otherwise inherit default for the month
+    combined_disabled_map = {}
+    for hid in [h.id for h in hospitals]:
+        combined_disabled_map[hid] = set(disabled_map.get(hid, ())) | (
+            default_disabled - override_map.get(hid, set())
+        )
+
     # ── Auto-disable: null values + missing indicators (bulk) ──
     auto_disabled_map = {}
     if _is_auto_disable_null(session):
@@ -55,14 +76,14 @@ def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
             hid = hosp.id
             existing = iv_ids_by_hosp.get(hid, set())
             nulls = null_ids_by_hosp.get(hid, set())
-            manually = disabled_map.get(hid, set())
+            manually = combined_disabled_map.get(hid, set())
             missing = all_indicator_ids - existing - manually
             auto_disabled_map[hid] = nulls | missing
 
     all_data = {}
     for hosp in hospitals:
         hid = hosp.id
-        manually_disabled = disabled_map.get(hid, set())
+        manually_disabled = combined_disabled_map.get(hid, set())
         auto_disabled = auto_disabled_map.get(hid, set()) if auto_disabled_map else set()
         disabled_codes = {
             ind.code for ind in indicators

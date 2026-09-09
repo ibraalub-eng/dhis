@@ -28,6 +28,32 @@ def _get_or_create_config(db: Session, hospital_id: int, indicator_id: int) -> H
     return config
 
 
+def _get_default_state(db: Session, indicator_id: int, month: str | None):
+    """Return the default (All Hospitals) config state for an indicator/month, or None."""
+    if not month:
+        return None
+    from app.models import IndicatorDefaultConfig
+    cfg = db.query(IndicatorDefaultConfig).filter(
+        IndicatorDefaultConfig.indicator_id == indicator_id,
+        IndicatorDefaultConfig.month == month,
+    ).first()
+    return cfg.is_enabled if cfg else None
+
+
+def _get_effective_state(db: Session, hospital_id: int, indicator_id: int, month: str | None):
+    """Effective enabled state = per-hospital override if present, else the monthly default, else True."""
+    config = db.query(HospitalIndicatorConfig).filter(
+        HospitalIndicatorConfig.hospital_id == hospital_id,
+        HospitalIndicatorConfig.indicator_id == indicator_id,
+    ).first()
+    if config is not None:
+        return config.is_enabled
+    default_state = _get_default_state(db, indicator_id, month)
+    if default_state is not None:
+        return default_state
+    return True
+
+
 def _get_all_descendant_ids(db: Session, indicator_id: int) -> List[int]:
     """Recursively find all descendant indicator DB ids."""
     children = (
@@ -134,6 +160,7 @@ def get_hospital_indicator_config(hospital_id: int, db: Session = Depends(get_db
 def toggle_indicator(
     hospital_id: int,
     indicator_id: int,
+    month: Optional[str] = Query(None, description="Month YYYY-MM used to resolve the inherited default state"),
     cascade: bool = Query(False, description="Also toggle all descendant indicators"),
     db: Session = Depends(get_db),
 ):
@@ -144,23 +171,21 @@ def toggle_indicator(
     if not indicator:
         raise HTTPException(status_code=404, detail="Indicator not found")
 
+    # Toggle the EFFECTIVE state (per-hospital override else monthly default), then
+    # record the result as a per-hospital override so it wins over the default.
+    current_effective = _get_effective_state(db, hospital_id, indicator_id, month)
+    new_state = not current_effective
     config = _get_or_create_config(db, hospital_id, indicator_id)
-    new_state = not config.is_enabled
 
-    if cascade and not new_state:
+    if cascade:
         descendant_ids = _get_all_descendant_ids(db, indicator_id)
         for desc_id in descendant_ids:
+            desc_effective = _get_effective_state(db, hospital_id, desc_id, month)
+            desc_new = not desc_effective
             desc_config = _get_or_create_config(db, hospital_id, desc_id)
-            desc_config.is_enabled = False
-        config.is_enabled = False
-        msg = f"Branch '{indicator.name}' and all {len(descendant_ids)} sub-indicators disabled for {hospital.name}"
-    elif cascade and new_state:
-        descendant_ids = _get_all_descendant_ids(db, indicator_id)
-        for desc_id in descendant_ids:
-            desc_config = _get_or_create_config(db, hospital_id, desc_id)
-            desc_config.is_enabled = True
-        config.is_enabled = True
-        msg = f"Branch '{indicator.name}' and all {len(descendant_ids)} sub-indicators enabled for {hospital.name}"
+            desc_config.is_enabled = desc_new
+        config.is_enabled = new_state
+        msg = f"Branch '{indicator.name}' and all {len(descendant_ids)} sub-indicators {'enabled' if new_state else 'disabled'} for {hospital.name}"
     else:
         config.is_enabled = new_state
         msg = f"Indicator '{indicator.name}' {'enabled' if new_state else 'disabled'} for {hospital.name}"
@@ -174,9 +199,68 @@ def toggle_indicator(
     return ConfigToggleOut(
         hospital_id=hospital_id,
         indicator_id=indicator_id,
-        is_enabled=config.is_enabled,
+        is_enabled=new_state,
         message=msg,
     )
+
+
+@router.put("/indicators/{indicator_id}/toggle-default")
+def toggle_default_indicator(
+    indicator_id: int,
+    month: str = Query(..., description="Month YYYY-MM"),
+    cascade: bool = Query(False, description="Also toggle all descendant indicators"),
+    db: Session = Depends(get_db),
+):
+    """Toggle the default (All Hospitals) config for an indicator/month.
+
+    This config is inherited by every hospital that lacks a per-hospital override."""
+    from app.models import IndicatorDefaultConfig
+
+    indicator = db.query(Indicator).filter(Indicator.id == indicator_id).first()
+    if not indicator:
+        raise HTTPException(status_code=404, detail="Indicator not found")
+
+    cfgs = {
+        c.indicator_id: c
+        for c in db.query(IndicatorDefaultConfig).filter(
+            IndicatorDefaultConfig.month == month,
+        ).all()
+    }
+    target_ids = [indicator_id]
+    if cascade:
+        target_ids += _get_all_descendant_ids(db, indicator_id)
+
+    all_current_enabled = all(
+        cfgs.get(iid, IndicatorDefaultConfig(is_enabled=True)).is_enabled
+        for iid in target_ids
+    )
+    new_state = not all_current_enabled
+
+    new_configs = []
+    for iid in target_ids:
+        cfg = cfgs.get(iid)
+        if not cfg:
+            new_configs.append(IndicatorDefaultConfig(
+                indicator_id=iid, month=month, is_enabled=new_state,
+            ))
+        else:
+            cfg.is_enabled = new_state
+    if new_configs:
+        db.add_all(new_configs)
+    db.commit()
+
+    try:
+        from app.api.indicator_config import _recalc_all_hospital_scores
+        _recalc_all_hospital_scores(db)
+    except Exception:
+        pass
+    return {
+        "indicator_id": indicator_id,
+        "month": month,
+        "cascade": cascade,
+        "is_enabled": new_state,
+        "message": f"{'Enabled' if new_state else 'Disabled'} default for {len(target_ids)} indicator(s) in {month}",
+    }
 
 
 @router.put("/{hospital_id}/indicators/{indicator_id}/weight", response_model=ConfigToggleOut)

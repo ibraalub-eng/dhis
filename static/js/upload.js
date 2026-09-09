@@ -352,7 +352,7 @@
             const hospOpts = result.hospitals.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
             const monthOpts = months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
             const monthOptsAll = result.months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
-            const hospOptsTree = result.hospitals.map(h => '<option value="' + h.id + '">' + esc(h.name) + '</option>').join('');
+            const hospOptsTree = '<option value="__default__">Default (All Hospitals)</option>' + result.hospitals.map(h => '<option value="' + h.id + '">' + esc(h.name) + '</option>').join('');
             const monthOptsTree = result.months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
 
             _setHtml('qualityMonthFilter', '<option value="all">All Months</option>' + monthOptsAll);
