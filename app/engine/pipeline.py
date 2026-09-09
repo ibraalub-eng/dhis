@@ -60,7 +60,16 @@ def _is_auto_disable_null(session):
 
 
 def get_default_disabled_indicator_ids(session, month):
-    """Return indicator IDs disabled by the default (All Hospitals) config for a month."""
+    """Return indicator IDs disabled by the default (All Hospitals) config for a month.
+    Month '__all__' disables an indicator if it is disabled in ANY month."""
+    if month == "__all__":
+        return [
+            indicator_id
+            for (indicator_id, enabled) in session.query(
+                IndicatorDefaultConfig.indicator_id, IndicatorDefaultConfig.is_enabled
+            ).all()
+            if not enabled
+        ]
     return [
         c.indicator_id
         for c in session.query(IndicatorDefaultConfig).filter(

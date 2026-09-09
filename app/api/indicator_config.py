@@ -29,10 +29,21 @@ def _get_or_create_config(db: Session, hospital_id: int, indicator_id: int) -> H
 
 
 def _get_default_state(db: Session, indicator_id: int, month: str | None):
-    """Return the default (All Hospitals) config state for an indicator/month, or None."""
+    """Return the default (All Hospitals) config state for an indicator/month, or None.
+    With month='__all__' the indicator counts as disabled when disabled in ANY month."""
     if not month:
         return None
     from app.models import IndicatorDefaultConfig
+    if month == "__all__":
+        rows = db.query(IndicatorDefaultConfig.is_enabled).filter(
+            IndicatorDefaultConfig.indicator_id == indicator_id,
+        ).all()
+        if not rows:
+            return None
+        enabled = [e for (e,) in rows]
+        if not all(enabled):
+            return False
+        return True
     cfg = db.query(IndicatorDefaultConfig).filter(
         IndicatorDefaultConfig.indicator_id == indicator_id,
         IndicatorDefaultConfig.month == month,
@@ -204,14 +215,27 @@ def toggle_indicator(
     )
 
 
+def _all_known_months(db: Session):
+    """Return every month that appears in indicator values or default configs."""
+    from app.models import IndicatorDefaultConfig
+    months = set()
+    for (m,) in db.query(IndicatorValue.month).distinct().all():
+        months.add(m)
+    for (m,) in db.query(IndicatorDefaultConfig.month).distinct().all():
+        months.add(m)
+    return sorted(months)
+
+
 @router.put("/indicators/{indicator_id}/toggle-default")
 def toggle_default_indicator(
     indicator_id: int,
-    month: str = Query(..., description="Month YYYY-MM"),
+    month: str = Query(..., description="Month YYYY-MM, or '__all__' to apply to every known month"),
     cascade: bool = Query(False, description="Also toggle all descendant indicators"),
     db: Session = Depends(get_db),
 ):
-    """Toggle the default (All Hospitals) config for an indicator/month.
+    """Toggle the default (All Hospitals) config for an indicator.
+
+    With month='__all__' the new state is applied to every known month.
 
     This config is inherited by every hospital that lacks a per-hospital override."""
     from app.models import IndicatorDefaultConfig
@@ -220,33 +244,37 @@ def toggle_default_indicator(
     if not indicator:
         raise HTTPException(status_code=404, detail="Indicator not found")
 
-    cfgs = {
-        c.indicator_id: c
-        for c in db.query(IndicatorDefaultConfig).filter(
-            IndicatorDefaultConfig.month == month,
-        ).all()
-    }
+    months = [month]
+    if month == "__all__":
+        months = _all_known_months(db)
+
     target_ids = [indicator_id]
     if cascade:
         target_ids += _get_all_descendant_ids(db, indicator_id)
 
+    existing = {
+        (c.month, c.indicator_id): c
+        for c in db.query(IndicatorDefaultConfig).filter(
+            IndicatorDefaultConfig.month.in_(months),
+        ).all()
+    }
+    # The effective state across the targets/months: enabled only if currently enabled everywhere.
     all_current_enabled = all(
-        cfgs.get(iid, IndicatorDefaultConfig(is_enabled=True)).is_enabled
+        existing.get((m, iid), IndicatorDefaultConfig(is_enabled=True)).is_enabled
+        for m in months
         for iid in target_ids
     )
     new_state = not all_current_enabled
 
-    new_configs = []
-    for iid in target_ids:
-        cfg = cfgs.get(iid)
-        if not cfg:
-            new_configs.append(IndicatorDefaultConfig(
-                indicator_id=iid, month=month, is_enabled=new_state,
-            ))
-        else:
-            cfg.is_enabled = new_state
-    if new_configs:
-        db.add_all(new_configs)
+    for m in months:
+        for iid in target_ids:
+            cfg = existing.get((m, iid))
+            if not cfg:
+                db.add(IndicatorDefaultConfig(
+                    indicator_id=iid, month=m, is_enabled=new_state,
+                ))
+            else:
+                cfg.is_enabled = new_state
     db.commit()
 
     try:

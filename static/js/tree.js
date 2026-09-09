@@ -5,11 +5,17 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
 
         // ── Indicator Tree ────────────────────────────────────────
         let currentTreeData = null;
+        let _treeInitialized = false;
 
         const DEFAULT_HOSPITAL_VALUE = '__default__';
+        const ALL_MONTHS_VALUE = '__all__';
 
         function treeDefaultOption() {
             return '<option value="' + DEFAULT_HOSPITAL_VALUE + '">' + __('Default (All Hospitals)') + '</option>';
+        }
+
+        function treeAllMonthsOption() {
+            return '<option value="' + ALL_MONTHS_VALUE + '">' + __('All Months') + '</option>';
         }
 
         export function expandAllTree() {
@@ -23,7 +29,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             const hsel = document.getElementById('treeHospitalSelect');
             const msel = document.getElementById('treeMonthSelect');
             if (!hsel || !msel) return; // التبويب لم يُحمَّل
-            if (hsel.options.length > 1 && msel.options.length > 1) {
+            if (_treeInitialized) {
                 _restoreUIState('indicator-tree');
                 if (hsel.value && msel.value) loadIndicatorTree();
                 return;
@@ -31,16 +37,17 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             const phH = '<option value="">' + __('Select Hospital') + '</option>';
             const phM = '<option value="">' + __('Select Month') + '</option>';
             hsel.innerHTML = phH + treeDefaultOption();
-            msel.innerHTML = phM;
+            msel.innerHTML = phM + treeAllMonthsOption();
             Promise.all([
                 apiGet('/hospitals/').then(data => {
                     const list = data.value || data || [];
                     hsel.innerHTML = phH + treeDefaultOption() + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
                 }).catch(() => {}),
                 apiGet('/analysis/months').then(months => {
-                    msel.innerHTML = phM + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                    msel.innerHTML = phM + treeAllMonthsOption() + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
                 }).catch(() => {}),
             ]).then(() => {
+                _treeInitialized = true;
                 _restoreUIState('indicator-tree');
                 if (hsel.value && msel.value) loadIndicatorTree();
             }).catch(() => {});
@@ -101,7 +108,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             const hospId = document.getElementById('treeHospitalSelect').value;
             const el = document.getElementById('treeContainer');
             el.innerHTML = '';
-            document.getElementById('treeSummary').textContent = data.hospital + ' — ' + data.month;
+            document.getElementById('treeSummary').textContent = data.hospital + ' — ' + (data.month === '__all__' ? __('All Months') : data.month);
             const top = document.createElement('div');
             top.className = 'tree-group';
             const header = document.createElement('div');

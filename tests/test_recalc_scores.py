@@ -139,6 +139,115 @@ def test_default_is_month_scoped(client, db_session):
     assert ind.id not in disabled_mar
 
 
+def test_default_all_months_aggregates_disabled(client, db_session):
+    """Effective default for '__all__' must disable an indicator disabled in ANY month."""
+    from app.engine.pipeline import get_default_disabled_indicator_ids
+    from app.models import Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
+    db_session.commit()
+
+    disabled_all = get_default_disabled_indicator_ids(db_session, "__all__")
+    assert ind.id in disabled_all
+
+
+def test_toggle_default_all_months(client, db_session):
+    """PUT toggle-default with month='__all__' must write config rows for every known month."""
+    from app.models import Indicator, IndicatorDefaultConfig, IndicatorValue
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorValue(hospital_id=1, month="2027-01", indicator_id=ind.id, value=5))
+    db_session.add(IndicatorValue(hospital_id=1, month="2027-02", indicator_id=ind.id, value=6))
+    db_session.add(IndicatorValue(hospital_id=1, month="2027-03", indicator_id=ind.id, value=7))
+    db_session.commit()
+
+    resp = client.put(f"/hospitals/indicators/{ind.id}/toggle-default?month=__all__")
+    assert resp.status_code == 200
+    assert resp.json()["is_enabled"] is False
+
+    rows = db_session.query(IndicatorDefaultConfig).filter(
+        IndicatorDefaultConfig.indicator_id == ind.id,
+    ).all()
+    assert len(rows) == 3
+    assert all(not r.is_enabled for r in rows)
+
+
+def test_hospital_tree_all_months_inherits_default(client, db_session):
+    """A hospital with no override must show inherited default in the '__all__' tree."""
+    from app.models import Indicator, IndicatorDefaultConfig
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
+    db_session.commit()
+
+    resp = client.get("/hospitals/1/indicator-tree?month=__all__")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    def _find(node, indicator_id):
+        if node.get("indicator_id") == indicator_id:
+            return node
+        for child in node.get("children", []):
+            found = _find(child, indicator_id)
+            if found is not None:
+                return found
+        return None
+
+    node = _find({"children": data["children"]}, ind.id)
+    assert node is not None
+    assert node["is_enabled"] is False
+
+
+def test_save_default_tree_config_all_months(client, db_session):
+    """save-default-tree-config with month='__all__' must persist to every known month."""
+    from app.models import Indicator, IndicatorDefaultConfig, IndicatorValue
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorValue(hospital_id=1, month="2027-01", indicator_id=ind.id, value=5))
+    db_session.add(IndicatorValue(hospital_id=1, month="2027-02", indicator_id=ind.id, value=6))
+    db_session.commit()
+
+    resp = client.post(
+        "/hospitals/save-default-tree-config?month=__all__",
+        json={"items": [{"indicator_id": ind.id, "is_enabled": False}]},
+    )
+    assert resp.status_code == 200
+
+    rows = db_session.query(IndicatorDefaultConfig).filter(
+        IndicatorDefaultConfig.indicator_id == ind.id,
+    ).all()
+    assert len(rows) == 2
+    assert all(not r.is_enabled for r in rows)
+
+
+def test_default_tree_aggregates_hospital_values(client, db_session):
+    """The default-scope tree must aggregate values across hospitals per month."""
+    from app.models import Indicator, IndicatorValue
+
+    ind = db_session.query(Indicator).first()
+    db_session.add(IndicatorValue(hospital_id=1, month="2027-01", indicator_id=ind.id, value=5))
+    db_session.add(IndicatorValue(hospital_id=2, month="2027-01", indicator_id=ind.id, value=7))
+    db_session.commit()
+
+    resp = client.get("/hospitals/indicator-tree/default?month=2027-01")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    def _find(node):
+        if node.get("indicator_id") == ind.id:
+            return node
+        for child in node.get("children", []):
+            found = _find(child)
+            if found is not None:
+                return found
+        return None
+
+    node = _find({"children": data["children"]})
+    assert node is not None
+    assert node["value"] == 12
+
+
 def test_toggle_default_endpoint(client, db_session):
     """PUT /hospitals/indicators/{id}/toggle-default must write an IndicatorDefaultConfig row."""
     from app.models import Indicator, IndicatorDefaultConfig
