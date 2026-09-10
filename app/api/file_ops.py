@@ -177,6 +177,92 @@ def delete_saved_files(body: dict, db: Session = Depends(get_db)):
     return {"message": f"Deleted {deleted} record(s) from {len(filenames)} file(s).", "deleted": deleted}
 
 
+@router.post("/update-saved")
+async def update_saved_file(
+    filename: str = Query(..., description="Name of the saved file to replace"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """Replace a previously uploaded file in place.
+
+    The new file is saved under the same source_file name (so the same
+    entry is updated in the "Previously Uploaded Files" list) and the old
+    database rows for that file are replaced by the freshly imported data.
+    """
+    from app.cache import cache as _cache
+
+    # Make sure this file exists as a saved file before allowing an update
+    existing = (
+        db.query(IndicatorValue)
+        .filter(IndicatorValue.source_file == filename)
+        .first()
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Saved file not found: {filename}")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported file type: {ext}. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
+        )
+
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large: {len(data) // 1024 // 1024}MB exceeds {MAX_UPLOAD_SIZE // 1024 // 1024}MB limit",
+        )
+    await file.seek(0)
+
+    upload_dir = UPLOAD_DIR
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(upload_dir, filename)
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    # Drop the old rows for this source_file before re-importing
+    deleted = db.query(IndicatorValue).filter(IndicatorValue.source_file == filename).delete()
+    db.commit()
+
+    try:
+        result = process_excel_upload(file_path, db)
+    except ValueError as e:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        logger.error(f"Error updating saved file {filename}: {e}", exc_info=True)
+        raise HTTPException(status_code=422, detail=f"Error processing file: {str(e)}")
+
+    # Invalidate all analysis caches so nothing serves stale data
+    try:
+        _cache.invalidate()
+    except Exception as e:
+        logger.warning("Analysis cache invalidation failed: %s", e)
+    try:
+        from app.engine.comparative.report_cache import invalidate_report_cache
+        invalidate_report_cache(db)
+    except Exception as e:
+        logger.warning("Report cache invalidation failed: %s", e)
+    for prefix in ("smart_overview_", "smart_anomalies_", "smart_clusters_", "smart_correlations_", "smart_residuals_"):
+        try:
+            _cache.invalidate(prefix)
+        except Exception:
+            pass
+
+    return {
+        "filename": filename,
+        "deleted": deleted,
+        "rows_imported": result.get("rows_imported", 0),
+        "hospitals": result.get("hospitals", []),
+        "months": result.get("months", []),
+        "message": f"Updated {filename}: {result.get('rows_imported', 0)} indicator values imported ({deleted} old records replaced)",
+    }
+
+
 @router.post("/upload-multiple", response_model=MultiFileUploadResponse)
 async def upload_multiple_files(
     files: List[UploadFile] = File(...),

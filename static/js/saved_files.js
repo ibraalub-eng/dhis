@@ -3,6 +3,7 @@
         import { esc, setStatus } from './tree.js';
         import { updateAlertBadge } from './alerts.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
+import { confirmDestructive } from './confirm-modal.js';
 
         // ── Saved Files ────────────────────────────────────────────
         export function refreshSavedFiles() {
@@ -43,9 +44,13 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                         '<td><input type="checkbox" class="saved-file-cb" value="' + esc(f.filename) + '"></td>' +
                         '<td><code>' + esc(f.filename) + '</code></td>' +
                         '<td>' + f.size_kb + '</td>' +
-                        '<td>' + esc(f.last_modified ? f.last_modified.replace('T',' ').substring(0,16) : '') + '</td>' +
+                        '<td>' + esc(f.uploaded_at ? f.uploaded_at.replace('T',' ').substring(0,16) : '') + '</td>' +
                         '<td>' + f.records_in_db + '</td>' +
-                        '<td><button class="btn btn-sm btn-outline" onclick="analyzeSingleSaved(\'' + esc(f.filename) + '\')">Analyze</button></td>' +
+                        '<td style="white-space:nowrap;">' +
+                            '<button class="btn btn-sm btn-outline" onclick="analyzeSingleSaved(\'' + esc(f.filename) + '\')">' + __('Analyze') + '</button>&nbsp;' +
+                            '<button class="btn btn-sm btn-outline" onclick="updateSingleSaved(\'' + esc(f.filename) + '\')">' + __('Update') + '</button>&nbsp;' +
+                            '<button class="btn btn-sm btn-outline" onclick="deleteSingleSaved(\'' + esc(f.filename) + '\')" style="color:var(--accent-red);">' + __('Delete') + '</button>' +
+                        '</td>' +
                         '</tr>').join('') +
                     '</tbody></table>';
             }).catch(err => {
@@ -105,6 +110,64 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                     setStatus('ok', res.message || __('Deleted.'));
                     refreshSavedFiles();
                 }).catch(err => setStatus('err', 'Delete failed: ' + err.message));
+        }
+
+        export async function deleteSingleSaved(fname) {
+            if (!fname) return;
+            if (!await confirmDestructive({ title: __('Delete File'), message: __('Delete') + ' <strong>' + esc(fname) + '</strong>?', details: __('This will permanently delete the file and its imported records from the database.'), okLabel: __('Delete') })) return;
+            setStatus('loading', __('Deleting') + ' ' + fname + '...');
+            authFetch(API() + '/analysis/saved-files', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({filenames: [fname]}) })
+                .then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.json();
+                }).then(res => {
+                    setStatus('ok', res.message || __('Deleted.'));
+                    refreshSavedFiles();
+                }).catch(err => setStatus('err', __('Delete failed:') + ' ' + err.message));
+        }
+
+        export async function updateSingleSaved(fname) {
+            if (!fname) return;
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.xlsx,.xls,.csv,.xlsm,.xlsb';
+            input.style.display = 'none';
+            input.onchange = function() {
+                if (!input.files || !input.files[0]) return;
+                const file = input.files[0];
+                const ext = '.' + file.name.split('.').pop().toLowerCase();
+                if (['.xlsx','.xls','.csv','.xlsm','.xlsb'].indexOf(ext) === -1) {
+                    toastError(file.name + ': ' + __('Unsupported file type') + ' (' + ext + '). Allowed: .xlsx, .xls, .csv');
+                    return;
+                }
+                if (file.size > 20 * 1024 * 1024) {
+                    const mb = (file.size / (1024 * 1024)).toFixed(1);
+                    toastError(file.name + ': ' + mb + ' MB ' + __('exceeds the') + ' 20 MB ' + __('limit'));
+                    return;
+                }
+                runUpdateSaved(fname, file);
+            };
+            document.body.appendChild(input);
+            input.click();
+        }
+
+        async function runUpdateSaved(fname, file) {
+            setStatus('loading', 'Updating ' + fname + '...');
+            const fd = new FormData();
+            fd.append('file', file);
+            try {
+                const res = await authFetch(API() + '/analysis/update-saved?filename=' + encodeURIComponent(fname), { method: 'POST', body: fd });
+                if (!res.ok) {
+                    let detail = '';
+                    try { detail = (await res.json()).detail || ''; } catch(e) {}
+                    throw new Error('HTTP ' + res.status + (detail ? ': ' + detail : ''));
+                }
+                const data = await res.json();
+                setStatus('ok', data.message || __('Updated.'));
+                await refreshSavedFiles();
+            } catch (err) {
+                setStatus('err', 'Update failed: ' + err.message);
+            }
         }
 
         // Load saved files and restore last session on page load

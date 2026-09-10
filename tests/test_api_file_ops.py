@@ -237,6 +237,55 @@ class TestUploadMultipleAnalyze:
         assert isinstance(data["task_id"], str)
 
 
+class TestUpdateSavedFiles:
+    def test_update_nonexistent_file(self, client, sample_excel_bytes):
+        buf = sample_excel_bytes()
+        resp = client.post(
+            "/analysis/update-saved?filename=missing.xlsx",
+            files={"file": ("replacement.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        assert resp.status_code == 404
+
+    def test_update_replaces_records(self, client, sample_excel_bytes, db_session):
+        """Updating a file keeps the same source_file and swaps its rows."""
+        from app.models import IndicatorValue, Hospital
+        h = db_session.query(Hospital).first()
+        db_session.add(IndicatorValue(
+            hospital_id=h.id, indicator_id=1, month="2026-04",
+            value=40.0, source_file="to_update.xlsx",
+        ))
+        db_session.commit()
+
+        buf = sample_excel_bytes()
+        resp = client.post(
+            "/analysis/update-saved?filename=to_update.xlsx",
+            files={"file": ("replacement.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["filename"] == "to_update.xlsx"
+        assert data["deleted"] >= 1
+        assert data["rows_imported"] >= 1
+
+        still_there = db_session.query(IndicatorValue).filter(IndicatorValue.source_file == "to_update.xlsx").count()
+        assert still_there >= 1
+
+    def test_update_unsupported_extension(self, client, db_session):
+        from app.models import IndicatorValue, Hospital
+        h = db_session.query(Hospital).first()
+        db_session.add(IndicatorValue(
+            hospital_id=h.id, indicator_id=1, month="2026-04",
+            value=40.0, source_file="bad_update.xlsx",
+        ))
+        db_session.commit()
+
+        resp = client.post(
+            "/analysis/update-saved?filename=bad_update.xlsx",
+            files={"file": ("notallowed.txt", io.BytesIO(b"dummy"), "text/plain")},
+        )
+        assert resp.status_code == 422
+
+
 class TestProcessPreview:
     def test_process_existing_file(self, client, sample_excel_bytes, db_session):
         os.makedirs(UPLOAD_DIR, exist_ok=True)
