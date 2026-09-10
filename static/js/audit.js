@@ -163,6 +163,21 @@ function renderAudit() {
             html += '</div>';
             html += '<div style="font-size:0.72rem;color:var(--text-secondary);">Hospital: <strong>' + (c.hospital_value || 0) + '</strong> | Avg: ' + (c.peer_average || 0) + ' | Median: ' + (c.peer_median || 0) + ' | Range: [' + (c.peer_min || 0) + ' - ' + (c.peer_max || 0) + ']</div>';
             html += '<div style="font-size:0.72rem;color:var(--text-secondary);">Z-score: ' + (c.z_score || 0) + ' | Percentile: ' + (c.percentile || 0) + 'th | Peers: ' + (c.peer_count || 0) + '</div>';
+            const pb = c.peer_breakdown;
+            if (pb) {
+                const noData = (pb.no_data_month_count || 0);
+                const noDen = (pb.no_denominator_count || 0);
+                const excluded = (pb.excluded_target || 0);
+                const parts = [];
+                parts.push('<strong>' + (c.peer_count || 0) + ' of ' + (pb.total_active || 0) + ' active hospitals</strong>');
+                parts.push(excluded + ' (this hospital) excluded');
+                if (noData) parts.push(noData + ' with no data this month');
+                if (noDen) parts.push(noDen + ' with no denominator for this rate');
+                const names = [];
+                if (noData && pb.no_data_month_names && pb.no_data_month_names.length) names.push('No data: ' + esc(pb.no_data_month_names.join(', ')));
+                if (noDen && pb.no_denominator_names && pb.no_denominator_names.length) names.push('No denominator: ' + esc(pb.no_denominator_names.join(', ')));
+                html += '<div style="font-size:0.7rem;color:var(--text-muted);">Why ' + (c.peer_count || 0) + ' peers? ' + parts.join(' · ') + (names.length ? '<span title="' + esc(names.join('\n')) + '"> (hover for names)</span>' : '') + '</div>';
+            }
             html += '</div>';
         });
     } else {
