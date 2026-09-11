@@ -317,6 +317,7 @@ window._adminAssignHospitals = function(id, btn) {
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
                 <h2 style="color:var(--accent-purple);margin:0;">Analysis Control</h2>
                 <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <span id="controlSaveStatusHeader" style="font-size:0.8rem;color:var(--text-muted);"></span>
                     <button class="btn btn-sm" id="controlSaveBtn" onclick="adminSaveControlSettings()" style="display:none;background:var(--accent-purple);color:white;">Save</button>
                 </div>
             </div>
@@ -1154,9 +1155,14 @@ window._adminAssignHospitals = function(id, btn) {
     var hideVal = hideCb ? hideCb.checked : false;
     var incVal = incCb ? incCb.checked : false;
     var status = document.getElementById("controlSaveStatus");
+    var hdr = document.getElementById("controlSaveStatusHeader");
     var btn = document.getElementById('controlSaveBtn');
+    function setStatus(text, color) {
+      if (status) { status.textContent = text; status.style.color = color; }
+      if (hdr && text !== "Saving...") { hdr.textContent = text; hdr.style.color = color; }
+    }
     if (btn) { btn.textContent = "Saving..."; btn.disabled = true; }
-    if (status) { status.textContent = "Saving..."; status.style.color = "var(--accent-blue)"; }
+    setStatus("Saving...", "var(--accent-blue)");
     (async function() {
       try {
         var result = await api("/config/control/settings", {
@@ -1171,20 +1177,23 @@ window._adminAssignHospitals = function(id, btn) {
         });
         if (!result || result._error || result._forbidden) {
           if (btn) { btn.textContent = "Save (*)"; btn.disabled = false; }
-          if (status) { status.textContent = "✗ Save failed"; status.style.color = "var(--accent-red)"; }
+          setStatus("✗ Save failed", "var(--accent-red)");
+          toastError("Analysis Control save failed");
           return;
         }
         _controlDirty = false;
         _updateControlSaveButton();
-        if (status) { status.textContent = "✓ Saved"; status.style.color = "var(--accent-green)"; }
+        setStatus("✓ Saved", "var(--accent-green)");
+        toastSuccess("Analysis Control saved");
         try {
           await api("/dashboard/recalculate-completeness", { method: "POST" });
-          if (status) status.textContent = "✓ Saved & scores updated";
+          setStatus("✓ Saved & scores updated", "var(--accent-green)");
         } catch(e) {}
         if (typeof window.loadDashboard === 'function') window.loadDashboard();
       } catch(e) {
         if (btn) { btn.textContent = "Save (*)"; btn.disabled = false; }
-        if (status) { status.textContent = "✗ Error: " + e.message; status.style.color = "var(--accent-red)"; }
+        setStatus("✗ Error: " + e.message, "var(--accent-red)");
+        toastError("Analysis Control save error: " + e.message);
       }
     })();
   };
