@@ -690,3 +690,24 @@ def test_confidence_excludes_disabled_indicators(client, db_session):
     assert ind.code not in assessed_codes, (
         f"Disabled indicator {ind.code} still appears in confidence assessed list"
     )
+
+
+def test_clinical_skips_disabled_thresholds():
+    """Thresholds whose both numerator and denominator codes are disabled
+    must not appear in clinical classifications."""
+    from app.engine.clinical import CLINICAL_THRESHOLDS, compute_all_classifications
+
+    # Pick the first threshold (rate_cs: numerator "5", denominator "2")
+    th = CLINICAL_THRESHOLDS[0]
+    all_codes = set(th.numerator_codes) | {th.denominator_code}
+
+    # Insert dummy values for those codes so they exist in values
+    values = {c: 10.0 for c in all_codes}
+
+    # All codes disabled → threshold should be omitted
+    disabled_codes = set(all_codes)
+    results = compute_all_classifications(values, disabled_codes=disabled_codes)
+    result_codes = {r.indicator_code for r in results}
+    assert th.indicator_code not in result_codes, (
+        f"Threshold {th.indicator_code} still present when all its codes disabled"
+    )

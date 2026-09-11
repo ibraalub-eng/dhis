@@ -99,9 +99,13 @@ def classify_clinical_rate(value: float, rate_name: str, indicator_code: str = "
     )
 
 
-def compute_all_classifications(values: Dict[str, float]) -> List[ClinicalClassification]:
+def compute_all_classifications(values: Dict[str, float], disabled_codes: Optional[set] = None) -> List[ClinicalClassification]:
     results = []
     for th in CLINICAL_THRESHOLDS:
+        if disabled_codes:
+            all_th_codes = set(th.numerator_codes) | {th.denominator_code}
+            if all_th_codes <= disabled_codes:
+                continue
         num_sum = sum(values.get(c, 0) or 0 for c in th.numerator_codes)
         denom = values.get(th.denominator_code, 0)
         rate_val = None
@@ -236,9 +240,10 @@ def run_clinical_analysis(
     rule_compliance: float = 0,
     outlier_penalty: float = 0,
     include_ai: bool = True,
+    disabled_codes: Optional[set] = None,
     session=None,
 ) -> ClinicalAnalysisResult:
-    classifications = compute_all_classifications(values)
+    classifications = compute_all_classifications(values, disabled_codes=disabled_codes)
     risk_prof = compute_risk_profile(hospital, month, values)
     morbidity_prof = compute_morbidity_profile(hospital, month, values)
     recommendations = generate_recommendations(

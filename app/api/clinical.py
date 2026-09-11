@@ -25,6 +25,14 @@ def get_clinical_analysis(
     if not values:
         raise HTTPException(status_code=404, detail=f"No data found for hospital {hospital.name} in {month}")
 
+    # Build disabled-indicator set so clinical thresholds using only disabled
+    # codes are hidden from the classification table.
+    from app.engine.pipeline import get_disabled_indicator_ids
+    from app.models import Indicator as _RI
+    _dis_ids = set(get_disabled_indicator_ids(db, hospital_id, month))
+    _ind_code_rows = db.query(_RI.id, _RI.code).all()
+    _dis_codes = {c for i, c in _ind_code_rows if i in _dis_ids}
+
     qs = db.query(QualityScore).filter(
         QualityScore.hospital_id == hospital_id,
         QualityScore.month == month,
@@ -56,6 +64,7 @@ def get_clinical_analysis(
         rule_compliance=qs.rule_compliance if qs else 0,
         outlier_penalty=qs.outlier_penalty if qs else 0,
         # الجلسة تُمكّن تخزين استجابات التوصيات المؤقت حسب (مستشفى، شهر)
+        disabled_codes=_dis_codes,
         session=db,
     )
 
