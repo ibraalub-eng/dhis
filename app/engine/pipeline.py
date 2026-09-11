@@ -341,6 +341,7 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
             indicator_children=PARENT_CHILD_MAP,
             indicator_rule_map=indicator_rule_map,
             key_indicator_codes=KEY_INDICATOR_CODES,
+            disabled_codes=disabled_codes,
             session=session,
         )
         confidence_data = confidence_result.to_dict()

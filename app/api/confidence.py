@@ -60,6 +60,13 @@ def _run_confidence_for_hospital(
     indicator_map = {ind.code: ind.name for ind in all_indicators}
     indicator_map.update(INDICATOR_CODE_TO_NAME)
 
+    # Build disabled-indicator set so calculate_confidence excludes them from assessed list
+    from app.engine.pipeline import get_disabled_indicator_ids
+    _disabled_ids = set(get_disabled_indicator_ids(db, hospital_id, month))
+    _ind_rows = db.query(Indicator.id, Indicator.code).all()
+    _id_to_code = {i: c for i, c in _ind_rows}
+    _disabled_codes = {_id_to_code[d] for d in _disabled_ids if d in _id_to_code}
+
     result = calculate_confidence(
         hospital_name=hospital.name,
         month=month,
@@ -71,6 +78,7 @@ def _run_confidence_for_hospital(
         indicator_children=PARENT_CHILD_MAP,
         indicator_rule_map=indicator_rule_map,
         key_indicator_codes=KEY_INDICATOR_CODES,
+        disabled_codes=_disabled_codes,
         session=db,
     )
     return result

@@ -408,6 +408,7 @@ def calculate_confidence(
     indicator_children: Dict[str, List[str]],
     indicator_rule_map: Optional[Dict[str, List[str]]] = None,
     key_indicator_codes: Optional[List[str]] = None,
+    disabled_codes: Optional[set] = None,
     session=None,
 ) -> HospitalConfidenceResult:
     global SIGNAL_WEIGHTS
@@ -448,6 +449,8 @@ def calculate_confidence(
             assessed.append(code)
     for code in key_indicator_codes:
         if code not in assessed:
+            if disabled_codes and code in disabled_codes:
+                continue
             # If auto-disable ON, skip indicators not in values (disabled/missing)
             if _auto_disable and code not in values:
                 continue

@@ -655,3 +655,38 @@ def test_save_default_tree_config_triggers_full_reanalysis(client, db_session):
         f"Stale AnomalyResult with STALE_DEFAULT_RATE still present after default save — "
         f"run_full_analysis was not called for all hospitals"
     )
+
+
+def test_confidence_excludes_disabled_indicators(client, db_session):
+    """Disabled indicators must not appear as CRITICAL 'DATA MISSING' in confidence."""
+    from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig
+
+    hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+    assert hosp is not None, "no active hospitals"
+    # Use indicator code "2" (a key indicator code in confidence calculation)
+    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
+    assert ind is not None, "no indicator with code '2'"
+
+    # Add a value for the disabled indicator and another enabled one
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2027-01", indicator_id=ind.id, value=100))
+    other_ind = db_session.query(Indicator).filter(Indicator.code == "3").first()
+    assert other_ind is not None, "no indicator with code '3'"
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2027-01", indicator_id=other_ind.id, value=50))
+    db_session.commit()
+
+    # Disable indicator "2" via hospital config
+    db_session.add(HospitalIndicatorConfig(
+        hospital_id=hosp.id, indicator_id=ind.id, is_enabled=False
+    ))
+    db_session.commit()
+
+    # Get confidence
+    resp = client.get(
+        f"/confidence/{hosp.id}?month=2027-01"
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assessed_codes = [i["indicator_code"] for i in data.get("indicators", [])]
+    assert ind.code not in assessed_codes, (
+        f"Disabled indicator {ind.code} still appears in confidence assessed list"
+    )
