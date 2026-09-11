@@ -314,7 +314,12 @@ window._adminAssignHospitals = function(id, btn) {
         </div>
         <!-- Control Panel -->
         <div id="adminControlPanel" style="display:none;">
-            <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Analysis Control</h2>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                <h2 style="color:var(--accent-purple);margin:0;">Analysis Control</h2>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <button class="btn btn-sm" id="controlSaveBtn" onclick="adminSaveControlSettings()" style="display:none;background:var(--accent-purple);color:white;">Save</button>
+                </div>
+            </div>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Configure analysis behavior, logging, and month toggles.</p>
             <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
@@ -322,7 +327,7 @@ window._adminAssignHospitals = function(id, btn) {
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                      <input type="checkbox" id="cfg_auto_disable_null" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <input type="checkbox" id="cfg_auto_disable_null" onchange="adminMarkControlDirty()" style="margin-top:0.2rem;width:18px;height:18px;">
                       <div>
                           <strong>Auto-disable null indicators</strong><br>
                           <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, indicators with null values are treated as disabled.</span>
@@ -331,7 +336,7 @@ window._adminAssignHospitals = function(id, btn) {
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                      <input type="checkbox" id="cfg_structured_logging" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <input type="checkbox" id="cfg_structured_logging" onchange="adminMarkControlDirty()" style="margin-top:0.2rem;width:18px;height:18px;">
                       <div>
                           <strong>Structured Logging</strong><br>
                           <span style="font-size:0.8rem;color:var(--text-secondary);">Log all HTTP requests as JSON to stdout.</span>
@@ -343,7 +348,7 @@ window._adminAssignHospitals = function(id, btn) {
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                      <input type="checkbox" id="cfg_slow_query_logging" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <input type="checkbox" id="cfg_slow_query_logging" onchange="adminMarkControlDirty()" style="margin-top:0.2rem;width:18px;height:18px;">
                       <div>
                           <strong>Slow Query Logging</strong><br>
                           <span style="font-size:0.8rem;color:var(--text-secondary);">Log SQL queries taking over 1 second.</span>
@@ -352,7 +357,7 @@ window._adminAssignHospitals = function(id, btn) {
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                      <input type="checkbox" id="cfg_hide_explanatory" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <input type="checkbox" id="cfg_hide_explanatory" onchange="adminMarkControlDirty()" style="margin-top:0.2rem;width:18px;height:18px;">
                       <div>
                           <strong>Hide Forecast/Explanation Sentences</strong><br>
                           <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, narrative forecast/explanation sentences are hidden from non-super-admin users (super admins always see them).</span>
@@ -361,7 +366,7 @@ window._adminAssignHospitals = function(id, btn) {
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
-                      <input type="checkbox" id="cfg_incremental_months" onchange="adminSaveControlSettings()" style="margin-top:0.2rem;width:18px;height:18px;">
+                      <input type="checkbox" id="cfg_incremental_months" onchange="adminMarkControlDirty()" style="margin-top:0.2rem;width:18px;height:18px;">
                       <div>
                           <strong>Incremental Update (Keep Old Months)</strong><br>
                           <span style="font-size:0.8rem;color:var(--text-secondary);">When enabled, re-saving a file only updates data for the months present in the file and keeps previously uploaded months. When disabled, re-saving replaces all existing data from that file.</span>
@@ -1102,6 +1107,17 @@ window._adminAssignHospitals = function(id, btn) {
   };
 
   // -- Control Settings Functions --
+  var _controlDirty = false;
+  function _updateControlSaveButton() {
+    var btn = document.getElementById('controlSaveBtn');
+    if (!btn) return;
+    btn.style.display = _controlDirty ? 'inline-block' : 'none';
+    btn.textContent = _controlDirty ? 'Save (*)' : 'Save';
+  }
+  window.adminMarkControlDirty = function() {
+    _controlDirty = true;
+    _updateControlSaveButton();
+  };
   async function adminLoadControlSettings() {
     try {
       var data = await api("/config/control/settings");
@@ -1122,6 +1138,8 @@ window._adminAssignHospitals = function(id, btn) {
     window._showDevHints = enabled;
     var dhCb = document.getElementById("cfg_dev_hints");
     if (dhCb) dhCb.checked = enabled;
+    _controlDirty = false;
+    _updateControlSaveButton();
     adminLoadMonthToggles();
   }
   window.adminSaveControlSettings = function() {
@@ -1136,6 +1154,8 @@ window._adminAssignHospitals = function(id, btn) {
     var hideVal = hideCb ? hideCb.checked : false;
     var incVal = incCb ? incCb.checked : false;
     var status = document.getElementById("controlSaveStatus");
+    var btn = document.getElementById('controlSaveBtn');
+    if (btn) { btn.textContent = "Saving..."; btn.disabled = true; }
     if (status) { status.textContent = "Saving..."; status.style.color = "var(--accent-blue)"; }
     (async function() {
       try {
@@ -1150,9 +1170,12 @@ window._adminAssignHospitals = function(id, btn) {
           })
         });
         if (!result || result._error || result._forbidden) {
+          if (btn) { btn.textContent = "Save (*)"; btn.disabled = false; }
           if (status) { status.textContent = "✗ Save failed"; status.style.color = "var(--accent-red)"; }
           return;
         }
+        _controlDirty = false;
+        _updateControlSaveButton();
         if (status) { status.textContent = "✓ Saved"; status.style.color = "var(--accent-green)"; }
         try {
           await api("/dashboard/recalculate-completeness", { method: "POST" });
@@ -1160,6 +1183,7 @@ window._adminAssignHospitals = function(id, btn) {
         } catch(e) {}
         if (typeof window.loadDashboard === 'function') window.loadDashboard();
       } catch(e) {
+        if (btn) { btn.textContent = "Save (*)"; btn.disabled = false; }
         if (status) { status.textContent = "✗ Error: " + e.message; status.style.color = "var(--accent-red)"; }
       }
     })();
