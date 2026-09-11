@@ -562,3 +562,49 @@ def test_component_diagnostics_missing_by_indicator_months(client, db_session):
                 f"month {r['month']}: expected {r['missing_count']} missing indicators, "
                 f"got {len(r['missing_indicators'])}"
             )
+
+
+def test_save_tree_config_triggers_full_reanalysis(client, db_session):
+    """Disabling an indicator via tree save must call run_full_analysis(force=True),
+    which purges stale stored rows and writes fresh ones."""
+    from app.models import Indicator, IndicatorValue, AnomalyResult
+
+    ind = db_session.query(Indicator).first()
+    assert ind is not None, "no indicators seeded"
+    _insert_indicator_value(db_session, 1, "2027-01", ind.code, 10)
+    db_session.commit()
+
+    # Seed a stale AnomalyResult that references the indicator
+    db_session.add(AnomalyResult(
+        hospital_id=1, month="2027-01",
+        indicator_code=ind.code, rate_name="STALE_RATE",
+        value=10, benchmark=5, z_score=1.0, is_outlier=True,
+    ))
+    db_session.commit()
+
+    stale_count = db_session.query(AnomalyResult).filter(
+        AnomalyResult.hospital_id == 1,
+        AnomalyResult.month == "2027-01",
+        AnomalyResult.rate_name == "STALE_RATE",
+    ).count()
+    assert stale_count >= 1
+
+    # Disable that indicator via tree save
+    resp = client.post(
+        f"/hospitals/1/save-tree-config?month=2027-01",
+        json={"items": [{"indicator_id": ind.id, "is_enabled": False}]},
+    )
+    assert resp.status_code == 200
+
+    # Stale AnomalyResult rows must have been purged and replaced
+    # by run_full_analysis (which calls _save_anomaly_results that
+    # deletes old rows first). The stale row with STALE_RATE should be gone.
+    stale_rows = db_session.query(AnomalyResult).filter(
+        AnomalyResult.hospital_id == 1,
+        AnomalyResult.month == "2027-01",
+        AnomalyResult.rate_name == "STALE_RATE",
+    ).count()
+    assert stale_rows == 0, (
+        f"Stale AnomalyResult with STALE_RATE still present after save — "
+        f"run_full_analysis was not called"
+    )

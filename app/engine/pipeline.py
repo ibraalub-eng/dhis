@@ -217,6 +217,21 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
 
     values = get_enabled_values_for_hospital_month(session, hospital_id, month)
     if not values:
+        # Purge stale stored results so screens don't show data for a
+        # hospital/month that now has no enabled data.
+        session.query(ValidationResult).filter(
+            ValidationResult.hospital_id == hospital_id,
+            ValidationResult.month == month,
+        ).delete(synchronize_session=False)
+        session.query(AnomalyResult).filter(
+            AnomalyResult.hospital_id == hospital_id,
+            AnomalyResult.month == month,
+        ).delete(synchronize_session=False)
+        session.query(ConfidenceScore).filter(
+            ConfidenceScore.hospital_id == hospital_id,
+            ConfidenceScore.month == month,
+        ).delete(synchronize_session=False)
+        session.commit()
         return {
             "hospital": hospital.name,
             "month": month,
