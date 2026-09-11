@@ -121,11 +121,14 @@ def save_default_tree_config(
                 config.is_enabled = is_enabled
             count += 1
     db.commit()
-    from app.api.indicator_config import _recalc_all_hospital_scores
-    try:
-        _recalc_all_hospital_scores(db)
-    except Exception:
-        pass
+    from app.engine.pipeline import run_full_analysis
+    from app.models import Hospital as _Hosp
+    _all_hids = [h.id for h in db.query(_Hosp.id).filter(_Hosp.is_active == True).all()]
+    for _hid in _all_hids:
+        try:
+            run_full_analysis(db, _hid, month, force=True)
+        except Exception:
+            pass
     return {"message": f"Saved {count} default config entries for {month}"}
 
 
