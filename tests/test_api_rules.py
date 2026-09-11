@@ -206,3 +206,21 @@ class TestToggleRule:
     def test_toggle_nonexistent(self, client):
         resp = client.put("/rules/99999/toggle")
         assert resp.status_code == 404
+
+
+class TestSaveEnabled:
+    def test_save_enabled_bulk(self, client, db_session):
+        rules = db_session.query(Rule).limit(3).all()
+        assert len(rules) >= 2
+        items = [{"id": r.id, "enabled": (idx % 2 == 0)} for idx, r in enumerate(rules)]
+        resp = client.put("/rules/save-enabled", json={"items": items})
+        assert resp.status_code == 200
+        for item in items:
+            row = db_session.query(Rule).filter(Rule.id == item["id"]).first()
+            assert row.enabled is item["enabled"]
+
+    def test_save_enabled_bulk_partial_ids(self, client, db_session):
+        valid = db_session.query(Rule).first()
+        resp = client.put("/rules/save-enabled", json={"items": [{"id": 99999, "enabled": True}, {"id": valid.id, "enabled": False}]})
+        assert resp.status_code == 200
+        assert db_session.query(Rule).filter(Rule.id == valid.id).first().enabled is False

@@ -36,6 +36,20 @@ def list_rules(
     return rules
 
 
+@router.put("/save-enabled")
+def save_rules_enabled(body: dict, db: Session = Depends(get_db)):
+    """Bulk save enabled states: {"items": [{"id": 1, "enabled": true}, ...]}"""
+    items = body.get("items", [])
+    count = 0
+    for item in items:
+        rule = db.query(Rule).filter(Rule.id == item.get("id")).first()
+        if rule:
+            rule.enabled = bool(item.get("enabled", True))
+            count += 1
+    db.commit()
+    return {"message": f"Saved enabled state for {count} rule(s)"}
+
+
 @router.get("/{rule_id}", response_model=RuleOut)
 def get_rule(rule_id: int, db: Session = Depends(get_db)):
     rule = db.query(Rule).filter(Rule.id == rule_id).first()

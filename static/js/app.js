@@ -60,6 +60,7 @@ window.saveAiSettings = _stub('saveAiSettings');
 window.loadAiSettings = _stub('loadAiSettings');
 window.onAiProviderChange = _stub('onAiProviderChange');
 window.loadRulesManager = _stub('loadRulesManager');
+window.saveRulesManager = _stub('saveRulesManager');
 window.initRootCause = _stub('initRootCause');
 window.initDashboard = _stub('initDashboard');
 window.loadRootCause = _stub('loadRootCause');
@@ -189,7 +190,7 @@ function _bindAll(mod, label) {
     case 'settings':
       _bind(mod, 'loadAllSettings'); _bind(mod, 'saveAllSettings'); _bind(mod, 'reanalyzeAll');
       _bind(mod, 'showSettingsTab'); _bind(mod, 'saveAiSettings'); _bind(mod, 'loadAiSettings');
-      _bind(mod, 'onAiProviderChange'); _bind(mod, 'loadRulesManager');
+      _bind(mod, 'onAiProviderChange'); _bind(mod, 'loadRulesManager'); _bind(mod, 'saveRulesManager');
       _bind(mod, 'initRootCause'); _bind(mod, 'initDashboard');
       _bind(mod, 'loadRootCause'); _bind(mod, 'loadDashboard');
       _bind(mod, 'updateWeightDisplay'); _bind(mod, 'updateCfgDisplay'); _bind(mod, 'updateCfgVal');

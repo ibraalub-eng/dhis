@@ -37,6 +37,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         // ── Rules Manager ─────────────────────────────────────────
         export let rulesManagerData = [];
         let rulesSortCol = null, rulesSortAsc = true;
+        let _rulesDirty = false;
 
         export function updateWeightDisplay() {
             const fields = ['rule_compliance', 'historical', 'cross_hospital', 'trend', 'completeness'];
@@ -2609,7 +2610,9 @@ function loadHospitalsSettings() {
                 .then(data => {
                     document.getElementById('rulesLoading').classList.add('hidden');
                     rulesManagerData = data;
+                    _rulesDirty = false;
                     renderRulesManager();
+                    _updateRulesSaveButton();
                 })
                 .catch(e => {
                     document.getElementById('rulesLoading').classList.add('hidden');
@@ -2674,22 +2677,16 @@ function loadHospitalsSettings() {
                     const ruleId = this.dataset.id;
                     const toggleEl = this.querySelector('.tree-toggle');
                     if (toggleEl.classList.contains('loading')) return;
-                    toggleEl.classList.add('loading');
-                    authFetch(API() + '/rules/' + ruleId + '/toggle', { method: 'PUT' })
-                        .then(r => r.json())
-                        .then(data => {
-                            toggleEl.textContent = data.enabled ? '✓' : '✗';
-                            toggleEl.className = 'tree-toggle ' + (data.enabled ? 'on' : 'off');
-                            toggleEl.classList.remove('loading');
-                            toggleEl.title = data.enabled ? 'Click to disable' : 'Click to enable';
-                            // Update data
-                            const rule = rulesManagerData.find(x => x.id == ruleId);
-                            if (rule) rule.enabled = data.enabled;
-                        })
-                        .catch(e => {
-                            toggleEl.classList.remove('loading');
-                            toastError('Toggle failed: ' + e.message);
-                        });
+                    const rule = rulesManagerData.find(x => x.id == ruleId);
+                    if (!rule) return;
+                    // Local-only toggle: flip the in-memory state and mark dirty.
+                    // Nothing reaches the backend until Save.
+                    rule.enabled = !rule.enabled;
+                    toggleEl.textContent = rule.enabled ? '✓' : '✗';
+                    toggleEl.className = 'tree-toggle ' + (rule.enabled ? 'on' : 'off');
+                    toggleEl.title = rule.enabled ? 'Click to disable' : 'Click to enable';
+                    _rulesDirty = true;
+                    _updateRulesSaveButton();
                 });
             });
 
@@ -2746,6 +2743,40 @@ function loadHospitalsSettings() {
                     }).catch(err => toastError('Reorder failed: ' + err.message));
                 });
             });
+        }
+
+        function _updateRulesSaveButton() {
+            const btn = document.getElementById('rulesSaveBtn');
+            if (!btn) return;
+            btn.style.display = 'inline-block';
+            btn.textContent = _rulesDirty ? __('Save') + ' (*)' : __('Save');
+            btn.disabled = false;
+        }
+
+        export function saveRulesManager() {
+            if (!rulesManagerData.length) return;
+            const items = rulesManagerData.map(r => ({ id: r.id, enabled: r.enabled }));
+            const btn = document.getElementById('rulesSaveBtn');
+            btn.textContent = __('Saving...');
+            btn.disabled = true;
+            authFetch(API() + '/rules/save-enabled', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: items }),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    _rulesDirty = false;
+                    _updateRulesSaveButton();
+                    toastSuccess(data.message || 'Rules saved');
+                    btn.disabled = false;
+                    loadRulesManager();
+                })
+                .catch(e => {
+                    btn.textContent = __('Save');
+                    btn.disabled = false;
+                    toastError('Save failed: ' + e.message);
+                });
         }
 
         export const EXPR_EXPLANATIONS = {
