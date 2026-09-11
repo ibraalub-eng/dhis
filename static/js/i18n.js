@@ -612,6 +612,9 @@
             translateDOM();
         }
 
+        // Expose for main.js (tab-load re-translation) — ES module exports are not on window
+        window.applyLang = applyLang;
+
         export function toggleLang() {
             currentLang = currentLang === 'ar' ? 'en' : 'ar';
             applyLang();

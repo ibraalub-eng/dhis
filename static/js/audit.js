@@ -162,7 +162,7 @@ function renderAudit() {
             html += '<div style="height:100%;width:' + Math.min(Math.abs(c.percent_deviation || 0), 100) + '%;background:' + barColor + ';border-radius:3px;opacity:0.6;"></div>';
             html += '</div>';
             html += '<div style="font-size:0.72rem;color:var(--text-secondary);">Hospital: <strong>' + (c.hospital_value || 0) + '</strong> | Avg: ' + (c.peer_average || 0) + ' | Median: ' + (c.peer_median || 0) + ' | Range: [' + (c.peer_min || 0) + ' - ' + (c.peer_max || 0) + ']</div>';
-            html += '<div style="font-size:0.72rem;color:var(--text-secondary);">Z-score: ' + (c.z_score || 0) + ' | Percentile: ' + (c.percentile || 0) + 'th | Peers: ' + (c.peer_count || 0) + '</div>';
+            html += '<div style="font-size:0.72rem;color:var(--text-secondary);">Z-score: ' + (c.z_score || 0) + ' | Percentile: ' + (c.percentile || 0) + 'th | ' + (c.peers_below || 0) + ' of ' + (c.peer_count || 0) + ' peers below</div>';
             const pb = c.peer_breakdown;
             if (pb) {
                 const noData = (pb.no_data_month_count || 0);

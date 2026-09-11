@@ -1326,10 +1326,12 @@ function loadHospitalsSettings() {
 
         function renderKpiCards(hid) {
             const dr = window._dashboardDateRange;
+            const yr = document.getElementById('dashYear').value;
             let url = '/dashboard/kpi?';
             if (hid) url += 'hospital_id=' + hid + '&';
             if (dr && dr.from) url += 'month_from=' + dr.from + '&';
             if (dr && dr.to) url += 'month_to=' + dr.to + '&';
+            if (yr) url += 'year=' + yr;
             apiGet(url).then(data => {
                 const container = document.getElementById('dashKpiCards');
                 container.innerHTML = (data.kpis || []).map(k => {
@@ -1351,6 +1353,41 @@ function loadHospitalsSettings() {
                         '</div>';
                 }).join('');
             }).catch(() => {});
+        }
+
+        let _dashMonthsCache = null;
+        function _dashboardMonths() {
+            if (!_dashMonthsCache) {
+                _dashMonthsCache = apiGet('/analysis/months')
+                    .then(function(m) { return m.months || m || []; })
+                    .catch(function() { return []; });
+            }
+            return _dashMonthsCache;
+        }
+        function _resolveConfTarget(hid, yr) {
+            const dr = window._dashboardDateRange;
+            return _dashboardMonths().then(function(months) {
+                if (!months.length) return null;
+                let hid2 = hid;
+                if (!hid2) {
+                    const hsel = document.getElementById('dashHospital');
+                    if (hsel) {
+                        for (let i = 0; i < hsel.options.length; i++) {
+                            if (hsel.options[i].value) { hid2 = hsel.options[i].value; break; }
+                        }
+                    }
+                }
+                if (!hid2) return null;
+                const matched = months.filter(function(m) {
+                    if (dr && dr.from && dr.to) return m >= dr.from && m <= dr.to;
+                    if (dr && dr.from) return m >= dr.from;
+                    if (dr && dr.to) return m <= dr.to;
+                    if (yr) return String(m).slice(0, 4) === String(yr);
+                    return true;
+                });
+                const all = matched.length ? matched : months;
+                return { hid: hid2, month: all[all.length - 1] };
+            });
         }
 
         let _kpiDrilldownChart = null;
@@ -1395,23 +1432,16 @@ function loadHospitalsSettings() {
             if (yr) diagUrl += 'year=' + yr + '&';
             if (metric && metric !== 'quality_score' && metric !== 'conf_high' && metric !== 'report_coverage') diagUrl += 'metric=' + metric;
 
-            // For conf_high: resolve month from year, filter inputs, or default
-            var _confMonth = '';
-            if (yr) _confMonth = yr + '-06';
-            if (!_confMonth) {
-                var _fFrom = document.getElementById('filter-from');
-                var _fTo = document.getElementById('filter-to');
-                if (_fTo && _fTo.value) _confMonth = _fTo.value;
-                else if (_fFrom && _fFrom.value) _confMonth = _fFrom.value;
-            }
-            if (!_confMonth) _confMonth = '2026-06'; // absolute fallback
-            // For conf_high: use selected hospital, or first active one for 'All'
-            var confHid = hid || '';
-            var confUrl = (metric === 'conf_high') ? '/confidence/' + (confHid || '12') + '?month=' + _confMonth : null;
-
-            var _confPromise = confUrl ? apiGet(confUrl).catch(function(e){ console.log('[conf] fetch failed:', e); return null; }) : Promise.resolve(null);
+            // For conf_high: resolve hospital + month from live data (no hardcoded IDs/months)
+            var _confPromise = (metric === 'conf_high')
+                ? _resolveConfTarget(hid, yr).then(function(target) {
+                    if (!target) return null;
+                    var confUrl2 = '/confidence/' + target.hid + '?month=' + target.month;
+                    console.log('[conf] confUrl:', confUrl2, 'hid:', hid, 'month:', target.month);
+                    return apiGet(confUrl2).catch(function(e){ console.log('[conf] fetch failed:', e); return null; });
+                  })
+                : Promise.resolve(null);
             var _ctrlPromise = apiGet('/config/control/settings').catch(function(){ return {}; });
-            console.log('[conf] confUrl:', confUrl, 'hid:', hid, 'month:', _confMonth);
             Promise.all([apiGet(kpiUrl), apiGet(overviewUrl), apiGet(diagUrl).catch(function(){ return null; }), _confPromise, _ctrlPromise]).then(function(results) {
                 var kpiData = results[0], overviewData = results[1], diag = results[2], confDetail = results[3], ctrlSettings = results[4] || {};
                 console.log('[conf] confDetail:', confDetail ? (confDetail.indicators || []).length + ' indicators' : 'null');
@@ -2104,8 +2134,10 @@ function loadHospitalsSettings() {
         }
 
         export function loadDashboard() {
+            const hsel = document.getElementById('dashHospital');
+            if (!hsel) return; // dashboard tab not loaded
             _saveUIState('dashboard');
-            const hid = document.getElementById('dashHospital').value;
+            const hid = hsel.value;
             const yr = document.getElementById('dashYear').value;
             const dr = window._dashboardDateRange;
             document.getElementById('dashLoading').style.display = 'inline';
@@ -2242,6 +2274,7 @@ function loadHospitalsSettings() {
 
         function loadHeatmap(hospitalId, month) {
             let url = '/analysis/heatmap?';
+            if (hospitalId) url += 'hospital_id=' + hospitalId + '&';
             if (month) url += 'month=' + month + '&';
             apiGet(url).then(hm => {
                 const container = document.getElementById('heatmapContainer');

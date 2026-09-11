@@ -15,86 +15,99 @@ from app.core.deps import require_permission, get_user_hospital_ids
 # ── Shared helper: recalculate completeness (batch-optimized) ──
 def _recalc_completeness(db, scores):
     """Recalculate completeness for QualityScore objects using batch pre-fetching.
-    Replaces N+1 queries with ~4 batch queries + in-memory lookups."""
+    Replaces N+1 queries with ~4 batch queries + in-memory lookups.
+
+    If the indicator/config tables are missing or unreadable (e.g. a DB that was
+    stamped to head before indicator_default_config was added), this falls back
+    to the stored completeness values instead of crashing the whole dashboard.
+    """
     from app.models import Indicator as _RI, IndicatorValue as _RIV, HospitalIndicatorConfig as _HIC, SystemSetting, IndicatorDefaultConfig as _DIC
     if not scores:
         return []
-    # 1. Pre-fetch all indicators ONCE (id -> code for covered-code mapping)
-    all_ind = db.query(_RI.id, _RI.code).all()
-    all_ids = [i for i, _ in all_ind]
-    id_to_code = dict(all_ind)
-    code_to_id = {c: i for i, c in all_ind}
-    # 2. Collect unique (hospital, month) pairs
-    hosp_months = list(set((s.hospital_id, s.month) for s in scores))
-    all_hids = list(set(h[0] for h in hosp_months))
-    all_months = list(set(h[1] for h in hosp_months))
-    # 3. Pre-fetch ALL indicator values in ONE query
-    iv_rows = db.query(_RIV.hospital_id, _RIV.month, _RIV.indicator_id, _RIV.value).filter(
-        _RIV.hospital_id.in_(all_hids), _RIV.month.in_(all_months)
-    ).all()
-    iv_index = {}  # {(hid, month): {ind_id: value}}
-    for row in iv_rows:
-        key = (row[0], row[1])
-        if key not in iv_index:
-            iv_index[key] = {}
-        iv_index[key][row[2]] = row[3]
-    # 4. Pre-fetch ALL manually disabled indicators in ONE query
-    manual_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
-        _HIC.is_enabled.is_(False), _HIC.hospital_id.in_(all_hids)
-    ).all()
-    manual_map = {}  # {hid: set(ind_ids)}
-    for row in manual_rows:
-        manual_map.setdefault(row[0], set()).add(row[1])
-    # 4b. Pre-fetch default (All Hospitals) disabled per month + hospital overrides
-    default_disable_rows = db.query(_DIC.month, _DIC.indicator_id).filter(
-        _DIC.month.in_(all_months), _DIC.is_enabled.is_(False)
-    ).all()
-    default_map = {}  # {month: set(ind_ids)}
-    for m, iid in default_disable_rows:
-        default_map.setdefault(m, set()).add(iid)
-    override_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
-        _HIC.hospital_id.in_(all_hids)
-    ).all()
-    override_map = {}  # {hid: set(ind_ids)} — any explicit per-hospital config wins over default
-    for row in override_rows:
-        override_map.setdefault(row[0], set()).add(row[1])
-    # 5. Read auto-disable setting ONCE
-    auto_disable = False
+    config_ok = True
     try:
-        ads = db.query(SystemSetting).filter(SystemSetting.key == "auto_disable_null_indicators").first()
-        auto_disable = ads is not None and ads.value == "true"
-    except Exception:
-        pass
-    # 6. Compute disabled set for (hid, month) in memory
-    def _dis(hid, month):
-        d = set(manual_map.get(hid, ()))
-        for iid in default_map.get(month, ()):
-            if iid not in override_map.get(hid, ()):
-                d.add(iid)
-        if auto_disable:
-            ivm = iv_index.get((hid, month), {})
-            for iid in all_ids:
-                if iid not in ivm or ivm[iid] is None:
+        # 1. Pre-fetch all indicators ONCE (id -> code for covered-code mapping)
+        all_ind = db.query(_RI.id, _RI.code).all()
+        all_ids = [i for i, _ in all_ind]
+        id_to_code = dict(all_ind)
+        code_to_id = {c: i for i, c in all_ind}
+        # 2. Collect unique (hospital, month) pairs
+        hosp_months = list(set((s.hospital_id, s.month) for s in scores))
+        all_hids = list(set(h[0] for h in hosp_months))
+        all_months = list(set(h[1] for h in hosp_months))
+        # 3. Pre-fetch ALL indicator values in ONE query
+        iv_rows = db.query(_RIV.hospital_id, _RIV.month, _RIV.indicator_id, _RIV.value).filter(
+            _RIV.hospital_id.in_(all_hids), _RIV.month.in_(all_months)
+        ).all()
+        iv_index = {}  # {(hid, month): {ind_id: value}}
+        for row in iv_rows:
+            key = (row[0], row[1])
+            if key not in iv_index:
+                iv_index[key] = {}
+            iv_index[key][row[2]] = row[3]
+        # 4. Pre-fetch ALL manually disabled indicators in ONE query
+        manual_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
+            _HIC.is_enabled.is_(False), _HIC.hospital_id.in_(all_hids)
+        ).all()
+        manual_map = {}  # {hid: set(ind_ids)}
+        for row in manual_rows:
+            manual_map.setdefault(row[0], set()).add(row[1])
+        # 4b. Pre-fetch default (All Hospitals) disabled per month + hospital overrides
+        default_disable_rows = db.query(_DIC.month, _DIC.indicator_id).filter(
+            _DIC.month.in_(all_months), _DIC.is_enabled.is_(False)
+        ).all()
+        default_map = {}  # {month: set(ind_ids)}
+        for m, iid in default_disable_rows:
+            default_map.setdefault(m, set()).add(iid)
+        override_rows = db.query(_HIC.hospital_id, _HIC.indicator_id).filter(
+            _HIC.hospital_id.in_(all_hids)
+        ).all()
+        override_map = {}  # {hid: set(ind_ids)} — any explicit per-hospital config wins over default
+        for row in override_rows:
+            override_map.setdefault(row[0], set()).add(row[1])
+        # 5. Read auto-disable setting ONCE
+        auto_disable = False
+        try:
+            ads = db.query(SystemSetting).filter(SystemSetting.key == "auto_disable_null_indicators").first()
+            auto_disable = ads is not None and ads.value == "true"
+        except Exception:
+            pass
+        # 6. Compute disabled set for (hid, month) in memory
+        def _dis(hid, month):
+            d = set(manual_map.get(hid, ()))
+            for iid in default_map.get(month, ()):
+                if iid not in override_map.get(hid, ()):
                     d.add(iid)
-        return d
-    # 7. Compute covered child IDs for (hid, month) in memory
-    from app.engine.quality import compute_covered_codes
-    _covered_cache = {}
-    def _covered_ids(hid, month):
-        key = (hid, month)
-        if key in _covered_cache:
-            return _covered_cache[key]
-        dis = _dis(hid, month)
-        ivm = iv_index.get(key, {})
-        values = {id_to_code[iid]: ivm[iid] for iid in ivm if iid in id_to_code and ivm[iid] is not None}
-        disabled_codes = {id_to_code[iid] for iid in dis if iid in id_to_code}
-        covered_codes = compute_covered_codes(values, disabled_codes, db)
-        covered_ids = {code_to_id[c] for c in covered_codes if c in code_to_id}
-        _covered_cache[key] = covered_ids
-        return covered_ids
+            if auto_disable:
+                ivm = iv_index.get((hid, month), {})
+                for iid in all_ids:
+                    if iid not in ivm or ivm[iid] is None:
+                        d.add(iid)
+            return d
+        # 7. Compute covered child IDs for (hid, month) in memory
+        from app.engine.quality import compute_covered_codes
+        _covered_cache = {}
+        def _covered_ids(hid, month):
+            key = (hid, month)
+            if key in _covered_cache:
+                return _covered_cache[key]
+            dis = _dis(hid, month)
+            ivm = iv_index.get(key, {})
+            values = {id_to_code[iid]: ivm[iid] for iid in ivm if iid in id_to_code and ivm[iid] is not None}
+            disabled_codes = {id_to_code[iid] for iid in dis if iid in id_to_code}
+            covered_codes = compute_covered_codes(values, disabled_codes, db)
+            covered_ids = {code_to_id[c] for c in covered_codes if c in code_to_id}
+            _covered_cache[key] = covered_ids
+            return covered_ids
+    except Exception as _cfg_err:
+        config_ok = False
+        logger.warning("Config-table pre-fetch failed; falling back to stored completeness: %s", _cfg_err)
     # 8. Compute completeness for each score
     result = []
     for s in scores:
+        if not config_ok:
+            result.append(float(s.completeness or 0))
+            continue
         try:
             dis = _dis(s.hospital_id, s.month)
             cov = _covered_ids(s.hospital_id, s.month)
@@ -135,6 +148,9 @@ def dashboard_overview(
     from app.api.analysis import get_enabled_months
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
+    if year is not None and not re.match(r"^\d{4}$", str(year)):
+        return {"error": "Invalid year format"}
+
     # Filter hospitals by active status
     hosp_q = db.query(Hospital).filter(Hospital.is_active.is_(True))
     if user_hosp_ids is not None:
@@ -154,6 +170,8 @@ def dashboard_overview(
         reports_q = reports_q.filter(QualityScore.month >= month_from)
     if month_to:
         reports_q = reports_q.filter(QualityScore.month <= month_to)
+    elif year:
+        reports_q = reports_q.filter(QualityScore.month.like(f"{year}-%"))
     elif enabled_months:
         reports_q = reports_q.filter(QualityScore.month.in_(enabled_months))
     total_reports = reports_q.count()
@@ -165,6 +183,8 @@ def dashboard_overview(
         q = q.filter(QualityScore.month >= month_from)
     if month_to:
         q = q.filter(QualityScore.month <= month_to)
+    elif year:
+        q = q.filter(QualityScore.month.like(f"{year}-%"))
     elif enabled_months:
         q = q.filter(QualityScore.month.in_(enabled_months))
     avg_score = round(q.scalar() or 0, 1)
@@ -178,6 +198,8 @@ def dashboard_overview(
         alerts_q = alerts_q.filter(ValidationResult.month >= month_from)
     if month_to:
         alerts_q = alerts_q.filter(ValidationResult.month <= month_to)
+    elif year:
+        alerts_q = alerts_q.filter(ValidationResult.month.like(f"{year}-%"))
     alerts_total = alerts_q.count()
 
     trend_q = db.query(
@@ -191,8 +213,6 @@ def dashboard_overview(
     if month_to:
         trend_q = trend_q.filter(QualityScore.month <= month_to)
     elif year:
-        if not re.match(r"^\d{4}$", str(year)):
-            return {"error": "Invalid year format"}
         trend_q = trend_q.filter(QualityScore.month.like(f"{year}-%"))
     elif enabled_months:
         trend_q = trend_q.filter(QualityScore.month.in_(enabled_months))
@@ -217,6 +237,8 @@ def dashboard_overview(
         comp_q = comp_q.filter(QualityScore.month >= month_from)
     if month_to:
         comp_q = comp_q.filter(QualityScore.month <= month_to)
+    elif year:
+        comp_q = comp_q.filter(QualityScore.month.like(f"{year}-%"))
     elif enabled_months:
         comp_q = comp_q.filter(QualityScore.month.in_(enabled_months))
     comp = comp_q.group_by(Hospital.id, Hospital.name).order_by(
@@ -244,6 +266,8 @@ def dashboard_overview(
         conf_q = conf_q.filter(ConfidenceScore.month >= month_from)
     if month_to:
         conf_q = conf_q.filter(ConfidenceScore.month <= month_to)
+    elif year:
+        conf_q = conf_q.filter(ConfidenceScore.month.like(f"{year}-%"))
     conf_dist = conf_q.group_by(ConfidenceScore.level).all()
     dist_map = {"CRITICAL": 0, "LOW": 0, "MEDIUM": 0, "HIGH": 0}
     for c in conf_dist:
@@ -318,9 +342,11 @@ def dashboard_overview(
 
 
 @router.get("/kpi")
-def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, month_from: str | None = None, month_to: str | None = None, db: Session = Depends(get_db)):
+def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
     from app.api.analysis import get_enabled_months
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
+    if year is not None and not re.match(r"^\d{4}$", str(year)):
+        return {"error": "Invalid year format"}
     base = db.query(QualityScore)
     if hospital_id:
         base = base.filter(QualityScore.hospital_id == hospital_id)
@@ -330,6 +356,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         base = base.filter(QualityScore.month <= month_to)
     elif month:
         base = base.filter(QualityScore.month == month)
+    elif year:
+        base = base.filter(QualityScore.month.like(f"{year}-%"))
     elif enabled_months:
         base = base.filter(QualityScore.month.in_(enabled_months))
 
@@ -356,6 +384,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         conf_q = conf_q.filter(ConfidenceScore.month >= month_from)
     if month_to:
         conf_q = conf_q.filter(ConfidenceScore.month <= month_to)
+    elif year:
+        conf_q = conf_q.filter(ConfidenceScore.month.like(f"{year}-%"))
     conf_high_pct = round(float(conf_q.first().avg_conf or 0), 1)
 
     # Outlier score (lower penalty = better)
@@ -568,7 +598,7 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/recalculate-completeness")
-def recalculate_completeness(db: Session = Depends(get_db)):
+def recalculate_completeness(db: Session = Depends(get_db), user=Depends(require_permission("dashboard.write"))):
     """Bulk recalculate completeness for all quality_scores (batch-optimized)."""
     from app.models import Indicator, IndicatorValue as _IV, HospitalIndicatorConfig as _HIC, SystemSetting, AppConfig
     # Pre-fetch all data in batch

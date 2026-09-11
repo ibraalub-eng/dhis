@@ -99,6 +99,70 @@ class TestUploadFlow:
         # 2 distinct (hospital, month) pairs — not 3 rows
         assert total_reports == 2
 
+    def test_dashboard_overview_year_filter_applies_to_all_sections(self, client, db_session):
+        """Regression: ?year= only filtered the trend chart; summary cards,
+        alerts, confidence and comparison showed all-time data."""
+        from app.models import QualityScore, ValidationResult, ConfidenceScore
+        from app.cache import cache
+
+        h = db_session.query(Hospital).first()
+        db_session.add(QualityScore(hospital_id=h.id, month="2026-06", score=50.0,
+                                    rule_compliance=60.0, consistency=70.0))
+        db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=90.0,
+                                    rule_compliance=95.0, consistency=85.0))
+        db_session.add(ValidationResult(hospital_id=h.id, month="2026-06",
+                                        rule_code="R1", rule_description="d", status="FAIL", severity="HIGH"))
+        db_session.add(ConfidenceScore(hospital_id=h.id, month="2026-06",
+                                       overall_confidence=30.0, level="LOW"))
+        db_session.commit()
+        cache.invalidate("analysis:months")
+
+        # All-time data (both months)
+        all_data = client.get("/dashboard/overview").json()
+        assert all_data["total_reports"] == 2
+        assert all_data["avg_quality_score"] == 70.0
+        assert all_data["total_alerts"] == 1
+
+        # 2027 filters every section down to that single month
+        y27 = client.get("/dashboard/overview?year=2027").json()
+        assert y27["total_reports"] == 1
+        assert y27["avg_quality_score"] == 90.0
+        assert y27["total_alerts"] == 0
+        assert all(m["score"] == 90.0 for m in y27["quality_trend"])
+        assert y27["confidence_distribution"]["LOW"] == 0
+
+        # 2026 keeps alerts + confidence, drops the 2027 report
+        y26 = client.get("/dashboard/overview?year=2026").json()
+        assert y26["total_reports"] == 1
+        assert y26["total_alerts"] == 1
+        assert y26["confidence_distribution"]["LOW"] == 1
+
+    def test_dashboard_kpi_honors_year(self, client, db_session):
+        """Regression: /dashboard/kpi ignored ?year= silently."""
+        from app.models import QualityScore
+        from app.cache import cache
+
+        h = db_session.query(Hospital).first()
+        db_session.add(QualityScore(hospital_id=h.id, month="2026-06", score=50.0,
+                                    rule_compliance=60.0, consistency=70.0))
+        db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=90.0,
+                                    rule_compliance=95.0, consistency=85.0))
+        db_session.commit()
+        cache.invalidate("analysis:months")
+
+        kpi_all = client.get("/dashboard/kpi").json()
+        qs_all = next(k for k in kpi_all["kpis"] if k["id"] == "quality_score")
+        assert qs_all["value"] == 70.0
+
+        kpi_27 = client.get("/dashboard/kpi?year=2027").json()
+        qs_27 = next(k for k in kpi_27["kpis"] if k["id"] == "quality_score")
+        assert qs_27["value"] == 90.0
+
+    def test_dashboard_bad_year_format_rejected(self, client):
+        resp = client.get("/dashboard/overview?year=abc")
+        assert resp.status_code == 200
+        assert "error" in resp.json()
+
 
 class TestAnalysisFlow:
     def test_analyze_saved_empty(self, client):
@@ -110,6 +174,22 @@ class TestAnalysisFlow:
     def test_heatmap_endpoint(self, client):
         resp = client.get("/analysis/heatmap")
         assert resp.status_code == 200
+
+    def test_heatmap_filters_by_hospital(self, client, db_session):
+        """Regression: /analysis/heatmap?hospital_id= was ignored."""
+        from app.models import QualityScore
+        from app.cache import cache
+
+        hospitals = db_session.query(Hospital).order_by(Hospital.id).all()
+        h1, h2 = hospitals[0], hospitals[1]
+        db_session.add(QualityScore(hospital_id=h1.id, month="2027-03", score=70.0))
+        db_session.add(QualityScore(hospital_id=h2.id, month="2027-03", score=90.0))
+        db_session.commit()
+        cache.invalidate("analysis:months")
+
+        r1 = client.get(f"/analysis/heatmap?hospital_id={h1.id}").json()
+        assert len(r1["data"]) == 1
+        assert r1["data"][0]["hospital"] == h1.name
 
     def test_clinical_endpoint(self, client):
         resp = client.get("/clinical/test_hospital/2026-04")

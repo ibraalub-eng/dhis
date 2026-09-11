@@ -199,6 +199,28 @@ def _log_db_info():
     print(f"[startup] Database: PostgreSQL ({safe_url})")
 
 
+def _ensure_all_tables():
+    """Create any model tables missing from the database (idempotent).
+
+    Alembic can leave tables absent in two common cases:
+      1. A DB created via create_all was later stamped to head (the stamp path
+         in _run_migrations), so migrations never ran for tables added later.
+      2. An earlier migration partially failed/rolled back on the target DB.
+
+    Code referencing those newer tables (indicator_default_config,
+    hospital_indicator_config, ...) then 500s (e.g. /dashboard/overview and the
+    indicator tree). create_all with checkfirst is cheap and only creates the
+    tables that are missing, so this safely heals such drift at every boot.
+    """
+    try:
+        from app.database import Base as _Base
+        from app import models  # noqa: F401  register every model in metadata
+        _Base.metadata.create_all(engine, checkfirst=True)
+        print("[startup] Missing model tables ensured (create_all checkfirst).")
+    except Exception as e:
+        print(f"[startup] Table ensure error (non-fatal): {e}")
+
+
 def seed_app_config(session):
     for key, value, category, label in APP_CONFIG_DEFAULTS:
         existing = session.query(AppConfig).filter(AppConfig.key == key).first()
@@ -404,6 +426,7 @@ async def lifespan(app: FastAPI):
         return
     init_db()
     _log_db_info()
+    _ensure_all_tables()
     if not _startup_done:
         session = SessionLocal()
         try:

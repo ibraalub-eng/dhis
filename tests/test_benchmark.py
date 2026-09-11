@@ -49,7 +49,8 @@ def test_benchmark_peer_breakdown(db_session):
     assert nicu["peer_median"] == 5.0
     assert nicu["peer_min"] == nicu["peer_max"] == 5.0
     assert nicu["peer_count"] == 1
-    assert nicu["percentile"] == 100.0  # only peer is at or below the target
+    assert nicu["percentile"] == 100.0  # only peer is strictly below -> rank 1 of 1
+    assert nicu["peers_below"] == 1
     assert nicu["z_score"] == 0.0  # single peer -> zero std
 
     assert nicu["peer_breakdown"] == {
@@ -76,3 +77,17 @@ def test_benchmark_no_data_returns_error(db_session):
     gh = db_session.query(Hospital).first()
     result = get_benchmark(db_session, gh.id, "2099-01")
     assert result["error"] == f"No data for {gh.name} / 2099-01"
+
+def test_benchmark_percentile_reports_ties_honestly(db_session):
+    """A hospital that ties every peer must report the median (50th), not 100th."""
+    gh, cm, cc = db_session.query(Hospital).order_by(Hospital.id).all()
+    month = "2026-08"
+    _add_values(db_session, gh.id, month, {"16": 0, "6": 100})
+    _add_values(db_session, cm.id, month, {"16": 0, "6": 100})
+
+    result = get_benchmark(db_session, gh.id, month)
+    nicu = result["comparisons"]["NICU admission rate"]
+    assert nicu["hospital_value"] == 0.0
+    assert nicu["peer_count"] == 1
+    assert nicu["peers_below"] == 0
+    assert nicu["percentile"] == 50.0  # full tie -> median, not "better than everyone"

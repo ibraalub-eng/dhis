@@ -42,7 +42,9 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
         std = float(np.std(peers, ddof=1)) if len(peers) > 1 else 0
         z = round((tval - avg) / std, 2) if std > 0 else 0
         pct_dev = round(((tval - avg) / avg) * 100, 1) if avg else 0
-        percentile = round(sum(1 for p in peers if p <= tval) / len(peers) * 100, 0)
+        below = sum(1 for p in peers if p < tval)
+        equal = sum(1 for p in peers if p == tval)
+        percentile = round((below + 0.5 * equal) / len(peers) * 100, 1)
         status = "critical" if abs(z) >= 3 else ("high" if abs(z) >= 2 else ("elevated" if abs(z) >= 1.5 else "normal"))
         ci = None
         if len(peers) >= 3 and std > 0:
@@ -60,6 +62,7 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
             "z_score": z,
             "percent_deviation": pct_dev,
             "percentile": percentile,
+            "peers_below": below,
             "status": status,
             "confidence_interval_95": ci,
             "peer_breakdown": {

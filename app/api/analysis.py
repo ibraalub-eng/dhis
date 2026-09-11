@@ -619,8 +619,8 @@ def analysis_cache_status(db: Session = Depends(get_db)):
 
 
 @router.get("/heatmap")
-def heatmap_data(month: str = Query(None), db: Session = Depends(get_db)):
-    cache_key = cache.make_key("analysis:heatmap_v2", month=month)
+def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: Session = Depends(get_db)):
+    cache_key = cache.make_key("analysis:heatmap_v2", month=month, hospital_id=hospital_id)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -632,6 +632,8 @@ def heatmap_data(month: str = Query(None), db: Session = Depends(get_db)):
     )
     if month:
         q = q.filter(QualityScore.month == month)
+    if hospital_id:
+        q = q.filter(QualityScore.hospital_id == hospital_id)
     rows = q.all()
 
     # Get hospital names and active status
@@ -654,7 +656,10 @@ def heatmap_data(month: str = Query(None), db: Session = Depends(get_db)):
         matrix[key] = round(float(r.score), 1)
 
     data = []
-    for hid, hname in sorted([(h.id, h.name) for h in hosp_map.values() if h.is_active]):
+    active_hosp = sorted([(h.id, h.name) for h in hosp_map.values() if h.is_active])
+    if hospital_id:
+        active_hosp = [(h.id, h.name) for h in hosp_map.values() if h.id == hospital_id]
+    for hid, hname in active_hosp:
         row = {"hospital": hname}
         for m in months:
             key = f"{hid}||{m}"
