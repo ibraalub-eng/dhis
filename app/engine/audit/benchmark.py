@@ -59,6 +59,7 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
             "peer_min": round(float(min(peers)), 2),
             "peer_max": round(float(max(peers)), 2),
             "peer_count": len(peers),
+            "peer_std": round(std, 2),
             "z_score": z,
             "percent_deviation": pct_dev,
             "percentile": percentile,

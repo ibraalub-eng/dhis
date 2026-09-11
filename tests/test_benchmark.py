@@ -52,6 +52,7 @@ def test_benchmark_peer_breakdown(db_session):
     assert nicu["percentile"] == 100.0  # only peer is strictly below -> rank 1 of 1
     assert nicu["peers_below"] == 1
     assert nicu["z_score"] == 0.0  # single peer -> zero std
+    assert nicu["peer_std"] == 0.0  # single peer -> std dev is undefined
 
     assert nicu["peer_breakdown"] == {
         "total_active": 5,  # 3 seeded + 2 with no data (inactive excluded)
@@ -91,3 +92,26 @@ def test_benchmark_percentile_reports_ties_honestly(db_session):
     assert nicu["peer_count"] == 1
     assert nicu["peers_below"] == 0
     assert nicu["percentile"] == 50.0  # full tie -> median, not "better than everyone"
+
+
+def test_benchmark_z_score_exposes_calculation_parts(db_session):
+    """peer_std and peer_average must be returned so the UI can render the formula."""
+    import math
+    gh, cm, cc = db_session.query(Hospital).order_by(Hospital.id).all()
+    month = "2026-08"
+    # NICU rate numerator code "16" / denominator "6"
+    _add_values(db_session, gh.id, month, {"16": 8, "6": 100})
+    _add_values(db_session, cm.id, month, {"16": 5, "6": 100})
+    _add_values(db_session, cc.id, month, {"16": 7, "6": 100})
+
+    result = get_benchmark(db_session, gh.id, month)
+    nicu = result["comparisons"]["NICU admission rate"]
+    assert nicu["hospital_value"] == 8.0
+    assert nicu["peer_count"] == 2
+    # peers [5, 7]: sample std dev (ddof=1) = sqrt(2)
+    std = math.sqrt(2)
+    avg = 6.0
+    assert nicu["peer_average"] == avg
+    assert nicu["peer_std"] == round(std, 2) == 1.41
+    # z = (8 - 6) / sqrt(2) ≈ 1.4142 -> 1.41 (rounded the same way as std, not from peer_std)
+    assert nicu["z_score"] == round((nicu["hospital_value"] - avg) / std, 2) == 1.41

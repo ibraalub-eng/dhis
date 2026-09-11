@@ -148,6 +148,7 @@ function renderAudit() {
     html += '<div class="card" style="margin-bottom:0.8rem;padding:0.6rem 0.8rem;">';
     html += '<details>';
     html += '<summary style="cursor:pointer;font-size:0.9rem;font-weight:600;color:var(--accent-blue);">2. Benchmark Comparison</summary>';
+    html += '<div style="font-size:0.7rem;color:var(--text-muted);font-family:monospace;margin:0.2rem 0 0.4rem 0;">z = (hospital value - peer average) / peer standard deviation</div>';
     if (bench.comparisons) {
         Object.keys(bench.comparisons).sort().forEach(rname => {
             const c = bench.comparisons[rname];
@@ -163,6 +164,11 @@ function renderAudit() {
             html += '</div>';
             html += '<div style="font-size:0.72rem;color:var(--text-secondary);">Hospital: <strong>' + (c.hospital_value || 0) + '</strong> | Avg: ' + (c.peer_average || 0) + ' | Median: ' + (c.peer_median || 0) + ' | Range: [' + (c.peer_min || 0) + ' - ' + (c.peer_max || 0) + ']</div>';
             html += '<div style="font-size:0.72rem;color:var(--text-secondary);">Z-score: ' + (c.z_score || 0) + ' | Percentile: ' + (c.percentile || 0) + 'th | ' + (c.peers_below || 0) + ' of ' + (c.peer_count || 0) + ' peers below</div>';
+            const _std = (c.peer_std || 0);
+            const zcalc = _std > 0
+                ? 'z = (' + Number(c.hospital_value || 0).toFixed(2) + ' - ' + Number(c.peer_average || 0).toFixed(2) + ') / ' + _std.toFixed(2) + ' = ' + Number(c.z_score || 0).toFixed(2)
+                : 'z = 0.00 - std dev undefined (fewer than 2 peers)';
+            html += '<div style="font-size:0.7rem;color:var(--text-muted);font-family:monospace;">' + zcalc + '</div>';
             const pb = c.peer_breakdown;
             if (pb) {
                 const noData = (pb.no_data_month_count || 0);
