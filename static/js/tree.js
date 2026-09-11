@@ -6,9 +6,49 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         // ── Indicator Tree ────────────────────────────────────────
         let currentTreeData = null;
         let _treeInitialized = false;
+        let _treeDirty = false;
 
         const DEFAULT_HOSPITAL_VALUE = '__default__';
         const ALL_MONTHS_VALUE = '__all__';
+
+        function _setNodeStateDeep(node, state) {
+            node.is_enabled = state;
+            (node.children || []).forEach(c => _setNodeStateDeep(c, state));
+        }
+
+        function _snapshotOpenCodes() {
+            const out = new Set();
+            document.querySelectorAll('#treeContainer details.tree-details').forEach(d => {
+                if (d.open && d.dataset.code) out.add(d.dataset.code);
+            });
+            return out;
+        }
+
+        function _restoreOpenCodes(codes) {
+            document.querySelectorAll('#treeContainer details.tree-details').forEach(d => {
+                if (codes.has(d.dataset.code)) d.open = true;
+            });
+        }
+
+        function _localRenderTree() {
+            const el = document.getElementById('treeContainer');
+            const savedScrollTop = el.scrollTop;
+            const savedPageY = window.scrollY;
+            const savedPageX = window.scrollX;
+            const open = _snapshotOpenCodes();
+            renderTree();
+            el.scrollTop = savedScrollTop;
+            window.scrollTo(savedPageX, savedPageY);
+            _restoreOpenCodes(open);
+        }
+
+        function _updateSaveButton() {
+            const btn = document.getElementById('treeSaveBtn');
+            if (!btn) return;
+            btn.style.display = 'inline-block';
+            btn.textContent = _treeDirty ? __('Save Config') + ' (*)' : __('Save Config');
+            btn.disabled = false;
+        }
 
         function treeDefaultOption() {
             return '<option value="' + DEFAULT_HOSPITAL_VALUE + '">' + __('Default (All Hospitals)') + '</option>';
@@ -60,14 +100,16 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 document.getElementById('treeContainer').innerHTML = '<div style="color:var(--text-muted);padding:1rem;">' + __('Select a hospital and month') + '</div>';
                 return;
             }
-            document.getElementById('treeSaveBtn').style.display = 'none';
+            document.getElementById('treeLoading').classList.remove('hidden');
+            _treeDirty = false;
+            const rb = document.getElementById('treeSaveBtn');
+            if (rb) rb.style.display = 'none';
             const raBtn = document.getElementById('treeReanalyzeBtn');
             if (raBtn) raBtn.style.display = 'none';
             const el = document.getElementById('treeContainer');
             const savedPageY = window.scrollY;
-                  const savedPageX = window.scrollX;
+            const savedPageX = window.scrollX;
             const savedScrollTop = el.scrollTop;
-            document.getElementById('treeLoading').classList.remove('hidden');
             el.innerHTML = '';
             const summary = document.getElementById('treeSummary');
             const url = hospId === DEFAULT_HOSPITAL_VALUE
@@ -77,9 +119,11 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                 .then(r => r.json())
                 .then(data => {
                     document.getElementById('treeLoading').classList.add('hidden');
-                     sortTree(data.children);
+                    _treeDirty = false;
+                    sortTree(data.children);
                     currentTreeData = data;
                     renderTree();
+                    _updateSaveButton();
                     el.scrollTop = savedScrollTop;
                      window.scrollTo(savedPageX, savedPageY);
                 })
@@ -166,7 +210,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             const isDefault = hospId === DEFAULT_HOSPITAL_VALUE;
             const items = [];
             currentTreeData.children.forEach(c => collectTreeState(c, items));
-            const btn = document.getElementById('treeSaveBtn');
+const btn = document.getElementById('treeSaveBtn');
             btn.textContent = __('Saving...');
             btn.disabled = true;
             const url = isDefault
@@ -179,8 +223,10 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             })
                 .then(r => r.json())
                 .then(data => {
-                    btn.textContent = __('Saved!');
                     btn.disabled = false;
+                    _treeDirty = false;
+                    _updateSaveButton();
+                    toastSuccess(data.message || 'Config saved');
                     if (!isDefault) {
                         // Show re-analyze button
                         let raBtn = document.getElementById('treeReanalyzeBtn');
@@ -195,9 +241,10 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                         }
                         raBtn.style.display = 'inline-block';
                     }
-                    setTimeout(() => {
-                        btn.style.display = 'none';
-                    }, 2000);
+                    // Auto-refresh dashboard if visible
+                    if (typeof window.loadDashboard === 'function') {
+                        window.loadDashboard();
+                    }
                 })
                 .catch(e => {
                     btn.textContent = __('Save Config');
@@ -221,7 +268,6 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             if (node.is_enabled === false) wrapper.classList.add('tree-disabled');
 
             const isParent = node.children && node.children.length > 0;
-            const month = document.getElementById('treeMonthSelect').value;
             const isDefault = hospitalId === DEFAULT_HOSPITAL_VALUE;
 
             const toggle = document.createElement('span');
@@ -233,31 +279,24 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             toggle.onclick = function(e) {
                 e.stopPropagation();
                 const indicatorId = node.indicator_id;
-                if (toggle.classList.contains('loading')) return;
-                toggle.classList.add('loading');
-                if (!indicatorId) { toggle.classList.remove('loading'); toastWarning('Indicator ID not found.'); return; }
-                const url = isDefault
-                    ? API() + '/hospitals/indicators/' + indicatorId + '/toggle-default?month=' + month + (isParent ? '&cascade=true' : '')
-                    : API() + '/hospitals/' + hospitalId + '/indicators/' + indicatorId + '/toggle?month=' + month + (isParent ? '&cascade=true' : '');
-                authFetch(url, { method: 'PUT' })
-                    .then(r => r.json())
-                    .then(data => {
-                        node.is_enabled = data.is_enabled;
-                        loadIndicatorTree();
-                        // Auto-refresh dashboard if visible
-                        if (typeof window.loadDashboard === 'function') {
-                            window.loadDashboard();
-                        }
-                    })
-                    .catch(e => {
-                        toggle.classList.remove('loading');
-                        toastError('Toggle failed: ' + e.message);
-                    });
+                if (!indicatorId) { toastWarning('Indicator ID not found.'); return; }
+                // Local-only toggle: change the in-memory state, re-render the tree,
+                // and mark the config as dirty. Nothing reaches the backend until Save.
+                const newState = node.is_enabled === false;
+                if (isParent) {
+                    _setNodeStateDeep(node, newState);
+                } else {
+                    node.is_enabled = newState;
+                }
+                _treeDirty = true;
+                _updateSaveButton();
+                _localRenderTree();
             };
 
             if (isParent) {
                 const details = document.createElement('details');
                 details.className = 'tree-details';
+                details.dataset.code = node.code || '';
                 if (depth <= 0) details.open = true;
 
                 const summary = document.createElement('summary');

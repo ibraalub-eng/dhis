@@ -221,6 +221,24 @@ def test_save_default_tree_config_all_months(client, db_session):
     assert all(not r.is_enabled for r in rows)
 
 
+def test_save_tree_config_persists_override(client, db_session):
+    from app.models import Indicator, HospitalIndicatorConfig
+
+    ind = db_session.query(Indicator).first()
+    resp = client.post(
+        "/hospitals/2/save-tree-config?month=__all__",
+        json={"items": [{"indicator_id": ind.id, "is_enabled": False}]},
+    )
+    assert resp.status_code == 200
+
+    cfg = db_session.query(HospitalIndicatorConfig).filter(
+        HospitalIndicatorConfig.hospital_id == 2,
+        HospitalIndicatorConfig.indicator_id == ind.id,
+    ).first()
+    assert cfg is not None
+    assert cfg.is_enabled is False
+
+
 def test_default_tree_aggregates_hospital_values(client, db_session):
     """The default-scope tree must aggregate values across hospitals per month."""
     from app.models import Indicator, IndicatorValue

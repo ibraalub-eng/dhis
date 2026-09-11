@@ -72,6 +72,11 @@ def save_tree_config(
             config.is_enabled = is_enabled
         count += 1
     db.commit()
+    from app.api.indicator_config import _recalc_hospital_scores
+    try:
+        _recalc_hospital_scores(db, hospital_id)
+    except Exception:
+        pass
     return {"message": f"Saved {count} config entries for {hospital.name} / {month}"}
 
 
