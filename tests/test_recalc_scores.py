@@ -711,3 +711,44 @@ def test_clinical_skips_disabled_thresholds():
     assert th.indicator_code not in result_codes, (
         f"Threshold {th.indicator_code} still present when all its codes disabled"
     )
+
+
+def test_smart_analytics_drilldown_excludes_disabled(client, db_session):
+    """Smart analytics drilldown indicator list must not include disabled indicators."""
+    from unittest.mock import patch
+    from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig
+    from app.cache import cache
+
+    hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+    assert hosp is not None, "no active hospitals"
+    ind = db_session.query(Indicator).first()
+    assert ind is not None, "no indicators"
+
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2027-01", indicator_id=ind.id, value=10))
+    # Disable via hospital config
+    db_session.add(HospitalIndicatorConfig(hospital_id=hosp.id, indicator_id=ind.id, is_enabled=False))
+    db_session.commit()
+
+    # Clear drilldown cache for this hospital
+    cache.invalidate(f"smart_drilldown_{hosp.id}_")
+
+    from types import SimpleNamespace
+    def _fake(month):
+        return SimpleNamespace(
+            month=month, hospitals_count=1, kpi=SimpleNamespace(
+                total_anomalies=0, critical_count=0, warning_count=0,
+                affected_governorates=0, top_contributing_factor="", month_status="normal",
+            ),
+            anomalies=[], clustering=None, correlations=None, residuals=[],
+            stratified=[], explanations=[], geo=None, patterns=[],
+            xgboost_predictions=None,
+        )
+
+    with patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, m: _fake(m)):
+        resp = client.get(f"/smart/drilldown/{hosp.id}/2027-01")
+    assert resp.status_code == 200
+    data = resp.json()
+    indicator_ids = [i["indicator_id"] for i in data.get("indicators", [])]
+    assert ind.id not in indicator_ids, (
+        f"Disabled indicator {ind.code} (id={ind.id}) still in smart analytics drilldown"
+    )

@@ -590,7 +590,12 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
     iv_rows = db.query(IndicatorValue).filter(
         IndicatorValue.hospital_id == hospital_id, IndicatorValue.month == month
     ).all()
+    # Build disabled-indicator set so drilldown excludes them
+    from app.engine.pipeline import get_disabled_indicator_ids as _gdi
+    _dis_ids = set(_gdi(db, hospital_id, month))
     for iv in iv_rows:
+        if iv.indicator_id in _dis_ids:
+            continue
         indicators.append({
             "indicator_id": iv.indicator_id,
             "indicator_name": iv.indicator.name if iv.indicator else f"Indicator {iv.indicator_id}",
@@ -606,6 +611,8 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
             for piv in db.query(IndicatorValue).filter(
                 IndicatorValue.hospital_id == pid, IndicatorValue.month == month
             ).all():
+                if piv.indicator_id in _dis_ids:
+                    continue
                 peer_sums[piv.indicator_id].append(piv.value or 0)
                 peer_count[piv.indicator_id] += 1
         for ind in indicators:
