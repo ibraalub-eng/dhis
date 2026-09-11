@@ -752,3 +752,29 @@ def test_smart_analytics_drilldown_excludes_disabled(client, db_session):
     assert ind.id not in indicator_ids, (
         f"Disabled indicator {ind.code} (id={ind.id}) still in smart analytics drilldown"
     )
+
+
+def test_root_cause_timeline_skips_disabled(client, db_session):
+    """Root-cause timeline must not include disabled core indicators."""
+    from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig
+
+    hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+    assert hosp is not None, "no active hospitals"
+    # Find indicator with code "2" (one of the hardcoded timeline codes)
+    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
+    assert ind is not None, "no indicator with code '2'"
+
+    # Insert 2+ months of history so the timeline would normally include it
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2027-01", indicator_id=ind.id, value=100))
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2026-12", indicator_id=ind.id, value=90))
+    # Disable it via hospital config so the timeline should skip it
+    db_session.add(HospitalIndicatorConfig(hospital_id=hosp.id, indicator_id=ind.id, is_enabled=False))
+    db_session.commit()
+
+    resp = client.get(
+        f"/root-cause/{hosp.id}/timeline?month=2027-01&months_back=2"
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    codes = [i["indicator_code"] for i in data.get("indicators", [])]
+    assert "2" not in codes, "Disabled indicator code '2' still in root-cause timeline"

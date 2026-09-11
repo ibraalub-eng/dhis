@@ -45,8 +45,17 @@ def get_root_cause_timeline(
     if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail="Hospital not found")
 
+    # Build disabled-indicator set so the timeline skips disabled codes
+    from app.engine.pipeline import get_disabled_indicator_ids as _gdi
+    from app.models import Indicator as _RI
+    _dis_ids = set(_gdi(db, hospital_id, month))
+    _ind_rows = db.query(_RI.id, _RI.code).all()
+    _dis_codes = {c for i, c in _ind_rows if i in _dis_ids}
+
     indicators = []
     for code, ar_name in _TIMELINE_INDICATORS:
+        if code in _dis_codes:
+            continue
         hist = get_historical_data(db, hospital_id, code, months_back, month=month)
         if len(hist) < 2:
             continue
