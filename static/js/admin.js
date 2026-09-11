@@ -314,13 +314,7 @@ window._adminAssignHospitals = function(id, btn) {
         </div>
         <!-- Control Panel -->
         <div id="adminControlPanel" style="display:none;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-                <h2 style="color:var(--accent-purple);margin:0;">Analysis Control</h2>
-                <div style="display:flex;gap:0.5rem;align-items:center;">
-                    <span id="controlSaveStatusHeader" style="font-size:0.8rem;color:var(--text-muted);"></span>
-                    <button class="btn btn-sm" id="controlSaveBtn" onclick="adminSaveControlSettings()" style="display:none;background:var(--accent-purple);color:white;">Save</button>
-                </div>
-            </div>
+            <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Analysis Control</h2>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Configure analysis behavior, logging, and month toggles.</p>
             <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);">
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;margin-bottom:1rem;font-size:0.8rem;color:var(--text-primary);line-height:1.6;">
@@ -343,9 +337,6 @@ window._adminAssignHospitals = function(id, btn) {
                           <span style="font-size:0.8rem;color:var(--text-secondary);">Log all HTTP requests as JSON to stdout.</span>
                       </div>
                   </label>
-                  <div style="margin-top:0.6rem;">
-                      <span id="controlSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
-                  </div>
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
@@ -382,6 +373,10 @@ window._adminAssignHospitals = function(id, btn) {
                           <span style="font-size:0.8rem;color:var(--text-secondary);">Display source code references below each setting control.</span>
                       </div>
                   </label>
+              </div>
+              <div style="display:flex;gap:0.5rem;align-items:center;margin-top:1rem;padding-top:0.8rem;border-top:1px solid var(--border-default);">
+                  <button class="btn btn-sm" id="controlSaveBtn" onclick="adminSaveControlSettings()" style="display:none;background:var(--accent-purple);color:white;">Save</button>
+                  <span id="controlSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
               </div>
             </div>
             <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:700px;border:1px solid var(--border-default);margin-top:1rem;">
@@ -1155,11 +1150,9 @@ window._adminAssignHospitals = function(id, btn) {
     var hideVal = hideCb ? hideCb.checked : false;
     var incVal = incCb ? incCb.checked : false;
     var status = document.getElementById("controlSaveStatus");
-    var hdr = document.getElementById("controlSaveStatusHeader");
     var btn = document.getElementById('controlSaveBtn');
     function setStatus(text, color) {
       if (status) { status.textContent = text; status.style.color = color; }
-      if (hdr && text !== "Saving...") { hdr.textContent = text; hdr.style.color = color; }
     }
     if (btn) { btn.textContent = "Saving..."; btn.disabled = true; }
     setStatus("Saving...", "var(--accent-blue)");
