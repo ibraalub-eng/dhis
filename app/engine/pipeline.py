@@ -10,6 +10,7 @@ from app.models import (
     Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig,
     IndicatorDefaultConfig,
     ValidationResult, AnomalyResult, QualityScore, ConfidenceScore,
+    ClinicalInsight,
 )
 from sqlalchemy.orm import Session
 import json
@@ -453,6 +454,64 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
             "outliers": [],
             "cached": False,
         }
+
+
+def purge_derived_results(session: Session, hospital_id: int, month: str = None) -> Dict[str, int]:
+    """Delete derived analysis rows for one (hospital, month).
+
+    month=None clears the hospital across every month. Raw IndicatorValue rows
+    are left untouched — callers decide whether those go too (Remove Data
+    deletes them; re-analysis keeps them).
+    """
+    counts = {}
+    for key, model in (
+        ("quality_scores", QualityScore),
+        ("validation_results", ValidationResult),
+        ("anomaly_results", AnomalyResult),
+        ("confidence_scores", ConfidenceScore),
+        ("clinical_insights", ClinicalInsight),
+    ):
+        query = session.query(model).filter(model.hospital_id == hospital_id)
+        if month is not None:
+            query = query.filter(model.month == month)
+        counts[key] = query.delete(synchronize_session=False)
+    return counts
+
+
+def recompute_hospital_months(
+    session: Session,
+    hospital_id: int,
+    months=None,
+    force: bool = True,
+    progress_cb=None,
+) -> int:
+    """Purge derived rows and re-run analysis for a hospital's months.
+
+    months=None means every month that still has indicator values for the
+    hospital. Returns the number of months successfully recomputed.
+    """
+    if months is None:
+        months = sorted({
+            r[0] for r in session.query(IndicatorValue.month).filter(
+                IndicatorValue.hospital_id == hospital_id,
+            ).distinct().all()
+        })
+    done = 0
+    for month in months:
+        purge_derived_results(session, hospital_id, month)
+        session.commit()
+        try:
+            run_full_analysis(session, hospital_id, month, force=force)
+            done += 1
+        except Exception:
+            session.rollback()
+            logger.exception("Recompute failed for hospital %s / %s", hospital_id, month)
+        if progress_cb:
+            try:
+                progress_cb(done)
+            except Exception:
+                pass
+    return done
 
 
 def _save_validation_results(session: Session, hospital_id: int, month: str, results: List[RuleResult]):

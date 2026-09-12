@@ -95,3 +95,79 @@ def test_parse_csv(sample_csv):
     df = parse_excel(sample_csv)
     assert "organisationunitname" in df.columns
     assert len(df) >= 2
+
+
+# ── Auto-registration of new indicator codes ───────────────────────────────
+
+def _write_new_indicator_csv(tmp_path, filename="new_ind.csv", value=12):
+    data = (
+        "organisationunitname,month,NewIndicator Alpha (99.a),NewIndicator Beta (99.b)\n"
+        f"Hospital A,2026-04,{value},7\n"
+    )
+    path = tmp_path / filename
+    path.write_text(data, encoding="utf-8")
+    return str(path)
+
+
+def test_normalize_recognizes_new_indicator_columns(tmp_path):
+    df = parse_excel(_write_new_indicator_csv(tmp_path))
+    assert "99.a" in df.columns
+    assert "99.b" in df.columns
+    codes = {r["indicator_code"] for r in normalize_data(df)}
+    assert {"99.a", "99.b"} <= codes
+
+
+def test_import_auto_registers_new_indicators(db_session, tmp_path):
+    from app.models import Indicator, IndicatorValue
+    from app.utils.excel_parser import process_excel_upload
+
+    result = process_excel_upload(_write_new_indicator_csv(tmp_path), db_session)
+    created = {i["code"] for i in result["new_indicators"]}
+    assert {"99", "99.a", "99.b"} <= created
+
+    parent = db_session.query(Indicator).filter(Indicator.code == "99").first()
+    child = db_session.query(Indicator).filter(Indicator.code == "99.a").first()
+    assert parent is not None and child is not None
+    assert child.parent_id == parent.id
+    assert child.level == parent.level + 1
+    assert db_session.query(IndicatorValue).filter(
+        IndicatorValue.indicator_id == child.id).count() == 1
+
+
+def test_year_column_not_registered_as_indicator(tmp_path):
+    """A bare 4-digit year column must not be treated as an indicator code."""
+    p = tmp_path / "with_year.csv"
+    p.write_text(
+        "organisationunitname,month,2026,Total Deliveries\n"
+        "Hospital A,2026-04,1,300\n",
+        encoding="utf-8",
+    )
+    df = parse_excel(str(p))
+    codes = {r["indicator_code"] for r in normalize_data(df)}
+    assert "2026" not in codes
+    assert "2" in codes
+
+
+def test_import_updates_existing_value_in_place(db_session, tmp_path):
+    from app.models import Indicator, IndicatorValue
+    from app.utils.excel_parser import process_excel_upload
+
+    def _write(name, value):
+        p = tmp_path / name
+        p.write_text(
+            "organisationunitname,month,Total Deliveries\n"
+            f"Hospital Upd,2026-05,{value}\n",
+            encoding="utf-8",
+        )
+        return str(p)
+
+    process_excel_upload(_write("u1.csv", 100), db_session)
+    process_excel_upload(_write("u2.csv", 250), db_session)
+
+    ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
+    rows = db_session.query(IndicatorValue).filter(
+        IndicatorValue.indicator_id == ind.id,
+        IndicatorValue.month == "2026-05",
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].value == 250

@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.excel_parser import process_excel_upload, parse_excel, normalize_data
-from app.engine.pipeline import run_full_analysis
+from app.engine.pipeline import run_full_analysis, recompute_hospital_months
 from app.schemas import UploadResponse, AutoReportResponse
 from app.indicators import INDICATOR_FLAT_LIST
 from app.models import IndicatorValue, Indicator, Hospital
@@ -383,8 +383,15 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
     months = result["months"]
     reports = []
     for hosp in hospitals:
+        # Recompute every month of the affected hospital: the new values change
+        # this hospital's historical/trend baselines, not just the uploaded month.
+        try:
+            recompute_hospital_months(db, hosp["id"])
+        except Exception as e:
+            logger.warning(f"Could not recompute months for {hosp['name']}: {e}")
         for month in months:
             try:
+                # Already freshly computed above; this returns the cached summary.
                 report = run_full_analysis(db, hosp["id"], month)
                 reports.append(report)
             except Exception as e:
@@ -397,4 +404,5 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
         hospitals=hospitals,
         months=months,
         reports=reports,
+        new_indicators=result.get("new_indicators", []),
     )

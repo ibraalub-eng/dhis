@@ -1,5 +1,6 @@
 import pandas as pd
 from typing import List, Dict, Optional, Tuple
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.models import Hospital, Indicator, IndicatorValue
 from app.indicators import INDICATOR_NAME_TO_CODE, INDICATOR_FLAT_LIST
@@ -104,11 +105,11 @@ def _extract_month_from_sheet(file_path: str, engine: str, header_row: int, shee
     return None
 
 
-def parse_excel(file_path: str) -> pd.DataFrame:
+def parse_excel(file_path: str, known_code_to_name: Optional[Dict[str, str]] = None) -> pd.DataFrame:
     ext = os.path.splitext(file_path)[1].lower()
 
     if ext == ".csv":
-        return _parse_csv(file_path)
+        return _parse_csv(file_path, known_code_to_name=known_code_to_name)
 
     engines = []
     if ext == ".xls":
@@ -133,12 +134,16 @@ def parse_excel(file_path: str) -> pd.DataFrame:
                 if df.empty:
                     continue
                 month_extracted = _extract_month_from_sheet(file_path, engine, header_row, sheet_name)
-                df = _rename_columns(df, default_month=month_extracted)
+                df = _rename_columns(df, default_month=month_extracted, known_code_to_name=known_code_to_name)
                 if "organisationunitname" in df.columns or any(
                     kw in str(c).lower() for c in df.columns for kw in HEADER_KEYWORDS
                 ):
                     return df
-                indicator_cols = [c for c in df.columns if c in set(ind["code"] for ind in INDICATOR_FLAT_LIST)]
+                known_codes = set(_known_code_lookup(known_code_to_name).values())
+                indicator_cols = [
+                    c for c in df.columns
+                    if c in known_codes or _is_likely_indicator_code(c)
+                ]
                 if len(indicator_cols) >= 3:
                     return df
             except Exception as e:
@@ -154,7 +159,7 @@ def parse_excel(file_path: str) -> pd.DataFrame:
                     month_extracted = _extract_month_from_text(str(col))
                     if month_extracted:
                         break
-                df = _rename_columns(df, default_month=month_extracted)
+                df = _rename_columns(df, default_month=month_extracted, known_code_to_name=known_code_to_name)
                 if "organisationunitname" in df.columns:
                     return df
         except Exception:
@@ -167,13 +172,13 @@ def parse_excel(file_path: str) -> pd.DataFrame:
     )
 
 
-def _parse_csv(file_path: str) -> pd.DataFrame:
+def _parse_csv(file_path: str, known_code_to_name: Optional[Dict[str, str]] = None) -> pd.DataFrame:
     for enc in ["utf-8-sig", "utf-8", "latin-1", "cp1256"]:
         for sep in [",", ";", "\t", "|"]:
             try:
                 df = pd.read_csv(file_path, sep=sep, encoding=enc)
                 if not df.empty and len(df.columns) > 1:
-                    return _rename_columns(df)
+                    return _rename_columns(df, known_code_to_name=known_code_to_name)
             except Exception:
                 pass
     raise ValueError("Could not read CSV file. Check encoding and delimiter.")
@@ -207,17 +212,44 @@ def _extract_code_from_colname(col_name: str) -> Optional[str]:
     return None
 
 
-def _rename_columns(df: pd.DataFrame, default_month: Optional[str] = None) -> pd.DataFrame:
+# A column header that is itself an indicator code, e.g. "2", "2.a", "5.b.1".
+_INDICATOR_CODE_RE = re.compile(r'^\d+(\.[a-zA-Z0-9]+)*$')
+
+
+def _is_likely_indicator_code(code: str) -> bool:
+    """Code-shaped header that is not a bare 4-digit year/period column."""
+    code = str(code).strip()
+    if not _INDICATOR_CODE_RE.match(code):
+        return False
+    return not re.fullmatch(r'\d{4}', code)
+
+
+def _known_code_lookup(known_code_to_name: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Lowercased code -> canonical code, from the static list plus DB codes."""
+    lookup = {}
+    for ind in INDICATOR_FLAT_LIST:
+        lookup[ind["code"].lower()] = ind["code"]
+    if known_code_to_name:
+        for code in known_code_to_name:
+            lookup.setdefault(str(code).lower(), str(code))
+    return lookup
+
+
+def _rename_columns(
+    df: pd.DataFrame,
+    default_month: Optional[str] = None,
+    known_code_to_name: Optional[Dict[str, str]] = None,
+) -> pd.DataFrame:
     df.columns = [str(c).strip() for c in df.columns]
     col_map = {}
     month_found = False
     # Track which indicator codes have already been mapped (avoid duplicates)
     mapped_codes = set()
+    # Indicator codes found in the file that are not in the catalog yet.
+    new_indicators: Dict[str, str] = {}
 
-    # Build code-to-name lookup (case-insensitive)
-    code_to_name_lower = {}
-    for ind in INDICATOR_FLAT_LIST:
-        code_to_name_lower[ind["code"].lower()] = ind["code"]
+    # Build code-to-name lookup (case-insensitive), including DB-only codes
+    code_to_name_lower = _known_code_lookup(known_code_to_name)
 
     def _try_map(col: str, indicator_code: str) -> bool:
         """Map a column to an indicator code if not already taken. Returns True if mapped."""
@@ -270,8 +302,24 @@ def _rename_columns(df: pd.DataFrame, default_month: Optional[str] = None) -> pd
             if _try_map(col, best):
                 continue
 
+        # 6. New indicator: a code embedded in the header like "(99.a) New metric",
+        #    or a header that is itself a code-like token. Recognise it so its
+        #    values import and the indicator is auto-created on save.
+        embedded = _extract_code_from_colname(col)
+        candidate = embedded
+        if not candidate:
+            token = cl.strip()
+            if _is_likely_indicator_code(token):
+                candidate = CODE_ALIAS_MAP.get(token, token)
+        if candidate and candidate.lower() not in code_to_name_lower and candidate not in mapped_codes:
+            if _try_map(col, candidate):
+                display = re.sub(r'\([^)]*\)', '', col).strip() if embedded else candidate
+                new_indicators[candidate] = display or candidate
+                continue
+
     df = df.rename(columns=col_map)
     df = df.loc[:, ~df.columns.duplicated()]
+    df.attrs["new_indicators"] = new_indicators
     if not month_found and default_month:
         df["month"] = default_month
         logger.info(f"Added month column from title row: {default_month}")
@@ -311,7 +359,7 @@ def _fuzzy_match_indicator(col_name: str) -> Optional[str]:
     return None
 
 
-def normalize_data(df: pd.DataFrame) -> List[Dict]:
+def normalize_data(df: pd.DataFrame, known_code_to_name: Optional[Dict[str, str]] = None) -> List[Dict]:
     records = []
     if "organisationunitname" not in df.columns:
         raise ValueError(
@@ -324,12 +372,18 @@ def normalize_data(df: pd.DataFrame) -> List[Dict]:
             "or a title row with the month name (e.g., 'January 2026'). "
             f"Found columns: {list(df.columns[:20])}"
         )
-    indicator_codes = set(ind["code"] for ind in INDICATOR_FLAT_LIST)
-    value_cols = [c for c in df.columns if c in indicator_codes]
+    known_codes = set(_known_code_lookup(known_code_to_name).values())
+    new_codes = set((df.attrs.get("new_indicators") or {}).keys())
+    value_cols = []
+    for c in df.columns:
+        if c in ("organisationunitname", "month"):
+            continue
+        if c in known_codes or c in new_codes or _is_likely_indicator_code(c):
+            value_cols.append(c)
     if not value_cols:
         raise ValueError(
             "No recognized indicator columns found. "
-            "Column names must match the SRMNH indicator names. "
+            "Column names must match the SRMNH indicator names or codes. "
             f"Found columns: {list(df.columns[:20])}"
         )
     for _, row in df.iterrows():
@@ -379,7 +433,12 @@ def normalize_data(df: pd.DataFrame) -> List[Dict]:
     return records
 
 
-def import_data_to_db(records: List[Dict], session: Session, source_file: str = "") -> Tuple[int, int]:
+def import_data_to_db(
+    records: List[Dict],
+    session: Session,
+    source_file: str = "",
+    new_indicator_names: Optional[Dict[str, str]] = None,
+) -> Tuple[int, int, List[Dict]]:
     import re as _re
     hospitals_cache = {}  # name -> id
     org_id_cache = {}     # org_id -> id
@@ -387,6 +446,39 @@ def import_data_to_db(records: List[Dict], session: Session, source_file: str = 
     indicators_cache = {}
     for ind in session.query(Indicator).all():
         indicators_cache[ind.code] = ind.id
+
+    new_indicator_names = new_indicator_names or {}
+    created_indicators: List[Dict] = []
+    max_sort = session.query(func.max(Indicator.sort_order)).scalar() or 0
+
+    def _ensure_indicator(code: str, name: Optional[str] = None) -> int:
+        """Create the indicator (and any missing ancestors); return its id.
+
+        Ancestors are auto-created so the tree nests the new indicator instead
+        of orphaning it at the root.
+        """
+        if code in indicators_cache:
+            return indicators_cache[code]
+        parent_id, level = None, 0
+        if "." in code:
+            parent_code = code.rsplit(".", 1)[0]
+            parent_id = _ensure_indicator(parent_code, parent_code)
+            level = (session.query(Indicator.level).filter(Indicator.id == parent_id).scalar() or 0) + 1
+        nonlocal max_sort
+        max_sort += 1
+        ind = Indicator(
+            code=code,
+            name=name or code,
+            parent_id=parent_id,
+            level=level,
+            group_name="SRMNH Inpatient Indicators",
+            sort_order=max_sort,
+        )
+        session.add(ind)
+        session.flush()
+        indicators_cache[code] = ind.id
+        created_indicators.append({"code": code, "name": ind.name})
+        return ind.id
     for hosp in session.query(Hospital).all():
         hospitals_cache[hosp.name] = hosp.id
         if hosp.organisation_unit_id:
@@ -436,7 +528,8 @@ def import_data_to_db(records: List[Dict], session: Session, source_file: str = 
             new_hospitals += 1
         indicator_code = rec["indicator_code"]
         if indicator_code not in indicators_cache:
-            continue
+            # Auto-register indicators that only exist in this uploaded file.
+            _ensure_indicator(indicator_code, new_indicator_names.get(indicator_code))
         ind_id = indicators_cache[indicator_code]
         hosp_id = hospitals_cache[hosp_name]
         existing = (
@@ -463,13 +556,14 @@ def import_data_to_db(records: List[Dict], session: Session, source_file: str = 
             session.add(iv)
         processed += 1
     session.commit()
-    return new_hospitals, processed
+    return new_hospitals, processed, created_indicators
 
 
 def process_excel_upload(file_path: str, session: Session) -> Dict:
     filename = os.path.basename(file_path)
-    df = parse_excel(file_path)
-    records = normalize_data(df)
+    known_code_to_name = {ind.code: ind.name for ind in session.query(Indicator).all()}
+    df = parse_excel(file_path, known_code_to_name=known_code_to_name)
+    records = normalize_data(df, known_code_to_name=known_code_to_name)
     if not records:
         raise ValueError(
             f"No data records found in '{filename}'. "
@@ -477,7 +571,10 @@ def process_excel_upload(file_path: str, session: Session) -> Dict:
             "(or 'hospital'/'facility'), indicator columns matching SRMNH names, "
             "and a 'month' column or a title row with the reporting period."
         )
-    new_hospitals, new_values = import_data_to_db(records, session, source_file=filename)
+    new_indicator_names = df.attrs.get("new_indicators") or {}
+    new_hospitals, new_values, new_indicators = import_data_to_db(
+        records, session, source_file=filename, new_indicator_names=new_indicator_names
+    )
 
     hospital_names = sorted(set(r["hospital_name"] for r in records))
     months = sorted(set(r["month"] for r in records))
@@ -494,6 +591,7 @@ def process_excel_upload(file_path: str, session: Session) -> Dict:
         "hospitals_processed": len(hospital_names),
         "rows_imported": new_values,
         "new_hospitals": new_hospitals,
+        "new_indicators": new_indicators,
         "message": f"Processed {new_values} indicator values for {len(hospital_names)} hospitals",
         "hospitals": hospitals_list,
         "months": months,

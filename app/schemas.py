@@ -259,6 +259,7 @@ class UploadResponse(BaseModel):
     message: str
     hospitals: List[dict] = []
     months: List[str] = []
+    new_indicators: List[dict] = []
 
 
 class AutoReportResponse(BaseModel):
@@ -266,6 +267,7 @@ class AutoReportResponse(BaseModel):
     hospitals: List[dict]
     months: List[str]
     reports: List["ReportOut"]
+    new_indicators: List[dict] = []
 
 
 class ConfidenceSummaryOut(BaseModel):

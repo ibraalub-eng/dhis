@@ -6,7 +6,12 @@ import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
 from app.models import Hospital, Indicator, IndicatorValue, QualityScore, ValidationResult
-from app.engine.pipeline import run_full_analysis, get_enabled_values_for_hospital_month
+from app.engine.pipeline import (
+    run_full_analysis,
+    get_enabled_values_for_hospital_month,
+    purge_derived_results,
+    recompute_hospital_months,
+)
 from app.engine.anomaly import analyze_historical_trends, compare_hospitals
 from app.engine.clinical import run_clinical_analysis
 from app.utils.excel_parser import process_excel_upload
@@ -455,19 +460,20 @@ async def upload_multiple_and_analyze(
     task_id = create_task("Upload & Analyze", lambda: None)
 
     def _run_analyses_in_bg(h_months, tid):
-        from app.engine.pipeline import run_full_analysis
+        from app.tasks import set_progress
         bg_db = SessionLocal()
         try:
-            total = sum(len(ms) for ms in h_months.values())
+            total = max(sum(len(ms) for ms in h_months.values()), 1)
             done = 0
             for h_id, months in h_months.items():
                 for m in months:
                     try:
-                        run_full_analysis(bg_db, h_id, m)
+                        # force=True so months that already have a QualityScore
+                        # are refreshed rather than early-returning stale results.
+                        recompute_hospital_months(bg_db, h_id, [m], force=True)
                     except Exception as e:
                         logger.error(f"Background analysis failed H{h_id}/{m}: {e}")
                     done += 1
-                    from app.tasks import set_progress
                     set_progress(tid, int(done / total * 100))
         finally:
             bg_db.close()
@@ -650,15 +656,7 @@ def _run_quality_reports(db: Session, hospitals_list: list, hospital_months: dic
                 # (hospital, month) so run_full_analysis recomputes fresh
                 # scores instead of early-returning stale cached QualityScore
                 # rows (run_full_analysis skips re-analysis when a row exists).
-                db.query(QualityScore).filter(
-                    QualityScore.hospital_id == h.id, QualityScore.month == m).delete()
-                db.query(ValidationResult).filter(
-                    ValidationResult.hospital_id == h.id, ValidationResult.month == m).delete()
-                from app.models import AnomalyResult, ConfidenceScore
-                db.query(AnomalyResult).filter(
-                    AnomalyResult.hospital_id == h.id, AnomalyResult.month == m).delete()
-                db.query(ConfidenceScore).filter(
-                    ConfidenceScore.hospital_id == h.id, ConfidenceScore.month == m).delete()
+                purge_derived_results(db, h.id, m)
                 db.commit()
 
                 report = run_full_analysis(db, h.id, m)

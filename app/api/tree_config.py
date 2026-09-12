@@ -390,6 +390,7 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
         "indicator_group": raw_tree["indicator_group"],
         "children": [_enrich_node(child) for child in raw_tree["children"]],
         "default_scope": default_scope,
+        "auto_disable_null": auto_disable_null,
     }
 
     return tree

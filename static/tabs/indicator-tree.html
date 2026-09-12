@@ -19,10 +19,17 @@
                                 <span id="treeLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
                             </div>
                         </div>
-                        <div style="display:flex;gap:0.4rem;margin-bottom:0.4rem;">
+                        <div style="display:flex;gap:0.4rem;margin-bottom:0.4rem;align-items:center;flex-wrap:wrap;">
                             <button class="btn btn-sm btn-outline" onclick="expandAllTree()" style="padding:0.2rem 0.5rem;font-size:0.72rem;">Expand All</button>
                             <button class="btn btn-sm btn-outline" onclick="collapseAllTree()" style="padding:0.2rem 0.5rem;font-size:0.72rem;">Collapse All</button>
+                            <button class="btn btn-sm btn-outline" id="treeRemoveDataBtn" data-requires="data.manage" onclick="removeTreeData()" title="Delete all data for one month and re-run analysis" style="margin-left:auto;padding:0.2rem 0.5rem;font-size:0.72rem;color:var(--accent-red);border-color:var(--accent-red);">Remove Data</button>
                         </div>
+                        <div id="treeUndoBanner" class="hidden" style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.4rem;padding:0.35rem 0.6rem;border:1px solid var(--accent-red);border-radius:6px;background:rgba(220,38,38,0.07);">
+                            <span id="treeUndoText"></span>
+                            <button class="btn btn-sm btn-outline" id="treeUndoBtn" data-requires="data.manage" onclick="undoTreeData()" title="Restore the deleted values from the snapshot" style="padding:0.15rem 0.5rem;font-size:0.72rem;margin-left:0.5rem;">Undo</button>
+                            <span onclick="dismissTreeUndo()" style="cursor:pointer;opacity:0.6;margin-left:0.5rem;" title="Dismiss">&#10005;</span>
+                        </div>
+                        <div id="treeAutoDisableNotice" class="hidden" style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.4rem;"></div>
                         <div id="treeContainer" style="max-height:600px;overflow-y:auto;font-size:0.85rem;border:1px solid var(--border-default);border-radius:4px;padding:0.5rem;">
                             <div style="text-align:center;padding:2rem 1rem;color:var(--text-muted);">
                                 <div style="font-size:1.5rem;margin-bottom:0.3rem;opacity:0.3;">&#127795;</div>

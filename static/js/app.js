@@ -100,6 +100,9 @@ window.collapseAllTree = _stub('collapseAllTree');
 window.initIndicatorTree = _stub('initIndicatorTree');
 window.loadIndicatorTree = _stub('loadIndicatorTree');
 window.saveTreeConfig = _stub('saveTreeConfig');
+window.removeTreeData = _stub('removeTreeData');
+window.undoTreeData = _stub('undoTreeData');
+window.dismissTreeUndo = _stub('dismissTreeUndo');
 window.esc = _stub('esc');
 window._vbDragStart = _stub('_vbDragStart');
 window._vbDragOver = _stub('_vbDragOver');
@@ -217,6 +220,8 @@ function _bindAll(mod, label) {
       _bind(mod, 'expandAllTree'); _bind(mod, 'collapseAllTree');
       _bind(mod, 'initIndicatorTree'); _bind(mod, 'loadIndicatorTree');
       _bind(mod, 'saveTreeConfig'); _bind(mod, 'esc');
+      _bind(mod, 'removeTreeData');
+      _bind(mod, 'undoTreeData'); _bind(mod, 'dismissTreeUndo');
       break;
     case 'rules':
       _bind(mod, '_vbDragStart'); _bind(mod, '_vbDragOver'); _bind(mod, '_vbDragEnter');

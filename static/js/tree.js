@@ -71,6 +71,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             if (!hsel || !msel) return; // التبويب لم يُحمَّل
             if (_treeInitialized) {
                 _restoreUIState('indicator-tree');
+                _updateRemoveButton();
                 if (hsel.value && msel.value) loadIndicatorTree();
                 return;
             }
@@ -89,6 +90,9 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             ]).then(() => {
                 _treeInitialized = true;
                 _restoreUIState('indicator-tree');
+                hsel.addEventListener('change', _updateRemoveButton);
+                msel.addEventListener('change', _updateRemoveButton);
+                _updateRemoveButton();
                 if (hsel.value && msel.value) loadIndicatorTree();
             }).catch(() => {});
         }
@@ -98,6 +102,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
             let month = document.getElementById('treeMonthSelect').value;
             if (!hospId || !month) {
                 document.getElementById('treeContainer').innerHTML = '<div style="color:var(--text-muted);padding:1rem;">' + __('Select a hospital and month') + '</div>';
+                _updateRemoveButton();
                 return;
             }
             document.getElementById('treeLoading').classList.remove('hidden');
@@ -124,6 +129,8 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                     currentTreeData = data;
                     renderTree();
                     _updateSaveButton();
+                    _updateAutoDisableNotice(data);
+                    _updateRemoveButton();
                     el.scrollTop = savedScrollTop;
                      window.scrollTo(savedPageX, savedPageY);
                 })
@@ -251,6 +258,240 @@ const btn = document.getElementById('treeSaveBtn');
                     btn.disabled = false;
                     toastError('Save failed: ' + e.message);
                 });
+        }
+
+        function _updateRemoveButton() {
+            const btn = document.getElementById('treeRemoveDataBtn');
+            if (!btn) return;
+            const hsel = document.getElementById('treeHospitalSelect');
+            const msel = document.getElementById('treeMonthSelect');
+            const ok = !!(hsel && hsel.value && msel && msel.value && msel.value !== ALL_MONTHS_VALUE);
+            btn.disabled = !ok;
+            btn.style.opacity = ok ? '' : '0.5';
+            btn.style.cursor = ok ? '' : 'not-allowed';
+            btn.title = ok
+                ? 'Delete all data for one month and re-run analysis'
+                : 'Select a hospital and a specific month (not All Months)';
+        }
+
+        function _updateAutoDisableNotice(data) {
+            const el = document.getElementById('treeAutoDisableNotice');
+            if (!el) return;
+            if (data && data.auto_disable_null) {
+                el.textContent = __('"Auto-disable null indicators" is on, so indicators with no data show as disabled and are excluded from scoring.');
+                el.classList.remove('hidden');
+            } else {
+                el.textContent = '';
+                el.classList.add('hidden');
+            }
+        }
+
+        // After a delete, the month may have vanished from /analysis/months (it is
+        // derived from score/validation/anomaly rows). Re-populate the selector and
+        // fall back to the nearest remaining month so the tree never queries a month
+        // that no longer exists.
+        function _refreshMonthsAndTree(data) {
+            const msel = document.getElementById('treeMonthSelect');
+            const hsel = document.getElementById('treeHospitalSelect');
+            if (!msel) { loadIndicatorTree(); return; }
+            const previous = msel.value;
+            apiGet('/analysis/months').then(function(months) {
+                const list = months || [];
+                msel.innerHTML = '<option value="">' + __('Select Month') + '</option>' + treeAllMonthsOption() +
+                    list.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('');
+                if (previous && list.indexOf(previous) !== -1) {
+                    msel.value = previous;
+                } else if (data && data.month_still_available === false) {
+                    const remaining = list.slice().sort();
+                    msel.value = remaining.length ? remaining[remaining.length - 1] : '';
+                    if (msel.value) {
+                        toastWarning(__('Month') + ' ' + previous + ' ' + __('was removed;') + ' ' + msel.value + ' ' + __('selected'));
+                    }
+                } else {
+                    msel.value = previous || '';
+                }
+                if (hsel && hsel.value && msel.value) loadIndicatorTree();
+                else _updateRemoveButton();
+            }).catch(function() { loadIndicatorTree(); });
+        }
+
+        // ── Undo Remove Data ──────────────────────────────────────
+        // Remove Data keeps the deleted values in a short-lived server snapshot.
+        // The banner carries its token plus a live countdown; once it hits zero
+        // the snapshot is gone and the file has to be uploaded again.
+        let _undoToken = null;
+        let _undoTimer = null;
+
+        function _hideUndoBanner() {
+            if (_undoTimer) { clearInterval(_undoTimer); _undoTimer = null; }
+            const el = document.getElementById('treeUndoBanner');
+            if (el) el.classList.add('hidden');
+            _undoToken = null;
+        }
+
+        export function dismissTreeUndo() { _hideUndoBanner(); }
+
+        function _showUndoBanner(data) {
+            const el = document.getElementById('treeUndoBanner');
+            const txt = document.getElementById('treeUndoText');
+            if (!el || !txt || !data || !data.undo) return;
+            _undoToken = data.undo.token;
+            let left = Math.max(0, Math.round(data.undo.expires_in || 0));
+            const render = function() {
+                const m = Math.floor(left / 60);
+                const s = left % 60;
+                const values = data.removed ? data.removed.indicator_values : '';
+                const scopeLabel = data.scope === 'all_hospitals' ? __('All Hospitals') : __('One Hospital');
+                txt.textContent = __('Removed') + ' ' + values + ' ' + __('values for') + ' ' + (data.month || '') +
+                    ' (' + scopeLabel + ') — ' + __('Undo available for') + ' ' + m + ':' + (s < 10 ? '0' : '') + s;
+            };
+            render();
+            el.classList.remove('hidden');
+            if (_undoTimer) clearInterval(_undoTimer);
+            _undoTimer = setInterval(function() {
+                left--;
+                if (left <= 0) {
+                    _hideUndoBanner();
+                    toastWarning(__('The undo window has expired. Upload the file again to restore this month.'));
+                    return;
+                }
+                render();
+            }, 1000);
+        }
+
+        // After an undo the restored month is back in the DB but its derived rows
+        // are still being recomputed, so it may be absent from /analysis/months.
+        // Jump straight to it rather than trusting that calendar.
+        function _refreshAfterUndo(data) {
+            const msel = document.getElementById('treeMonthSelect');
+            const hsel = document.getElementById('treeHospitalSelect');
+            if (msel && data && data.month) {
+                const present = Array.prototype.some.call(msel.options, function(o) { return o.value === data.month; });
+                if (!present) {
+                    msel.insertAdjacentHTML('beforeend', '<option value="' + data.month + '">' + data.month + '</option>');
+                }
+                msel.value = data.month;
+            }
+            if (msel && msel.value && hsel && hsel.value) loadIndicatorTree();
+            else _refreshMonthsAndTree(data);
+        }
+
+        export function undoTreeData() {
+            if (!_undoToken) { toastWarning(__('No removal to undo.')); return; }
+            if (typeof hasPermission === 'function' && !hasPermission('data.manage')) {
+                toastError(__('You do not have permission to remove data.'));
+                return;
+            }
+            const token = _undoToken;
+            return authFetch(API() + '/hospitals/remove-data/undo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token: token }),
+            }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+              .then(function(res) {
+                if (!res.ok) throw new Error(res.data.detail || 'Failed');
+                _hideUndoBanner();
+                toastSuccess(res.data.message || __('Undo'));
+                if (typeof window.clearApiCache === 'function') window.clearApiCache();
+                _refreshAfterUndo(res.data);
+                if (res.data.recompute_task_id) _pollRecompute(res.data.recompute_task_id);
+                if (typeof window.loadDashboard === 'function') window.loadDashboard();
+              })
+              .catch(function(e) {
+                _hideUndoBanner();
+                toastError(__('Undo failed:') + ' ' + e.message);
+              });
+        }
+
+        function _pollRecompute(taskId) {
+            if (!taskId) return;
+            let tries = 0;
+            const timer = setInterval(function() {
+                tries++;
+                if (tries > 300) { clearInterval(timer); return; }
+                authFetch(API() + '/tasks/' + taskId)
+                    .then(function(r) { return r.json(); })
+                    .then(function(task) {
+                        if (task.status === 'done' || task.status === 'error') {
+                            clearInterval(timer);
+                            if (task.status === 'done') {
+                                toastSuccess(__('Re-analysis complete.'));
+                            } else {
+                                toastError(__('Re-analysis failed:') + ' ' + (task.error || ''));
+                            }
+                            if (typeof window.clearApiCache === 'function') window.clearApiCache();
+                            if (typeof window.loadDashboard === 'function') window.loadDashboard();
+                        }
+                    })
+                    .catch(function() { clearInterval(timer); });
+            }, 2000);
+        }
+
+        export function removeTreeData() {
+            const hospSel = document.getElementById('treeHospitalSelect');
+            const msel = document.getElementById('treeMonthSelect');
+            const hospId = hospSel ? hospSel.value : '';
+            const month = msel ? msel.value : '';
+            if (typeof hasPermission === 'function' && !hasPermission('data.manage')) {
+                toastError(__('You do not have permission to remove data.'));
+                return;
+            }
+            if (!hospId) { toastWarning(__('Select a hospital or Default (All Hospitals).')); return; }
+            if (!month || month === ALL_MONTHS_VALUE) {
+                toastWarning(__('Select a specific month — "All Months" is not allowed.'));
+                return;
+            }
+            const allHospitals = hospId === DEFAULT_HOSPITAL_VALUE;
+            const scopeLabel = (hospSel && hospSel.selectedOptions[0]) ? hospSel.selectedOptions[0].text : hospId;
+
+            // Preview: how many loaded nodes actually carry a value for this scope.
+            let populated = 0;
+            (function walk(nodes) {
+                (nodes || []).forEach(function(n) {
+                    if (n.value !== null && n.value !== undefined) populated++;
+                    walk(n.children);
+                });
+            })(currentTreeData && currentTreeData.children);
+
+            const doRemove = function() {
+                const url = API() + '/hospitals/remove-data';
+                const body = JSON.stringify({ month: month, hospital_id: allHospitals ? null : Number(hospId) });
+                return authFetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: body,
+                }).then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+                  .then(function(res) {
+                    if (!res.ok) throw new Error(res.data.detail || 'Failed');
+                    toastSuccess(res.data.message || __('Remove Data'));
+                    if (typeof window.clearApiCache === 'function') window.clearApiCache();
+                    _refreshMonthsAndTree(res.data);
+                    _showUndoBanner(res.data);
+                    if (res.data.recompute_task_id) _pollRecompute(res.data.recompute_task_id);
+                    if (typeof window.loadDashboard === 'function') window.loadDashboard();
+                  })
+                  .catch(function(e) { toastError(__('Remove failed:') + ' ' + e.message); });
+            };
+
+            (async function() {
+                const ok = await confirmDestructive({
+                    title: __('Remove Data'),
+                    message: __('Remove ALL indicator data for') + ' <strong>' + esc(month) + '</strong> — <strong>' + esc(scopeLabel) + '</strong>?',
+                    details: __('Indicator values, quality scores, validations, anomalies, confidence and clinical results will be deleted and analysis re-run. Items with no data will show —. You can undo this for 10 minutes.') + ' (' + populated + ')',
+                    okLabel: __('Remove Data'),
+                });
+                if (!ok) return;
+                if (allHospitals) {
+                    const ok2 = await confirmDestructive({
+                        title: __('Remove Data'),
+                        message: __('Remove data for ALL hospitals? You can undo this for 10 minutes.'),
+                        confirmText: 'REMOVE',
+                        okLabel: __('Remove Data'),
+                    });
+                    if (!ok2) return;
+                }
+                await doRemove();
+            })();
         }
 
         function perHospitalHtml(node) {

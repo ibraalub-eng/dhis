@@ -324,6 +324,45 @@ class TestProcessPreview:
             pass
 
 
+class TestUploadAnalyzeRecomputesAllMonths:
+    def test_other_months_refreshed_on_upload(self, client, db_session, tmp_path):
+        """Uploading a new month must also recompute the hospital's existing
+        months, whose historical/trend baselines the new values changed."""
+        from app.models import Hospital, Indicator, IndicatorValue, QualityScore
+
+        hospital = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
+        db_session.add(IndicatorValue(
+            hospital_id=hospital.id, indicator_id=ind.id, month="2026-01", value=10.0))
+        db_session.add(QualityScore(
+            hospital_id=hospital.id, month="2026-01", score=1.0, issues="[]"))
+        db_session.commit()
+
+        csv = tmp_path / "upload_recompute.csv"
+        csv.write_text(
+            "organisationunitname,month,Total Deliveries\n"
+            f"{hospital.name},2026-02,20\n",
+            encoding="utf-8",
+        )
+        with open(str(csv), "rb") as fh:
+            resp = client.post(
+                "/upload/analyze",
+                files={"file": ("upload_recompute.csv", fh, "text/csv")},
+            )
+        assert resp.status_code == 200
+
+        qs = db_session.query(QualityScore).filter(
+            QualityScore.hospital_id == hospital.id,
+            QualityScore.month == "2026-01",
+        ).first()
+        assert qs is not None, "existing month lost its quality score"
+        assert qs.score != 1.0, "existing month was not refreshed on upload"
+
+        uploaded = os.path.join(UPLOAD_DIR, "upload_recompute.csv")
+        if os.path.exists(uploaded):
+            _retry_remove(uploaded)
+
+
 class TestDownloadSavedFile:
     def test_download_original_file_when_on_disk(self, client):
         """Downloading a saved file that still exists on disk must return the
