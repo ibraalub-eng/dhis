@@ -718,8 +718,8 @@ git commit -m "Disabled indicators: full propagation to all screens on save
 
 ### Task 8: Verify on deployed site
 
-- [ ] **Step 1: Confirm Render badge shows the commit SHA**
+- [x] **Step 1: Confirm Render badge shows the commit SHA**
 
-- [ ] **Step 2: Hard-refresh https://dhis-zve0.onrender.com/dashboard**
+- [x] **Step 2: Hard-refresh https://dhis-zve0.onrender.com/dashboard**
 
-- [ ] **Step 3: Disable an indicator in Indicator Tree, Save, verify it disappears from dashboard, clinical, smart analytics, confidence, root cause**
+- [x] **Step 3: Disable an indicator in Indicator Tree, Save, verify it disappears from dashboard, clinical, smart analytics, confidence, root cause**
