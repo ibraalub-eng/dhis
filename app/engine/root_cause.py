@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import text, func
+from sqlalchemy import case, text, func
 from app.models import Hospital, Indicator, IndicatorValue, ValidationResult, QualityScore, ConfidenceScore, AnomalyResult, Rule
 import json
 import logging
@@ -338,7 +338,7 @@ def get_rule_failure_history(
     q = (
         session.query(
             ValidationResult.month,
-            func.sum(func.case((ValidationResult.status == "FAIL", 1), else_=0)).label("fails"),
+            func.sum(case((ValidationResult.status == "FAIL", 1), else_=0)).label("fails"),
             func.count(ValidationResult.id).label("total"),
         )
         .filter(ValidationResult.hospital_id == hospital_id, ValidationResult.rule_code == rule_code)

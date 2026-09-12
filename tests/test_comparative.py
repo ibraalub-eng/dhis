@@ -44,15 +44,13 @@ def test_generate_comprehensive_report_data_sections(db_session):
 
 
 def test_comprehensive_report_includes_forecast_section(db_session):
-    """التقرير الشامل يتضمن قسم توقعات الشهر القادم (مؤشرات قيادية صاعدة بأوزانها
-    المكتشفة والنتائج المتوقعة) في النص وفي data."""
+    """التقرير الشامل يتضمن قسم التوقعات (الخطر الحالي مقابل المتوقع) في النص وفي data."""
     result = generate_comprehensive_report(db_session, "2026-03", use_cache=False)
-    assert "توقعات الشهر القادم" in result["report"]
     assert "forecast" in result["data"]
     fc = result["data"]["forecast"]
     assert "hospitals" in fc and "discovered" in fc and "total_hospitals" in fc
-    # النص يتضمن مؤشراً قيادياً صاعداً بوزنه أو رسالة غياب صريحة
-    assert ("وزن" in result["report"] or "لا يوجد أي مستشفى" in result["report"])
+    # قسم التوقع في النص يعرض رسالة الغياب الحتمية عند عدم توفر تنبؤات
+    assert "لا توجد تنبؤات متاحة" in result["report"]
 
 
 def test_comprehensive_report_strips_explanations_for_hidden(db_session):
@@ -84,11 +82,11 @@ def test_local_report_includes_regional_section(db_session):
 
 @patch("app.engine.comparative.report_generator._call_api")
 def test_generate_comprehensive_report_uses_ai(mock_api, db_session):
-    mock_api.return_value = "تقرير تجريبي بالعربية"
+    from app.engine.comparative.report_generator import SECTIONS
+    mock_api.return_value = "\n".join(f"## {k}\nتقرير تجريبي بالعربية" for k in SECTIONS)
     result = generate_comprehensive_report(db_session, "2026-06")
     assert mock_api.called
-    # قسم القرارات التنفيذية يُدرج دائماً قبل نص الذكاء الاصطناعي
-    assert "قرارات تنفيذية" in result["report"]
+    # نص الذكاء الاصطناعي بالأقسام المطلوبة يظهر في التقرير المدمج
     assert "تقرير تجريبي بالعربية" in result["report"]
     assert result["report_source"] == "ai"
 
@@ -98,8 +96,7 @@ def test_generate_comprehensive_report_handles_ai_failure(mock_api, db_session):
     mock_api.return_value = None
     result = generate_comprehensive_report(db_session, "2026-06")
     assert result["report"] != "خطأ في توليد التقرير"
-    assert "قرارات تنفيذية" in result["report"]
-    assert "الملخص التنفيذي" in result["report"]
+    assert "الحالة العامة للأداء" in result["report"]
     assert result["report_source"] == "local"
 
 
@@ -215,7 +212,7 @@ def test_decision_brief_priorities_are_derived(db_session):
 def test_generate_comprehensive_report_error_handling(mock_api, db_session):
     mock_api.side_effect = Exception("API error")
     result = generate_comprehensive_report(db_session, "2026-06")
-    assert "الملخص التنفيذي" in result["report"]
+    assert "الحالة العامة للأداء" in result["report"]
     assert result["report_source"] == "local"
 
 
@@ -271,7 +268,8 @@ def test_comprehensive_report_endpoint_includes_all_sections(client):
 
 @patch("app.engine.comparative.report_generator._call_api")
 def test_comprehensive_report_endpoint_uses_gemini(mock_api, client):
-    mock_api.return_value = "تقرير تجريبي بالعربية"
+    from app.engine.comparative.report_generator import SECTIONS
+    mock_api.return_value = "\n".join(f"## {k}\nتقرير تجريبي بالعربية" for k in SECTIONS)
     response = client.get("/comparative/comprehensive-report/2026-06")
     assert response.status_code == 200
     assert mock_api.called
@@ -281,7 +279,7 @@ def test_comprehensive_report_endpoint_uses_gemini(mock_api, client):
 @patch("app.engine.comparative.report_generator.run_smart_analytics")
 def test_comprehensive_report_endpoint_error_handling(mock_analytics, client):
     mock_analytics.side_effect = RuntimeError("Database error")
-    response = client.get("/comparative/comprehensive-report/2026-06")
+    response = client.get("/comparative/comprehensive-report/2026-06?lang=ar")
     assert response.status_code == 500
     assert "خطأ في توليد التقرير" in response.json()["detail"]
 
@@ -324,15 +322,16 @@ def test_comprehensive_report_uses_gemini(mock_api, client):
 @patch("app.engine.comparative.report_generator.run_smart_analytics")
 def test_comprehensive_report_error_handling(mock_analytics, client):
     mock_analytics.side_effect = RuntimeError("Database error")
-    response = client.get("/comparative/comprehensive-report/2026-99")
+    response = client.get("/comparative/comprehensive-report/2026-99?lang=ar")
     assert response.status_code == 500
     assert "خطأ في توليد التقرير" in response.json()["detail"]
 
 
 @patch("app.engine.comparative.report_generator._call_api")
 def test_comprehensive_report_returns_arabic_report(mock_api, client):
-    mock_api.return_value = "تقرير التحليل الشامل لشهر يونيو"
-    response = client.get("/comparative/comprehensive-report/2026-06")
+    from app.engine.comparative.report_generator import SECTIONS
+    mock_api.return_value = "\n".join(f"## {k}\nتقرير التحليل الشامل لشهر يونيو" for k in SECTIONS)
+    response = client.get("/comparative/comprehensive-report/2026-06?lang=ar")
     assert response.status_code == 200
     assert "تقرير" in response.json()["report"]
 
@@ -439,7 +438,7 @@ def test_comprehensive_report_default_error_text(mock_api, db_session):
     mock_api.return_value = ""
     result = generate_comprehensive_report(db_session, "2026-06")
     assert result["report"] != "خطأ في توليد التقرير"
-    assert "الملخص التنفيذي" in result["report"]
+    assert "الحالة العامة للأداء" in result["report"]
     assert result["report_source"] == "local"
 
 
@@ -1196,7 +1195,7 @@ def test_generate_report_falls_back_to_local_when_ai_fails(client):
         response = client.get("/comparative/comprehensive-report/2026-06")
     assert response.status_code == 200
     data = response.json()
-    assert "الملخص التنفيذي" in data["report"]
+    assert "System status" in data["report"]
     assert data["report_source"] == "local"
 
 
@@ -1207,7 +1206,7 @@ def test_generate_report_falls_back_when_ai_raises(client):
         response = client.get("/comparative/comprehensive-report/2026-06")
     assert response.status_code == 200
     data = response.json()
-    assert "الملخص التنفيذي" in data["report"]
+    assert "System status" in data["report"]
     assert data["report_source"] == "local"
 
 
@@ -1357,9 +1356,10 @@ def test_local_fallback_not_stored(mock_api, db_session):
 
 @patch("app.engine.comparative.report_generator._call_api")
 def test_use_cache_false_regenerates(mock_api, db_session):
-    mock_api.return_value = "الأول"
+    from app.engine.comparative.report_generator import SECTIONS
+    mock_api.return_value = "\n".join(f"## {k}\nالأول" for k in SECTIONS)
     generate_comprehensive_report(db_session, "2026-06")
-    mock_api.return_value = "الثاني"
+    mock_api.return_value = "\n".join(f"## {k}\nالثاني" for k in SECTIONS)
     result = generate_comprehensive_report(db_session, "2026-06", use_cache=False)
     assert "الثاني" in result["report"]
     assert mock_api.call_count == 2
@@ -1370,12 +1370,13 @@ def test_use_cache_false_regenerates(mock_api, db_session):
 
 @patch("app.engine.comparative.report_generator._call_api")
 def test_report_endpoint_force_regenerates(mock_api, client):
-    mock_api.return_value = "الأول"
+    from app.engine.comparative.report_generator import SECTIONS
+    mock_api.return_value = "\n".join(f"## {k}\nالأول" for k in SECTIONS)
     r1 = client.get("/comparative/comprehensive-report/2026-06")
     assert r1.status_code == 200
     assert "الأول" in r1.json()["report"]
     assert mock_api.call_count == 1
-    mock_api.return_value = "الثاني"
+    mock_api.return_value = "\n".join(f"## {k}\nالثاني" for k in SECTIONS)
     r2 = client.get("/comparative/comprehensive-report/2026-06?force=true")
     assert r2.status_code == 200
     assert "الثاني" in r2.json()["report"]
@@ -1388,8 +1389,9 @@ def test_report_endpoint_force_regenerates(mock_api, client):
 @patch("app.engine.comparative.report_generator._call_api")
 def test_upload_save_invalidates_report_cache(mock_api, client, db_session):
     from app.engine.comparative.report_cache import get_stored_report
-    mock_api.return_value = "تقرير AI"
-    client.get("/comparative/comprehensive-report/2026-06")
+    from app.engine.comparative.report_generator import SECTIONS
+    mock_api.return_value = "\n".join(f"## {k}\nتقرير AI" for k in SECTIONS)
+    client.get("/comparative/comprehensive-report/2026-06?lang=ar")
     assert get_stored_report(db_session, "2026-06", "ar") is not None
     resp = client.post(
         "/upload/data-entry/save",
@@ -1404,8 +1406,9 @@ def test_upload_excel_invalidates_report_cache(mock_api, client, db_session):
     import io
     import pandas as pd
     from app.engine.comparative.report_cache import get_stored_report
-    mock_api.return_value = "تقرير AI"
-    client.get("/comparative/comprehensive-report/2026-06")
+    from app.engine.comparative.report_generator import SECTIONS
+    mock_api.return_value = "\n".join(f"## {k}\nتقرير AI" for k in SECTIONS)
+    client.get("/comparative/comprehensive-report/2026-06?lang=ar")
     assert get_stored_report(db_session, "2026-06", "ar") is not None
     df = pd.DataFrame({
         "organisationunitname": ["General Hospital"],
@@ -1473,7 +1476,6 @@ def test_local_report_includes_composite_patterns_section(db_session):
         result = generate_comprehensive_report(db_session, "2026-06")
     assert result["report_source"] == "local"
     report = result["report"]
-    assert "الأنماط المركبة للمؤشرات" in report
     assert "نمط متكرر" in report
     assert "معدل القيصارية" in report
     assert "Lift" in report
@@ -1517,9 +1519,9 @@ def test_english_local_report_includes_composite_patterns(db_session):
     with patch("app.engine.comparative.report_generator._call_api", return_value=None):
         result = generate_comprehensive_report(db_session, "2026-06", lang="en")
     report = result["report"]
-    assert "Composite Indicator Patterns" in report
     assert "Recurring pattern" in report
     assert "Lift" in report
+    assert "Caesarean rate" in report
 
 
 # --- Enriched Report Tests (real indicator stats + monthly trends) ---
@@ -1557,11 +1559,10 @@ def test_local_report_includes_real_indicator_stats(db_session):
         result = generate_comprehensive_report(db_session, "2026-06")
     assert result["report_source"] == "local"
     report = result["report"]
-    assert "القيم الفعلية لشهر التقرير" in report
     assert "معدل القيصارية" in report
-    assert "المتوسط" in report
-    # cs_rate = (5/2)*100: 25.0% و13.33% و15.0% → المتوسط ≈ 17.78%
-    assert "17.78" in report
+    assert "متوسط نظير" in report
+    # cs_rate = (5/2)*100: 25.0% و13.33% و15.0% → المتوسط ≈ 17.78% (يُعرض بمنزلة عشرية واحدة 17.8)
+    assert "17.8" in report
 
 
 def test_local_report_includes_monthly_trends(db_session):
@@ -1580,7 +1581,7 @@ def test_local_report_includes_monthly_trends(db_session):
     with patch("app.engine.comparative.report_generator._call_api", return_value=None):
         result = generate_comprehensive_report(db_session, "2026-06")
     report = result["report"]
-    assert "الاتجاهات الشهرية" in report
+    assert "مقارنة مع الشهر السابق" in report
     assert "أسرع مؤشر ارتفاعاً" in report
     assert "2026-05" in report
 

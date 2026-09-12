@@ -18,7 +18,43 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
+def _data_skeleton():
+    return {
+        "kpi": {}, "anomalies": [], "clustering": None,
+        "correlations": [], "residuals": [],
+        "stratified": [], "explanations": [],
+        "geo": None, "patterns": [],
+        "lag_analysis": {}, "early_warnings": [],
+        "healthy_hospitals": [], "xgboost": None,
+    }
+
+
+def _seed_empty(month):
+    """Cache a finished but empty envelope (hospitals_count=0, not computing)."""
+    from app.cache import cache
+    cache.set(
+        f"smart_overview_{month}_v3",
+        {"month": month, "generated_at": "2026-01-01T00:00:00",
+         "hospitals_count": 0, "computing": False, "data": _data_skeleton()},
+        ttl=1800,
+    )
+
+
+def _seed_error(month, detail="boom"):
+    """Cache a failed-computation envelope; endpoints surface it as HTTP 500."""
+    from app.cache import cache
+    cache.set(
+        f"smart_overview_{month}_v3",
+        {"month": month, "generated_at": "2026-01-01T00:00:00",
+         "hospitals_count": 0, "computing": False, "error": True,
+         "message": "فشل التحليل الذكي لهذا الشهر", "detail": detail,
+         "data": _data_skeleton()},
+        ttl=300,
+    )
+
+
 def test_patterns_endpoint_returns_list(client):
+    _seed_empty("2026-06")
     resp = client.get("/smart/patterns/2026-06")
     assert resp.status_code == 200
     data = resp.json()
@@ -27,6 +63,7 @@ def test_patterns_endpoint_returns_list(client):
 
 
 def test_lag_analysis_endpoint_returns_dict(client):
+    _seed_empty("2026-06")
     resp = client.get("/smart/lag-analysis/2026-06")
     assert resp.status_code == 200
     data = resp.json()
@@ -35,6 +72,7 @@ def test_lag_analysis_endpoint_returns_dict(client):
 
 
 def test_lag_analysis_empty_month(client):
+    _seed_empty("2030-01")
     resp = client.get("/smart/lag-analysis/2030-01")
     assert resp.status_code == 200
     data = resp.json()
@@ -42,6 +80,7 @@ def test_lag_analysis_empty_month(client):
 
 
 def test_xgboost_endpoint(client):
+    _seed_empty("2026-06")
     resp = client.get("/smart/xgboost/2026-06")
     assert resp.status_code == 200
     data = resp.json()
@@ -58,12 +97,14 @@ def test_section_endpoints_error_arabic(mock_run, client):
         ("/smart/lag-analysis/2026-06", "خطأ في تحليل العلاقات المتأخرة"),
         ("/smart/xgboost/2026-06", "خطأ في تحليل التنبؤات"),
     ]:
+        _seed_error("2026-06")
         resp = client.get(path)
         assert resp.status_code == 500, path
         assert msg in resp.json()["detail"], path
 
 
 def test_slice_endpoints_empty_month(client):
+    _seed_empty("2030-01")
     for path in [
         "/smart/anomalies/2030-01",
         "/smart/clusters/2030-01",

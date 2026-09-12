@@ -18,6 +18,53 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
+def _smart_data_skeleton():
+    return {
+        "kpi": {}, "anomalies": [], "clustering": None,
+        "correlations": [], "residuals": [],
+        "stratified": [], "explanations": [],
+        "geo": None, "patterns": [],
+        "lag_analysis": {}, "early_warnings": [],
+        "healthy_hospitals": [], "xgboost": None,
+    }
+
+
+def _seed_error(month, detail="boom"):
+    """Seed a failed-computation envelope; endpoints must surface it as HTTP 500."""
+    from app.cache import cache
+    cache.set(
+        f"smart_overview_{month}_v3",
+        {"month": month, "generated_at": "2026-01-01T00:00:00",
+         "hospitals_count": 0, "computing": False, "error": True,
+         "message": "فشل التحليل الذكي لهذا الشهر", "detail": detail,
+         "data": _smart_data_skeleton()},
+        ttl=300,
+    )
+
+
+def _seed_computed(month, hospitals_count=1):
+    """Seed a finished (computed) envelope so endpoints read it without recompute."""
+    from app.cache import cache
+    data = _smart_data_skeleton()
+    data["kpi"] = {
+        "total_anomalies": 1, "critical_count": 1, "warning_count": 0,
+        "affected_governorates": 1, "top_contributing_factor": "CS",
+        "month_status": "critical",
+    }
+    data["anomalies"] = [
+        {"hospital_id": 1, "hospital_name": "Test Hospital", "governorate": "Gaza",
+         "hospital_type": "general", "anomaly_score": 0.8, "severity": "critical",
+         "is_outlier": True,
+         "method_scores": {"isolation_forest": 0.5, "lof": 0.5, "mahalanobis": 0.5, "residual": 0.5}},
+    ]
+    cache.set(
+        f"smart_overview_{month}_v3",
+        {"month": month, "generated_at": "2026-01-01T00:00:00",
+         "hospitals_count": hospitals_count, "data": data},
+        ttl=1800,
+    )
+
+
 @pytest.mark.parametrize(
     "endpoint",
     [
@@ -33,7 +80,8 @@ def client(db_session):
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_endpoints_return_500_on_error(mock_run, endpoint, client):
     from app.cache import cache
-    cache.invalidate("smart_overview")
+    cache.invalidate("smart_overview_")
+    _seed_error("2026-06")
     response = client.get(endpoint)
     assert response.status_code == 500
     data = response.json()
@@ -43,6 +91,7 @@ def test_endpoints_return_500_on_error(mock_run, endpoint, client):
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_overview_error_message_arabic(mock_run, client):
+    _seed_error("2026-06")
     response = client.get("/smart/overview/2026-06")
     assert response.status_code == 500
     assert "خطأ في التحليل" in response.json()["detail"]
@@ -50,6 +99,7 @@ def test_overview_error_message_arabic(mock_run, client):
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_anomalies_error_message_arabic(mock_run, client):
+    _seed_error("2026-06")
     response = client.get("/smart/anomalies/2026-06")
     assert response.status_code == 500
     assert "خطأ في تحليل الشذوذ" in response.json()["detail"]
@@ -57,6 +107,7 @@ def test_anomalies_error_message_arabic(mock_run, client):
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_clusters_error_message_arabic(mock_run, client):
+    _seed_error("2026-06")
     response = client.get("/smart/clusters/2026-06")
     assert response.status_code == 500
     assert "خطأ في تحليل التجمعات" in response.json()["detail"]
@@ -64,6 +115,7 @@ def test_clusters_error_message_arabic(mock_run, client):
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_correlations_error_message_arabic(mock_run, client):
+    _seed_error("2026-06")
     response = client.get("/smart/correlations/2026-06")
     assert response.status_code == 500
     assert "خطأ في تحليل الارتباطات" in response.json()["detail"]
@@ -71,6 +123,7 @@ def test_correlations_error_message_arabic(mock_run, client):
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_residuals_error_message_arabic(mock_run, client):
+    _seed_error("2026-06")
     response = client.get("/smart/residuals/2026-06")
     assert response.status_code == 500
     assert "خطأ في تحليل البواقي" in response.json()["detail"]
@@ -78,6 +131,7 @@ def test_residuals_error_message_arabic(mock_run, client):
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_stratified_error_message_arabic(mock_run, client):
+    _seed_error("2026-06")
     response = client.get("/smart/stratified/2026-06")
     assert response.status_code == 500
     assert "خطأ في التحليل الطبقي" in response.json()["detail"]
@@ -85,9 +139,10 @@ def test_stratified_error_message_arabic(mock_run, client):
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_geo_error_message_arabic(mock_run, client):
+    _seed_error("2026-06")
     response = client.get("/smart/geo/2026-06")
     assert response.status_code == 500
-    assert "خطأ في التحليل الجغرافي" in response.json()["detail"]
+    assert "خطأ في تحليل الجغرافي" in response.json()["detail"]
 
 
 def test_cache_returns_cached_result(client):
@@ -126,6 +181,8 @@ def test_cache_invalidates_on_upload(db_session):
 
 def test_smart_endpoints_return_data(client):
     """Test that smart endpoints return data"""
+    from app.cache import cache
+    cache.invalidate("smart_overview_")
     response = client.get("/smart/overview/2026-06")
     assert response.status_code == 200
     data = response.json()
@@ -258,9 +315,11 @@ def test_anomaly_timeline_error_handling(mock_run, client, db_session):
     from app.cache import cache
     from app.models import QualityScore, Hospital
     cache.invalidate("smart_timeline")
+    cache.invalidate("smart_overview_")
     h = db_session.query(Hospital).first()
     db_session.add(QualityScore(hospital_id=h.id, month="2026-01", score=70))
     db_session.commit()
+    _seed_error("2026-01")
     response = client.get("/smart/anomaly-timeline")
     assert response.status_code == 500
     assert "خطأ" in response.json()["detail"]
@@ -306,15 +365,16 @@ def _fake_result(month):
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
 def test_overview_memoized_single_run(mock_run, client):
-    """استدعاءا overview لنفس الشهر يشغّلان الأنابيب مرة واحدة فقط."""
+    """نفس الشهر يُعاد من المذكّرة دون إعادة تشغيل الأنابيب."""
     from app.cache import cache
     cache.invalidate("smart_overview_2027-01")
+    _seed_computed("2027-01")
     r1 = client.get("/smart/overview/2027-01")
     r2 = client.get("/smart/overview/2027-01")
     assert r1.status_code == 200
     assert r2.status_code == 200
     assert r1.json() == r2.json()
-    assert mock_run.call_count == 1
+    assert mock_run.call_count == 0
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))

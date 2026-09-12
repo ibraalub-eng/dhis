@@ -182,7 +182,7 @@ class TestAnalyzeQualityDrivers:
         }
         drivers = analyze_quality_drivers(data)
         statuses = {d.component: d.status for d in drivers}
-        assert statuses["Rule Compliance"] == "good"
+        assert statuses["Validation rule"] == "good"
         assert statuses["Consistency"] == "critical"
 
 

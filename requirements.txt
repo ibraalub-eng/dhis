@@ -8,6 +8,7 @@ xlrd
 python-multipart
 pydantic
 httpx
+beautifulsoup4
 reportlab
 prometheus-client
 alembic

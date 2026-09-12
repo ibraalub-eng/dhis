@@ -229,8 +229,12 @@ def _compute_smart_data(db, month: str) -> dict:
                 "month": month,
                 "generated_at": datetime.utcnow().isoformat(),
                 "hospitals_count": 0,
+                "computing": False,
+                "error": True,
+                "message": "فشل التحليل الذكي لهذا الشهر",
+                "detail": str(e),
                 "data": {
-                    "kpi": {}, "anomalies": [], "clusters": [],
+                    "kpi": {}, "anomalies": [], "clustering": None,
                     "correlations": [], "lag_analysis": {},
                     "early_warnings": [], "healthy_hospitals": [],
                     "patterns": [],
@@ -289,7 +293,15 @@ def _get_smart_data(db: Session, month: str) -> dict:
     cache_key = f"smart_overview_{month}_{SMART_CACHE_VERSION}"
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        if not isinstance(cached, dict):
+            logger.warning(f"[smart] Dropping malformed cached envelope for {month}")
+            cache.invalidate(cache_key)
+        else:
+            if cached.get("error"):
+                raise RuntimeError(
+                    cached.get("detail") or cached.get("message") or "Smart analysis failed"
+                )
+            return cached
     # Kick off background computation (thread creates its own session)
     if not _compute_locks.get(month):
         _compute_locks[month] = True
@@ -302,7 +314,7 @@ def _get_smart_data(db: Session, month: str) -> dict:
         "hospitals_count": 0,
         "computing": True,
         "data": {
-            "kpi": {}, "anomalies": [], "clusters": [],
+            "kpi": {}, "anomalies": [], "clustering": None,
             "correlations": [], "lag_analysis": {},
             "early_warnings": [], "healthy_hospitals": [],
             "patterns": [], "explanations": [], "residuals": [],
@@ -333,13 +345,19 @@ def get_overview(month: str, db: Session = Depends(get_db)):
 
 
 @router.get("/decision-board/{month}")
+@safe_endpoint("خطأ في لوحة القرار")
 def get_decision_board(month: str, db: Session = Depends(get_db)):
     """لوحة القرار: حمولة خفيفة سريعة (KPI + أولويات + إنذار مبكر) أعلى الصفحة.
 
     تُشتق من مذكّرة الشهر المشتركة (_get_smart_data) بلا إعادة حساب؛ يعرض فقط
     ما يحتاجه القرار الفوري. الشهر الخالي يُرجع empty مع رسالة عربية.
     """
-    envelope = _get_smart_data(db, month)
+    try:
+        envelope = _get_smart_data(db, month)
+    except RuntimeError:
+        cache.invalidate(f"smart_overview_{month}")
+        cache.invalidate(f"smart_overview_{month}_")
+        raise
     if envelope.get("computing"):
         return {"computing": True, "message": "جاري التحليل...", "month": month}
     if envelope.get("hospitals_count", 0) == 0:
@@ -437,8 +455,8 @@ def get_geo(month: str, db: Session = Depends(get_db)):
 @router.get("/patterns/{month}")
 @safe_endpoint("خطأ في تحليل الأنماط", cache_keys=["smart_overview_{month}"])
 def get_patterns(month: str, db: Session = Depends(get_db)):
-    data = _get_smart_data(db, month)["data"]
-    return {"month": month, "patterns": data.get("patterns", [])}
+    envelope = _get_smart_data(db, month)
+    return {"month": month, "patterns": (envelope.get("data") or {}).get("patterns", [])}
 
 
 @router.get("/lag-analysis/{month}")
@@ -454,8 +472,8 @@ def get_lag_analysis(month: str, db: Session = Depends(get_db)):
 @router.get("/xgboost/{month}")
 @safe_endpoint("خطأ في تحليل التنبؤات", cache_keys=["smart_overview_{month}"])
 def get_xgboost(month: str, db: Session = Depends(get_db)):
-    data = _get_smart_data(db, month)["data"]
-    xgb = data.get("xgboost")
+    envelope = _get_smart_data(db, month)
+    xgb = (envelope.get("data") or {}).get("xgboost")
     if not xgb or not xgb.get("predictions"):
         return {"month": month, "empty": True,
                 "message": "لا توجد تنبؤات كافية لهذا الشهر", "xgboost": None}

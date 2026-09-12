@@ -504,6 +504,9 @@ def test_clinical_ai_cached_per_hospital_month(monkeypatch, db_session):
 
     # generate() تستدعي _call_api المُستورد بقيمة في app.plugins.ai
     monkeypatch.setattr(ai_module, "_call_api", fake_call_api)
+    # تفعيل مسار الـ AI حتى يُستدعى _call_api فعلياً ويُختبر التخزين المؤقت
+    monkeypatch.setattr(ai_module, "AI_ENABLED", True)
+    monkeypatch.setattr(ai_module, "AI_API_KEY", "test-key")
 
     vals = {"2": 100, "5": 30, "6": 95, "10": 2, "11": 0, "7": 1,
             "17": 1, "6.f": 8, "6.g": 6, "16": 4}

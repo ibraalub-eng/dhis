@@ -136,10 +136,35 @@ def _seed_realistic_hospital_data(db_session):
     db_session.commit()
 
 
+def _cache_smart_overview(db_session, month):
+    """Run the real smart pipeline on the fixture DB and cache its envelope."""
+    from app.cache import cache
+    from app.engine.smart import run_smart_analytics
+    from app.engine.smart.lag_analysis import run_lag_analysis, run_early_warnings
+    from app.api.smart_analytics import _envelope, _healthy_hospitals, _sanitize
+    result = run_smart_analytics(db_session, month)
+    response = _envelope(result)
+    anomalies = response["data"]["anomalies"]
+    try:
+        response["data"]["healthy_hospitals"] = _healthy_hospitals(db_session, month, anomalies)
+    except Exception:
+        response["data"]["healthy_hospitals"] = []
+    try:
+        lag_results = run_lag_analysis(db_session, month)
+        response["data"]["lag_analysis"] = _sanitize(lag_results)
+        response["data"]["early_warnings"] = _sanitize(run_early_warnings(db_session, month, lag_results))
+    except Exception:
+        response["data"]["lag_analysis"] = {}
+        response["data"]["early_warnings"] = []
+    cache.set(f"smart_overview_{month}_v3", response, ttl=1800)
+    return response
+
+
 def test_overview_endpoint_returns_cluster_profiles_json(client, db_session):
     """انحدار numpy.int64: /smart/overview يُرجع ملفات التعريف كـ JSON سليم مع cluster_id صحيح النوع."""
     import json
     _seed_realistic_hospital_data(db_session)
+    _cache_smart_overview(db_session, "2026-06")
     response = client.get("/smart/overview/2026-06")
     assert response.status_code == 200
     clustering = response.json()["data"]["clustering"]

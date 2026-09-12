@@ -33,6 +33,11 @@ class UserUpdate(BaseModel):
     role_ids: Optional[list[int]] = None
 
 
+class AdminPasswordChangeRequest(BaseModel):
+    new_password: str
+    confirm_password: str = ""
+
+
 class RoleCreate(BaseModel):
     name: str
     description: str = ""
@@ -123,6 +128,21 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
     user.is_active = False
     db.commit()
     return {"success": True, "detail": "User deactivated"}
+
+
+@router.post("/users/{user_id}/change-password")
+def admin_change_user_password(user_id: int, req: AdminPasswordChangeRequest, db: Session = Depends(get_db)):
+    """Admin sets a new password for a user (used by the Users page)."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if len(req.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    if req.confirm_password and req.new_password != req.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+    user.password_hash = hash_password(req.new_password)
+    db.commit()
+    return {"success": True, "message": "Password changed successfully"}
 
 
 # --- Roles ---

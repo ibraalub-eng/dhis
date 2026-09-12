@@ -46,10 +46,70 @@ def _seed_smart_data(db_session, month="2026-06"):
     return hosp, inds
 
 
+def _data_skeleton():
+    return {
+        "kpi": {}, "anomalies": [], "clustering": None,
+        "correlations": [], "residuals": [],
+        "stratified": [], "explanations": [],
+        "geo": None, "patterns": [],
+        "lag_analysis": {}, "early_warnings": [],
+        "healthy_hospitals": [], "xgboost": None,
+    }
+
+
+def _seed_empty(month):
+    """Cache a finished but empty envelope (hospitals_count=0, not computing)."""
+    from app.cache import cache
+    cache.set(
+        f"smart_overview_{month}_v3",
+        {"month": month, "generated_at": "2026-01-01T00:00:00",
+         "hospitals_count": 0, "computing": False, "data": _data_skeleton()},
+        ttl=1800,
+    )
+
+
+def _seed_error(month, detail="boom"):
+    """Cache a failed-computation envelope; endpoints surface it as HTTP 500."""
+    from app.cache import cache
+    cache.set(
+        f"smart_overview_{month}_v3",
+        {"month": month, "generated_at": "2026-01-01T00:00:00",
+         "hospitals_count": 0, "computing": False, "error": True,
+         "message": "فشل التحليل الذكي لهذا الشهر", "detail": detail,
+         "data": _data_skeleton()},
+        ttl=300,
+    )
+
+
+def _cache_smart_overview(db_session, month):
+    """Run the real smart pipeline on the fixture DB and cache its envelope."""
+    from app.cache import cache
+    from app.engine.smart import run_smart_analytics
+    from app.engine.smart.lag_analysis import run_lag_analysis, run_early_warnings
+    from app.api.smart_analytics import _envelope, _healthy_hospitals, _sanitize
+    result = run_smart_analytics(db_session, month)
+    response = _envelope(result)
+    anomalies = response["data"]["anomalies"]
+    try:
+        response["data"]["healthy_hospitals"] = _healthy_hospitals(db_session, month, anomalies)
+    except Exception:
+        response["data"]["healthy_hospitals"] = []
+    try:
+        lag_results = run_lag_analysis(db_session, month)
+        response["data"]["lag_analysis"] = _sanitize(lag_results)
+        response["data"]["early_warnings"] = _sanitize(run_early_warnings(db_session, month, lag_results))
+    except Exception:
+        response["data"]["lag_analysis"] = {}
+        response["data"]["early_warnings"] = []
+    cache.set(f"smart_overview_{month}_v3", response, ttl=1800)
+    return response
+
+
 def test_decision_board_returns_subset(client, db_session):
     from app.cache import cache
     _seed_smart_data(db_session)
     cache.invalidate("smart_overview_")
+    _cache_smart_overview(db_session, "2026-06")
     resp = client.get("/smart/decision-board/2026-06")
     assert resp.status_code == 200
     data = resp.json()
@@ -66,6 +126,7 @@ def test_decision_board_returns_subset(client, db_session):
 
 def test_decision_board_empty_month(client):
     """شهر بلا مستشفيات يُرجع empty بدل خطأ خام."""
+    _seed_empty("2030-01")
     resp = client.get("/smart/decision-board/2030-01")
     assert resp.status_code == 200
     data = resp.json()
@@ -76,7 +137,7 @@ def test_decision_board_empty_month(client):
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_decision_board_error_arabic_and_invalidates(mock_run, client):
     from app.cache import cache
-    cache.set("smart_overview_2026-06_v3", {"stale": True}, ttl=300)
+    _seed_error("2026-06")
     resp = client.get("/smart/decision-board/2026-06")
     assert resp.status_code == 500
     assert "خطأ في لوحة القرار" in resp.json()["detail"]

@@ -14,7 +14,7 @@ def test_core_exports_expected_api():
                  "setSmartLoader", "showSmartSectionError", "showSmartSectionEmpty",
                  "_smartEscapeHtml", "smartTranslateFeature", "toggleSmartSection",
                  "setSmartMode", "registerSectionLoaders"]:
-        assert f"export function {name}" in js or f"export async function {name}" in js or f"export const {name}" in js or f"export let {name}" in js, name
+        assert f"export function {name}" in js or f"export async function {name}" in js or f"export const {name}" in js or f"export let {name}" in js or f"export {{ apiGet as {name} }}" in js, name
 
 
 def test_core_has_single_escape_helper():
@@ -138,7 +138,7 @@ def test_entry_reloads_sections_on_month_change():
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
     with open(path, encoding="utf-8") as f:
         js = f.read()
-    assert "await loadDecisionBoard(month);" in js
+    assert "loadDecisionBoard(month).catch(() => {});" in js
     assert "reloadSmartSections()" in js
 
 

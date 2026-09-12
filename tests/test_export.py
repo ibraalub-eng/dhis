@@ -237,14 +237,14 @@ def test_export_endpoint_500_on_engine_failure(mock_build, client):
 
 # --- Frontend structure ---
 
-def test_smart_page_has_export_button():
+def test_smart_page_has_no_standalone_export_button():
+    """زر ومحدد نطاق التصدير أُزيلا عمداً من Smart Analytics (يبقى المعالج في report.js)."""
     import os
-    from bs4 import BeautifulSoup
     path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
     with open(path, encoding="utf-8") as f:
-        soup = BeautifulSoup(f.read(), "html.parser")
-    assert soup.find(id="smart-export-btn") is not None
-    assert soup.find(id="smart-export-scope") is not None
+        html = f.read()
+    assert "smart-export-btn" not in html
+    assert "smart-export-scope" not in html
 
 
 def test_merged_page_has_report_controls():
@@ -406,16 +406,16 @@ def test_analysis_page_has_both_modes():
     path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "analysis.html")
     with open(path, encoding="utf-8") as f:
         soup = BeautifulSoup(f.read(), "html.parser")
-    # Mode switcher
-    assert soup.find(id="analysisModeTrend") is not None
-    assert soup.find(id="analysisModeCompare") is not None
+    # Mode switcher (sub-tabs trend/compare of the merged analysis tab)
+    assert soup.select_one('.analysis-subtab[data-subtab="trend"]') is not None
+    assert soup.select_one('.analysis-subtab[data-subtab="compare"]') is not None
     # Trend mode elements
-    assert soup.find(id="analysisTrendSection") is not None
+    assert soup.find(id="analysisSub-trend") is not None
     assert soup.find(id="trendHospitalSelect") is not None
     assert soup.find(id="qualityTrendContent") is not None
     assert soup.find(id="trendTbody") is not None
     # Compare mode elements
-    assert soup.find(id="analysisCompareSection") is not None
+    assert soup.find(id="analysisSub-compare") is not None
     assert soup.find(id="compareMonthSelect") is not None
     assert soup.find(id="compareIndicatorFilter") is not None
     assert soup.find(id="compareTbody") is not None
@@ -428,20 +428,22 @@ def test_analysis_js_has_mode_handlers():
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "validation.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "function switchAnalysisMode" in content
+    assert "function switchAnalysisSubtab" in content
     assert "function initAnalysis" in content
     assert "function initTrends" in content
     assert "function initCompare" in content
 
 
 def test_app_js_exports_analysis_handlers():
-    """app.js يصدّر دوال التبويب المدمج"""
+    """app.js يعرّف دوال التبويب المدمج كـ stubs ثم يربطها من الوحدة الحقيقية"""
     import os
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "app.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "window.switchAnalysisMode = switchAnalysisMode" in content
-    assert "window.initAnalysis = initAnalysis" in content
+    assert "window.switchAnalysisSubtab = _stub('switchAnalysisSubtab')" in content
+    assert "_bind(mod, 'switchAnalysisSubtab')" in content
+    assert "window.initAnalysis = _stub('initAnalysis')" in content
+    assert "_bind(mod, 'initAnalysis')" in content
 
 
 def test_index_has_analysis_tab_no_old_tabs():
@@ -492,13 +494,14 @@ def test_settings_js_has_root_cause_context_helpers():
 
 
 def test_app_js_exports_root_cause_navigation():
-    """app.js يصدّر goRootCause على window"""
+    """app.js يعرّف goRootCause كـ stub ثم يربطه من الوحدة الحقيقية (settings.js)"""
     import os
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "app.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
     assert "goRootCause" in content
-    assert "window.goRootCause = goRootCause" in content
+    assert "window.goRootCause = _stub('goRootCause')" in content
+    assert "_bind(mod, 'goRootCause')" in content
 
 
 def test_smart_table_has_generated_arabic_sentence():

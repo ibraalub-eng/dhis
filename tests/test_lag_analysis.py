@@ -201,12 +201,37 @@ def test_early_warning_uses_discovered_leads(db_session):
 
 # ── الواجهة ──
 
+def _cache_smart_overview(db_session, month):
+    """Run the real smart pipeline on the fixture DB and cache its envelope."""
+    from app.cache import cache
+    from app.engine.smart import run_smart_analytics
+    from app.engine.smart.lag_analysis import run_lag_analysis, run_early_warnings
+    from app.api.smart_analytics import _envelope, _healthy_hospitals, _sanitize
+    result = run_smart_analytics(db_session, month)
+    response = _envelope(result)
+    anomalies = response["data"]["anomalies"]
+    try:
+        response["data"]["healthy_hospitals"] = _healthy_hospitals(db_session, month, anomalies)
+    except Exception:
+        response["data"]["healthy_hospitals"] = []
+    try:
+        lag_results = run_lag_analysis(db_session, month)
+        response["data"]["lag_analysis"] = _sanitize(lag_results)
+        response["data"]["early_warnings"] = _sanitize(run_early_warnings(db_session, month, lag_results))
+    except Exception:
+        response["data"]["lag_analysis"] = {"lags": []}
+        response["data"]["early_warnings"] = {"warnings": []}
+    cache.set(f"smart_overview_{month}_v3", response, ttl=1800)
+    return response
+
+
 def test_smart_overview_includes_new_keys(client, db_session):
     """/smart/overview/{month} يتضمن lag_analysis و early_warnings."""
     from app.cache import cache
     cache.invalidate("smart_overview_2026-03")
     _seed_hospital(db_session, "H1", {"2026-02": _full_values(), "2026-03": _full_values()})
     _seed_hospital(db_session, "H2", {"2026-02": _full_values(), "2026-03": _full_values()})
+    _cache_smart_overview(db_session, "2026-03")
     response = client.get("/smart/overview/2026-03")
     assert response.status_code == 200
     data = response.json()["data"]
