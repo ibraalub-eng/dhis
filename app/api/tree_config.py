@@ -72,6 +72,10 @@ def save_tree_config(
             config.is_enabled = is_enabled
         count += 1
     db.commit()
+    from app.cache import cache as _smart_cache
+    _smart_cache.invalidate(f"smart_drilldown_{hospital_id}_{month}")
+    _smart_cache.invalidate(f"smart_trend_{hospital_id}")
+    _smart_cache.invalidate(f"smart_overview_{month}")
     from app.engine.pipeline import run_full_analysis
     try:
         run_full_analysis(db, hospital_id, month, force=True)
@@ -121,6 +125,13 @@ def save_default_tree_config(
                 config.is_enabled = is_enabled
             count += 1
     db.commit()
+    from app.cache import cache as _smart_cache
+    _smart_cache.invalidate("smart_drilldown_")
+    _smart_cache.invalidate("smart_trend_")
+    if month == "__all__":
+        _smart_cache.invalidate("smart_overview_")
+    else:
+        _smart_cache.invalidate(f"smart_overview_{month}")
     from app.engine.pipeline import run_full_analysis
     from app.models import Hospital as _Hosp
     _all_hids = [h.id for h in db.query(_Hosp.id).filter(_Hosp.is_active == True).all()]

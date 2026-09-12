@@ -778,3 +778,61 @@ def test_root_cause_timeline_skips_disabled(client, db_session):
     data = resp.json()
     codes = [i["indicator_code"] for i in data.get("indicators", [])]
     assert "2" not in codes, "Disabled indicator code '2' still in root-cause timeline"
+
+
+def test_save_tree_config_invalidates_smart_caches(client, db_session):
+    """Saving tree config must drop cached smart drilldown/trend/overview so
+    disabled indicators disappear from smart analytics immediately."""
+    from app.models import Hospital, Indicator
+    from app.cache import cache
+    from app.api.smart_analytics import SMART_CACHE_VERSION
+
+    hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+    assert hosp is not None, "no active hospitals"
+    ind = db_session.query(Indicator).first()
+    assert ind is not None, "no indicators"
+    month = "2027-01"
+
+    keys = [
+        f"smart_drilldown_{hosp.id}_{month}_{SMART_CACHE_VERSION}",
+        f"smart_trend_{hosp.id}_{SMART_CACHE_VERSION}",
+        f"smart_overview_{month}_{SMART_CACHE_VERSION}",
+    ]
+    for k in keys:
+        cache.set(k, {"stale": True})
+    assert all(cache.get(k) is not None for k in keys)
+
+    resp = client.post(
+        f"/hospitals/{hosp.id}/save-tree-config?month={month}",
+        json={"items": [{"indicator_id": ind.id, "is_enabled": True}]},
+    )
+    assert resp.status_code == 200
+    for k in keys:
+        assert cache.get(k) is None, f"smart cache {k} still present after tree save"
+
+
+def test_save_default_tree_config_invalidates_smart_caches(client, db_session):
+    """Default tree save must drop all smart drilldown cache and month overview."""
+    from app.models import Indicator
+    from app.cache import cache
+    from app.api.smart_analytics import SMART_CACHE_VERSION
+
+    ind = db_session.query(Indicator).first()
+    assert ind is not None, "no indicators"
+    month = "2027-02"
+
+    keys = [
+        f"smart_overview_{month}_{SMART_CACHE_VERSION}",
+        f"smart_drilldown_99_2019-11_{SMART_CACHE_VERSION}",
+    ]
+    for k in keys:
+        cache.set(k, {"stale": True})
+    assert all(cache.get(k) is not None for k in keys)
+
+    resp = client.post(
+        "/hospitals/save-default-tree-config?month=" + month,
+        json={"items": [{"indicator_id": ind.id, "is_enabled": False}]},
+    )
+    assert resp.status_code == 200
+    for k in keys:
+        assert cache.get(k) is None, f"smart cache {k} still present after default tree save"
