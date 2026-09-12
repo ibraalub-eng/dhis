@@ -47,6 +47,7 @@ import { confirmDestructive } from './confirm-modal.js';
                         '<td>' + esc(f.uploaded_at ? f.uploaded_at.replace('T',' ').substring(0,16) : '') + '</td>' +
                         '<td>' + f.records_in_db + '</td>' +
                         '<td style="white-space:nowrap;">' +
+                            '<button class="btn btn-sm btn-outline" onclick="downloadSingleSaved(\'' + esc(f.filename) + '\')">' + __('Download') + '</button>&nbsp;' +
                             '<button class="btn btn-sm btn-outline" onclick="analyzeSingleSaved(\'' + esc(f.filename) + '\')">' + __('Analyze') + '</button>&nbsp;' +
                             '<button class="btn btn-sm btn-outline" onclick="updateSingleSaved(\'' + esc(f.filename) + '\')">' + __('Update') + '</button>&nbsp;' +
                             '<button class="btn btn-sm btn-outline" onclick="deleteSingleSaved(\'' + esc(f.filename) + '\')" style="color:var(--accent-red);">' + __('Delete') + '</button>' +
@@ -62,6 +63,30 @@ import { confirmDestructive } from './confirm-modal.js';
 
         export function toggleAllSaved(master) {
             document.querySelectorAll('.saved-file-cb').forEach(cb => cb.checked = master.checked);
+        }
+
+        export async function downloadSingleSaved(fname) {
+            if (!fname) return;
+            try {
+                const res = await authFetch(API() + '/analysis/saved-files/download?filename=' + encodeURIComponent(fname));
+                if (!res.ok) throw new Error('HTTP ' + res.status + (await res.text()));
+                const blob = await res.blob();
+                let downloadName = fname;
+                const cd = res.headers.get('Content-Disposition') || '';
+                const m = cd.match(/filename="?([^";]+)"?/);
+                if (m) downloadName = m[1];
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = downloadName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                toastSuccess(__('Downloaded') + ' ' + downloadName);
+            } catch (err) {
+                toastError(__('Download failed:') + ' ' + err.message);
+            }
         }
 
         export function analyzeSelectedSaved() {

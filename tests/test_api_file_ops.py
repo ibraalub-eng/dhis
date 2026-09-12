@@ -322,3 +322,68 @@ class TestProcessPreview:
                 os.remove(test_file)
         except PermissionError:
             pass
+
+
+class TestDownloadSavedFile:
+    def test_download_original_file_when_on_disk(self, client):
+        """Downloading a saved file that still exists on disk must return the
+        exact original bytes as an attachment."""
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        test_file = os.path.join(UPLOAD_DIR, "dl_on_disk.xlsx")
+        original = b"PK\x03\x04fake-original-bytes"
+        with open(test_file, "wb") as f:
+            f.write(original)
+
+        resp = client.get("/analysis/saved-files/download", params={"filename": "dl_on_disk.xlsx"})
+        assert resp.status_code == 200
+        assert "attachment" in resp.headers.get("content-disposition", "")
+        assert "dl_on_disk.xlsx" in resp.headers.get("content-disposition", "")
+        assert resp.content == original
+
+        _retry_remove(test_file)
+
+    def test_download_rebuilds_xlsx_from_db_when_not_on_disk(self, client, db_session):
+        """Downloading a file whose original is gone (ephemeral disk on Render)
+        must rebuild an .xlsx from the IndicatorValue rows for that file."""
+        import openpyxl
+        from app.models import Hospital, Indicator, IndicatorValue
+        from app.indicators import INDICATOR_FLAT_LIST
+
+        hospital = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
+        code = ind.code if ind.code else INDICATOR_FLAT_LIST[0]["code"]
+        name = ind.name if ind.name else INDICATOR_FLAT_LIST[0]["name"]
+        db_session.add(IndicatorValue(
+            hospital_id=hospital.id, indicator_id=ind.id, month="2026-03",
+            value=42.5, source_file="dl_history_only.xlsx",
+        ))
+        db_session.commit()
+
+        on_disk = os.path.join(UPLOAD_DIR, "dl_history_only.xlsx")
+        if os.path.exists(on_disk):
+            os.remove(on_disk)
+
+        resp = client.get("/analysis/saved-files/download", params={"filename": "dl_history_only.xlsx"})
+        assert resp.status_code == 200
+        assert "spreadsheetml" in resp.headers.get("content-type", "")
+        assert "attachment" in resp.headers.get("content-disposition", "")
+
+        wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+        ws = wb.active
+        header = [c.value for c in ws[1]]
+        col = {h: i for i, h in enumerate(header)}
+        assert col.get("Month") is not None
+        assert col.get("Value") is not None
+        assert col.get("Hospital") is not None
+
+        rows = list(ws.iter_rows(min_row=2, values_only=True))
+        assert any(
+            r[col["Hospital"]] == hospital.name
+            and r[col["Month"]] == "2026-03"
+            and r[col["Value"]] == 42.5
+            for r in rows
+        )
+
+    def test_download_unknown_file_404(self, client):
+        resp = client.get("/analysis/saved-files/download", params={"filename": "never_uploaded.xlsx"})
+        assert resp.status_code == 404

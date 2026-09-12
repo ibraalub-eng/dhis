@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
 import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
-from app.models import Hospital, IndicatorValue, QualityScore, ValidationResult
+from app.models import Hospital, Indicator, IndicatorValue, QualityScore, ValidationResult
 from app.engine.pipeline import run_full_analysis, get_enabled_values_for_hospital_month
 from app.engine.anomaly import analyze_historical_trends, compare_hospitals
 from app.engine.clinical import run_clinical_analysis
@@ -14,6 +15,7 @@ from app.config import UPLOAD_DIR, MAX_UPLOAD_SIZE
 from app.schemas import MultiFileUploadResponse
 from app.core.deps import require_permission
 import os
+import io
 import shutil
 import json
 import logging
@@ -79,6 +81,85 @@ def list_saved_files(db: Session = Depends(get_db)):
             "uploaded_at": uploaded_at,
         })
     return files
+
+
+_DOWNLOAD_MEDIA_TYPES = {
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsm": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xlsb": "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
+    ".xls": "application/vnd.ms-excel",
+    ".csv": "text/csv",
+}
+
+
+@router.get("/saved-files/download")
+def download_saved_file(
+    filename: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    """Download a previously uploaded file.
+
+    Returns the original file when it still exists on disk; otherwise
+    rebuilds an .xlsx from the IndicatorValue rows for that source_file
+    (Render's upload directory is ephemeral, so originals are usually gone).
+    """
+    fname = os.path.basename(filename)
+    if fname != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    fpath = os.path.join(UPLOAD_DIR, fname) if UPLOAD_DIR else None
+    if fpath and os.path.exists(fpath):
+        ext = os.path.splitext(fname)[1].lower()
+        media = _DOWNLOAD_MEDIA_TYPES.get(ext, "application/octet-stream")
+
+        def _stream_file():
+            with open(fpath, "rb") as fh:
+                yield from fh
+
+        return StreamingResponse(
+            _stream_file(),
+            media_type=media,
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+
+    rows = (
+        db.query(IndicatorValue, Indicator)
+        .join(Indicator, Indicator.id == IndicatorValue.indicator_id)
+        .filter(IndicatorValue.source_file == fname)
+        .all()
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail=f"No saved data found for file: {fname}")
+
+    hosp_ids = {iv.hospital_id for iv, _ in rows}
+    hosp_names = dict(
+        db.query(Hospital.id, Hospital.name).filter(Hospital.id.in_(hosp_ids)).all()
+    )
+
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Uploaded Data"
+    ws.append(["Hospital", "Month", "Indicator Code", "Indicator Name", "Value"])
+    for iv, ind in rows:
+        ws.append([
+            hosp_names.get(iv.hospital_id, ""),
+            iv.month,
+            ind.code if ind else "",
+            ind.name if ind else "",
+            iv.value,
+        ])
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+
+    stem = os.path.splitext(fname)[0]
+    download_name = f"{stem}_export.xlsx"
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )
 
 
 @router.post("/analyze-saved")

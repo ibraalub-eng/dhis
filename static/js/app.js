@@ -49,6 +49,7 @@ window.refreshSavedFiles = _stub('refreshSavedFiles');
 window.toggleAllSaved = _stub('toggleAllSaved');
 window.analyzeSelectedSaved = _stub('analyzeSelectedSaved');
 window.analyzeSingleSaved = _stub('analyzeSingleSaved');
+window.downloadSingleSaved = _stub('downloadSingleSaved');
 window.deleteSelectedSaved = _stub('deleteSelectedSaved');
 window.updateSingleSaved = _stub('updateSingleSaved');
 window.deleteSingleSaved = _stub('deleteSingleSaved');
@@ -185,6 +186,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'refreshSavedFiles'); _bind(mod, 'toggleAllSaved');
       _bind(mod, 'analyzeSelectedSaved'); _bind(mod, 'analyzeSingleSaved');
       _bind(mod, 'deleteSelectedSaved');
+      _bind(mod, 'downloadSingleSaved');
       _bind(mod, 'updateSingleSaved'); _bind(mod, 'deleteSingleSaved');
       break;
     case 'settings':
