@@ -18,6 +18,7 @@ from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR, DATA_DIR  # noqa: E40
 from scripts.seed_indicators import seed_indicators  # noqa: E402
 from scripts.seed_rules import seed_rules  # noqa: E402
 from scripts.seed_hospital_metadata import seed_hospital_metadata  # noqa: E402
+from scripts.seed_menu import seed_menu  # noqa: E402
 import os  # noqa: E402
 import re  # noqa: E402
 import logging  # noqa: E402
@@ -337,6 +338,7 @@ def _ensure_admin_user(session):
                     "settings.write",
                     "ai.read", "ai.write",
                     "system.read_audit", "system.manage_data", "system.export_data",
+                    "menu.manage",
                 ])
             ).all()
             existing_ids = {p.id for p in admin_role.permissions}
@@ -442,7 +444,7 @@ async def lifespan(app: FastAPI):
                 # Fresh session after DDL changes
                 session.close()
                 session = SessionLocal()
-                for label, fn in [("config", seed_app_config), ("indicators", seed_indicators), ("rules", seed_rules)]:
+                for label, fn in [("config", seed_app_config), ("indicators", seed_indicators), ("rules", seed_rules), ("menu", seed_menu)]:
                     try:
                         fn(session)
                         print(f"[startup] {label.capitalize()} seeded.")
