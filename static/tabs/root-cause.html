@@ -106,19 +106,6 @@
                             </div>
                         </div>
 
-                        <!-- Peer Hospitals: the actual peer hospitals used in the comparison -->
-                        <div class="card" style="padding:0.7rem 1rem;margin-top:1rem;border-top:3px solid var(--accent-purple);">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.6rem;">
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <span style="font-size:0.95rem;">&#127973;</span>
-                                    <h4 style="margin:0;font-size:0.9rem;color:var(--accent-purple);">مستشفيات النظير</h4>
-                                    <span style="font-size:0.6rem;background:rgba(123,31,162,0.12);color:var(--accent-purple);padding:1px 7px;border-radius:8px;font-weight:600;">Peer Hospitals</span>
-                                </div>
-                                <span style="font-size:0.72rem;color:var(--text-muted);">انقر على أي مستشفى للانتقال إلى تحليله الجذري</span>
-                            </div>
-                            <div id="rcPeerHospitals" style="font-size:0.78rem;"></div>
-                        </div>
-
                         <!-- Timeline: indicator value vs peer average with 95% CI band -->
                         <div class="card" style="padding:0.8rem 1rem;margin-top:1rem;border-top:3px solid var(--accent-purple);">
                             <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
@@ -135,6 +122,19 @@
                                 <canvas id="rcTimelineChart"></canvas>
                             </div>
                             <div id="rcTimelineText" style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;"></div>
+                        </div>
+
+                        <!-- Peer Hospitals: the actual peer hospitals used in the comparison -->
+                        <div class="card" style="padding:0.7rem 1rem;margin-top:1rem;border-top:3px solid var(--accent-purple);">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.6rem;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <span style="font-size:0.95rem;">&#127973;</span>
+                                    <h4 style="margin:0;font-size:0.9rem;color:var(--accent-purple);">مستشفيات النظير</h4>
+                                    <span style="font-size:0.6rem;background:rgba(123,31,162,0.12);color:var(--accent-purple);padding:1px 7px;border-radius:8px;font-weight:600;">Peer Hospitals</span>
+                                </div>
+                                <span style="font-size:0.72rem;color:var(--text-muted);">انقر على أي مستشفى للانتقال إلى تحليله الجذري</span>
+                            </div>
+                            <div id="rcPeerHospitals" style="font-size:0.78rem;"></div>
                         </div>
                     </div>
 
