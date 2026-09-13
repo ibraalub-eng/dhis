@@ -101,6 +101,7 @@ class RootCauseReport:
     causal_chains: List[CausalChain] = field(default_factory=list)
     historical_trends: Dict[str, Dict] = field(default_factory=dict)
     peer_comparisons: Dict[str, PeerComparison] = field(default_factory=dict)
+    peer_hospitals: List[Dict] = field(default_factory=list)
     summary_arabic: str = ""
 
 
@@ -1548,7 +1549,7 @@ def _ar_synthesis_for_ai_rec(r: Dict) -> Dict:
     }
 
 
-def _build_peer_comparisons(session, hospital_id, month, peer_comparisons):
+def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals):
     """Build peer indicator comparisons for a hospital."""
     peer_groups = identify_peer_groups(session, hospital_id)
     if not peer_groups:
@@ -1570,6 +1571,12 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons):
         htype = entry.get("hospital_type") or "unknown"
         if htype not in peer_types:
             peer_types.append(htype)
+        peer_hospitals.append({
+            "hospital_id": entry["hospital_id"],
+            "name": name,
+            "governorate": gov,
+            "hospital_type": htype,
+        })
         for code in FEATURE_KEYS:
             v = entry.get("values", {}).get(code)
             if v is not None:
@@ -1683,9 +1690,10 @@ def generate_root_cause_analysis(
         causal_chains = build_causal_chains(causal_nodes)
 
     peer_comparisons = {}
+    peer_hospitals = []
     if compare_peers:
         try:
-            _build_peer_comparisons(session, hospital_id, month, peer_comparisons)
+            _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals)
         except Exception as e:
             logger.warning(f"Peer comparison failed: {e}")
 
@@ -1910,6 +1918,7 @@ def generate_root_cause_analysis(
         causal_chains=causal_chains,
         historical_trends=historical_trends,
         peer_comparisons=peer_comparisons,
+        peer_hospitals=peer_hospitals,
         summary_arabic=summary_arabic,
     )
 

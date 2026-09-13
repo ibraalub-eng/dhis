@@ -589,3 +589,80 @@ def test_api_returns_peer_governorates(db_session):
         assert first["peer_governorate_counts"].get("South", 0) >= 4
     finally:
         app.dependency_overrides.clear()
+
+
+def test_peer_hospitals_listed_with_peers(db_session):
+    """عند تفعيل مقارنة النظير، تُرجع الاستجابة قائمة المستشفيات النظيرة
+    الفعلية (الاسم، المحافظة، النوع) دون المستشفى الأساس نفسه."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_db
+    from app.models import Hospital, HospitalType, Governorate, Indicator, IndicatorValue
+
+    gov = Governorate(name="West")
+    htype = HospitalType(name="Gov3")
+    db_session.add_all([gov, htype])
+    db_session.flush()
+    target = Hospital(name="BaseHospital", hospital_type_id=htype.id,
+                      governorate_id=gov.id, is_active=True)
+    peers = [
+        Hospital(name=f"PeerHospital{i}", hospital_type_id=htype.id,
+                 governorate_id=gov.id, is_active=True)
+        for i in range(4)
+    ]
+    db_session.add_all([target] + peers)
+    db_session.flush()
+
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in [target] + peers:
+        high = h is target
+        vals = {"2": 200, "5": 80 if high else 40, "6": 190}
+        for code, v in vals.items():
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id[code], month="2026-06", value=v))
+    db_session.commit()
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        resp = client.get(f"/root-cause/{target.id}?month=2026-06&compare_peers=true")
+        assert resp.status_code == 200
+        data = resp.json()
+        peers_list = data.get("peer_hospitals") or []
+        assert len(peers_list) == 4
+        names = {p["name"] for p in peers_list}
+        assert names == {f"PeerHospital{i}" for i in range(4)}
+        assert "BaseHospital" not in names
+        for p in peers_list:
+            assert p["hospital_id"] != target.id
+            assert p["governorate"] == "West"
+            assert p["hospital_type"] == "Gov3"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_peer_hospitals_empty_without_peers(db_session):
+    """مستشفى واحد بلا نظير → peer_hospitals قائمة فارغة."""
+    from app.engine.root_cause import generate_root_cause_analysis
+    from app.models import Hospital, Indicator, IndicatorValue
+
+    target = Hospital(name="Solo", is_active=True)
+    db_session.add(target)
+    db_session.flush()
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    vals = {"2": 200, "5": 80, "6": 190}
+    for code, v in vals.items():
+        db_session.add(IndicatorValue(hospital_id=target.id, indicator_id=code_to_id[code], month="2026-06", value=v))
+    db_session.commit()
+
+    report = generate_root_cause_analysis(
+        db_session, target.id, "2026-06",
+        quality_data={"score": 80}, confidence_data={"overall_confidence": 80},
+        include_history=False, compare_peers=True,
+    )
+    assert hasattr(report, "peer_hospitals")
+    assert report.peer_hospitals == []

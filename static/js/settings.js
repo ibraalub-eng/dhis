@@ -1209,6 +1209,31 @@ function loadHospitalsSettings() {
                     }
                 }
 
+                // ── Peer Hospitals: actual peer hospitals (click to drill into their root cause) ──
+                const peerHospEl = document.getElementById('rcPeerHospitals');
+                if (peerHospEl) {
+                    peerHospEl.innerHTML = '';
+                    const peersList = d.peer_hospitals || [];
+                    if (peersList.length) {
+                        peerHospEl.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
+                            '<thead><tr style="font-size:0.68rem;color:var(--text-muted);text-align:right;">' +
+                            '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المستشفى</th>' +
+                            '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المحافظة</th>' +
+                            '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">النوع</th>' +
+                            '</tr></thead><tbody>' +
+                            peersList.map(p =>
+                                '<tr style="cursor:pointer;border-bottom:1px dashed #e5e7eb;" onclick="goRootCause(' + p.hospital_id + ', \'' + mth + '\')" title="فتح تحليل الجذر لهذا المستشفى">' +
+                                    '<td style="padding:0.3rem 0.5rem;font-weight:600;font-size:0.78rem;">' + esc(p.name) + '</td>' +
+                                    '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.governorate) + '</td>' +
+                                    '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.hospital_type) + '</td>' +
+                                '</tr>'
+                            ).join('') +
+                            '</tbody></table></div>';
+                    } else {
+                        peerHospEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مستشفيات نظيرة للمقارنة.</div>';
+                    }
+                }
+
                 // ── Timeline: indicator value vs peer average with 95% CI band ──
                 apiGet('/root-cause/' + hid + '/timeline?month=' + mth + '&months_back=6').then(tl => {
                     _rcTimelineData = tl || { indicators: [] };
