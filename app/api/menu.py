@@ -2,6 +2,7 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -22,6 +23,7 @@ def _item_dict(item: MenuItem) -> dict:
     meta = TAB_REGISTRY.get(item.tab_key, {})
     return {
         "id": item.id,
+        "group_id": item.group_id,
         "tab_key": item.tab_key,
         "label": meta.get("label", item.tab_key),
         "icon": meta.get("icon", ""),
@@ -63,7 +65,7 @@ class _GroupCreate(BaseModel):
 
 @router.post("/groups", dependencies=[Depends(require_permission("menu.manage"))])
 def create_group(body: _GroupCreate, db: Session = Depends(get_db)):
-    max_order = db.query(MenuGroup.sort_order).order_by(MenuGroup.sort_order.desc()).scalar() or 0
+    max_order = db.query(func.max(MenuGroup.sort_order)).scalar() or 0
     g = MenuGroup(name=body.name, icon=body.icon, sort_order=body.sort_order or max_order + 1)
     db.add(g)
     db.commit()
@@ -124,7 +126,7 @@ def create_item(body: _ItemCreate, db: Session = Depends(get_db)):
     dup = db.query(MenuItem).filter_by(group_id=body.group_id, tab_key=body.tab_key).first()
     if dup:
         raise HTTPException(409, f"Tab '{body.tab_key}' already in group '{g.name}'")
-    max_order = db.query(MenuItem.sort_order).filter_by(group_id=body.group_id).order_by(MenuItem.sort_order.desc()).scalar() or 0
+    max_order = db.query(func.max(MenuItem.sort_order)).filter_by(group_id=body.group_id).scalar() or 0
     item = MenuItem(group_id=body.group_id, tab_key=body.tab_key, sort_order=body.sort_order or max_order + 1)
     db.add(item)
     db.commit()
