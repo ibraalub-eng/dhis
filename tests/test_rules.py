@@ -187,3 +187,35 @@ def test_thromboembolism_eq_sum_of_embolism_types():
     r68 = _find(results, "R068")
     assert r68 is not None
     assert r68.status == RuleStatus.PASS
+
+
+def test_pph_eq_sum_of_severity_types():
+    ctx = _make_ctx({"10.a.1": 8, "10.a.1.1": 5, "10.a.1.2": 3})
+    results = run_all_rules(ctx)
+    r24 = _find(results, "R024")
+    assert r24 is not None
+    assert r24.status == RuleStatus.PASS
+
+
+def test_pph_ne_sum_of_severity_types():
+    ctx = _make_ctx({"10.a.1": 10, "10.a.1.1": 5, "10.a.1.2": 3})
+    results = run_all_rules(ctx)
+    r24 = _find(results, "R024")
+    assert r24 is not None
+    assert r24.status == RuleStatus.FAIL
+
+
+def test_aph_eq_sum_of_causes():
+    ctx = _make_ctx({"10.a.2": 6, "10.a.2.1": 4, "10.a.2.2": 2})
+    results = run_all_rules(ctx)
+    r25 = _find(results, "R025")
+    assert r25 is not None
+    assert r25.status == RuleStatus.PASS
+
+
+def test_eph_ne_sum_of_causes():
+    ctx = _make_ctx({"10.a.3": 9, "10.a.3.1": 3, "10.a.3.2": 3, "10.a.3.3": 4})
+    results = run_all_rules(ctx)
+    r26 = _find(results, "R026")
+    assert r26 is not None
+    assert r26.status == RuleStatus.FAIL
