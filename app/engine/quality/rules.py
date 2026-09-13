@@ -289,6 +289,12 @@ def _build_rules():
     ALL_RULES.append(lambda ctx: _le("10.h", "10", "R039", "Cardiac ICU Admission <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
     ALL_RULES.append(lambda ctx: _le("10.i", "10", "R040", "Renal Failure/Dialysis <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
 
+    ALL_RULES.append(lambda ctx: _le("10.g", "10", "R062", "Respiratory Failure/ICU Ventilation <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
+    ALL_RULES.append(lambda ctx: _le("10.j", "10", "R063", "Thromboembolism <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
+    ALL_RULES.append(lambda ctx: _le("10.k", "10", "R064", "Neurological Complications <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
+    ALL_RULES.append(lambda ctx: _le("10.n", "10", "R065", "Self-Harm/Suicide Attempt <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
+    ALL_RULES.append(lambda ctx: _le("10.o", "10", "R066", "Other Morbidity <= SMM", Severity.MEDIUM, RuleType.CLINICAL, ctx))
+
     ALL_RULES.append(lambda ctx: _benchmark_rate("5", "2", _RULES_CONFIG["cs_rate_threshold"], "R041", "C-section rate > 80%", Severity.HIGH, ctx))
     ALL_RULES.append(lambda ctx: _rate_low("3", "2", _RULES_CONFIG["nvd_rate_threshold"], "R042", "Normal Vaginal Delivery Rate < 10%", Severity.HIGH, RuleType.BENCHMARK, ctx))
     ALL_RULES.append(lambda ctx: _cross_hospital_rate("6.f", "6", _RULES_CONFIG["zscore_threshold"], "R043", "Preterm Birth Rate outlier across hospitals", Severity.MEDIUM, ctx))

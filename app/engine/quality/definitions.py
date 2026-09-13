@@ -71,6 +71,12 @@ RULE_REF_CODES = {
     "R058": ["2"],
     "R059": ["6"],
     "R060": ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"],
+    "R061": ["10", "10.a", "10.b", "10.c", "10.d", "10.e", "10.f", "10.g", "10.h", "10.i", "10.j", "10.k", "10.l", "10.m", "10.n", "10.o"],
+    "R062": ["10.g", "10"],
+    "R063": ["10.j", "10"],
+    "R064": ["10.k", "10"],
+    "R065": ["10.n", "10"],
+    "R066": ["10.o", "10"],
 }
 
 
@@ -135,4 +141,10 @@ RULE_CATALOG = [
     {"code": "R058", "name": "Missing Total Deliveries", "type": "DATA_QUALITY", "severity": "HIGH"},
     {"code": "R059", "name": "Missing Live Births", "type": "DATA_QUALITY", "severity": "HIGH"},
     {"code": "R060", "name": "All indicators zero (possible non-operational facility)", "type": "DATA_QUALITY", "severity": "CRITICAL"},
+    {"code": "R061", "name": "SMM = Sum of Morbidity Sub-Indicators (10.a-10.o)", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R062", "name": "Respiratory Failure/ICU Ventilation <= SMM", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R063", "name": "Thromboembolism <= SMM", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R064", "name": "Neurological Complications <= SMM", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R065", "name": "Self-Harm/Suicide Attempt <= SMM", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R066", "name": "Other Morbidity <= SMM", "type": "CLINICAL", "severity": "MEDIUM"},
 ]

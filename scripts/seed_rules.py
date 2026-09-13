@@ -631,23 +631,76 @@ RULES = [
         "params": json.dumps({"parent": "10", "children": ["10.a", "10.b", "10.c", "10.d", "10.e", "10.f", "10.g", "10.h", "10.i", "10.j", "10.k", "10.l", "10.m", "10.n", "10.o"]}),
         "description": "Severe Maternal Morbidity must equal the sum of all its sub-indicators (Hemorrhage through Other)",
     },
+    {
+        "code": "R062",
+        "name": "Respiratory Failure/ICU Ventilation <= SMM",
+        "rule_type": "CLINICAL",
+        "severity": "HIGH",
+        "category": "CLINICAL_LOGIC",
+        "expression_type": "le",
+        "params": json.dumps({"child": "10.g", "parent": "10"}),
+        "description": "Respiratory failure/ICU ventilation cases must not exceed total SMM",
+    },
+    {
+        "code": "R063",
+        "name": "Thromboembolism <= SMM",
+        "rule_type": "CLINICAL",
+        "severity": "HIGH",
+        "category": "CLINICAL_LOGIC",
+        "expression_type": "le",
+        "params": json.dumps({"child": "10.j", "parent": "10"}),
+        "description": "Thromboembolism cases must not exceed total SMM",
+    },
+    {
+        "code": "R064",
+        "name": "Neurological Complications <= SMM",
+        "rule_type": "CLINICAL",
+        "severity": "HIGH",
+        "category": "CLINICAL_LOGIC",
+        "expression_type": "le",
+        "params": json.dumps({"child": "10.k", "parent": "10"}),
+        "description": "Neurological complication cases must not exceed total SMM",
+    },
+    {
+        "code": "R065",
+        "name": "Self-Harm/Suicide Attempt <= SMM",
+        "rule_type": "CLINICAL",
+        "severity": "HIGH",
+        "category": "CLINICAL_LOGIC",
+        "expression_type": "le",
+        "params": json.dumps({"child": "10.n", "parent": "10"}),
+        "description": "Self-harm/suicide attempt cases must not exceed total SMM",
+    },
+    {
+        "code": "R066",
+        "name": "Other Morbidity <= SMM",
+        "rule_type": "CLINICAL",
+        "severity": "MEDIUM",
+        "category": "CLINICAL_LOGIC",
+        "expression_type": "le",
+        "params": json.dumps({"child": "10.o", "parent": "10"}),
+        "description": "Other morbidity conditions must not exceed total SMM",
+    },
 ]
 
 
 def seed_rules(session=None):
-    """Seed rules into the database. If no session given, creates one."""
+    """Seed rules into the database. If no session given, creates one.
+
+    Existing rows are left untouched; only rules whose code is missing from the
+    DB are inserted. This keeps the Rules Manager up to date as SUM_RULE_SPECS
+    grows without overwriting user edits.
+    """
     own_session = session is None
     if own_session:
         init_db()
         session = SessionLocal()
     try:
-        count = session.query(Rule).count()
-        if count > 0:
-            if own_session:
-                print(f"Rules table already has {count} rules. Skipping seed.")
-            return
-
+        existing_codes = {c for (c,) in session.query(Rule.code).all()}
+        added = 0
         for idx, r in enumerate(RULES):
+            if r["code"] in existing_codes:
+                continue
             rule = Rule(
                 code=r["code"],
                 name=r["name"],
@@ -660,9 +713,16 @@ def seed_rules(session=None):
                 sort_order=idx,
             )
             session.add(rule)
-        session.commit()
+            existing_codes.add(r["code"])
+            added += 1
+        if added:
+            session.commit()
         if own_session:
-            print(f"Seeded {len(RULES)} rules successfully.")
+            total = session.query(Rule).count()
+            if added:
+                print(f"Added {added} missing rule(s). Total rules: {total}.")
+            else:
+                print(f"Rules table already has {total} rules. No changes.")
     finally:
         if own_session:
             session.close()

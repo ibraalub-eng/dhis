@@ -139,3 +139,27 @@ def test_smm_ne_sum_of_sub_indicators():
     r61 = _find(results, "R061")
     assert r61 is not None
     assert r61.status == RuleStatus.FAIL
+
+
+def test_smm_child_le_smm():
+    ctx = _make_ctx({"10": 25, "10.g": 10})
+    results = run_all_rules(ctx)
+    r62 = _find(results, "R062")
+    assert r62 is not None
+    assert r62.status == RuleStatus.PASS
+
+
+def test_smm_child_gt_smm_fails():
+    ctx = _make_ctx({"10": 5, "10.g": 10})
+    results = run_all_rules(ctx)
+    r62 = _find(results, "R062")
+    assert r62 is not None
+    assert r62.status == RuleStatus.FAIL
+
+
+def test_smm_other_morbidity_le_smm():
+    ctx = _make_ctx({"10": 20, "10.o": 20})
+    results = run_all_rules(ctx)
+    r66 = _find(results, "R066")
+    assert r66 is not None
+    assert r66.status == RuleStatus.PASS
