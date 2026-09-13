@@ -27,6 +27,11 @@
                 <option value="">All Facility Types</option>
             </select>
         </div>
+        <div id="hospUndoBanner" class="hidden" style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.6rem;padding:0.35rem 0.6rem;border:1px solid var(--accent-red);border-radius:6px;background:rgba(220,38,38,0.07);">
+            <span id="hospUndoText"></span>
+            <button class="btn btn-sm btn-outline" id="hospUndoBtn" onclick="undoHospitalClear()" title="Restore the cleared values from the snapshot" style="padding:0.15rem 0.5rem;font-size:0.72rem;margin-left:0.5rem;">Undo</button>
+            <span onclick="dismissHospitalClearUndo()" style="cursor:pointer;opacity:0.6;margin-left:0.5rem;" title="Dismiss">&#10005;</span>
+        </div>
         <div id="hospLoading" style="text-align:center;padding:1.5rem;color:var(--text-muted);"><span class="spinner"></span> Loading hospitals...</div>
         <div id="hospList" style="font-size:0.85rem;"></div>
     </div>

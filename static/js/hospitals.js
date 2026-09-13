@@ -1,4 +1,4 @@
-import { apiGet, apiPut, apiDelete, apiPostJSON, apiPost } from './api.js';
+import { apiGet, apiPut, apiDelete, apiPostJSON, apiPost, clearApiCache } from './api.js';
 import { esc } from './tree.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
 
@@ -558,10 +558,67 @@ window.deleteFacilityType = deleteFacilityType;
 
 // ── Clear Data ──────────────────────────────────────────────
 
+// Clear Data snapshots the deleted values server-side, exactly like Remove
+// Data, so the clear can be undone from this banner for a few minutes.
+let _clearUndoToken = null;
+let _clearUndoTimer = null;
+
+function _hideClearUndoBanner() {
+    if (_clearUndoTimer) { clearInterval(_clearUndoTimer); _clearUndoTimer = null; }
+    const el = document.getElementById('hospUndoBanner');
+    if (el) el.classList.add('hidden');
+    _clearUndoToken = null;
+}
+window.dismissHospitalClearUndo = _hideClearUndoBanner;
+
+function _showClearUndoBanner(data) {
+    const el = document.getElementById('hospUndoBanner');
+    const txt = document.getElementById('hospUndoText');
+    if (!el || !txt || !data || !data.undo) return;
+    _clearUndoToken = data.undo.token;
+    let left = Math.max(0, Math.round(data.undo.expires_in || 0));
+    const render = function() {
+        const m = Math.floor(left / 60);
+        const s = left % 60;
+        const values = data.removed ? data.removed.indicator_values : '';
+        const scope = data.month ? data.month : ((data.months || []).length + ' months');
+        txt.textContent = 'Cleared ' + values + ' values for ' + (data.hospital_name || '') +
+            ' (' + scope + ') \u2014 Undo available for ' + m + ':' + (s < 10 ? '0' : '') + s;
+    };
+    render();
+    el.classList.remove('hidden');
+    if (_clearUndoTimer) clearInterval(_clearUndoTimer);
+    _clearUndoTimer = setInterval(function() {
+        left--;
+        if (left <= 0) {
+            _hideClearUndoBanner();
+            toastWarning('The undo window has expired. Upload the file again to restore this data.');
+            return;
+        }
+        render();
+    }, 1000);
+}
+
+function undoHospitalClear() {
+    if (!_clearUndoToken) { toastWarning('No removal to undo.'); return; }
+    return apiPostJSON('/hospitals/remove-data/undo', { token: _clearUndoToken })
+        .then(function(data) {
+            _hideClearUndoBanner();
+            toastSuccess(data.message || 'Undo');
+            clearApiCache();
+            if (typeof window.loadDashboard === 'function') window.loadDashboard();
+            loadHospitalsList();
+        })
+        .catch(function(e) { toastError('Undo failed: ' + (e.message || e)); });
+}
+window.undoHospitalClear = undoHospitalClear;
+
 async function clearHospitalData(id, name) {
-    if (!await confirmDestructive({ title: 'Clear Hospital Data', message: 'Clear ALL indicator data for <strong>' + name + '</strong>?', details: 'This will remove indicator values, quality scores, validation results, and clinical results. The hospital will become inactive.', okLabel: 'Clear Data' })) return;
+    if (!await confirmDestructive({ title: 'Clear Hospital Data', message: 'Clear ALL indicator data for <strong>' + name + '</strong>?', details: 'This will remove indicator values, quality scores, validation results, and clinical results. The hospital will become inactive. You can undo this for 10 minutes.', okLabel: 'Clear Data' })) return;
     apiPut('/hospitals/' + id + '/clear-data').then(res => {
         if (res.message) toastSuccess(res.message);
+        _showClearUndoBanner(res);
+        clearApiCache();
         loadHospitalsList();
     }).catch(err => toastError('Failed: ' + (err.message || err)));
 }

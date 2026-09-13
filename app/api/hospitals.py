@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import logging
 import re
 import threading
@@ -134,16 +134,24 @@ def toggle_hospital_active(hospital_id: int, db: Session = Depends(get_db)):
 def clear_hospital_data(
     hospital_id: int,
     month: str = Query(None, description="If set, only clear this month. Otherwise clear ALL data."),
+    recompute: bool = Query(True, description="Re-run analysis for the surviving months"),
     db: Session = Depends(get_db),
 ):
     """Clear indicator values for a hospital (optionally filtered by month).
 
     Also clears every derived analysis row: quality scores, validation results,
-    anomalies, confidence scores and clinical results.
+    anomalies, confidence scores and clinical results. Like Remove Data, the
+    raw values are snapshotted before the delete so the clear can be undone for
+    a few minutes, and analysis is re-run for the surviving months.
     """
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital not found")
+
+    # Copy the raw rows aside before deleting them so the client can undo the
+    # clear for a short window instead of having to re-upload the file.
+    snapshot_rows = _snapshot_indicator_values(db, [hospital_id], month)
+    months_cleared = sorted({r["month"] for r in snapshot_rows})
 
     iv_query = db.query(IndicatorValue).filter(IndicatorValue.hospital_id == hospital_id)
     if month:
@@ -152,7 +160,29 @@ def clear_hospital_data(
     derived = purge_derived_results(db, hospital_id, month or None)
     db.commit()
 
+    undo = undo_store.create(snapshot_rows, {
+        "month": month or None,
+        "months": months_cleared,
+        "scope": "hospital_clear",
+        "hospital_ids": [hospital_id],
+        "hospital_name": hospital.name,
+    }) if snapshot_rows else None
+
     _invalidate_analysis_caches(db)
+
+    # Re-run analysis for the months that survive so their scores reflect the
+    # reduced history; the cleared months themselves are never re-analysed.
+    pairs = []
+    if recompute:
+        for m in (months_cleared or ([month] if month else [])):
+            pairs += _plan_recompute_pairs(db, [hospital], m, single_hospital=True)
+        pairs = sorted(set(pairs))
+    task_id = create_task(f"clear-data:{hospital_id}") if pairs else None
+    if task_id:
+        threading.Thread(
+            target=run_task, args=(task_id, _run_remove_recompute, pairs, task_id), daemon=True
+        ).start()
+
     msg = (
         f"Cleared {iv_count} indicator values, {derived['quality_scores']} quality scores, "
         f"{derived['validation_results']} validation results, {derived['anomaly_results']} anomaly results, "
@@ -160,7 +190,19 @@ def clear_hospital_data(
     )
     if month:
         msg += f" for {month}"
-    return {"hospital_id": hospital_id, "hospital_name": hospital.name, "message": msg}
+    if undo:
+        msg += f" Undo is available for {undo['expires_in'] // 60} minutes."
+    return {
+        "hospital_id": hospital_id,
+        "hospital_name": hospital.name,
+        "month": month or None,
+        "months": months_cleared,
+        "scope": "hospital_clear",
+        "removed": {"indicator_values": iv_count, **derived},
+        "recompute_task_id": task_id,
+        "undo": undo,
+        "message": msg,
+    }
 
 
 @router.post("/remove-data", dependencies=[Depends(require_permission("data.manage"))])
@@ -191,22 +233,9 @@ def remove_data(body: dict = Body(...), db: Session = Depends(get_db)):
     }
     # Copy the raw rows aside before deleting them so the client can undo the
     # removal for a short window instead of having to re-upload the file.
-    snapshot_rows: List[dict] = []
+    snapshot_rows = _snapshot_indicator_values(db, [h.id for h in targets], month)
+    totals["indicator_values"] = len(snapshot_rows)
     for h in targets:
-        rows = db.query(IndicatorValue).filter(
-            IndicatorValue.hospital_id == h.id,
-            IndicatorValue.month == month,
-        ).all()
-        totals["indicator_values"] += len(rows)
-        for r in rows:
-            snapshot_rows.append({
-                "hospital_id": r.hospital_id,
-                "indicator_id": r.indicator_id,
-                "month": r.month,
-                "value": r.value,
-                "source_file": r.source_file,
-                "created_at": r.created_at,
-            })
         db.query(IndicatorValue).filter(
             IndicatorValue.hospital_id == h.id,
             IndicatorValue.month == month,
@@ -217,6 +246,7 @@ def remove_data(body: dict = Body(...), db: Session = Depends(get_db)):
 
     undo = undo_store.create(snapshot_rows, {
         "month": month,
+        "months": [month],
         "scope": "hospital" if hospital_id else "all_hospitals",
         "hospital_ids": [h.id for h in targets],
     }) if snapshot_rows else None
@@ -280,9 +310,15 @@ def undo_remove_data(body: dict = Body(...), db: Session = Depends(get_db)):
             detail="Undo is no longer available for this removal (the snapshot expired).",
         )
 
-    month = snapshot["meta"].get("month")
-    scope = snapshot["meta"].get("scope", "hospital")
+    meta = snapshot["meta"]
+    month = meta.get("month")
+    scope = meta.get("scope", "hospital")
     rows = snapshot["rows"]
+    # Remove Data snapshots one month; Clear Data may snapshot several (or all)
+    # of a hospital's months, so the restore is driven by the rows themselves.
+    months = sorted({r["month"] for r in rows if r.get("month")}) or list(
+        meta.get("months") or ([month] if month else [])
+    )
 
     requested = len(rows)
     # A hospital or indicator deleted while the snapshot was alive can no longer
@@ -303,14 +339,17 @@ def undo_remove_data(body: dict = Body(...), db: Session = Depends(get_db)):
     ]
 
     existing = {
-        (h, i) for h, i in db.query(
-            IndicatorValue.hospital_id, IndicatorValue.indicator_id
+        (h, i, m) for h, i, m in db.query(
+            IndicatorValue.hospital_id, IndicatorValue.indicator_id, IndicatorValue.month
         ).filter(
             IndicatorValue.hospital_id.in_({r["hospital_id"] for r in rows} or {0}),
-            IndicatorValue.month == month,
+            IndicatorValue.month.in_(months or [""]),
         ).all()
     }
-    to_insert = [r for r in rows if (r["hospital_id"], r["indicator_id"]) not in existing]
+    to_insert = [
+        r for r in rows
+        if (r["hospital_id"], r["indicator_id"], r["month"]) not in existing
+    ]
     skipped = requested - len(to_insert)
     if to_insert:
         db.bulk_insert_mappings(IndicatorValue, to_insert)
@@ -320,24 +359,56 @@ def undo_remove_data(body: dict = Body(...), db: Session = Depends(get_db)):
     _invalidate_analysis_caches(db)
 
     targets = db.query(Hospital).filter(Hospital.id.in_(live_hospital_ids)).all()
-    pairs = _plan_recompute_pairs(
-        db, targets, month, single_hospital=(scope == "hospital"), include_month=True
-    ) if to_insert else []
-    task_id = create_task(f"undo-remove-data:{month}") if pairs else None
+    single_hospital = scope in ("hospital", "hospital_clear")
+    pairs = []
+    if to_insert:
+        for m in months:
+            pairs += _plan_recompute_pairs(
+                db, targets, m, single_hospital=single_hospital, include_month=True
+            )
+        pairs = sorted(set(pairs))
+    task_id = create_task(
+        f"undo-remove-data:{month}" if month else f"undo-clear-data:{len(months)}mo"
+    ) if pairs else None
     if task_id:
         threading.Thread(
             target=run_task, args=(task_id, _run_remove_recompute, pairs, task_id), daemon=True
         ).start()
 
     return {
-        "month": month, "scope": scope, "hospitals": [h.name for h in targets],
+        "month": month, "months": months, "scope": scope,
+        "hospitals": [h.name for h in targets],
         "restored": {"indicator_values": len(to_insert), "skipped_existing": skipped},
         "recompute_task_id": task_id,
         "message": (
-            f"Restored {len(to_insert)} values for {month} across {len(targets)} hospital(s). "
+            f"Restored {len(to_insert)} values for "
+            f"{month or (str(len(months)) + ' months')} across {len(targets)} hospital(s). "
             "Re-analysis started."
         ),
     }
+
+
+def _snapshot_indicator_values(
+    db: Session, hospital_ids: list, month: Optional[str] = None
+) -> List[dict]:
+    """Copy raw indicator values aside as plain dicts so a delete can be undone.
+
+    ``month=None`` snapshots every month; otherwise only that month is kept.
+    """
+    query = db.query(IndicatorValue).filter(IndicatorValue.hospital_id.in_(hospital_ids))
+    if month:
+        query = query.filter(IndicatorValue.month == month)
+    return [
+        {
+            "hospital_id": r.hospital_id,
+            "indicator_id": r.indicator_id,
+            "month": r.month,
+            "value": r.value,
+            "source_file": r.source_file,
+            "created_at": r.created_at,
+        }
+        for r in query.all()
+    ]
 
 
 def _invalidate_analysis_caches(db: Session) -> None:

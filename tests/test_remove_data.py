@@ -3,6 +3,9 @@
 Covers: deleting one month for one hospital or all hospitals, retention of
 other months, month-calendar bookkeeping, the no-op path, that the tree node
 set never changes (only values clear), and the shared recompute helper.
+
+The undo snapshot is shared with the Hospitals tab's Clear Data endpoint
+(PUT /hospitals/{id}/clear-data), so both delete paths are covered here.
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -73,6 +76,13 @@ def _remove(client, month, hospital_id, recompute=False):
 
 def _undo(client, token):
     return client.post("/hospitals/remove-data/undo", json={"token": token})
+
+
+def _clear(client, hospital_id, month=None, recompute=False):
+    path = f"/hospitals/{hospital_id}/clear-data?recompute={'true' if recompute else 'false'}"
+    if month:
+        path += f"&month={month}"
+    return client.put(path)
 
 
 class TestRemoveData:
@@ -321,6 +331,130 @@ class TestUndoRemoveData:
         hospital = db_session.query(Hospital).first()
         body = _remove(client, "2019-05", hospital.id).json()
         assert body["undo"] is None
+
+
+class TestClearDataUndo:
+    """Clear Data must offer the same undo protection as Remove Data."""
+
+    def test_clear_one_month_returns_a_restorable_snapshot(self, client, db_session):
+        hospital = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
+        db_session.add(IndicatorValue(
+            hospital_id=hospital.id, indicator_id=ind.id, month="2027-01",
+            value=4.5, source_file="jan.xlsx"))
+        db_session.add(QualityScore(
+            hospital_id=hospital.id, month="2027-01", score=3.0, issues="[]"))
+        db_session.commit()
+
+        resp = _clear(client, hospital.id, "2027-01")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["month"] == "2027-01"
+        assert body["months"] == ["2027-01"]
+        assert body["removed"]["indicator_values"] == 1
+        assert body["undo"] and body["undo"]["token"]
+        assert body["undo"]["rows"] == 1
+        assert "Undo is available" in body["message"]
+
+        assert db_session.query(IndicatorValue).filter(
+            IndicatorValue.hospital_id == hospital.id,
+            IndicatorValue.month == "2027-01",
+        ).count() == 0
+
+        restored = _undo(client, body["undo"]["token"])
+        assert restored.status_code == 200
+        assert restored.json()["restored"]["indicator_values"] == 1
+        row = db_session.query(IndicatorValue).filter(
+            IndicatorValue.hospital_id == hospital.id,
+            IndicatorValue.month == "2027-01",
+        ).one()
+        assert row.value == 4.5
+        assert row.source_file == "jan.xlsx"
+
+    def test_clear_all_months_restores_every_month(self, client, db_session):
+        hospital = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
+        for m in ("2027-02", "2027-03"):
+            db_session.add(IndicatorValue(
+                hospital_id=hospital.id, indicator_id=ind.id, month=m, value=2.0))
+        db_session.commit()
+
+        body = _clear(client, hospital.id).json()
+        assert body["month"] is None
+        assert sorted(body["months"]) == ["2027-02", "2027-03"]
+        assert body["undo"]["rows"] == 2
+
+        restored = _undo(client, body["undo"]["token"]).json()
+        assert restored["restored"]["indicator_values"] == 2
+        assert restored["months"] == ["2027-02", "2027-03"]
+        for m in ("2027-02", "2027-03"):
+            assert db_session.query(IndicatorValue).filter(
+                IndicatorValue.hospital_id == hospital.id,
+                IndicatorValue.month == m,
+            ).count() == 1
+
+    def test_clear_undo_token_is_single_use(self, client, db_session):
+        hospital = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
+        db_session.add(IndicatorValue(
+            hospital_id=hospital.id, indicator_id=ind.id, month="2027-04", value=1.0))
+        db_session.commit()
+
+        token = _clear(client, hospital.id, "2027-04").json()["undo"]["token"]
+        assert _undo(client, token).status_code == 200
+        assert _undo(client, token).status_code == 404
+
+    def test_clear_undo_skips_values_that_reappeared(self, client, db_session):
+        """A re-upload between clear and undo must not be duplicated."""
+        hospital = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
+        db_session.add(IndicatorValue(
+            hospital_id=hospital.id, indicator_id=ind.id, month="2027-05", value=3.0))
+        db_session.commit()
+
+        token = _clear(client, hospital.id, "2027-05").json()["undo"]["token"]
+        db_session.add(IndicatorValue(
+            hospital_id=hospital.id, indicator_id=ind.id, month="2027-05", value=77.0))
+        db_session.commit()
+
+        body = _undo(client, token).json()
+        assert body["restored"]["indicator_values"] == 0
+        assert body["restored"]["skipped_existing"] == 1
+
+    def test_clear_without_data_has_no_undo(self, client, db_session):
+        hospital = db_session.query(Hospital).first()
+        body = _clear(client, hospital.id, "2019-01").json()
+        assert body["removed"]["indicator_values"] == 0
+        assert body["undo"] is None
+
+    def test_clear_recompute_skips_the_cleared_month(self, client, db_session, monkeypatch):
+        """Surviving months are re-analysed; the cleared month never is."""
+        import app.api.hospitals as hospitals_api
+
+        hospital = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
+        for m in ("2027-06", "2027-07"):
+            db_session.add(IndicatorValue(
+                hospital_id=hospital.id, indicator_id=ind.id, month=m, value=9.0))
+        db_session.commit()
+
+        spawned = []
+
+        class _RecordingThread:
+            def __init__(self, target=None, args=(), daemon=None, **kwargs):
+                spawned.append(args)
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(hospitals_api.threading, "Thread", _RecordingThread)
+
+        body = _clear(client, hospital.id, "2027-06", recompute=True).json()
+        assert body["recompute_task_id"]
+        assert spawned, "expected a background recompute worker"
+        pairs = spawned[0][2]
+        assert (hospital.id, "2027-07") in pairs
+        assert all(m != "2027-06" for _hid, m in pairs)
 
 
 class TestUndoStore:
