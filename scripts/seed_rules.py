@@ -621,6 +621,16 @@ RULES = [
         "params": json.dumps({"codes": ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]}),
         "description": "All key indicators are zero for a working facility - data may be missing",
     },
+    {
+        "code": "R061",
+        "name": "SMM = Sum of Morbidity Sub-Indicators (10.a-10.o)",
+        "rule_type": "CLINICAL",
+        "severity": "HIGH",
+        "category": "CLINICAL_LOGIC",
+        "expression_type": "eq",
+        "params": json.dumps({"parent": "10", "children": ["10.a", "10.b", "10.c", "10.d", "10.e", "10.f", "10.g", "10.h", "10.i", "10.j", "10.k", "10.l", "10.m", "10.n", "10.o"]}),
+        "description": "Severe Maternal Morbidity must equal the sum of all its sub-indicators (Hemorrhage through Other)",
+    },
 ]
 
 

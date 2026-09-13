@@ -246,6 +246,7 @@ SUM_RULE_SPECS = [
     ("R025", "ge", "10.a.2", ["10.a.2.1", "10.a.2.2"], "Placental Abruption + Previa <= Antepartum Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL),
     ("R026", "ge", "10.a.3", ["10.a.3.1", "10.a.3.2", "10.a.3.3"], "Ectopic + Abortion Bleeding + Molar <= Early Pregnancy Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL),
     ("R030", "ge", "10.e", ["10.e.1", "10.e.2", "10.e.3"], "Preeclampsia + HELLP + Eclampsia <= Hypertensive Disorders", Severity.HIGH, RuleType.CLINICAL),
+    ("R061", "eq", "10", ["10.a", "10.b", "10.c", "10.d", "10.e", "10.f", "10.g", "10.h", "10.i", "10.j", "10.k", "10.l", "10.m", "10.n", "10.o"], "SMM = Sum of Morbidity Sub-Indicators (10.a-10.o)", Severity.HIGH, RuleType.CLINICAL),
 ]
 
 

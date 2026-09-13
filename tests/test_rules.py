@@ -122,3 +122,20 @@ def test_rules_config_override():
     assert r41 is not None
     assert r41.status == RuleStatus.FAIL
     set_rules_config(original_config)
+
+
+def test_smm_eq_sum_of_sub_indicators():
+    ctx = _make_ctx({"10": 25, "10.a": 10, "10.b": 5, "10.c": 3, "10.d": 7})
+    results = run_all_rules(ctx)
+    r61 = _find(results, "R061")
+    assert r61 is not None
+    assert r61.status == RuleStatus.PASS
+    assert "10" in r61.description
+
+
+def test_smm_ne_sum_of_sub_indicators():
+    ctx = _make_ctx({"10": 30, "10.a": 10, "10.b": 5, "10.c": 3, "10.d": 7})
+    results = run_all_rules(ctx)
+    r61 = _find(results, "R061")
+    assert r61 is not None
+    assert r61.status == RuleStatus.FAIL
