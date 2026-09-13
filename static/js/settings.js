@@ -2468,33 +2468,53 @@ function loadHospitalsSettings() {
             });
         }
 
+        function _setSettingsStatus(text, color) {
+            const el = document.getElementById('settingsStatus');
+            if (el) { el.textContent = text; el.style.color = color; }
+        }
+
+        function _pollTask(taskId, onProgress) {
+            let tries = 0;
+            return new Promise((resolve, reject) => {
+                const timer = setInterval(() => {
+                    tries++;
+                    if (tries > 300) { clearInterval(timer); reject(new Error('Re-analysis timed out')); return; }
+                    apiGet('/tasks/' + taskId).then(task => {
+                        if (task.status === 'error') { clearInterval(timer); reject(new Error(task.error || 'Re-analysis failed')); return; }
+                        if (task.status === 'done') { clearInterval(timer); resolve(task); return; }
+                        if (onProgress) onProgress(task.progress || 0);
+                    }).catch(err => { clearInterval(timer); reject(err); });
+                }, 2000);
+            });
+        }
+
         export function reanalyzeAll(btn) {
-            // May be called without a button (e.g. System Control's inline onclick), so fall back to #btnReanalyze
-            btn = btn || document.getElementById('btnReanalyze');
             const originalText = btn ? btn.textContent : '';
             if (btn) { btn.textContent = '...'; btn.disabled = true; }
-            const statusEl = document.getElementById('settingsStatus') || document.getElementById('recalcStatus');
-            showLoader('Re-analyzing all hospitals...');
-            apiPost('/analysis/reanalyze-all?force=true').then(data => {
-                if (statusEl) {
-                    statusEl.textContent = '\u2713 Re-analyzed ' + data.total_runs + ' combinations (' + data.hospitals_processed + ' hospitals, ' + data.months_processed + ' months)';
-                    statusEl.style.color = 'var(--accent-green)';
-                    if (data.errors && data.errors.length) {
-                        statusEl.textContent += ' | Errors: ' + data.errors.length;
-                        statusEl.style.color = 'var(--accent-orange)';
-                    }
-                }
-                // Redirect to dashboard to show fresh data
-                if (typeof switchTab === 'function') switchTab('dashboard');
-            }).catch(e => {
-                if (statusEl) {
-                    statusEl.textContent = '\u2717 Error: ' + e.message;
-                    statusEl.style.color = 'var(--accent-red)';
-                }
-            }).finally(() => {
-                hideLoader();
-                if (btn) { btn.textContent = originalText; btn.disabled = false; }
-            });
+            _setSettingsStatus('Recalculating completeness...', 'var(--accent-blue)');
+            showLoader('Recalculating completeness...');
+            apiPost('/dashboard/recalculate-completeness')
+                .then(() => {
+                    _setSettingsStatus('Re-analyzing all hospitals...', 'var(--accent-blue)');
+                    showLoader('Re-analyzing all hospitals...');
+                    return apiPost('/analysis/reanalyze-all?force=true');
+                })
+                .then(data => {
+                    if (!data || !data.task_id) throw new Error(data && data.message || 'Re-analysis did not start');
+                    return _pollTask(data.task_id, progress => _setSettingsStatus('Re-analyzing all hospitals... ' + progress + '%', 'var(--accent-blue)'));
+                })
+                .then(() => {
+                    _setSettingsStatus('\u2713 Re-analysis complete. All hospitals updated.', 'var(--accent-green)');
+                    if (typeof clearApiCache === 'function') clearApiCache();
+                    if (typeof switchTab === 'function') switchTab('dashboard');
+                })
+                .catch(e => {
+                    _setSettingsStatus('\u2717 Error: ' + e.message, 'var(--accent-red)');
+                })
+                .finally(() => {
+                    hideLoader();
+                    if (btn) { btn.textContent = originalText; btn.disabled = false; }
+                });
         }
 
         // قائمة النماذج المتاحة لكل مزوّد (تُبنى القائمة المنسدلة منها)
