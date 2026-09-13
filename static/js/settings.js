@@ -1205,7 +1205,7 @@ function loadHospitalsSettings() {
                             '</div>';
                         }).join('');
                     } else {
-                        peerEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مقارنات نظير — تحتاج 3+ مستشفيات بنفس النوع/الملكية/المحافظة.</div>';
+                        peerEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مقارنات نظير — تحتاج 3+ مستشفيات بنفس النوع أو المحافظة.</div>';
                     }
                 }
 
@@ -1215,7 +1215,12 @@ function loadHospitalsSettings() {
                     peerHospEl.innerHTML = '';
                     const peersList = d.peer_hospitals || [];
                     if (peersList.length) {
-                        peerHospEl.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
+                        const matchLabel = d.peer_match_by === 'type' ? 'نفس نوع المستشفى'
+                            : d.peer_match_by === 'governorate' ? 'نفس المحافظة' : '';
+                        const basisHtml = matchLabel
+                            ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">مطابقة النظير: <strong>' + esc(matchLabel) + '</strong> — ' + peersList.length + ' مستشفى</div>'
+                            : '';
+                        peerHospEl.innerHTML = basisHtml + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
                             '<thead><tr style="font-size:0.68rem;color:var(--text-muted);text-align:right;">' +
                             '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المستشفى</th>' +
                             '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المحافظة</th>' +

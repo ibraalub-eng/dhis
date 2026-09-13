@@ -102,6 +102,7 @@ class RootCauseReport:
     historical_trends: Dict[str, Dict] = field(default_factory=dict)
     peer_comparisons: Dict[str, PeerComparison] = field(default_factory=dict)
     peer_hospitals: List[Dict] = field(default_factory=list)
+    peer_match_by: Optional[str] = None
     summary_arabic: str = ""
 
 
@@ -1549,11 +1550,39 @@ def _ar_synthesis_for_ai_rec(r: Dict) -> Dict:
     }
 
 
-def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals):
-    """Build peer indicator comparisons for a hospital."""
-    peer_groups = identify_peer_groups(session, hospital_id)
-    if not peer_groups:
+def _find_peer_hospital_ids(session: Session, hospital_id: int) -> Tuple[List[int], Optional[str]]:
+    """النظير = المستشفيات النشطة من نفس النوع (إن وُجد النوع) أو نفس المحافظة وإلا.
+    مطابقة بحث النظير المعتمدة في بقية التطبيق (مثل شاشة التحليلات الذكية)."""
+    hosp = session.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if not hosp or not hosp.is_active:
+        return [], None
+    match_by = None
+    peer_ids = []
+    if hosp.hospital_type_id:
+        match_by = "type"
+        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            Hospital.hospital_type_id == hosp.hospital_type_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        ).all()]
+    elif hosp.governorate_id:
+        match_by = "governorate"
+        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            Hospital.governorate_id == hosp.governorate_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        ).all()]
+    return peer_ids, match_by
+
+
+def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals, peer_meta):
+    """Build peer indicator comparisons for a hospital, scoped to actual peers
+    (same hospital type or, failing that, same governorate)."""
+    peer_ids, match_by = _find_peer_hospital_ids(session, hospital_id)
+    if match_by is None or len(peer_ids) < MIN_PEER_SIZE:
         return
+    peer_meta["match_by"] = match_by
+    peer_id_set = set(peer_ids)
     from app.engine.smart import _load_hospital_data
     month_data = _load_hospital_data(session, month)
     hospital_map = {}
@@ -1564,6 +1593,8 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_
     for name, entry in month_data.items():
         if entry["hospital_id"] == hospital_id:
             hospital_map = entry.get("values", {})
+            continue
+        if entry["hospital_id"] not in peer_id_set:
             continue
         gov = entry.get("governorate") or "unknown"
         peer_governorates.append(gov)
@@ -1598,7 +1629,7 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_
             indicator_code=code,
             indicator_name=INDICATOR_NAMES.get(code, code),
             hospital_value=round(hv, 2),
-            peer_group=", ".join(sorted(peer_groups.keys())),
+            peer_group=match_by,
             peer_count=len(pvals),
             peer_mean=round(mean, 2),
             peer_std=round(std, 2),
@@ -1691,9 +1722,10 @@ def generate_root_cause_analysis(
 
     peer_comparisons = {}
     peer_hospitals = []
+    peer_meta: Dict[str, Optional[str]] = {"match_by": None}
     if compare_peers:
         try:
-            _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals)
+            _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals, peer_meta)
         except Exception as e:
             logger.warning(f"Peer comparison failed: {e}")
 
@@ -1919,6 +1951,7 @@ def generate_root_cause_analysis(
         historical_trends=historical_trends,
         peer_comparisons=peer_comparisons,
         peer_hospitals=peer_hospitals,
+        peer_match_by=peer_meta["match_by"],
         summary_arabic=summary_arabic,
     )
 

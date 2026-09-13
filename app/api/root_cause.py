@@ -293,6 +293,7 @@ def get_root_cause_analysis(
         }
         if compare_peers:
             response["peer_hospitals"] = report.peer_hospitals
+            response["peer_match_by"] = report.peer_match_by
         response["summary_arabic"] = report.summary_arabic
 
     return response

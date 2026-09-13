@@ -666,3 +666,113 @@ def test_peer_hospitals_empty_without_peers(db_session):
     )
     assert hasattr(report, "peer_hospitals")
     assert report.peer_hospitals == []
+
+
+def test_peer_hospitals_only_same_type(db_session):
+    """النظير = المستشفيات النشطة ذات النوع نفسه فقط (وليس كل المستشفيات).
+    مستشفى بنوع آخر لا يظهر في القائمة ولا يُحتسب في متوسط النظير."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_db
+    from app.models import Hospital, HospitalType, Governorate, Indicator, IndicatorValue
+
+    gov = Governorate(name="East")
+    htype = HospitalType(name="GovHosp")
+    other_type = HospitalType(name="Private")
+    db_session.add_all([gov, htype, other_type])
+    db_session.flush()
+    target = Hospital(name="BaseHospital", hospital_type_id=htype.id,
+                      governorate_id=gov.id, is_active=True)
+    peers = [
+        Hospital(name=f"PeerHospital{i}", hospital_type_id=htype.id,
+                 governorate_id=gov.id, is_active=True)
+        for i in range(4)
+    ]
+    off_peer = Hospital(name="OffPeer", hospital_type_id=other_type.id,
+                        governorate_id=gov.id, is_active=True)
+    db_session.add_all([target] + peers + [off_peer])
+    db_session.flush()
+
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in [target] + peers + [off_peer]:
+        high = h is target
+        vals = {"2": 200, "5": 80 if high else 40, "6": 190}
+        for code, v in vals.items():
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id[code], month="2026-06", value=v))
+    db_session.commit()
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        resp = client.get(f"/root-cause/{target.id}?month=2026-06&compare_peers=true")
+        assert resp.status_code == 200
+        data = resp.json()
+        peers_list = data.get("peer_hospitals") or []
+        assert len(peers_list) == 4
+        names = {p["name"] for p in peers_list}
+        assert "OffPeer" not in names
+        assert "BaseHospital" not in names
+        assert data.get("peer_match_by") == "type"
+        comps = data.get("peer_comparisons") or {}
+        assert comps
+        # النوع الآخر لا يزيد عدد النظير (peer_count لـ cs_rate = 4 وليس 5)
+        assert comps["cs_rate"]["peer_count"] == 4
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_peer_hospitals_fallback_governorate(db_session):
+    """عند غياب النوع، يُختار النظير حسب المحافظة فقط."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_db
+    from app.models import Hospital, Governorate, Indicator, IndicatorValue
+
+    gov = Governorate(name="Center")
+    other_gov = Governorate(name="FarAway")
+    db_session.add_all([gov, other_gov])
+    db_session.flush()
+    target = Hospital(name="BaseNoType", governorate_id=gov.id, is_active=True)
+    peers = [
+        Hospital(name=f"GovPeer{i}", governorate_id=gov.id, is_active=True)
+        for i in range(3)
+    ]
+    off_gov = Hospital(name="FarPeer", governorate_id=other_gov.id, is_active=True)
+    db_session.add_all([target] + peers + [off_gov])
+    db_session.flush()
+
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in [target] + peers + [off_gov]:
+        high = h is target
+        vals = {"2": 200, "5": 80 if high else 40, "6": 190}
+        for code, v in vals.items():
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id[code], month="2026-06", value=v))
+    db_session.commit()
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        resp = client.get(f"/root-cause/{target.id}?month=2026-06&compare_peers=true")
+        assert resp.status_code == 200
+        data = resp.json()
+        peers_list = data.get("peer_hospitals") or []
+        assert len(peers_list) == 3
+        names = {p["name"] for p in peers_list}
+        assert names == {f"GovPeer{i}" for i in range(3)}
+        assert "FarPeer" not in names
+        assert data.get("peer_match_by") == "governorate"
+        comps = data.get("peer_comparisons") or {}
+        assert comps
+        assert comps["cs_rate"]["peer_count"] == 3
+    finally:
+        app.dependency_overrides.clear()
