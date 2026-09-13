@@ -77,6 +77,8 @@ RULE_REF_CODES = {
     "R064": ["10.k", "10"],
     "R065": ["10.n", "10"],
     "R066": ["10.o", "10"],
+    "R067": ["10.a", "10.a.1", "10.a.2", "10.a.3", "10.a.5", "10.a.6"],
+    "R068": ["10.j", "10.j.1", "10.j.2", "10.j.3"],
 }
 
 
@@ -110,7 +112,7 @@ RULE_CATALOG = [
     {"code": "R027", "name": "Severe Preeclampsia <= Hypertensive Disorders", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R028", "name": "HELLP Syndrome <= Hypertensive Disorders", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R029", "name": "Eclampsia <= Hypertensive Disorders", "type": "CLINICAL", "severity": "HIGH"},
-    {"code": "R030", "name": "Preeclampsia + HELLP + Eclampsia <= Hypertensive Disorders", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R030", "name": "Severe Preeclampsia + HELLP + Eclampsia = Hypertensive Disorders", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R031", "name": "Hemorrhage <= SMM", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R032", "name": "Hypertensive Disorders <= SMM", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R033", "name": "Sepsis <= SMM", "type": "CLINICAL", "severity": "HIGH"},
@@ -141,10 +143,12 @@ RULE_CATALOG = [
     {"code": "R058", "name": "Missing Total Deliveries", "type": "DATA_QUALITY", "severity": "HIGH"},
     {"code": "R059", "name": "Missing Live Births", "type": "DATA_QUALITY", "severity": "HIGH"},
     {"code": "R060", "name": "All indicators zero (possible non-operational facility)", "type": "DATA_QUALITY", "severity": "CRITICAL"},
-    {"code": "R061", "name": "SMM = Sum of Morbidity Sub-Indicators (10.a-10.o)", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R061", "name": "Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R062", "name": "Respiratory Failure/ICU Ventilation <= SMM", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R063", "name": "Thromboembolism <= SMM", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R064", "name": "Neurological Complications <= SMM", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R065", "name": "Self-Harm/Suicide Attempt <= SMM", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R066", "name": "Other Morbidity <= SMM", "type": "CLINICAL", "severity": "MEDIUM"},
+    {"code": "R067", "name": "Hemorrhage = Postpartum + Antepartum + Early Pregnancy Hemorrhage + Non-Obstetric Bleeding + Uterine Inversion/Other", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R068", "name": "Thromboembolism = Pulmonary Embolism + Confirmed Embolism + Amniotic Fluid Embolism", "type": "CLINICAL", "severity": "HIGH"},
 ]

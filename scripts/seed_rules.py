@@ -307,13 +307,13 @@ RULES = [
     },
     {
         "code": "R030",
-        "name": "Preeclampsia + HELLP + Eclampsia <= Hypertensive Disorders",
+        "name": "Severe Preeclampsia + HELLP + Eclampsia = Hypertensive Disorders",
         "rule_type": "CLINICAL",
         "severity": "HIGH",
         "category": "CLINICAL_CONSISTENCY",
-        "expression_type": "le",
-        "params": json.dumps({"child": "10.e", "parent": "10.e", "children": ["10.e.1", "10.e.2", "10.e.3"]}),
-        "description": "Sum of severe preeclampsia, HELLP, and eclampsia must not exceed Hypertensive Disorders",
+        "expression_type": "eq",
+        "params": json.dumps({"parent": "10.e", "children": ["10.e.1", "10.e.2", "10.e.3"]}),
+        "description": "Sum of severe preeclampsia, HELLP, and eclampsia must equal Hypertensive Disorders",
     },
     {
         "code": "R031",
@@ -623,7 +623,7 @@ RULES = [
     },
     {
         "code": "R061",
-        "name": "SMM = Sum of Morbidity Sub-Indicators (10.a-10.o)",
+        "name": "Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity",
         "rule_type": "CLINICAL",
         "severity": "HIGH",
         "category": "CLINICAL_LOGIC",
@@ -681,6 +681,26 @@ RULES = [
         "params": json.dumps({"child": "10.o", "parent": "10"}),
         "description": "Other morbidity conditions must not exceed total SMM",
     },
+    {
+        "code": "R067",
+        "name": "Hemorrhage = Postpartum + Antepartum + Early Pregnancy Hemorrhage + Non-Obstetric Bleeding + Uterine Inversion/Other",
+        "rule_type": "CLINICAL",
+        "severity": "HIGH",
+        "category": "CLINICAL_CONSISTENCY",
+        "expression_type": "eq",
+        "params": json.dumps({"parent": "10.a", "children": ["10.a.1", "10.a.2", "10.a.3", "10.a.5", "10.a.6"]}),
+        "description": "Hemorrhage must equal the sum of all its hemorrhage sub-types",
+    },
+    {
+        "code": "R068",
+        "name": "Thromboembolism = Pulmonary Embolism + Confirmed Embolism + Amniotic Fluid Embolism",
+        "rule_type": "CLINICAL",
+        "severity": "HIGH",
+        "category": "CLINICAL_CONSISTENCY",
+        "expression_type": "eq",
+        "params": json.dumps({"parent": "10.j", "children": ["10.j.1", "10.j.2", "10.j.3"]}),
+        "description": "Thromboembolism must equal the sum of all its embolism sub-types",
+    },
 ]
 
 
@@ -696,33 +716,40 @@ def seed_rules(session=None):
         init_db()
         session = SessionLocal()
     try:
-        existing_codes = {c for (c,) in session.query(Rule.code).all()}
+        existing = {r.code: r for r in session.query(Rule).all()}
         added = 0
+        synced = 0
         for idx, r in enumerate(RULES):
-            if r["code"] in existing_codes:
+            if r["code"] not in existing:
+                rule = Rule(
+                    code=r["code"],
+                    name=r["name"],
+                    rule_type=r["rule_type"],
+                    severity=r["severity"],
+                    category=r["category"],
+                    expression_type=r["expression_type"],
+                    params=r["params"],
+                    description=r["description"],
+                    sort_order=idx,
+                )
+                session.add(rule)
+                added += 1
                 continue
-            rule = Rule(
-                code=r["code"],
-                name=r["name"],
-                rule_type=r["rule_type"],
-                severity=r["severity"],
-                category=r["category"],
-                expression_type=r["expression_type"],
-                params=r["params"],
-                description=r["description"],
-                sort_order=idx,
-            )
-            session.add(rule)
-            existing_codes.add(r["code"])
-            added += 1
-        if added:
+            row = existing[r["code"]]
+            if row.name != r["name"] or row.description != r["description"]:
+                row.name = r["name"]
+                row.description = r["description"]
+                synced += 1
+        if added or synced:
             session.commit()
         if own_session:
             total = session.query(Rule).count()
             if added:
-                print(f"Added {added} missing rule(s). Total rules: {total}.")
-            else:
-                print(f"Rules table already has {total} rules. No changes.")
+                print(f"Added {added} missing rule(s).")
+            if synced:
+                print(f"Synced names/descriptions for {synced} rule(s).")
+            if not added and not synced:
+                print(f"Rules table is up to date ({total} rules).")
     finally:
         if own_session:
             session.close()

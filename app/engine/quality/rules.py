@@ -245,8 +245,10 @@ SUM_RULE_SPECS = [
     ("R024", "ge", "10.a.1", ["10.a.1.1", "10.a.1.2"], "Primary + Secondary Severe <= Postpartum Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL),
     ("R025", "ge", "10.a.2", ["10.a.2.1", "10.a.2.2"], "Placental Abruption + Previa <= Antepartum Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL),
     ("R026", "ge", "10.a.3", ["10.a.3.1", "10.a.3.2", "10.a.3.3"], "Ectopic + Abortion Bleeding + Molar <= Early Pregnancy Hemorrhage", Severity.MEDIUM, RuleType.CLINICAL),
-    ("R030", "ge", "10.e", ["10.e.1", "10.e.2", "10.e.3"], "Preeclampsia + HELLP + Eclampsia <= Hypertensive Disorders", Severity.HIGH, RuleType.CLINICAL),
-    ("R061", "eq", "10", ["10.a", "10.b", "10.c", "10.d", "10.e", "10.f", "10.g", "10.h", "10.i", "10.j", "10.k", "10.l", "10.m", "10.n", "10.o"], "SMM = Sum of Morbidity Sub-Indicators (10.a-10.o)", Severity.HIGH, RuleType.CLINICAL),
+    ("R030", "eq", "10.e", ["10.e.1", "10.e.2", "10.e.3"], "Severe Preeclampsia + HELLP + Eclampsia = Hypertensive Disorders", Severity.HIGH, RuleType.CLINICAL),
+    ("R061", "eq", "10", ["10.a", "10.b", "10.c", "10.d", "10.e", "10.f", "10.g", "10.h", "10.i", "10.j", "10.k", "10.l", "10.m", "10.n", "10.o"], "Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity", Severity.HIGH, RuleType.CLINICAL),
+    ("R067", "eq", "10.a", ["10.a.1", "10.a.2", "10.a.3", "10.a.5", "10.a.6"], "Hemorrhage = Postpartum + Antepartum + Early Pregnancy Hemorrhage + Non-Obstetric Bleeding + Uterine Inversion/Other", Severity.HIGH, RuleType.CLINICAL),
+    ("R068", "eq", "10.j", ["10.j.1", "10.j.2", "10.j.3"], "Thromboembolism = Pulmonary Embolism + Confirmed Embolism + Amniotic Fluid Embolism", Severity.HIGH, RuleType.CLINICAL),
 ]
 
 

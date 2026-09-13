@@ -130,7 +130,7 @@ def test_smm_eq_sum_of_sub_indicators():
     r61 = _find(results, "R061")
     assert r61 is not None
     assert r61.status == RuleStatus.PASS
-    assert "10" in r61.description
+    assert "SMM" in r61.description
 
 
 def test_smm_ne_sum_of_sub_indicators():
@@ -163,3 +163,27 @@ def test_smm_other_morbidity_le_smm():
     r66 = _find(results, "R066")
     assert r66 is not None
     assert r66.status == RuleStatus.PASS
+
+
+def test_hemorrhage_eq_sum_of_hemorrhage_types():
+    ctx = _make_ctx({"10.a": 20, "10.a.1": 10, "10.a.2": 5, "10.a.5": 5})
+    results = run_all_rules(ctx)
+    r67 = _find(results, "R067")
+    assert r67 is not None
+    assert r67.status == RuleStatus.PASS
+
+
+def test_hemorrhage_ne_sum_of_hemorrhage_types():
+    ctx = _make_ctx({"10.a": 30, "10.a.1": 10, "10.a.2": 5, "10.a.5": 5})
+    results = run_all_rules(ctx)
+    r67 = _find(results, "R067")
+    assert r67 is not None
+    assert r67.status == RuleStatus.FAIL
+
+
+def test_thromboembolism_eq_sum_of_embolism_types():
+    ctx = _make_ctx({"10.j": 6, "10.j.1": 2, "10.j.2": 2, "10.j.3": 2})
+    results = run_all_rules(ctx)
+    r68 = _find(results, "R068")
+    assert r68 is not None
+    assert r68.status == RuleStatus.PASS
