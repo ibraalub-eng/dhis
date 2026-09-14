@@ -115,6 +115,7 @@ window._vbOnPaletteSearch = _stub('_vbOnPaletteSearch');
 window._vbOnThresholdChange = _stub('_vbOnThresholdChange');
 window._vbOnZThresholdChange = _stub('_vbOnZThresholdChange');
 window._vbOnFactorChange = _stub('_vbOnFactorChange');
+window._vbOnGeFactorChange = _stub('_vbOnGeFactorChange');
 window.ruleExprTemplate = _stub('ruleExprTemplate');
 window.toggleExprHelp = _stub('toggleExprHelp');
 window.openRuleModal = _stub('openRuleModal');
@@ -182,6 +183,7 @@ function _bindAll(mod, label) {
     case 'outliers':
       _bind(mod, 'loadOutliers'); _bind(mod, 'loadRuleFailures');
       _bind(mod, 'exportOutliersCSV'); _bind(mod, 'exportRuleFailuresCSV');
+      _bind(mod, 'outlierLegend');
       break;
     case 'alerts':
       _bind(mod, 'loadAlerts'); _bind(mod, 'updateAlertBadge');
@@ -229,6 +231,7 @@ function _bindAll(mod, label) {
       _bind(mod, '_vbDragLeave'); _bind(mod, '_vbDrop'); _bind(mod, '_vbRemoveFromZone');
       _bind(mod, '_vbOnPaletteSearch'); _bind(mod, '_vbOnThresholdChange');
       _bind(mod, '_vbOnZThresholdChange'); _bind(mod, '_vbOnFactorChange');
+      _bind(mod, '_vbOnGeFactorChange');
       _bind(mod, 'ruleExprTemplate'); _bind(mod, 'toggleExprHelp');
       _bind(mod, 'openRuleModal'); _bind(mod, 'closeRuleModal');
       _bind(mod, 'saveRule'); _bind(mod, 'deleteRule');

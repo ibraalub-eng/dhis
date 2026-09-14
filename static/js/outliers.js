@@ -56,6 +56,11 @@
         // ── SHAP Waterfall Chart ──────────────────────────────────
 
 
+        export function outlierLegend() {
+            const box = document.getElementById('outlierLegendBox');
+            if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
+        }
+
         // ── Outliers Tab ──────────────────────────────────────────
         export function loadOutliers() {
             const month = document.getElementById('outlierMonthFilter').value;
