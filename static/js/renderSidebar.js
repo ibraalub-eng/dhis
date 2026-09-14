@@ -25,6 +25,9 @@ function _buildItem(item) {
     el.innerHTML =
         '<span class="sidebar-item-icon">' + (item.icon || '') + '</span>' +
         '<span class="sidebar-item-label">' + (item.label || item.tab_key) + '</span>';
+    if (item.tab_key === 'alerts') {
+        el.style.position = 'relative';
+    }
     el.addEventListener('click', function() { switchTab(item.tab_key); });
     return el;
 }
@@ -69,6 +72,22 @@ function _render(groups) {
             if (sec) sec.classList.add('collapsed');
         });
     } catch(e) {}
+
+    // inject alert count badge target (updateAlertBadge() in alerts.js expects #alertBadge)
+    if (!document.getElementById('alertBadge')) {
+        var alertsItem = root.querySelector('.tab[data-tab="alerts"]');
+        if (alertsItem) {
+            var badge = document.createElement('span');
+            badge.id = 'alertBadge';
+            badge.className = 'count-badge';
+            badge.style.display = 'none';
+            badge.style.background = 'var(--accent-red)';
+            badge.style.color = 'white';
+            badge.style.margin = '0';
+            badge.style.marginLeft = 'auto';
+            alertsItem.appendChild(badge);
+        }
+    }
 
     // Apply permission gating (hides unauthorized items)
     if (typeof window.applyPermissions === 'function') {

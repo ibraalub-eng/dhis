@@ -1416,3 +1416,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .app-shell { flex-direction:column; }
   #tabArea { width:100%; }
 }
+
+.app-main { flex:1; min-width:0; display:flex; flex-direction:column; }
+
+.sidebar .tab .count-badge { margin-left:auto; }
+[dir="rtl"] .sidebar .tab .count-badge { margin-right:auto; margin-left:0; }

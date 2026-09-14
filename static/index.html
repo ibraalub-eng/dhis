@@ -94,11 +94,13 @@
     <div class="container" id="main-content" role="main">
         <!-- Results Section -->
         <div id="resultsSection" class="hidden">
+            <div class="app-shell">
             <aside id="sidebar" class="sidebar" role="navigation" aria-label="Main navigation">
               <nav id="sidebarRoot"></nav>
               <button class="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Collapse sidebar">◀</button>
             </aside>
-
+            <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
+            <div class="app-main">
                     <!-- Breadcrumb Navigation -->
         <div id="breadcrumb" class="breadcrumb-bar" role="navigation" aria-label="breadcrumb">
             <a class="bc-link" onclick="switchTab('dashboard')">&#x1F3E0; Dashboard</a>
@@ -140,6 +142,8 @@
 
         <div id="tab-smart-analytics" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-smart-analytics" data-src="/static/tabs/smart-analytics.html"></div>
         </main>
+        </div>
+        </div>
         </div>
 
         <!-- Detail Modal -->
