@@ -225,6 +225,8 @@
             'Anomaly Detection': 'كشف الشذوذ',
             'Rate': 'المعدل',
             'Z-Score': 'درجة Z',
+            'Peers': 'المستشفيات المماثلة',
+            'Peer Range': 'نطاق المماثلة',
             'Outlier': 'شاذ',
             'Outlier:': 'الشاذ:',
             'Outliers': 'شواذ',

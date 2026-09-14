@@ -372,6 +372,13 @@ def list_outliers(
             "benchmark": r.benchmark,
             "z_score": r.z_score,
             "is_outlier": r.is_outlier,
+            # Peer metadata — same numbers the audit benchmark screen shows
+            # (NULL for trend rows / rows computed before this field existed).
+            "peer_count": r.peer_count,
+            "peer_std": r.peer_std,
+            "peer_min": r.peer_min,
+            "peer_max": r.peer_max,
+            "peer_median": r.peer_median,
         })
     result = {"total": total, "skip": skip, "limit": limit, "data": output}
     cache.set(cache_key, result)

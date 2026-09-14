@@ -550,6 +550,11 @@ def _save_anomaly_results(session: Session, hospital_id: int, month: str, result
             benchmark=float(a.benchmark) if a.benchmark is not None else None,
             z_score=float(a.z_score) if a.z_score is not None else None,
             is_outlier=bool(a.is_outlier),
+            peer_count=int(a.peer_count) if getattr(a, "peer_count", None) is not None else None,
+            peer_std=float(a.peer_std) if getattr(a, "peer_std", None) is not None else None,
+            peer_min=float(a.peer_min) if getattr(a, "peer_min", None) is not None else None,
+            peer_max=float(a.peer_max) if getattr(a, "peer_max", None) is not None else None,
+            peer_median=float(a.peer_median) if getattr(a, "peer_median", None) is not None else None,
         )
         session.add(ar)
     session.commit()

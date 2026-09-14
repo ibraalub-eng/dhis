@@ -19,7 +19,7 @@
         export function exportOutliersCSV() {
             const data = window._lastOutlierData;
             if (!data || !data.length) return;
-            const headers = ['Hospital', 'Month', 'Indicator', 'Z-Score', 'Severity', 'Features'];
+            const headers = ['Hospital', 'Month', 'Indicator', 'Value', 'Benchmark', 'Z-Score', 'Peers', 'Peer Std', 'Peer Range', 'Peer Median', 'Severity', 'Features'];
             const rows = data.map(d => {
                 const features = d.contributing_features
                     ? Object.entries(d.contributing_features).map(([k, v]) => k + ':' + Number(v).toFixed(3)).join('; ')
@@ -28,7 +28,13 @@
                     d.hospital || d.hospital_name || '',
                     d.month || '',
                     d.rate_name || 'Multi-variate',
+                    d.value !== null && d.value !== undefined ? Number(d.value).toFixed(2) : '',
+                    d.benchmark !== null && d.benchmark !== undefined ? Number(d.benchmark).toFixed(2) : '',
                     d.z_score !== null && d.z_score !== undefined ? Number(d.z_score).toFixed(3) : (d.anomaly_score ? Number(d.anomaly_score).toFixed(3) : ''),
+                    d.peer_count !== null && d.peer_count !== undefined ? d.peer_count : '',
+                    d.peer_std !== null && d.peer_std !== undefined ? Number(d.peer_std).toFixed(2) : '',
+                    d.peer_min != null && d.peer_max != null ? Number(d.peer_min).toFixed(2) + ' - ' + Number(d.peer_max).toFixed(2) : '',
+                    d.peer_median !== null && d.peer_median !== undefined ? Number(d.peer_median).toFixed(2) : '',
                     d.is_outlier !== undefined ? (d.is_outlier ? 'Outlier' : 'Normal') : '',
                     features
                 ];
@@ -70,7 +76,7 @@
             const hosp = document.getElementById('outlierHospitalFilter').value;
             const mon = document.getElementById('outlierMonthFilter').value;
             const rate = document.getElementById('outlierRateFilter').value;
-            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
+            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
             let url = '/analysis/outliers?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
@@ -80,7 +86,7 @@
                 updateOutlierUI(data, hosp, mon, rate);
             }).catch(err => {
                 document.getElementById('outlierLoading').classList.add('hidden');
-                document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="6" style="color:red;">Error: ' + err.message + '</td></tr>';
+                document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="8" style="color:red;">Error: ' + err.message + '</td></tr>';
             });
         }
 
@@ -120,19 +126,30 @@
             // Render table
             const tbody = document.getElementById('outlierTbody');
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(d => {
                 const z = d.z_score !== null && d.z_score !== undefined;
                 const zClass = Math.abs(d.z_score) >= 3 ? 'badge-critical' : Math.abs(d.z_score) >= 2 ? 'badge-high' : 'badge-medium';
-                return '<tr>' +
+                const hasPeers = d.peer_count !== null && d.peer_count !== undefined;
+                const peerRange = (d.peer_min != null && d.peer_max != null)
+                    ? Number(d.peer_min).toFixed(2) + ' – ' + Number(d.peer_max).toFixed(2)
+                    : '--';
+                // Tooltip mirrors the audit benchmark screen's breakdown.
+                const peerTip = hasPeers
+                    ? ' title="' + esc('Peers: ' + d.peer_count + ' | Std: ' + (d.peer_std != null ? Number(d.peer_std).toFixed(2) : '--')
+                        + ' | Median: ' + (d.peer_median != null ? Number(d.peer_median).toFixed(2) : '--')) + '"'
+                    : '';
+                return '<tr>' + peerTip +
                     '<td>' + esc(d.hospital) + '</td>' +
                     '<td>' + esc(d.month) + '</td>' +
                     '<td>' + esc(d.rate_name) + '</td>' +
                     '<td>' + (d.value !== null ? Number(d.value).toFixed(2) : '--') + '</td>' +
                     '<td>' + (d.benchmark !== null ? Number(d.benchmark).toFixed(2) : '--') + '</td>' +
                     '<td><span class="badge ' + zClass + '">' + (z ? Number(d.z_score).toFixed(2) : '--') + '</span></td>' +
+                    '<td>' + (hasPeers ? d.peer_count : '--') + '</td>' +
+                    '<td>' + peerRange + '</td>' +
                     '</tr>';
             }).join('');
             wireOutlierSort();

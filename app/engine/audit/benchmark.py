@@ -18,10 +18,15 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
     for name, vals in get_all_hospital_data_for_month(db, month).items():
         rates = {}
         for rate_name, num_code, den_code, _typical_pct in RATE_DEFINITIONS:
-            num = sum(vals.get(c, 0) or 0 for c in num_code.split(","))
-            den = vals.get(den_code, 0)
-            if den:
-                rates[rate_name] = round((num / den) * 100, 2)
+            # Same presence rule as the anomaly engine's compute_rate: the
+            # rate exists only when BOTH numerator and denominator are
+            # reported. Defaulting a missing numerator to 0 fabricated rates
+            # (e.g. "Stillbirth rate: 0%") for hospitals that never reported
+            # that numerator, so the audit screen listed rates the anomalies
+            # screen did not.
+            if num_code in vals and den_code in vals and vals.get(den_code):
+                num = sum(vals.get(c, 0) or 0 for c in num_code.split(","))
+                rates[rate_name] = round((num / vals[den_code]) * 100, 2)
         all_rates[name] = rates
 
     if target_hospital.name not in all_rates:
@@ -30,9 +35,20 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
     no_data_month = [h.name for h in hospitals if h.name not in all_rates]
     other_hospitals = sorted(set(all_rates) - {target_hospital.name})
 
+    # Rate presence must match the anomaly engine (engine.anomaly.zscore): a
+    # rate exists only when the target's denominator is present AND its
+    # numerator is reported. A reported denominator with a missing numerator
+    # means the hospital did not report that numerator — treating it as 0
+    # fabricated rates that the anomalies screen (correctly) does not list.
+    target_rates = all_rates.get(target_hospital.name, {})
+
     comparisons = {}
-    for rname, tval in all_rates[target_hospital.name].items():
-        peers = [all_rates[h][rname] for h in other_hospitals if rname in all_rates[h]]
+    for rname, num_code, den_code, _typical_pct in RATE_DEFINITIONS:
+        if rname not in target_rates:
+            continue
+        tval = target_rates[rname]
+        # Audit-rate math uses sum-of-numerators (num_code may be a
+        # comma-separated list); the anomaly engine uses single codes only.        peers = [all_rates[h][rname] for h in other_hospitals if rname in all_rates[h]]
         if not peers:
             continue
         no_denominator = [h for h in other_hospitals if rname not in all_rates[h]]

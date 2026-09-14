@@ -232,6 +232,12 @@ class AnomalyOut(BaseModel):
     benchmark: Optional[float] = None
     z_score: Optional[float] = None
     is_outlier: bool = False
+    # Peer metadata matching the audit benchmark screen (None for trend rows).
+    peer_count: Optional[int] = None
+    peer_std: Optional[float] = None
+    peer_min: Optional[float] = None
+    peer_max: Optional[float] = None
+    peer_median: Optional[float] = None
 
     class Config:
         from_attributes = True

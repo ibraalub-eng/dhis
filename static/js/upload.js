@@ -806,7 +806,7 @@
             if (hasAnom) {
                 const outC = r.anomaly_results.filter(a=>a.is_outlier===true).length;
                 const normC = r.anomaly_results.filter(a=>a.is_outlier===false).length;
-                html += '<div class="filter-bar"><label>Outlier:</label><select id="filterOutlier" onchange="anomFilterOutlier=this.value;rerenderAnom();"><option value="all">All (' + anomCount + ')</option><option value="yes">Outliers (' + outC + ')</option><option value="no">Normal (' + normC + ')</option></select></div><table><thead><tr>' + sh('Rate','rate_name',anomSortCol,anomSortDir) + sh(__('Value'),'value',anomSortCol,anomSortDir) + sh(__('Benchmark'),'benchmark',anomSortCol,anomSortDir) + sh(__('Z-Score'),'z_score',anomSortCol,anomSortDir) + sh(__('Outlier'),'is_outlier',anomSortCol,anomSortDir) + '</tr></thead><tbody id="anomTbody"></tbody></table>';
+                html += '<div class="filter-bar"><label>Outlier:</label><select id="filterOutlier" onchange="anomFilterOutlier=this.value;rerenderAnom();"><option value="all">All (' + anomCount + ')</option><option value="yes">Outliers (' + outC + ')</option><option value="no">Normal (' + normC + ')</option></select></div><table><thead><tr>' + sh('Rate','rate_name',anomSortCol,anomSortDir) + sh(__('Value'),'value',anomSortCol,anomSortDir) + sh(__('Benchmark'),'benchmark',anomSortCol,anomSortDir) + sh(__('Z-Score'),'z_score',anomSortCol,anomSortDir) + sh(__('Peers'),'peer_count',anomSortCol,anomSortDir) + sh(__('Peer Range'),'peer_range',anomSortCol,anomSortDir) + sh(__('Outlier'),'is_outlier',anomSortCol,anomSortDir) + '</tr></thead><tbody id="anomTbody"></tbody></table>';
             } else {
                 html += '<p style="color:var(--text-muted);padding:1rem;">No anomaly results available.</p>';
             }
@@ -879,9 +879,11 @@
             data.forEach(a => {
                 const isO = a.is_outlier;
                 const rs = isO ? 'style="background:var(--severity-warning-bg);"':'';
-                html += '<tr '+rs+'><td>'+a.rate_name+'</td><td>'+(a.value!==null&&a.value!==undefined?a.value.toFixed(2):'--')+'</td><td>'+(a.benchmark!==null&&a.benchmark!==undefined?a.benchmark.toFixed(2):'--')+'</td><td>'+(a.z_score!==null&&a.z_score!==undefined?a.z_score.toFixed(2):'--')+'</td><td>'+(isO?'<span class="badge badge-fail">YES</span>':'<span class="badge badge-pass">No</span>')+'</td></tr>';
+                const aRange = (a.peer_min !== null && a.peer_min !== undefined && a.peer_max !== null && a.peer_max !== undefined)
+                    ? a.peer_min.toFixed(2) + ' – ' + a.peer_max.toFixed(2) : '--';
+                html += '<tr '+rs+'><td>'+a.rate_name+'</td><td>'+(a.value!==null&&a.value!==undefined?a.value.toFixed(2):'--')+'</td><td>'+(a.benchmark!==null&&a.benchmark!==undefined?a.benchmark.toFixed(2):'--')+'</td><td>'+(a.z_score!==null&&a.z_score!==undefined?a.z_score.toFixed(2):'--')+'</td><td>'+(a.peer_count!==null&&a.peer_count!==undefined?a.peer_count:'--')+'</td><td>'+aRange+'</td><td>'+(isO?'<span class="badge badge-fail">YES</span>':'<span class="badge badge-pass">No</span>')+'</td></tr>';
             });
-            if (!data.length) html = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">No matching results</td></tr>';
+            if (!data.length) html = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No matching results</td></tr>';
             tbody.innerHTML = html;
             const c = document.getElementById('anomCount'); if (c) c.textContent = data.length;
         }

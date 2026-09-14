@@ -115,3 +115,32 @@ def test_benchmark_z_score_exposes_calculation_parts(db_session):
     assert nicu["peer_std"] == round(std, 2) == 1.41
     # z = (8 - 6) / sqrt(2) ≈ 1.4142 -> 1.41 (rounded the same way as std, not from peer_std)
     assert nicu["z_score"] == round((nicu["hospital_value"] - avg) / std, 2) == 1.41
+
+
+def test_benchmark_rate_requires_reported_numerator(db_session):
+    """A denominator without its numerator must NOT produce a 0% rate row.
+
+    Regression: the audit screen used to default a missing numerator to 0,
+    fabricating rows like 'Stillbirth rate: 0%' for hospitals that never
+    reported indicator 7 — rates the anomaly engine (compute_rate) correctly
+    omits. Rate presence must now match the anomalies screen.
+    """
+    from app.engine.pipeline import get_all_hospital_data_for_month
+    from app.engine.anomaly import detect_anomalies
+
+    gh, cm, cc = db_session.query(Hospital).order_by(Hospital.id).all()
+    month = "2026-08"
+    # GH reports deliveries (2) but NOT stillbirths (7): no stillbirth rate.
+    # CM reports both: stillbirth rate 5%.
+    _add_values(db_session, gh.id, month, {"2": 200, "5": 60, "16": 8, "6": 100})
+    _add_values(db_session, cm.id, month, {"2": 200, "5": 30, "7": 10, "16": 5, "6": 100})
+
+    result = get_benchmark(db_session, gh.id, month)
+    assert "error" not in result
+    assert "Stillbirth rate" not in result["comparisons"]  # numerator 7 unreported
+    assert "C-section rate" in result["comparisons"]       # both 5 and 2 reported
+
+    # Parity with the anomaly engine for the same data.
+    all_data = get_all_hospital_data_for_month(db_session, month)
+    anomaly_names = {r.rate_name for r in detect_anomalies(all_data, "General Hospital", month)}
+    assert anomaly_names == set(result["comparisons"].keys())

@@ -194,6 +194,13 @@ class AnomalyResult(Base):
     benchmark = Column(Float, nullable=True)
     z_score = Column(Float, nullable=True)
     is_outlier = Column(Boolean, default=False)
+    # Peer metadata matching the audit benchmark screen (NULL for trend rows
+    # and rows computed before peer metadata existed).
+    peer_count = Column(Integer, nullable=True)
+    peer_std = Column(Float, nullable=True)
+    peer_min = Column(Float, nullable=True)
+    peer_max = Column(Float, nullable=True)
+    peer_median = Column(Float, nullable=True)
 
     hospital = relationship("Hospital", back_populates="anomaly_results")
 

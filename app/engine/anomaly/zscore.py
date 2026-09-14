@@ -12,6 +12,14 @@ class AnomalyResultData:
     benchmark: Optional[float]
     z_score: Optional[float]
     is_outlier: bool
+    # Peer metadata — matches the audit benchmark screen so both views agree
+    # on where the benchmark came from. None for trend anomalies (benchmark
+    # is the hospital's own historical mean, not a peer set).
+    peer_count: Optional[int] = None
+    peer_std: Optional[float] = None
+    peer_min: Optional[float] = None
+    peer_max: Optional[float] = None
+    peer_median: Optional[float] = None
 
 
 def compute_rate(values: Dict[str, float], numerator_code: str, denominator_code: str) -> Optional[float]:
@@ -71,6 +79,11 @@ def detect_anomalies(
                 benchmark=round(mean_rate, 2),
                 z_score=round(z_score, 2),
                 is_outlier=is_outlier,
+                peer_count=len(peers),
+                peer_std=round(float(std_rate), 2) if std_rate else 0.0,
+                peer_min=round(float(min(peers)), 2),
+                peer_max=round(float(max(peers)), 2),
+                peer_median=round(float(np.median(peers)), 2),
             )
         )
     return results
