@@ -1,4 +1,6 @@
 """Tests for Smart Analytics API error handling."""
+import time
+
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
@@ -16,6 +18,24 @@ def client(db_session):
     app.dependency_overrides[get_db] = override_get_db
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _quiesce_smart_threads():
+    """Wait for in-flight smart background computations to drain.
+
+    _get_smart_data spawns daemon threads that outlive the test which
+    triggered them; a leaked thread can repopulate smart_overview_* cache
+    keys *after* the next test invalidated them, making exact call-count
+    assertions order-dependent. _compute_smart_data pops its month's lock
+    only after its final cache.set, so an empty _compute_locks dict means
+    no thread can write stale cache entries anymore.
+    """
+    from app.api import smart_analytics as sa
+    deadline = time.time() + 10
+    while sa._compute_locks and time.time() < deadline:
+        time.sleep(0.05)
+    yield
 
 
 def _smart_data_skeleton():
@@ -145,21 +165,25 @@ def test_geo_error_message_arabic(mock_run, client):
     assert "خطأ في تحليل الجغرافي" in response.json()["detail"]
 
 
-def test_cache_returns_cached_result(client):
+def test_cache_returns_cached_result(client, db_session):
     """Test that cache returns cached result"""
     from app.cache import cache
-    
+
     # Clear cache first
     cache.invalidate("smart_overview_")
-    
-    # Call API endpoint (this will cache the result)
+
+    # Plant a finished envelope so the endpoint reads it from cache without
+    # kicking off the real (heavy) background computation.
+    _seed_computed("2026-06", hospitals_count=1)
+
+    # Call API endpoint (served from the cache seeded above)
     response = client.get("/smart/overview/2026-06")
     assert response.status_code == 200
-    
+    assert response.json().get("hospitals_count") == 1
+
     # Verify result is cached
     cache_key = "smart_overview_2026-06_v3"
-    cached = cache.get(cache_key)
-    assert cached is not None
+    assert cache.get(cache_key) is not None
 
 
 def test_cache_invalidates_on_upload(db_session):
@@ -183,6 +207,10 @@ def test_smart_endpoints_return_data(client):
     """Test that smart endpoints return data"""
     from app.cache import cache
     cache.invalidate("smart_overview_")
+    # Seed a finished envelope instead of letting the endpoint kick off the
+    # real heavy pipeline in a background thread (which also runs against
+    # the dev database via SessionLocal and pollutes later tests' cache).
+    _seed_computed("2026-06", hospitals_count=1)
     response = client.get("/smart/overview/2026-06")
     assert response.status_code == 200
     data = response.json()
@@ -194,6 +222,8 @@ def test_overview_includes_healthy_hospitals_key(client):
     """نقطة نهاية overview تُرجع قائمة المستشفيات السليمة"""
     from app.cache import cache
     cache.invalidate("smart_overview_2026-06")
+    # Same as above: seeded envelope => deterministic, no background pipeline.
+    _seed_computed("2026-06", hospitals_count=1)
     response = client.get("/smart/overview/2026-06")
     assert response.status_code == 200
     data = response.json()["data"]
@@ -402,7 +432,21 @@ def test_trend_memoizes_each_month_once(mock_run, client, db_session):
 
     resp = client.get(f"/smart/trend/{h.id}")
     assert resp.status_code == 200
-    # شهران مميزان => تشغيلان، لا تشغيل لكل استدعاء متكرر لنفس الشهر
+
+    # شهران مميزان => تشغيل واحد لكل شهر. Uncached months are computed in
+    # background threads, so wait (bounded) for both envelopes to land in the
+    # cache before asserting exact call counts — asserting immediately races
+    # the thread scheduler and made this test order/flake dependent.
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        if (cache.get("smart_overview_2027-01_v3") is not None
+                and cache.get("smart_overview_2027-02_v3") is not None):
+            break
+        time.sleep(0.05)
+    assert cache.get("smart_overview_2027-01_v3") is not None
+    assert cache.get("smart_overview_2027-02_v3") is not None
+    # Each distinct month computed exactly once (per-month compute locks
+    # prevent duplicate threads while a month is in flight).
     assert mock_run.call_count == 2
 
     # استدعاء لاحق لشهر مُحلَّل مسبقاً لا يعيد التشغيل
@@ -411,10 +455,23 @@ def test_trend_memoizes_each_month_once(mock_run, client, db_session):
 
 
 def test_cache_keys_include_version(client):
+    from unittest.mock import patch as _patch
     from app.cache import cache
     cache.invalidate("smart_overview_")
-    client.get("/smart/overview/2026-06")
-    assert any(k.startswith("smart_overview_") and k.endswith("_v3") for k in cache._cache)
+    # Mock the heavy computation so the background thread completes quickly
+    # and deterministically caches the envelope under its versioned key.
+    with _patch("app.api.smart_analytics.run_smart_analytics",
+                side_effect=lambda db, month: _fake_result(month)):
+        client.get("/smart/overview/2026-06")
+        # The computation runs in a daemon thread after the response returns;
+        # poll briefly for it to finish and populate the versioned key.
+        expected_key = "smart_overview_2026-06_v3"
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if expected_key in cache._cache:
+                break
+            time.sleep(0.05)
+    assert "smart_overview_2026-06_v3" in cache._cache
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))

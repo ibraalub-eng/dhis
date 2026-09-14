@@ -97,6 +97,8 @@ def _gt(parent: str, children: List[str], code: str, desc: str, sev: Severity, r
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
     if not _has_any(ctx, children):
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
+    if pv == 0 and cs == 0:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both parent and children sum are zero (no activity)")
     tol = _RULES_CONFIG["eq_tolerance"]
     if cs >= pv - tol:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs} (parent must be strictly greater)")
@@ -126,6 +128,8 @@ def _lt(child: str, parent: str, code: str, desc: str, sev: Severity, rtype: Rul
     pv = _v(ctx, parent)
     if cv is None or pv is None:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Missing data")
+    if cv == 0 and pv == 0:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both child and parent are zero (no activity)")
     if cv >= pv:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{child}={cv} >= {parent}={pv} (child must be strictly less)")
     return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{child}={cv} < {parent}={pv}")

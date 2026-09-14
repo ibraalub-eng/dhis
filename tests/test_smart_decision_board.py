@@ -137,6 +137,10 @@ def test_decision_board_empty_month(client):
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))
 def test_decision_board_error_arabic_and_invalidates(mock_run, client):
     from app.cache import cache
+    # Clear any envelope left by earlier tests, then seed the error state.
+    # (Previously this test relied on another test having already invalidated
+    # the key, which made it order-dependent.)
+    cache.invalidate("smart_overview_")
     _seed_error("2026-06")
     resp = client.get("/smart/decision-board/2026-06")
     assert resp.status_code == 500

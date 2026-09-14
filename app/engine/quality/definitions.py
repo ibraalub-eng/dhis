@@ -79,6 +79,9 @@ RULE_REF_CODES = {
     "R066": ["10.o", "10"],
     "R067": ["10.a", "10.a.1", "10.a.2", "10.a.3", "10.a.5", "10.a.6"],
     "R068": ["10.j", "10.j.1", "10.j.2", "10.j.3"],
+    "R069": ["2", "6"],
+    "R070": ["2", "7"],
+    "R071": ["17", "6"],
 }
 
 
@@ -151,4 +154,7 @@ RULE_CATALOG = [
     {"code": "R066", "name": "Other Morbidity <= SMM", "type": "CLINICAL", "severity": "MEDIUM"},
     {"code": "R067", "name": "Hemorrhage = Postpartum + Antepartum + Early Pregnancy Hemorrhage + Non-Obstetric Bleeding + Uterine Inversion/Other", "type": "CLINICAL", "severity": "HIGH"},
     {"code": "R068", "name": "Thromboembolism = Pulmonary Embolism + Confirmed Embolism + Amniotic Fluid Embolism", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R069", "name": "Live Births <= 105% of Total Deliveries", "type": "LOGIC", "severity": "MEDIUM"},
+    {"code": "R070", "name": "Total Deliveries > Fetal Deaths (strict)", "type": "LOGIC", "severity": "HIGH"},
+    {"code": "R071", "name": "Neonatal Deaths < Live Births (strict)", "type": "CLINICAL", "severity": "HIGH"},
 ]

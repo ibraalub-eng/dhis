@@ -701,6 +701,39 @@ RULES = [
         "params": json.dumps({"parent": "10.j", "children": ["10.j.1", "10.j.2", "10.j.3"]}),
         "description": "Thromboembolism must equal the sum of all its embolism sub-types",
     },
+    # ============================================
+    # GROUP 6: STRICT & FACTOR COMPARISONS (R069-R071)
+    # ============================================
+    {
+        "code": "R069",
+        "name": "Live Births <= 105% of Total Deliveries",
+        "rule_type": "LOGIC",
+        "severity": "MEDIUM",
+        "category": "BASIC_LOGIC",
+        "expression_type": "ge_factor",
+        "params": json.dumps({"parent": "2", "children": ["6"], "factor": 1.05}),
+        "description": "Live Births may slightly exceed Total Deliveries (twins/multiples) but must not exceed 105% of them",
+    },
+    {
+        "code": "R070",
+        "name": "Total Deliveries > Fetal Deaths (strict)",
+        "rule_type": "LOGIC",
+        "severity": "HIGH",
+        "category": "BASIC_LOGIC",
+        "expression_type": "gt",
+        "params": json.dumps({"parent": "2", "children": ["7"]}),
+        "description": "Total Deliveries must be strictly greater than Fetal Deaths — equality would mean every delivery was a stillbirth",
+    },
+    {
+        "code": "R071",
+        "name": "Neonatal Deaths < Live Births (strict)",
+        "rule_type": "CLINICAL",
+        "severity": "HIGH",
+        "category": "CLINICAL_CONSISTENCY",
+        "expression_type": "lt",
+        "params": json.dumps({"child": "17", "parent": "6"}),
+        "description": "Neonatal Deaths must be strictly less than Live Births — equality or more is clinically impossible",
+    },
 ]
 
 
