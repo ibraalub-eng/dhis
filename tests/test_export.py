@@ -447,12 +447,12 @@ def test_app_js_exports_analysis_handlers():
 
 
 def test_index_has_analysis_tab_no_old_tabs():
-    """index.html يستبدل تبويبي trends/compare بتبويب analysis واحد"""
+    """index.html يستبدل تبويبي trends/compare بتبويب analysis واحد (sidebar يُبنى ديناميكيًا من /menu)"""
     import os
     path = os.path.join(os.path.dirname(__file__), "..", "static", "index.html")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "data-tab=\"analysis\"" in content
+    assert 'id="tab-analysis"' in content
     assert "/static/tabs/analysis.html" in content
     assert "data-tab=\"trends\"" not in content
     assert "data-tab=\"compare\"" not in content

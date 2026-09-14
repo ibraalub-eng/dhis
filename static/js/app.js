@@ -2,6 +2,7 @@
 import { API, apiGet, apiPost, apiPut, uploadedData, clearApiCache } from './api.js';
 import { toggleLang, __, translateDOM, currentLang } from './i18n.js';
 import { _saveUIState, _restoreUIState, showLoader, hideLoader, SwitchTab, switchTab, _tabInited } from './main.js';
+import { renderSidebar } from './renderSidebar.js';
 
 // Attach core functions immediately (no await needed)
 window.API = API;
@@ -315,7 +316,7 @@ window.addEventListener('unhandledrejection', function(e) {
     }
     _whenReady(refreshSavedFiles, 'refreshSavedFiles');
     localStorage.removeItem('lastTab');
-    switchTab('dashboard');
+    renderSidebar().then(function() { switchTab('dashboard'); });
   } catch (err) {
     console.error('[app] Bootstrap error:', err);
     hideLoader();
