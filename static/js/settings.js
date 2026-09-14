@@ -2781,8 +2781,11 @@ function loadHospitalsSettings() {
 
         export const EXPR_EXPLANATIONS = {
             'ge': {title: 'parent >= sum(children)', text: 'FAILs when the parent indicator value is less than the sum of its child indicators. Use for aggregation checks like Total Deliveries >= NVD + Assisted + C-sections.'},
+            'gt': {title: 'parent > sum(children)', text: 'FAILs when the parent value is less than or equal to the sum of its children. Strict version of ge — equality does not pass. Use when the parent must strictly exceed its breakdown.'},
+            'ge_factor': {title: 'parent × factor >= sum(children)', text: 'FAILs when the sum of children exceeds the parent value multiplied by a factor. Use factor > 1 to allow children to exceed the parent (e.g. 1.1 = +10% tolerance), or factor < 1 to require a stricter margin. Example params: {"parent":"2","children":["3","4","5"],"factor":1.1}'},
             'eq': {title: 'parent == sum(children)', text: 'FAILs when the parent value != sum of children. Use for exact equality checks like Male + Female + Unknown = Live Births.'},
             'le': {title: 'child <= parent', text: 'FAILs when child value exceeds parent value. Use for subset checks like Emergency C/S <= Total C-sections.'},
+            'lt': {title: 'child < parent', text: 'FAILs when the child value is greater than or equal to the parent value. Strict version of le — equality does not pass. Use when the child must be strictly below the parent.'},
             'le_sum': {title: 'child >= sum(children)', text: 'FAILs when child value is less than sum of its sub-children. Reverse of ge — use when a parent should be >= its breakdown.'},
             'benchmark_rate': {title: 'FAIL if (num/den*100) > threshold', text: 'Flags when a calculated rate exceeds a fixed threshold. Example: C/S rate > 80%. Requires num_code (numerator indicator), den_code (denominator), threshold (percentage).'},
             'benchmark_low_rate': {title: 'FAIL if (num/den*100) < threshold', text: 'Flags when a rate drops below a minimum threshold. Example: NVD rate < 10%. Same params as benchmark_rate.'},

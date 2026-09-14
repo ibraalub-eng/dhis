@@ -190,8 +190,11 @@
                     <div><label style="font-size:0.8rem;color:var(--text-secondary);">Expression Type</label><br>
                         <select id="ruleEditExpr" style="width:100%;" onchange="ruleExprTemplate()">
                             <option value="ge">ge — parent >= sum(children)</option>
+                            <option value="gt">gt — parent &gt; sum(children)</option>
+                            <option value="ge_factor">ge_factor — parent × factor >= sum(children)</option>
                             <option value="eq">eq — parent == sum(children)</option>
                             <option value="le">le — child <= parent</option>
+                            <option value="lt">lt — child &lt; parent</option>
                             <option value="le_sum">le_sum — child >= sum(children)</option>
                             <option value="benchmark_rate">benchmark_rate — rate > threshold</option>
                             <option value="benchmark_low_rate">benchmark_low_rate — rate < threshold</option>

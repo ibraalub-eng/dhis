@@ -71,8 +71,11 @@
                             <thead><tr><th>Expression</th><th>Logic</th><th>Required Params</th><th style="width:40%;">Example</th></tr></thead>
                             <tbody>
                                 <tr><td><code>ge</code></td><td>parent value >= sum of children</td><td><code>parent</code>, <code>children[]</code></td><td><code>{"parent":"2","children":["3","4","5"]}</code></td></tr>
+                                <tr><td><code>gt</code></td><td>parent value > sum of children (strict, no equality)</td><td><code>parent</code>, <code>children[]</code></td><td><code>{"parent":"2","children":["3","4","5"]}</code></td></tr>
+                                <tr><td><code>ge_factor</code></td><td>parent value × factor >= sum of children</td><td><code>parent</code>, <code>children[]</code>, <code>factor</code></td><td><code>{"parent":"2","children":["3","4","5"],"factor":1.1}</code></td></tr>
                                 <tr><td><code>eq</code></td><td>parent value == sum of children</td><td><code>parent</code>, <code>children[]</code></td><td><code>{"parent":"5","children":["5.b.1","5.b.2"]}</code></td></tr>
                                 <tr><td><code>le</code></td><td>child value <= parent value</td><td><code>child</code>, <code>parent</code></td><td><code>{"child":"5.b.1","parent":"5"}</code></td></tr>
+                                <tr><td><code>lt</code></td><td>child value < parent value (strict, no equality)</td><td><code>child</code>, <code>parent</code></td><td><code>{"child":"5.b.1","parent":"5"}</code></td></tr>
                                 <tr><td><code>le_sum</code></td><td>child value >= sum of children (reverse ge)</td><td><code>child</code>, <code>children[]</code></td><td><code>{"child":"10.a.1","children":["10.a.1.1","10.a.1.2"]}</code></td></tr>
                                 <tr><td><code>benchmark_rate</code></td><td>FAIL if (num/den*100) > threshold</td><td><code>num_code</code>, <code>den_code</code>, <code>threshold</code></td><td><code>{"num_code":"5","den_code":"2","threshold":80.0}</code></td></tr>
                                 <tr><td><code>benchmark_low_rate</code></td><td>FAIL if (num/den*100) < threshold</td><td><code>num_code</code>, <code>den_code</code>, <code>threshold</code></td><td><code>{"num_code":"3","den_code":"2","threshold":10.0}</code></td></tr>

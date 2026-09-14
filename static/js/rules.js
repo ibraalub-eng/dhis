@@ -115,7 +115,7 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _vbStateReset(expr) {
-            _vbState = { _expr: expr, parent:'', child:'', children:[], numerator:'', denominator:'', threshold:80, z_threshold:2.5, indicator:'', factor:2.0, codes:[] };
+            _vbState = { _expr: expr, parent:'', child:'', children:[], numerator:'', denominator:'', threshold:80, z_threshold:2.5, indicator:'', factor:2.0, ge_factor:1.1, codes:[] };
         }
 
         // ── Build JSON params from visual state ────────────────────
@@ -126,7 +126,12 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'ge':
                 case 'eq':
                     return JSON.stringify({ parent: _vbState.parent || '', children: _vbState.children || [] });
+                case 'gt':
+                    return JSON.stringify({ parent: _vbState.parent || '', children: _vbState.children || [] });
+                case 'ge_factor':
+                    return JSON.stringify({ parent: _vbState.parent || '', children: _vbState.children || [], factor: parseFloat(_vbState.ge_factor) || 1.0 });
                 case 'le':
+                case 'lt':
                     return JSON.stringify({ child: _vbState.child || '', parent: _vbState.parent || '' });
                 case 'le_sum':
                     return JSON.stringify({ child: _vbState.child || '', children: _vbState.children || [] });
@@ -156,19 +161,32 @@ import { confirmDestructive } from './confirm-modal.js';
         // ── Render builders per category ───────────────────────────
 
         function _buildVBParentChild(expr) {
-            const symbols = { ge: '\u2265', eq: '=', le: '\u2264', le_sum: '\u2265' };
+            const symbols = { ge: '\u2265', eq: '=', le: '\u2264', le_sum: '\u2265', gt: '>', lt: '<', ge_factor: '\u2265' };
             const symbol = symbols[expr] || '?';
-            const geClass = expr === 'ge' || expr === 'le_sum' ? 'ge' : expr === 'eq' ? 'eq' : 'le';
+            const geClass = ['ge', 'le_sum', 'ge_factor'].includes(expr) ? 'ge' : ['gt', 'lt'].includes(expr) ? (expr === 'gt' ? 'gt' : 'lt') : expr === 'eq' ? 'eq' : 'le';
             let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
 
-            if (expr === 'ge' || expr === 'eq') {
-                let relText = expr === 'ge' ? __('parent \u2265 sum(children)') : __('parent = sum(children)');
+            if (expr === 'ge' || expr === 'eq' || expr === 'gt' || expr === 'ge_factor') {
+                let relText;
+                if (expr === 'ge') relText = __('parent \u2265 sum(children)');
+                else if (expr === 'gt') relText = __('parent > sum(children)');
+                else if (expr === 'ge_factor') relText = __('parent \u00d7 factor \u2265 sum(children)');
+                else relText = __('parent = sum(children)');
                 html += _vbZoneHTML('vb_zone_parent', __('Parent'), _vbState.parent ? [_vbState.parent] : [], false, __('Drop parent indicator here'));
                 html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + geClass + '">' + symbol + '</span> ' + relText + '</div>';
                 html += _vbZoneHTML('vb_zone_children', __('Children'), _vbState.children || [], true, __('Drop child indicators here'));
-            } else if (expr === 'le') {
+                if (expr === 'ge_factor') {
+                    const gf = parseFloat(_vbState.ge_factor) || 1.1;
+                    _vbState.ge_factor = gf;
+                    html += '<div class="vb-row"><span class="vb-label">' + __('Factor') + '</span>';
+                    html += '<input type="number" class="vb-num-input" id="vb_gefactor_input" value="' + gf + '" min="0" max="10" step="0.05" onchange="_vbOnGeFactorChange()"></div>';
+                }
+            } else if (expr === 'le' || expr === 'lt') {
+                const relText = expr === 'le' ? __('child \u2264 parent') : __('child < parent');
+                const sym = expr === 'le' ? '\u2264' : '<';
+                const symClass = expr === 'le' ? 'le' : 'lt';
                 html += _vbZoneHTML('vb_zone_child', __('Child'), _vbState.child ? [_vbState.child] : [], false, __('Drop child indicator here'));
-                html += '<div class="vb-relation-box"><span class="vb-relation-symbol le">' + symbol + '</span> ' + __('child \u2264 parent') + '</div>';
+                html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + symClass + '">' + sym + '</span> ' + relText + '</div>';
                 html += _vbZoneHTML('vb_zone_parent', __('Parent'), _vbState.parent ? [_vbState.parent] : [], false, __('Drop parent indicator here'));
             } else if (expr === 'le_sum') {
                 html += _vbZoneHTML('vb_zone_child', __('Child'), _vbState.child ? [_vbState.child] : [], false, __('Drop child indicator here'));
@@ -267,6 +285,12 @@ import { confirmDestructive } from './confirm-modal.js';
             _vbUpdateHidden();
         }
 
+        export function _vbOnGeFactorChange() {
+            const inp = document.getElementById('vb_gefactor_input');
+            _vbState.ge_factor = inp ? parseFloat(inp.value) : 1.1;
+            _vbUpdateHidden();
+        }
+
         function _vbRebuild() {
             buildVisualBuilder(_vbState._expr);
         }
@@ -277,7 +301,7 @@ import { confirmDestructive } from './confirm-modal.js';
             if (!container) return;
             _vbState._expr = expr;
             let html = '';
-            const parentChild = ['ge', 'eq', 'le', 'le_sum'];
+            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum'];
             const rateTypes = ['benchmark_rate', 'benchmark_low_rate', 'cross_hospital_rate'];
             const trendTypes = ['month_over', 'month_under'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
@@ -303,8 +327,8 @@ import { confirmDestructive } from './confirm-modal.js';
             const expl = EXPR_EXPLANATIONS[expr];
             const panel = document.getElementById('ruleExprExplanation');
             if (expl) {
-                document.getElementById('ruleExprExplTitle').textContent = expl.title;
-                document.getElementById('ruleExprExplText').textContent = expl.text;
+                document.getElementById('ruleExprExplTitle').textContent = __(expl.title);
+                document.getElementById('ruleExprExplText').textContent = __(expl.text);
                 panel.style.display = 'block';
             } else {
                 panel.style.display = 'none';
@@ -316,7 +340,7 @@ import { confirmDestructive } from './confirm-modal.js';
             let params = {};
             try { params = typeof paramsStr === 'string' ? JSON.parse(paramsStr) : paramsStr; } catch(e) {}
             _vbStateReset(expr);
-            const parentChild = ['ge', 'eq', 'le', 'le_sum'];
+            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum'];
             const rateTypes = ['benchmark_rate', 'benchmark_low_rate', 'cross_hospital_rate'];
             const trendTypes = ['month_over', 'month_under'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
@@ -325,6 +349,7 @@ import { confirmDestructive } from './confirm-modal.js';
                 _vbState.parent = params.parent || params.child || '';
                 _vbState.child = params.child || '';
                 _vbState.children = params.children || [];
+                if (expr === 'ge_factor') _vbState.ge_factor = params.factor || 1.1;
             } else if (rateTypes.includes(expr)) {
                 _vbState.numerator = params.num_code || '';
                 _vbState.denominator = params.den_code || '';

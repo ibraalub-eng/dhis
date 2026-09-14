@@ -87,6 +87,50 @@ def _ge(parent: str, children: List[str], code: str, desc: str, sev: Severity, r
     return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} >= children sum={cs}")
 
 
+def _gt(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
+    """Strict greater-than: FAIL when parent <= sum of children."""
+    pv = _v(ctx, parent)
+    cs = _vs(ctx, children)
+    if pv is None and cs == 0:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
+    if pv is None:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
+    if not _has_any(ctx, children):
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
+    tol = _RULES_CONFIG["eq_tolerance"]
+    if cs >= pv - tol:
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs} (parent must be strictly greater)")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} > children sum={cs}")
+
+
+def _ge_factor(parent: str, children: List[str], factor: float, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
+    """Factor tolerance: FAIL when sum of children > parent * factor."""
+    pv = _v(ctx, parent)
+    cs = _vs(ctx, children)
+    if pv is None and cs == 0:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
+    if pv is None:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
+    if not _has_any(ctx, children):
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
+    tol = _RULES_CONFIG["eq_tolerance"]
+    allowed = pv * factor
+    if cs > allowed + tol:
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}x{factor}={allowed:.2f} but children sum={cs}")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}x{factor}={allowed:.2f} >= children sum={cs}")
+
+
+def _lt(child: str, parent: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
+    """Strict less-than: FAIL when child >= parent."""
+    cv = _v(ctx, child)
+    pv = _v(ctx, parent)
+    if cv is None or pv is None:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Missing data")
+    if cv >= pv:
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{child}={cv} >= {parent}={pv} (child must be strictly less)")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{child}={cv} < {parent}={pv}")
+
+
 def _eq(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
     pv = _v(ctx, parent)
     cs = _vs(ctx, children)
@@ -411,11 +455,11 @@ def get_covered_child_codes(ctx: ValidationContext, session: Session = None) -> 
 
 
 def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
-    if expr in ("ge", "eq"):
+    if expr in ("ge", "eq", "gt", "ge_factor"):
         codes = [params.get("parent")]
         codes.extend(params.get("children", []))
         return [c for c in codes if c]
-    if expr in ("le", "le_sum"):
+    if expr in ("le", "le_sum", "lt"):
         return [params.get("child"), params.get("parent")] if params.get("parent") else [params.get("child")]
     if expr in ("benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"):
         return [params.get("num_code"), params.get("den_code")]
@@ -453,8 +497,14 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
         return _ge(params["parent"], params["children"], code, desc, sev, rtype, ctx)
     elif expr == "eq":
         return _eq(params["parent"], params["children"], code, desc, sev, rtype, ctx)
+    elif expr == "gt":
+        return _gt(params["parent"], params["children"], code, desc, sev, rtype, ctx)
+    elif expr == "ge_factor":
+        return _ge_factor(params["parent"], params["children"], float(params.get("factor", 1.0)), code, desc, sev, rtype, ctx)
     elif expr == "le":
         return _le(params["child"], params["parent"], code, desc, sev, rtype, ctx)
+    elif expr == "lt":
+        return _lt(params["child"], params["parent"], code, desc, sev, rtype, ctx)
     elif expr == "le_sum":
         return _ge(params["child"], params["children"], code, desc, sev, rtype, ctx)
     elif expr == "benchmark_rate":
