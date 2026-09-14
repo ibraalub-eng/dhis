@@ -985,21 +985,27 @@ window._adminAssignHospitals = function(id, btn) {
       return;
     }
     var html = '';
-    groups.forEach(function(g) {
+    groups.forEach(function(g, gi) {
+      var firstG = gi === 0, lastG = gi === groups.length - 1;
+      var liftBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:0.15rem 0.4rem;' + (firstG ? 'opacity:0.35;' : '') + '" ' + (firstG ? 'disabled' : '') + ' onclick="moveMenuGroup(' + g.id + ',-1)" title="Move up">⬆</button>';
+      var dropBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:0.15rem 0.4rem;' + (lastG ? 'opacity:0.35;' : '') + '" ' + (lastG ? 'disabled' : '') + ' onclick="moveMenuGroup(' + g.id + ',1)" title="Move down">⬇</button>';
       html += '<div style="border:1px solid var(--border-default);border-radius:8px;margin-bottom:0.6rem;overflow:hidden;">';
       html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 0.8rem;background:var(--bg-surface-hover);">';
-      html += '<span style="cursor:grab;font-size:0.7rem;color:var(--text-muted);">⠿</span>';
       html += '<span style="font-size:0.9rem;">' + esc(g.icon) + '</span>';
       html += '<span style="flex:1;font-weight:600;font-size:0.82rem;">' + esc(g.name) + '</span>';
+      html += liftBtn + dropBtn;
       html += '<button class="btn btn-sm btn-outline" onclick="editMenuGroup(' + g.id + ')" title="Edit">✏️</button>';
       html += '<button class="btn btn-sm btn-outline" style="color:var(--accent-red);" onclick="deleteMenuGroup(' + g.id + ')" title="Delete">🗑️</button>';
       html += '</div>';
-      g.items.forEach(function(item) {
+      g.items.forEach(function(item, ii) {
+        var firstI = ii === 0, lastI = ii === g.items.length - 1;
+        var upBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.6rem;padding:0.1rem 0.35rem;' + (firstI ? 'opacity:0.35;' : '') + '" ' + (firstI ? 'disabled' : '') + ' onclick="moveMenuItem(' + item.id + ',' + g.id + ',-1)" title="Move up">⬆</button>';
+        var dnBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.6rem;padding:0.1rem 0.35rem;' + (lastI ? 'opacity:0.35;' : '') + '" ' + (lastI ? 'disabled' : '') + ' onclick="moveMenuItem(' + item.id + ',' + g.id + ',1)" title="Move down">⬇</button>';
         html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.8rem 0.4rem 2rem;border-top:1px solid var(--border-default);font-size:0.8rem;">';
-        html += '<span style="color:var(--text-muted);font-size:0.65rem;">⠿</span>';
         html += '<span>' + esc(item.icon) + '</span>';
         html += '<span style="flex:1;">' + esc(item.label) + '</span>';
         html += '<span style="font-size:0.65rem;color:var(--text-muted);">[ ' + esc(item.tab_key) + ' ]</span>';
+        html += upBtn + dnBtn;
         html += '<button class="btn btn-sm btn-outline" style="color:var(--accent-red);font-size:0.7rem;" onclick="deleteMenuItem(' + item.id + ')" title="Remove">✕</button>';
         html += '</div>';
       });
@@ -1012,7 +1018,7 @@ window._adminAssignHospitals = function(id, btn) {
       if (window._menuTabRegistry) {
         window._menuTabRegistry.forEach(function(t) {
           if (!inGroup.has(t.key)) {
-            html += '<option value="' + t.key + '">' + t.icon + ' ' + esc(t.label) + '</option>';
+            html += '<option value="' + t.key + '">' + esc(t.icon) + ' ' + esc(t.label) + '</option>';
           }
         });
       }
@@ -1033,12 +1039,22 @@ window._adminAssignHospitals = function(id, btn) {
     } catch(e) { window._menuTabRegistry = []; }
   }
 
+  function _menuApiFailed(resp) {
+    if (resp && resp._forbidden) return 'Access denied — menu.manage permission required';
+    if (resp && resp._error) return resp.detail || 'Server error';
+    if (resp && resp.detail) return (typeof resp.detail === 'string' ? resp.detail : 'Request failed');
+    return null;
+  }
+
   window.addMenuGroup = async function() {
     var name = prompt('Group name (e.g. "Data"):');
     if (!name) return;
     var icon = prompt('Icon emoji (e.g. 📊):', '📁');
     if (icon === null) icon = '📁';
-    await api('/menu/groups', { method:'POST', body: JSON.stringify({name:name, icon:icon}) });
+    var resp = await api('/menu/groups', { method:'POST', body: JSON.stringify({name:name, icon:icon}) });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Group added');
     loadMenuLayout();
   };
 
@@ -1047,13 +1063,19 @@ window._adminAssignHospitals = function(id, btn) {
     if (!name) return;
     var icon = prompt('New icon emoji:');
     if (icon === null) return;
-    await api('/menu/groups/' + id, { method:'PATCH', body: JSON.stringify({name:name, icon:icon}) });
+    var resp = await api('/menu/groups/' + id, { method:'PATCH', body: JSON.stringify({name:name, icon:icon}) });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Group updated');
     loadMenuLayout();
   };
 
   window.deleteMenuGroup = async function(id) {
     if (!confirm('Delete this group and all its tabs?')) return;
-    await api('/menu/groups/' + id, { method:'DELETE' });
+    var resp = await api('/menu/groups/' + id, { method:'DELETE' });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Group deleted');
     loadMenuLayout();
   };
 
@@ -1061,12 +1083,57 @@ window._adminAssignHospitals = function(id, btn) {
     var sel = document.getElementById('addTabSelect_' + groupId);
     var tabKey = sel ? sel.value : '';
     if (!tabKey) return;
-    await api('/menu/items', { method:'POST', body: JSON.stringify({group_id: groupId, tab_key: tabKey}) });
+    var resp = await api('/menu/items', { method:'POST', body: JSON.stringify({group_id: groupId, tab_key: tabKey}) });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Tab added');
     loadMenuLayout();
   };
 
   window.deleteMenuItem = async function(id) {
-    await api('/menu/items/' + id, { method:'DELETE' });
+    var resp = await api('/menu/items/' + id, { method:'DELETE' });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Tab removed');
+    loadMenuLayout();
+  };
+
+  window.moveMenuGroup = async function(id, dir) {
+    var data = await api('/menu');
+    if (!data || !data.groups) return;
+    var groups = data.groups;
+    var i = groups.findIndex(function(g) { return g.id === id; });
+    if (i < 0) return;
+    var j = i + dir;
+    if (j < 0 || j >= groups.length) return;
+    var a = groups[i], b = groups[j];
+    var r1 = await api('/menu/groups/' + a.id, { method:'PATCH', body: JSON.stringify({sort_order: b.sort_order}) });
+    var e1 = _menuApiFailed(r1);
+    if (e1) { toastError(e1); return; }
+    var r2 = await api('/menu/groups/' + b.id, { method:'PATCH', body: JSON.stringify({sort_order: a.sort_order}) });
+    var e2 = _menuApiFailed(r2);
+    if (e2) { toastError(e2); return; }
+    toastSuccess('Groups reordered');
+    loadMenuLayout();
+  };
+
+  window.moveMenuItem = async function(id, groupId, dir) {
+    var data = await api('/menu');
+    if (!data || !data.groups) return;
+    var g = data.groups.find(function(x) { return x.id === groupId; });
+    if (!g || !g.items) return;
+    var i = g.items.findIndex(function(it) { return it.id === id; });
+    if (i < 0) return;
+    var j = i + dir;
+    if (j < 0 || j >= g.items.length) return;
+    var a = g.items[i], b = g.items[j];
+    var r1 = await api('/menu/items/' + a.id, { method:'PATCH', body: JSON.stringify({sort_order: b.sort_order}) });
+    var e1 = _menuApiFailed(r1);
+    if (e1) { toastError(e1); return; }
+    var r2 = await api('/menu/items/' + b.id, { method:'PATCH', body: JSON.stringify({sort_order: a.sort_order}) });
+    var e2 = _menuApiFailed(r2);
+    if (e2) { toastError(e2); return; }
+    toastSuccess('Tabs reordered');
     loadMenuLayout();
   };
 
