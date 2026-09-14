@@ -2660,6 +2660,10 @@ function loadHospitalsSettings() {
                 .then(data => {
                     document.getElementById('rulesLoading').classList.add('hidden');
                     rulesManagerData = data;
+                    // Always display sorted by code
+                    rulesManagerData.sort(function(a, b) {
+                        return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
+                    });
                     _rulesDirty = false;
                     renderRulesManager();
                     _updateRulesSaveButton();
@@ -2705,8 +2709,8 @@ function loadHospitalsSettings() {
                 const enabledIcon = r.enabled
                     ? '<span class="tree-toggle on" style="cursor:pointer;" title="Click to disable">✓</span>'
                     : '<span class="tree-toggle off" style="cursor:pointer;" title="Click to enable">✗</span>';
-                html += '<tr class="rule-row" draggable="true" data-id="' + r.id + '" data-code="' + esc(r.code) + '">' +
-                    '<td style="cursor:grab;color:var(--text-muted);font-size:0.9rem;user-select:none;">⠿</td>' +
+                html += '<tr class="rule-row" data-id="' + r.id + '" data-code="' + esc(r.code) + '">' +
+                    '<td style="display:none;"></td>' +
                     '<td><code>' + esc(r.code) + '</code></td>' +
                     '<td>' + esc(r.name) + '</td>' +
                     '<td>' + typeB + '</td>' +
@@ -2737,60 +2741,6 @@ function loadHospitalsSettings() {
                     toggleEl.title = rule.enabled ? 'Click to disable' : 'Click to enable';
                     _rulesDirty = true;
                     _updateRulesSaveButton();
-                });
-            });
-
-            // Wire drag-and-drop
-            const rows = filtered.querySelectorAll('.rule-row');
-            let dragId = null;
-            rows.forEach(row => {
-                row.addEventListener('dragstart', function(e) {
-                    this.classList.add('dragging');
-                    dragId = this.dataset.id;
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', this.dataset.id);
-                });
-                row.addEventListener('dragend', function() {
-                    this.classList.remove('dragging');
-                    document.querySelectorAll('.rule-row.drag-over').forEach(el => el.classList.remove('drag-over'));
-                    dragId = null;
-                });
-                row.addEventListener('dragover', function(e) {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                    this.classList.add('drag-over');
-                });
-                row.addEventListener('dragleave', function() {
-                    this.classList.remove('drag-over');
-                });
-                row.addEventListener('drop', function(e) {
-                    e.preventDefault();
-                    this.classList.remove('drag-over');
-                    const fromId = e.dataTransfer.getData('text/plain');
-                    if (!fromId || fromId === this.dataset.id) return;
-                    const tbody = document.getElementById('rulesTbody');
-                    const allRows = Array.from(tbody.querySelectorAll('.rule-row'));
-                    const items = [];
-                    let dropIdx = 0;
-                    allRows.forEach((r, i) => {
-                        if (r.dataset.id === this.dataset.id) dropIdx = i;
-                    });
-                    const ids = allRows.map(r => parseInt(r.dataset.id));
-                    const fromIdx = ids.indexOf(parseInt(fromId));
-                    const toIdx = ids.indexOf(parseInt(this.dataset.id));
-                    if (fromIdx < 0 || toIdx < 0) return;
-                    ids.splice(fromIdx, 1);
-                    ids.splice(toIdx, 0, parseInt(fromId));
-                    ids.forEach((id, i) => {
-                        items.push({ id: id, sort_order: i });
-                    });
-                    authFetch(API() + '/rules/reorder', {
-                        method: 'PUT',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({items: items}),
-                    }).then(r => r.json()).then(() => {
-                        loadRulesManager();
-                    }).catch(err => toastError('Reorder failed: ' + err.message));
                 });
             });
         }

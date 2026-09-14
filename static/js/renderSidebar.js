@@ -94,6 +94,10 @@ function _render(groups) {
     }
     // Highlight the active tab
     _highlightActive();
+    // Translate the dynamically-built sidebar (group names + item labels)
+    if (typeof window.applyLang === 'function') {
+        window.applyLang();
+    }
 }
 
 function _highlightActive() {
@@ -130,25 +134,25 @@ export async function renderSidebar() {
 function _renderFallback() {
     // Hardcoded minimal fallback (matches seed defaults)
     var fallback = [
-        {id:'fb-1', name:'الرئيسية', icon:'🏠', items:[{tab_key:'dashboard', label:'Dashboard', icon:'📊', permission:'dashboard.read'}]},
-        {id:'fb-2', name:'البيانات', icon:'📊', items:[
+        {id:'fb-1', name:'Home', icon:'🏠', items:[{tab_key:'dashboard', label:'Dashboard', icon:'📊', permission:'dashboard.read'}]},
+        {id:'fb-2', name:'Data', icon:'📊', items:[
             {tab_key:'upload', label:'Upload Data', icon:'📤', permission:'data.upload'},
             {tab_key:'indicator-tree', label:'Indicator Tree', icon:'🌳', permission:'settings.read'},
             {tab_key:'rules-manager', label:'Rules Manager', icon:'📋', permission:'rules.read'},
         ]},
-        {id:'fb-3', name:'التحليل', icon:'📈', items:[
+        {id:'fb-3', name:'Analysis', icon:'📈', items:[
             {tab_key:'analysis', label:'Comparative Analysis', icon:'📈', permission:'analysis.read'},
-            {tab_key:'root-cause', label:'Root Cause', icon:'🔍', permission:'root_cause.read'},
             {tab_key:'smart-analytics', label:'Smart Analytics', icon:'🛡️', permission:'smart_analytics.read'},
-        ]},
-        {id:'fb-4', name:'التقارير', icon:'📋', items:[
-            {tab_key:'quality', label:'Quality Reports', icon:'✅', permission:'quality.read'},
             {tab_key:'clinical', label:'Clinical Intelligence', icon:'🏥', permission:'clinical.read'},
+            {tab_key:'root-cause', label:'Root Cause', icon:'🔍', permission:'root_cause.read'},
+        ]},
+        {id:'fb-4', name:'Oversight', icon:'🛡️', items:[
+            {tab_key:'quality', label:'Quality Reports', icon:'✅', permission:'quality.read'},
             {tab_key:'outliers', label:'Outliers', icon:'⚠️', permission:'outliers.read'},
             {tab_key:'alerts', label:'Alerts', icon:'🔔', permission:'alerts.read'},
-        ]},
-        {id:'fb-5', name:'الإدارة', icon:'⚙️', items:[
             {tab_key:'audit', label:'Audit Log', icon:'📝', permission:'audit.read'},
+        ]},
+        {id:'fb-5', name:'System', icon:'⚙️', items:[
             {tab_key:'admin', label:'System Control', icon:'⚙️', permission:'system.manage_users', superadmin_only:true},
             {tab_key:'settings', label:'Settings', icon:'🔧', permission:'system.manage_users'},
         ]},

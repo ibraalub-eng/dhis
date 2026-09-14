@@ -23,9 +23,9 @@ def test_get_menu_returns_seeded_groups(client):
     data = resp.json()
     groups = data["groups"]
     assert len(groups) == 5
-    # First group is الرئيسية with dashboard
+    # First group is الرئيسية (Home) with dashboard
     first = groups[0]
-    assert first["name"] == "الرئيسية"
+    assert first["name"] == "Home"
     assert first["icon"] == "🏠"
     assert len(first["items"]) == 1
     assert first["items"][0]["tab_key"] == "dashboard"
@@ -34,7 +34,7 @@ def test_get_menu_returns_seeded_groups(client):
 
 def test_get_menu_includes_tab_metadata(client):
     resp = client.get("/menu")
-    items = resp.json()["groups"][1]["items"]  # البيانات group
+    items = resp.json()["groups"][1]["items"]  # البيانات (Data) group
     upload = next(i for i in items if i["tab_key"] == "upload")
     assert upload["icon"] == "📤"
     assert upload["permission"] == "data.upload"

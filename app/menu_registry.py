@@ -19,9 +19,9 @@ TAB_REGISTRY = OrderedDict([
 ])
 
 DEFAULT_GROUPS = [
-    {"name": "الرئيسية",  "icon": "🏠", "items": ["dashboard"]},
-    {"name": "البيانات",  "icon": "📊", "items": ["upload", "indicator-tree", "rules-manager"]},
-    {"name": "التحليل",   "icon": "📈", "items": ["analysis", "root-cause", "smart-analytics"]},
-    {"name": "التقارير",  "icon": "📋", "items": ["quality", "clinical", "outliers", "alerts"]},
-    {"name": "الإدارة",   "icon": "⚙️", "items": ["audit", "admin", "settings"]},
+    {"name": "Home",      "icon": "🏠", "items": ["dashboard"]},
+    {"name": "Data",      "icon": "📊", "items": ["upload", "indicator-tree", "rules-manager"]},
+    {"name": "Analysis",  "icon": "📈", "items": ["analysis", "smart-analytics", "clinical", "root-cause"]},
+    {"name": "Oversight", "icon": "🛡️", "items": ["quality", "outliers", "alerts", "audit"]},
+    {"name": "System",    "icon": "⚙️", "items": ["admin", "settings"]},
 ]
