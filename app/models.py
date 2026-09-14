@@ -378,3 +378,34 @@ class SessionLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     user = relationship("User", backref="session_logs")
+
+
+# --- Menu models ---
+
+class MenuGroup(Base):
+    __tablename__ = "menu_groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    icon = Column(String(20), default="")
+    sort_order = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+
+    items = relationship(
+        "MenuItem", back_populates="group",
+        cascade="all, delete-orphan",
+        order_by="MenuItem.sort_order",
+    )
+
+
+class MenuItem(Base):
+    __tablename__ = "menu_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("menu_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    tab_key = Column(String(50), nullable=False)
+    sort_order = Column(Integer, default=0)
+
+    group = relationship("MenuGroup", back_populates="items")
+
+    __table_args__ = (UniqueConstraint("group_id", "tab_key"),)

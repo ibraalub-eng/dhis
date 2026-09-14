@@ -98,7 +98,7 @@ window._adminAssignHospitals = function(id, btn) {
           <button class="admin-tab-btn" onclick="switchAdminTab('control')" id="atab-control" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🎛️ Analysis Control</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('logs')" id="atab-logs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('sessions')" id="atab-sessions" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🟢 Sessions</button>
-          <button class="admin-tab-btn" onclick="switchAdminTab('tabs')" id="atab-tabs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Tab Order</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('menu')" id="atab-menu" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🧭 Menu Layout</button>
         </div>
 
         <!-- Users and Roles Tab -->
@@ -448,21 +448,21 @@ window._adminAssignHospitals = function(id, btn) {
             </table>
           </div>
         </div>
-        <!-- Tab Order Panel -->
-        <div id="adminTabOrderPanel" style="display:none;">
-          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Tab Order</h2>
-          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Drag to reorder the main navigation tabs. Changes apply on next page load.</p>
-          <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
-            <button class="btn btn-sm btn-outline" onclick="resetTabOrder()">↺ Reset to Default</button>
-            <button class="btn btn-sm" onclick="saveTabOrder()" style="background:var(--accent-green);color:white;">💾 Save Order</button>
+        <!-- Menu Layout Panel -->
+        <div id="adminMenuLayoutPanel" style="display:none;">
+          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Menu Layout</h2>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.7rem;">
+            Manage sidebar groups, add tabs, and reorder items. Changes apply immediately.
+          </p>
+          <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-outline" onclick="addMenuGroup()">➕ Add Group</button>
           </div>
-          <div id="tabOrderList"></div>
+          <div id="menuLayoutList"></div>
         </div>
       </div>
     `;
     // Reset flags since DOM was rebuilt
     window._adminDbLoaded = false;
-    window._adminTabOrderLoaded = false;
   } catch(e) {
     container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
       '<h3 style="color:var(--accent-red);margin-bottom:0.5rem;">Error Loading System Control</h3>' +
@@ -635,7 +635,6 @@ window._adminAssignHospitals = function(id, btn) {
 
 // Auto-load when admin panel opens
   setTimeout(function() { if (document.getElementById('visMatrixBody')) loadVisibilityMatrix(); }, 500);
-  setTimeout(function() { if (document.getElementById('tabOrderList')) loadTabOrder(); }, 500);
 
   // ---- Password Change ----
   window.changePassword = function(userId, username) {
@@ -948,18 +947,194 @@ window._adminAssignHospitals = function(id, btn) {
     var c=document.getElementById("adminControlPanel");
     var l=document.getElementById("adminLogsPanel");
     var s=document.getElementById("adminSessionsPanel");
-    var t=document.getElementById("adminTabOrderPanel");
+    var m=document.getElementById("adminMenuLayoutPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
     if(c)c.style.display=tab==="control"?"block":"none";
     if(l)l.style.display=tab==="logs"?"block":"none";
     if(s)s.style.display=tab==="sessions"?"block":"none";
-    if(t)t.style.display=tab==="tabs"?"block":"none";
+    if(m)m.style.display=tab==="menu"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
     if(tab==="control"){adminLoadControlSettings();}
     if(tab==="logs"){loadAdminLogs();_startLogsAutoRefresh();}
     if(tab==="sessions"){loadSessions();}
-    if(tab==="tabs"){window.loadTabOrder();window._adminTabOrderLoaded=true;}
+    if(tab==="menu"){adminMenuLayoutPanel();}
+  };
+
+  // ── Menu Layout Panel ──────────────────────────────────────────────────────
+
+  window.adminMenuLayoutPanel = function() {
+    _loadMenuTabRegistry().then(loadMenuLayout);
+  };
+
+  window.loadMenuLayout = async function() {
+    var el = document.getElementById('menuLayoutList');
+    if (!el) return;
+    try {
+      var resp = await api('/menu');
+      var groups = (resp && resp.groups) || [];
+      _renderMenuLayout(groups, el);
+    } catch(e) {
+      el.innerHTML = '<div style="color:var(--accent-red);padding:1rem;">Failed to load menu: ' + esc(e.message) + '</div>';
+    }
+  };
+
+  function _renderMenuLayout(groups, el) {
+    if (!groups.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:1rem;">No groups. Click "Add Group" to create one.</div>';
+      return;
+    }
+    var html = '';
+    groups.forEach(function(g, gi) {
+      var firstG = gi === 0, lastG = gi === groups.length - 1;
+      var liftBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:0.15rem 0.4rem;' + (firstG ? 'opacity:0.35;' : '') + '" ' + (firstG ? 'disabled' : '') + ' onclick="moveMenuGroup(' + g.id + ',-1)" title="Move up">⬆</button>';
+      var dropBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.7rem;padding:0.15rem 0.4rem;' + (lastG ? 'opacity:0.35;' : '') + '" ' + (lastG ? 'disabled' : '') + ' onclick="moveMenuGroup(' + g.id + ',1)" title="Move down">⬇</button>';
+      html += '<div style="border:1px solid var(--border-default);border-radius:8px;margin-bottom:0.6rem;overflow:hidden;">';
+      html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 0.8rem;background:var(--bg-surface-hover);">';
+      html += '<span style="font-size:0.9rem;">' + esc(g.icon) + '</span>';
+      html += '<span style="flex:1;font-weight:600;font-size:0.82rem;">' + esc(g.name) + '</span>';
+      html += liftBtn + dropBtn;
+      html += '<button class="btn btn-sm btn-outline" onclick="editMenuGroup(' + g.id + ')" title="Edit">✏️</button>';
+      html += '<button class="btn btn-sm btn-outline" style="color:var(--accent-red);" onclick="deleteMenuGroup(' + g.id + ')" title="Delete">🗑️</button>';
+      html += '</div>';
+      g.items.forEach(function(item, ii) {
+        var firstI = ii === 0, lastI = ii === g.items.length - 1;
+        var upBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.6rem;padding:0.1rem 0.35rem;' + (firstI ? 'opacity:0.35;' : '') + '" ' + (firstI ? 'disabled' : '') + ' onclick="moveMenuItem(' + item.id + ',' + g.id + ',-1)" title="Move up">⬆</button>';
+        var dnBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.6rem;padding:0.1rem 0.35rem;' + (lastI ? 'opacity:0.35;' : '') + '" ' + (lastI ? 'disabled' : '') + ' onclick="moveMenuItem(' + item.id + ',' + g.id + ',1)" title="Move down">⬇</button>';
+        html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.8rem 0.4rem 2rem;border-top:1px solid var(--border-default);font-size:0.8rem;">';
+        html += '<span>' + esc(item.icon) + '</span>';
+        html += '<span style="flex:1;">' + esc(item.label) + '</span>';
+        html += '<span style="font-size:0.65rem;color:var(--text-muted);">[ ' + esc(item.tab_key) + ' ]</span>';
+        html += upBtn + dnBtn;
+        html += '<button class="btn btn-sm btn-outline" style="color:var(--accent-red);font-size:0.7rem;" onclick="deleteMenuItem(' + item.id + ')" title="Remove">✕</button>';
+        html += '</div>';
+      });
+      // Add tab dropdown
+      html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.8rem 0.4rem 2rem;border-top:1px solid var(--border-default);">';
+      html += '<select id="addTabSelect_' + g.id + '" style="flex:1;font-size:0.78rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">';
+      html += '<option value="">+ Add tab to this group...</option>';
+      // Populate with tabs not already in this group
+      var inGroup = new Set(g.items.map(function(i) { return i.tab_key; }));
+      if (window._menuTabRegistry) {
+        window._menuTabRegistry.forEach(function(t) {
+          if (!inGroup.has(t.key)) {
+            html += '<option value="' + t.key + '">' + esc(t.icon) + ' ' + esc(t.label) + '</option>';
+          }
+        });
+      }
+      html += '</select>';
+      html += '<button class="btn btn-sm" style="background:var(--accent-green);color:white;font-size:0.72rem;" onclick="addMenuItem(' + g.id + ')">Add</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  // Fetch tab registry once for the dropdown
+  async function _loadMenuTabRegistry() {
+    if (window._menuTabRegistry) return;
+    try {
+      var resp = await api('/menu/tabs');
+      window._menuTabRegistry = (resp && resp.tabs) || [];
+    } catch(e) { window._menuTabRegistry = []; }
+  }
+
+  function _menuApiFailed(resp) {
+    if (resp && resp._forbidden) return 'Access denied — menu.manage permission required';
+    if (resp && resp._error) return resp.detail || 'Server error';
+    if (resp && resp.detail) return (typeof resp.detail === 'string' ? resp.detail : 'Request failed');
+    return null;
+  }
+
+  window.addMenuGroup = async function() {
+    var name = prompt('Group name (e.g. "Data"):');
+    if (!name) return;
+    var icon = prompt('Icon emoji (e.g. 📊):', '📁');
+    if (icon === null) icon = '📁';
+    var resp = await api('/menu/groups', { method:'POST', body: JSON.stringify({name:name, icon:icon}) });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Group added');
+    loadMenuLayout();
+  };
+
+  window.editMenuGroup = async function(id) {
+    var name = prompt('New group name:');
+    if (!name) return;
+    var icon = prompt('New icon emoji:');
+    if (icon === null) return;
+    var resp = await api('/menu/groups/' + id, { method:'PATCH', body: JSON.stringify({name:name, icon:icon}) });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Group updated');
+    loadMenuLayout();
+  };
+
+  window.deleteMenuGroup = async function(id) {
+    if (!confirm('Delete this group and all its tabs?')) return;
+    var resp = await api('/menu/groups/' + id, { method:'DELETE' });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Group deleted');
+    loadMenuLayout();
+  };
+
+  window.addMenuItem = async function(groupId) {
+    var sel = document.getElementById('addTabSelect_' + groupId);
+    var tabKey = sel ? sel.value : '';
+    if (!tabKey) return;
+    var resp = await api('/menu/items', { method:'POST', body: JSON.stringify({group_id: groupId, tab_key: tabKey}) });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Tab added');
+    loadMenuLayout();
+  };
+
+  window.deleteMenuItem = async function(id) {
+    var resp = await api('/menu/items/' + id, { method:'DELETE' });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Tab removed');
+    loadMenuLayout();
+  };
+
+  window.moveMenuGroup = async function(id, dir) {
+    var data = await api('/menu');
+    if (!data || !data.groups) return;
+    var groups = data.groups;
+    var i = groups.findIndex(function(g) { return g.id === id; });
+    if (i < 0) return;
+    var j = i + dir;
+    if (j < 0 || j >= groups.length) return;
+    var a = groups[i], b = groups[j];
+    var r1 = await api('/menu/groups/' + a.id, { method:'PATCH', body: JSON.stringify({sort_order: b.sort_order}) });
+    var e1 = _menuApiFailed(r1);
+    if (e1) { toastError(e1); return; }
+    var r2 = await api('/menu/groups/' + b.id, { method:'PATCH', body: JSON.stringify({sort_order: a.sort_order}) });
+    var e2 = _menuApiFailed(r2);
+    if (e2) { toastError(e2); return; }
+    toastSuccess('Groups reordered');
+    loadMenuLayout();
+  };
+
+  window.moveMenuItem = async function(id, groupId, dir) {
+    var data = await api('/menu');
+    if (!data || !data.groups) return;
+    var g = data.groups.find(function(x) { return x.id === groupId; });
+    if (!g || !g.items) return;
+    var i = g.items.findIndex(function(it) { return it.id === id; });
+    if (i < 0) return;
+    var j = i + dir;
+    if (j < 0 || j >= g.items.length) return;
+    var a = g.items[i], b = g.items[j];
+    var r1 = await api('/menu/items/' + a.id, { method:'PATCH', body: JSON.stringify({sort_order: b.sort_order}) });
+    var e1 = _menuApiFailed(r1);
+    if (e1) { toastError(e1); return; }
+    var r2 = await api('/menu/items/' + b.id, { method:'PATCH', body: JSON.stringify({sort_order: a.sort_order}) });
+    var e2 = _menuApiFailed(r2);
+    if (e2) { toastError(e2); return; }
+    toastSuccess('Tabs reordered');
+    loadMenuLayout();
   };
 
   var _logsInterval=null;
@@ -1280,24 +1455,6 @@ window._adminAssignHospitals = function(id, btn) {
   var closeBtn=document.getElementById("adminDbCloseBtn");
   if(closeBtn)closeBtn.onclick=function(){document.getElementById("adminDbPreviewContainer").style.display="none";};
 
-  // ── Tab Order Manager ──
-  var DEFAULT_TAB_ORDER = [
-    {id:'dashboard', label:'📊 Dashboard'},
-    {id:'upload', label:'📤 Upload Data'},
-    {id:'quality', label:'📋 Quality Reports'},
-    {id:'analysis', label:'📈 Comparative Analysis'},
-    {id:'clinical', label:'🏥 Clinical Intelligence'},
-    {id:'outliers', label:'🔍 Outliers'},
-    {id:'alerts', label:'🚨 Alerts'},
-    {id:'indicator-tree', label:'🌲 Indicator Tree'},
-    {id:'rules-manager', label:'⚙️ Rules Manager'},
-    {id:'root-cause', label:'🎯 Root Cause'},
-    {id:'audit', label:'📜 Audit'},
-    {id:'admin', label:'👤 Admin'},
-    {id:'settings', label:'⚙️ Settings'},
-    {id:'smart-analytics', label:'🛡️ Smart Analytics'},
-  ];
-
   // -- Sessions Panel -----------------------------------------------
   var _sessionsInterval = null;
   window.loadSessions = async function() {
@@ -1381,90 +1538,4 @@ window._adminAssignHospitals = function(id, btn) {
       _sessionsInterval = setInterval(loadSessions, 10000);
     }
   };
-
-  window.loadTabOrder = function() {
-    var el = document.getElementById('tabOrderList');
-    if (!el) return;
-    var saved = localStorage.getItem('tab_order');
-    var order = saved ? JSON.parse(saved) : DEFAULT_TAB_ORDER.map(function(t) { return t.id; });
-    // Build a map from DEFAULT_TAB_ORDER for labels
-    var labelMap = {};
-    DEFAULT_TAB_ORDER.forEach(function(t) { labelMap[t.id] = t.label; });
-    var html = '';
-    order.forEach(function(tabId, idx) {
-      var label = labelMap[tabId] || tabId;
-      html += '<div draggable="true" data-tab-id="' + tabId + '" data-idx="' + idx + '"' +
-        ' style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.7rem;margin-bottom:0.3rem;' +
-        'background:var(--bg-surface);border:1px solid var(--border-default);border-radius:6px;cursor:grab;' +
-        'font-size:0.82rem;transition:border-color 0.15s;"' +
-        ' ondragstart="_tabDragStart(event)" ondragover="_tabDragOver(event)" ondrop="_tabDrop(event)"' +
-        ' ondragenter="this.style.borderColor=\'var(--accent-blue)\'" ondragleave="this.style.borderColor=\'var(--border-default)\'">' +
-        '<span style="color:var(--text-muted);font-size:0.7rem;min-width:20px;">⠿</span>' +
-        '<span style="flex:1;">' + label + '</span>' +
-        '<span style="font-size:0.7rem;color:var(--text-muted);">#' + (idx + 1) + '</span>' +
-        '</div>';
-    });
-    el.innerHTML = html;
-  };
-
-  var _dragTabId = null;
-  window._tabDragStart = function(e) {
-    _dragTabId = e.currentTarget.getAttribute('data-tab-id');
-    e.currentTarget.style.opacity = '0.4';
-    e.dataTransfer.effectAllowed = 'move';
-  };
-  window._tabDragOver = function(e) {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-  };
-  window._tabDrop = function(e) {
-    e.preventDefault();
-    e.currentTarget.style.borderColor = 'var(--border-default)';
-    var targetId = e.currentTarget.getAttribute('data-tab-id');
-    if (_dragTabId === targetId) return;
-    var saved = localStorage.getItem('tab_order');
-    var order = saved ? JSON.parse(saved) : DEFAULT_TAB_ORDER.map(function(t) { return t.id; });
-    var fromIdx = order.indexOf(_dragTabId);
-    var toIdx = order.indexOf(targetId);
-    if (fromIdx === -1 || toIdx === -1) return;
-    order.splice(fromIdx, 1);
-    order.splice(toIdx, 0, _dragTabId);
-    localStorage.setItem('tab_order', JSON.stringify(order));
-    loadTabOrder();
-  };
-  // Reset opacity on drag end
-  document.addEventListener('dragend', function() {
-    document.querySelectorAll('[draggable]').forEach(function(el) { el.style.opacity = '1'; });
-  });
-
-  window.saveTabOrder = function() {
-    // Order is already saved in localStorage by drag-drop.
-    // Now apply it to the live tab bar.
-    applyTabOrder();
-    toastSuccess('Tab order saved! Reloading page to apply...');
-    setTimeout(function() { location.reload(); }, 1000);
-  };
-
-  window.resetTabOrder = function() {
-    localStorage.removeItem('tab_order');
-    loadTabOrder();
-    toastWarning('Tab order reset to default. Save and reload to apply.');
-  };
-
-  function applyTabOrder() {
-    var saved = localStorage.getItem('tab_order');
-    if (!saved) return;
-    var order = JSON.parse(saved);
-    var tabBar = document.querySelector('.tab-bar');
-    if (!tabBar) return;
-    order.forEach(function(tabId) {
-      var tab = tabBar.querySelector('.tab[data-tab="' + tabId + '"]');
-      if (tab) tabBar.appendChild(tab);
-    });
-  }
-  // Expose for main.js to call on load
-  window._applyTabOrder = applyTabOrder;
-
-  // Load tab order UI when admin panel loads
-  if (document.getElementById('tabOrderList')) loadTabOrder();
 })();

@@ -4,6 +4,12 @@
         export let currentLang = localStorage.getItem('lang') || 'en';
 
         export const translations = {
+            // Menu group names
+            'Home': 'الرئيسية',
+            'Data': 'البيانات',
+            'Analysis': 'التحليل',
+            'Oversight': 'الرقابة',
+            'System': 'النظام',
             // General UI
             'Dashboard': 'لوحة القيادة',
             'Quality Reports': 'تقارير الجودة',
@@ -19,6 +25,9 @@
             'Rules Manager': 'إدارة القواعد',
             'Root Cause': 'تحليل الأسباب الجذرية',
             'Settings': 'الإعدادات',
+            'Upload Data': 'رفع البيانات',
+            'Audit Log': 'سجل التدقيق',
+            'System Control': 'التحكم في النظام',
             'Hospital:': 'المستشفى:',
             'Month:': 'الشهر:',
             'Year:': 'السنة:',
@@ -305,7 +314,7 @@
 
             // Rules Manager
             'Rules Manager': 'إدارة القواعد',
-            '60 validation rules — drag to reorder, toggle to enable/disable for analytics control': '60 قاعدة تحقق — اسحب لإعادة الترتيب، بدّل للتمكين/التعطيل للتحكم في التحليل',
+            'Toggle to enable/disable for analytics control': 'بدّل للتمكين/التعطيل للتحكم في التحليل',
             '+ Add Rule': '+ إضافة قاعدة',
             'Code': 'الرمز',
             'Name': 'الاسم',
@@ -315,7 +324,7 @@
             'Actions': 'الإجراءات',
             'Edit': 'تعديل',
             'Del': 'حذف',
-            'Drag to reorder rules. Disabled rules are skipped during analysis.': 'اسحب لإعادة ترتيب القواعد. القواعد المعطلة يتم تخطيها أثناء التحليل.',
+            'Rules are sorted by code. Disabled rules are skipped during analysis.': 'القواعد مرتبة حسب الرمز. القواعد المعطلة يتم تخطيها أثناء التحليل.',
             'Expression Types Reference': 'مرجع أنواع التعبيرات',
             'Click to expand': 'انقر للتوسيع',
             'Click to collapse': 'انقر للطي',

@@ -7,6 +7,7 @@ from app.core.deps import get_current_user
 from app.models import Hospital
 from scripts.seed_indicators import seed_indicators
 from scripts.seed_rules import seed_rules
+from scripts.seed_menu import seed_menu  # noqa: E402
 
 
 class _FakeSuperAdmin:
@@ -78,6 +79,7 @@ def db_session():
         seed_indicators(session)
         _seed_hospitals(session)
         seed_rules(session)
+        seed_menu(session)
         session.commit()
         yield session
     finally:

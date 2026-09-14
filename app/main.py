@@ -12,12 +12,13 @@ from alembic.script import ScriptDirectory  # noqa: E402
 from app.database import init_db, SessionLocal, engine  # noqa: E402
 from app.models import AppConfig, FacilityOwnership, FacilityType, Governorate, HospitalType  # noqa: E402
 from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
-from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router, regional as regional_router, auth as auth_router, admin as admin_router, server_logs as server_logs_router  # noqa: E402
+from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router, regional as regional_router, auth as auth_router, admin as admin_router, server_logs as server_logs_router, menu as menu_router  # noqa: E402
 from app.tasks import get_task  # noqa: E402
 from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR, DATA_DIR  # noqa: E402
 from scripts.seed_indicators import seed_indicators  # noqa: E402
 from scripts.seed_rules import seed_rules  # noqa: E402
 from scripts.seed_hospital_metadata import seed_hospital_metadata  # noqa: E402
+from scripts.seed_menu import seed_menu  # noqa: E402
 import os  # noqa: E402
 import re  # noqa: E402
 import logging  # noqa: E402
@@ -337,6 +338,7 @@ def _ensure_admin_user(session):
                     "settings.write",
                     "ai.read", "ai.write",
                     "system.read_audit", "system.manage_data", "system.export_data",
+                    "menu.manage",
                 ])
             ).all()
             existing_ids = {p.id for p in admin_role.permissions}
@@ -442,7 +444,7 @@ async def lifespan(app: FastAPI):
                 # Fresh session after DDL changes
                 session.close()
                 session = SessionLocal()
-                for label, fn in [("config", seed_app_config), ("indicators", seed_indicators), ("rules", seed_rules)]:
+                for label, fn in [("config", seed_app_config), ("indicators", seed_indicators), ("rules", seed_rules), ("menu", seed_menu)]:
                     try:
                         fn(session)
                         print(f"[startup] {label.capitalize()} seeded.")
@@ -549,6 +551,7 @@ app.include_router(regional_router.router)
 app.include_router(auth_router.router)
 app.include_router(admin_router.router)
 app.include_router(server_logs_router.router)
+app.include_router(menu_router.router)
 
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from sqlalchemy import func as _sa_func  # noqa: E402

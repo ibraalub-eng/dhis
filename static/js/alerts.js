@@ -71,6 +71,7 @@
 
         export function updateAlertBadge(data) {
             const badge = document.getElementById('alertBadge');
+            if (!badge) return;
             const total = (data.by_severity.CRITICAL?.count || 0) + (data.by_severity.HIGH?.count || 0);
             if (total > 0) {
                 badge.textContent = total > 99 ? '99+' : total;
