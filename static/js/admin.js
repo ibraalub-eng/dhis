@@ -98,6 +98,7 @@ window._adminAssignHospitals = function(id, btn) {
           <button class="admin-tab-btn" onclick="switchAdminTab('control')" id="atab-control" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🎛️ Analysis Control</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('logs')" id="atab-logs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('sessions')" id="atab-sessions" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🟢 Sessions</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('menu')" id="atab-menu" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🧭 Menu Layout</button>
         </div>
 
         <!-- Users and Roles Tab -->
@@ -446,6 +447,17 @@ window._adminAssignHospitals = function(id, btn) {
               <tbody id="sessionsTableBody"><tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Click Refresh to load sessions</td></tr></tbody>
             </table>
           </div>
+        </div>
+        <!-- Menu Layout Panel -->
+        <div id="adminMenuLayoutPanel" style="display:none;">
+          <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Menu Layout</h2>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.7rem;">
+            Manage sidebar groups, add tabs, and reorder items. Changes apply immediately.
+          </p>
+          <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-outline" onclick="addMenuGroup()">➕ Add Group</button>
+          </div>
+          <div id="menuLayoutList"></div>
         </div>
       </div>
     `;
@@ -935,15 +947,127 @@ window._adminAssignHospitals = function(id, btn) {
     var c=document.getElementById("adminControlPanel");
     var l=document.getElementById("adminLogsPanel");
     var s=document.getElementById("adminSessionsPanel");
+    var m=document.getElementById("adminMenuLayoutPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
     if(c)c.style.display=tab==="control"?"block":"none";
     if(l)l.style.display=tab==="logs"?"block":"none";
     if(s)s.style.display=tab==="sessions"?"block":"none";
+    if(m)m.style.display=tab==="menu"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
     if(tab==="control"){adminLoadControlSettings();}
     if(tab==="logs"){loadAdminLogs();_startLogsAutoRefresh();}
     if(tab==="sessions"){loadSessions();}
+    if(tab==="menu"){adminMenuLayoutPanel();}
+  };
+
+  // ── Menu Layout Panel ──────────────────────────────────────────────────────
+
+  window.adminMenuLayoutPanel = function() {
+    _loadMenuTabRegistry().then(loadMenuLayout);
+  };
+
+  window.loadMenuLayout = async function() {
+    var el = document.getElementById('menuLayoutList');
+    if (!el) return;
+    try {
+      var resp = await api('/menu');
+      var groups = (resp && resp.groups) || [];
+      _renderMenuLayout(groups, el);
+    } catch(e) {
+      el.innerHTML = '<div style="color:var(--accent-red);padding:1rem;">Failed to load menu: ' + esc(e.message) + '</div>';
+    }
+  };
+
+  function _renderMenuLayout(groups, el) {
+    if (!groups.length) {
+      el.innerHTML = '<div style="color:var(--text-muted);padding:1rem;">No groups. Click "Add Group" to create one.</div>';
+      return;
+    }
+    var html = '';
+    groups.forEach(function(g) {
+      html += '<div style="border:1px solid var(--border-default);border-radius:8px;margin-bottom:0.6rem;overflow:hidden;">';
+      html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.6rem 0.8rem;background:var(--bg-surface-hover);">';
+      html += '<span style="cursor:grab;font-size:0.7rem;color:var(--text-muted);">⠿</span>';
+      html += '<span style="font-size:0.9rem;">' + esc(g.icon) + '</span>';
+      html += '<span style="flex:1;font-weight:600;font-size:0.82rem;">' + esc(g.name) + '</span>';
+      html += '<button class="btn btn-sm btn-outline" onclick="editMenuGroup(' + g.id + ')" title="Edit">✏️</button>';
+      html += '<button class="btn btn-sm btn-outline" style="color:var(--accent-red);" onclick="deleteMenuGroup(' + g.id + ')" title="Delete">🗑️</button>';
+      html += '</div>';
+      g.items.forEach(function(item) {
+        html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.8rem 0.4rem 2rem;border-top:1px solid var(--border-default);font-size:0.8rem;">';
+        html += '<span style="color:var(--text-muted);font-size:0.65rem;">⠿</span>';
+        html += '<span>' + esc(item.icon) + '</span>';
+        html += '<span style="flex:1;">' + esc(item.label) + '</span>';
+        html += '<span style="font-size:0.65rem;color:var(--text-muted);">[ ' + esc(item.tab_key) + ' ]</span>';
+        html += '<button class="btn btn-sm btn-outline" style="color:var(--accent-red);font-size:0.7rem;" onclick="deleteMenuItem(' + item.id + ')" title="Remove">✕</button>';
+        html += '</div>';
+      });
+      // Add tab dropdown
+      html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.8rem 0.4rem 2rem;border-top:1px solid var(--border-default);">';
+      html += '<select id="addTabSelect_' + g.id + '" style="flex:1;font-size:0.78rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:4px;background:var(--bg-surface);color:var(--text-primary);">';
+      html += '<option value="">+ Add tab to this group...</option>';
+      // Populate with tabs not already in this group
+      var inGroup = new Set(g.items.map(function(i) { return i.tab_key; }));
+      if (window._menuTabRegistry) {
+        window._menuTabRegistry.forEach(function(t) {
+          if (!inGroup.has(t.key)) {
+            html += '<option value="' + t.key + '">' + t.icon + ' ' + esc(t.label) + '</option>';
+          }
+        });
+      }
+      html += '</select>';
+      html += '<button class="btn btn-sm" style="background:var(--accent-green);color:white;font-size:0.72rem;" onclick="addMenuItem(' + g.id + ')">Add</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+    el.innerHTML = html;
+  }
+
+  // Fetch tab registry once for the dropdown
+  async function _loadMenuTabRegistry() {
+    if (window._menuTabRegistry) return;
+    try {
+      var resp = await api('/menu/tabs');
+      window._menuTabRegistry = (resp && resp.tabs) || [];
+    } catch(e) { window._menuTabRegistry = []; }
+  }
+
+  window.addMenuGroup = async function() {
+    var name = prompt('Group name (e.g. "Data"):');
+    if (!name) return;
+    var icon = prompt('Icon emoji (e.g. 📊):', '📁');
+    if (icon === null) icon = '📁';
+    await api('/menu/groups', { method:'POST', body: JSON.stringify({name:name, icon:icon}) });
+    loadMenuLayout();
+  };
+
+  window.editMenuGroup = async function(id) {
+    var name = prompt('New group name:');
+    if (!name) return;
+    var icon = prompt('New icon emoji:');
+    if (icon === null) return;
+    await api('/menu/groups/' + id, { method:'PATCH', body: JSON.stringify({name:name, icon:icon}) });
+    loadMenuLayout();
+  };
+
+  window.deleteMenuGroup = async function(id) {
+    if (!confirm('Delete this group and all its tabs?')) return;
+    await api('/menu/groups/' + id, { method:'DELETE' });
+    loadMenuLayout();
+  };
+
+  window.addMenuItem = async function(groupId) {
+    var sel = document.getElementById('addTabSelect_' + groupId);
+    var tabKey = sel ? sel.value : '';
+    if (!tabKey) return;
+    await api('/menu/items', { method:'POST', body: JSON.stringify({group_id: groupId, tab_key: tabKey}) });
+    loadMenuLayout();
+  };
+
+  window.deleteMenuItem = async function(id) {
+    await api('/menu/items/' + id, { method:'DELETE' });
+    loadMenuLayout();
   };
 
   var _logsInterval=null;
