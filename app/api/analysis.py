@@ -340,7 +340,7 @@ def list_outliers(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    cache_key = cache.make_key("analysis:outliers_v2", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
+    cache_key = cache.make_key("analysis:outliers_v3", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -379,6 +379,7 @@ def list_outliers(
             "peer_min": r.peer_min,
             "peer_max": r.peer_max,
             "peer_median": r.peer_median,
+            "peers_detail": r.peers_detail,
         })
     result = {"total": total, "skip": skip, "limit": limit, "data": output}
     cache.set(cache_key, result)

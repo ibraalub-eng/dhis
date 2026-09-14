@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import stats as scipy_stats
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 
 
@@ -20,6 +20,10 @@ class AnomalyResultData:
     peer_min: Optional[float] = None
     peer_max: Optional[float] = None
     peer_median: Optional[float] = None
+    # [{"hospital": name, "rate": rounded_rate}, ...] sorted by rate — powers
+    # the peer drill-down popover on the outliers screen. None for trend
+    # anomalies and rows computed before this field existed.
+    peers_detail: Optional[List[Dict[str, Any]]] = None
 
 
 def compute_rate(values: Dict[str, float], numerator_code: str, denominator_code: str) -> Optional[float]:
@@ -60,7 +64,8 @@ def detect_anomalies(
         if current_rate is None:
             continue
         # Benchmark = peer mean EXCLUDING the hospital itself (same as audit screen)
-        peers = [r for h, r in rates.items() if h != current_hospital]
+        peers_map = {h: r for h, r in rates.items() if h != current_hospital}
+        peers = list(peers_map.values())
         if len(peers) < 1:
             continue
         mean_rate = np.mean(peers)
@@ -84,6 +89,10 @@ def detect_anomalies(
                 peer_min=round(float(min(peers)), 2),
                 peer_max=round(float(max(peers)), 2),
                 peer_median=round(float(np.median(peers)), 2),
+                peers_detail=[
+                    {"hospital": h, "rate": round(float(r), 2)}
+                    for h, r in sorted(peers_map.items(), key=lambda kv: kv[1])
+                ],
             )
         )
     return results

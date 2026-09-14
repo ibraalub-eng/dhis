@@ -129,7 +129,9 @@
                 tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
                 return;
             }
-            tbody.innerHTML = data.map(d => {
+            const idxById = new Map();
+            data.forEach((d, i) => { if (d.id != null) idxById.set(String(d.id), i); });
+            tbody.innerHTML = data.map((d, i) => {
                 const z = d.z_score !== null && d.z_score !== undefined;
                 const zClass = Math.abs(d.z_score) >= 3 ? 'badge-critical' : Math.abs(d.z_score) >= 2 ? 'badge-high' : 'badge-medium';
                 const hasPeers = d.peer_count !== null && d.peer_count !== undefined;
@@ -141,6 +143,11 @@
                     ? ' title="' + esc('Peers: ' + d.peer_count + ' | Std: ' + (d.peer_std != null ? Number(d.peer_std).toFixed(2) : '--')
                         + ' | Median: ' + (d.peer_median != null ? Number(d.peer_median).toFixed(2) : '--')) + '"'
                     : '';
+                // Peers cell is clickable when drill-down detail exists.
+                const rowIdx = d.id != null ? (idxById.get(String(d.id)) ?? i) : i;
+                const peerCell = hasPeers && d.peers_detail && d.peers_detail.length
+                    ? '<a href="#" onclick="event.preventDefault();togglePeerPopover(this,' + rowIdx + ')" style="text-decoration:underline dotted;cursor:pointer;">' + d.peer_count + '</a>'
+                    : (hasPeers ? d.peer_count : '--');
                 return '<tr>' + peerTip +
                     '<td>' + esc(d.hospital) + '</td>' +
                     '<td>' + esc(d.month) + '</td>' +
@@ -148,11 +155,69 @@
                     '<td>' + (d.value !== null ? Number(d.value).toFixed(2) : '--') + '</td>' +
                     '<td>' + (d.benchmark !== null ? Number(d.benchmark).toFixed(2) : '--') + '</td>' +
                     '<td><span class="badge ' + zClass + '">' + (z ? Number(d.z_score).toFixed(2) : '--') + '</span></td>' +
-                    '<td>' + (hasPeers ? d.peer_count : '--') + '</td>' +
+                    '<td>' + peerCell + '</td>' +
                     '<td>' + peerRange + '</td>' +
                     '</tr>';
             }).join('');
             wireOutlierSort();
+        }
+
+        // ── Peer drill-down popover ─────────────────────────────
+        // Shows every peer hospital and its rate for one outlier row.
+        export function togglePeerPopover(anchor, idx) {
+            const existing = document.getElementById('peerPopover');
+            if (existing) { existing.remove(); return; }
+            const d = (window._lastOutlierData || [])[idx];
+            if (!d || !d.peers_detail || !d.peers_detail.length) return;
+
+            const pop = document.createElement('div');
+            pop.id = 'peerPopover';
+            pop.style.cssText = 'position:absolute;z-index:1000;min-width:240px;max-width:320px;max-height:300px;overflow-y:auto;'
+                + 'background:var(--bg-elevated,#fff);color:var(--text-primary,#222);border:1px solid var(--border-default,#ccc);'
+                + 'border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.25);padding:0.5rem 0.6rem;font-size:0.75rem;';
+
+            const title = document.createElement('div');
+            title.style.cssText = 'font-weight:700;margin-bottom:0.35rem;white-space:nowrap;';
+            title.textContent = __('Peers') + ' (' + d.peers_detail.length + ') — ' + d.rate_name;
+            pop.appendChild(title);
+
+            d.peers_detail.forEach(p => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;justify-content:space-between;gap:1rem;padding:0.15rem 0;border-bottom:1px solid var(--border-default,#eee);';
+                const name = document.createElement('span');
+                name.textContent = p.hospital;
+                name.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                const rate = document.createElement('span');
+                rate.textContent = Number(p.rate).toFixed(2) + '%';
+                rate.style.cssText = 'font-weight:600;white-space:nowrap;';
+                row.appendChild(name); row.appendChild(rate);
+                pop.appendChild(row);
+            });
+
+            const note = document.createElement('div');
+            note.style.cssText = 'margin-top:0.35rem;color:var(--text-muted,#888);font-size:0.68rem;';
+            note.textContent = __('This hospital is excluded from its own benchmark');
+            pop.appendChild(note);
+
+            document.body.appendChild(pop);
+            const rect = anchor.getBoundingClientRect();
+            const top = Math.min(rect.bottom + window.scrollY + 4, window.scrollY + window.innerHeight - 310);
+            let left = rect.left + window.scrollX;
+            // Keep the popover on-screen (flip left if it would overflow right)
+            const maxLeft = window.scrollX + document.documentElement.clientWidth - 330;
+            if (left > maxLeft) left = Math.max(window.scrollX + 4, maxLeft);
+            pop.style.top = Math.max(window.scrollY + 4, top) + 'px';
+            pop.style.left = left + 'px';
+
+            // Close on outside click (added after this event finishes)
+            setTimeout(() => {
+                document.addEventListener('click', function handler(ev) {
+                    if (!pop.contains(ev.target) && ev.target !== anchor) {
+                        pop.remove();
+                        document.removeEventListener('click', handler);
+                    }
+                });
+            });
         }
 
         function populateSelectOptions(sel, values, currentVal) {

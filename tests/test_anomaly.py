@@ -199,7 +199,8 @@ def test_detect_anomalies_benchmark_excludes_self():
 
 def test_detect_anomalies_includes_peer_metadata():
     """Cross-hospital rows must carry the same peer stats the audit screen shows:
-    count, std, min, max and median over peers EXCLUDING the target hospital."""
+    count, std, min, max, median and per-peer detail over peers EXCLUDING the
+    target hospital."""
     import numpy as np
     data = {
         "Target": {"5": 90, "2": 100},
@@ -219,6 +220,12 @@ def test_detect_anomalies_includes_peer_metadata():
     assert r.peer_median == round(float(np.median(peers)), 2)
     # Peer count excludes the target itself
     assert r.peer_count == len(data) - 1
+    # Drill-down detail: every peer with its rate, sorted ascending, no target
+    assert r.peers_detail == [
+        {"hospital": "A", "rate": 30.0},
+        {"hospital": "B", "rate": 40.0},
+        {"hospital": "C", "rate": 50.0},
+    ]
 
 
 def test_detect_monthly_trend_has_no_peer_metadata():
@@ -234,6 +241,7 @@ def test_detect_monthly_trend_has_no_peer_metadata():
     for r in results:
         assert r.peer_count is None
         assert r.peer_std is None
+        assert r.peers_detail is None
 
 
 def test_outliers_api_returns_peer_metadata(db_session):
@@ -252,6 +260,12 @@ def test_outliers_api_returns_peer_metadata(db_session):
         rate_name="C-section rate", value=90.0, benchmark=40.0,
         z_score=3.1, is_outlier=True,
         peer_count=4, peer_std=5.5, peer_min=30.0, peer_max=50.0, peer_median=45.0,
+        peers_detail=[
+            {"hospital": "P1", "rate": 30.0},
+            {"hospital": "P2", "rate": 40.0},
+            {"hospital": "P3", "rate": 45.0},
+            {"hospital": "P4", "rate": 50.0},
+        ],
     ))
     db_session.commit()
 
@@ -273,6 +287,13 @@ def test_outliers_api_returns_peer_metadata(db_session):
     assert row["peer_min"] == 30.0
     assert row["peer_max"] == 50.0
     assert row["peer_median"] == 45.0
+    # Drill-down detail round-trips through persistence + API
+    assert row["peers_detail"] == [
+        {"hospital": "P1", "rate": 30.0},
+        {"hospital": "P2", "rate": 40.0},
+        {"hospital": "P3", "rate": 45.0},
+        {"hospital": "P4", "rate": 50.0},
+    ]
 
 
 def test_detect_anomalies_no_peers_after_exclusion():

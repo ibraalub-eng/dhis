@@ -555,6 +555,7 @@ def _save_anomaly_results(session: Session, hospital_id: int, month: str, result
             peer_min=float(a.peer_min) if getattr(a, "peer_min", None) is not None else None,
             peer_max=float(a.peer_max) if getattr(a, "peer_max", None) is not None else None,
             peer_median=float(a.peer_median) if getattr(a, "peer_median", None) is not None else None,
+            peers_detail=getattr(a, "peers_detail", None),
         )
         session.add(ar)
     session.commit()

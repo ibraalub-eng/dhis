@@ -227,6 +227,7 @@
             'Z-Score': 'درجة Z',
             'Peers': 'المستشفيات المماثلة',
             'Peer Range': 'نطاق المماثلة',
+            'This hospital is excluded from its own benchmark': 'هذا المستشفى مستثنى من معياره المرجعي',
             'Outlier': 'شاذ',
             'Outlier:': 'الشاذ:',
             'Outliers': 'شواذ',

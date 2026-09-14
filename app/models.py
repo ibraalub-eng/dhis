@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Table, Column, Integer, String, Float, Text, ForeignKey, DateTime, Boolean, UniqueConstraint, Index
+from sqlalchemy import Table, Column, Integer, String, Float, Text, ForeignKey, DateTime, Boolean, UniqueConstraint, Index, JSON
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -201,6 +201,8 @@ class AnomalyResult(Base):
     peer_min = Column(Float, nullable=True)
     peer_max = Column(Float, nullable=True)
     peer_median = Column(Float, nullable=True)
+    # [{"hospital": name, "rate": rate}, ...] for the drill-down popover.
+    peers_detail = Column(JSON, nullable=True)
 
     hospital = relationship("Hospital", back_populates="anomaly_results")
 

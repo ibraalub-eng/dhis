@@ -238,6 +238,8 @@ class AnomalyOut(BaseModel):
     peer_min: Optional[float] = None
     peer_max: Optional[float] = None
     peer_median: Optional[float] = None
+    # [{hospital, rate}, ...] sorted by rate for the drill-down popover.
+    peers_detail: Optional[list] = None
 
     class Config:
         from_attributes = True

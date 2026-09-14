@@ -183,7 +183,7 @@ function _bindAll(mod, label) {
     case 'outliers':
       _bind(mod, 'loadOutliers'); _bind(mod, 'loadRuleFailures');
       _bind(mod, 'exportOutliersCSV'); _bind(mod, 'exportRuleFailuresCSV');
-      _bind(mod, 'outlierLegend');
+      _bind(mod, 'outlierLegend'); _bind(mod, 'togglePeerPopover');
       break;
     case 'alerts':
       _bind(mod, 'loadAlerts'); _bind(mod, 'updateAlertBadge');
