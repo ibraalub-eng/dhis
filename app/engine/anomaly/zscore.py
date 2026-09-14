@@ -47,15 +47,16 @@ def detect_anomalies(
             rate = compute_rate(hosp_values, num_code, den_code)
             if rate is not None:
                 rates[hosp_name] = rate
-        if len(rates) < 2:
-            continue
-        rate_values = list(rates.values())
-        mean_rate = np.mean(rate_values)
-        std_rate = np.std(rate_values, ddof=1) if len(rate_values) > 1 else 0
         current_values = all_hospital_data.get(current_hospital, {})
         current_rate = compute_rate(current_values, num_code, den_code)
         if current_rate is None:
             continue
+        # Benchmark = peer mean EXCLUDING the hospital itself (same as audit screen)
+        peers = [r for h, r in rates.items() if h != current_hospital]
+        if len(peers) < 1:
+            continue
+        mean_rate = np.mean(peers)
+        std_rate = np.std(peers, ddof=1) if len(peers) > 1 else 0
         if std_rate == 0:
             z_score = 0.0
         else:

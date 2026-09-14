@@ -93,6 +93,37 @@ def test_detect_anomalies_custom_config():
         assert cs[0].is_outlier
 
 
+def test_detect_anomalies_benchmark_excludes_self():
+    """Benchmark and z-score must be computed over PEER hospitals only
+    (excluding the hospital itself) — the same semantics as the audit screen."""
+    import numpy as np
+    data = {f"Hosp{i}": {"5": 30 + i, "2": 100 + i * 2} for i in range(10)}
+    data["OutlierHosp"] = {"5": 90, "2": 100}
+    results = detect_anomalies(data, "OutlierHosp", "2026-04")
+    cs = [r for r in results if r.rate_name == "C-section rate"]
+    if cs:
+        r = cs[0]
+        peers = [compute_rate(data[h], "5", "2") for h in data if h != "OutlierHosp"]
+        peer_mean = float(np.mean(peers))
+        peer_std = float(np.std(peers, ddof=1)) if len(peers) > 1 else 0
+        assert r.benchmark == round(peer_mean, 2)
+        current_rate = compute_rate(data["OutlierHosp"], "5", "2")
+        expected_z = (current_rate - peer_mean) / peer_std if peer_std > 0 else 0.0
+        assert r.z_score == round(expected_z, 2)
+
+
+def test_detect_anomalies_no_peers_after_exclusion():
+    """A hospital with no peers for a rate must not produce a benchmark row."""
+    data = {
+        "H0": {"5": 50, "2": 200},
+        "H1": {"5": 30, "2": 200, "17": 5, "6": 200, "11": 1, "10": 3, "7": 2, "16": 9, "6.f": 8},
+        "H2": {"5": 31, "2": 200},
+    }
+    results = detect_anomalies(data, "H0", "2026-04")
+    for r in results:
+        assert r.rate_name != "Maternal mortality ratio"  # only H1 reports '11'/'2'
+
+
 # ── detect_monthly_trend ──────────────────────────────────────
 
 def test_detect_monthly_trend_outlier():
