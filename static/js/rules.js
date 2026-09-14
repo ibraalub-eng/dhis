@@ -2,6 +2,7 @@
         import { __ } from './i18n.js';
         import { EXPR_EXPLANATIONS, rulesManagerData, loadRulesManager } from './settings.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
+import { confirmDestructive } from './confirm-modal.js';
 
         let ruleEditId = null;
         let _indicatorsCache = [];
