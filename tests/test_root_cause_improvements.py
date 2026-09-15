@@ -776,3 +776,172 @@ def test_peer_hospitals_fallback_governorate(db_session):
         assert comps["cs_rate"]["peer_count"] == 3
     finally:
         app.dependency_overrides.clear()
+
+
+# ─── Peer-mode selector (auto | type | governorate | ownership | all) ───────
+
+_RC_MONTH = "2026-06"
+
+
+def _seed_peer_mode_hospitals(db_session, gov_name="ModeGov", type_name="ModeType"):
+    """1 target + 4 same-type peers + 1 different-governorate hospital (ownership omitted)."""
+    from app.models import Hospital, HospitalType, Governorate, Indicator, IndicatorValue
+
+    gov = Governorate(name=gov_name)
+    htype = HospitalType(name=type_name)
+    db_session.add_all([gov, htype])
+    db_session.flush()
+    target = Hospital(name="ModeTarget", hospital_type_id=htype.id,
+                      governorate_id=gov.id, is_active=True)
+    peers = [Hospital(name=f"ModePeer{i}", hospital_type_id=htype.id,
+                      governorate_id=gov.id, is_active=True) for i in range(4)]
+    outsider = Hospital(name="ModeOutsider", governorate_id=None, is_active=True)
+    db_session.add_all([target] + peers + [outsider])
+    db_session.flush()
+
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in [target] + peers:
+        high = h is target
+        vals = {"2": 200, "5": 80 if high else 40, "6": 190}
+        for code, v in vals.items():
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id[code],
+                                          month=_RC_MONTH, value=v))
+    # outsider reports only for month X with different values, so it has data too
+    db_session.add(IndicatorValue(hospital_id=outsider.id, indicator_id=code_to_id["2"],
+                                  month=_RC_MONTH, value=200))
+    db_session.commit()
+    return target, peers, outsider
+
+
+def test_peer_mode_auto_unchanged(db_session):
+    """Default auto mode keeps the legacy peer choice: same type wins."""
+    from app.engine.root_cause import generate_root_cause_analysis, _find_peer_hospital_ids
+
+    target, peers, outsider = _seed_peer_mode_hospitals(db_session)
+
+    report = generate_root_cause_analysis(
+        db_session, target.id, _RC_MONTH,
+        quality_data={"score": 80}, confidence_data={"overall_confidence": 80},
+        compare_peers=True,
+    )
+    assert report.peer_match_by == "type"
+    assert {p["hospital_id"] for p in report.peer_hospitals} == {p.id for p in peers}
+
+
+def test_peer_mode_all_matches_audit_benchmark(db_session):
+    """peer_mode='all' must use every active hospital with data — the same peer
+    set as the Audit Benchmark screen — and the cs_rate peer mean must equal
+    get_benchmark's peer_average for the C-section rate."""
+    from app.engine.root_cause import generate_root_cause_analysis, _find_peer_hospital_ids
+    from app.engine.audit.benchmark import get_benchmark
+
+    target, peers, outsider = _seed_peer_mode_hospitals(db_session)
+
+    ids_all, by_all = _find_peer_hospital_ids(db_session, target.id, peer_mode="all")
+    assert by_all == "all"
+    assert outsider.id in ids_all
+    # every seeded peer present; may also include conftest-seeded active hospitals
+    assert {p.id for p in peers} | {outsider.id} <= set(ids_all)
+
+    report = generate_root_cause_analysis(
+        db_session, target.id, _RC_MONTH,
+        quality_data={"score": 80}, confidence_data={"overall_confidence": 80},
+        compare_peers=True, peer_mode="all",
+    )
+    assert report.peer_match_by == "all"
+    peer_hosp_ids = {p["hospital_id"] for p in report.peer_hospitals}
+    assert outsider.id in peer_hosp_ids
+    assert {p.id for p in peers} <= peer_hosp_ids
+
+    # The same-type peers are always part of the cs_rate peer values
+    cs = report.peer_comparisons.get("cs_rate")
+    assert cs is not None
+    assert cs.peer_count >= 4
+
+    # Cross-screen parity with the audit benchmark: BOTH engines must see the
+    # identical "all active hospitals with data" peer set, so mean and count
+    # must match exactly regardless of any conftest-seeded extra hospitals.
+    bm = get_benchmark(db_session, target.id, _RC_MONTH)
+    assert "error" not in bm
+    audit_cs = bm["comparisons"].get("C-section rate")
+    assert audit_cs is not None
+    assert cs.peer_mean == audit_cs["peer_average"]
+    assert cs.peer_count == audit_cs["peer_count"]
+
+
+def test_peer_mode_explicit_governorate_and_fallback(db_session):
+    """Explicit governorate mode matches by governorate; an impossible explicit
+    mode (hospital without a governorate) falls back to auto behavior."""
+    from app.engine.root_cause import _find_peer_hospital_ids
+
+    target, peers, outsider = _seed_peer_mode_hospitals(db_session)
+
+    ids_gov, by_gov = _find_peer_hospital_ids(db_session, target.id, peer_mode="governorate")
+    assert by_gov == "governorate"
+    assert {p.id for p in peers} <= set(ids_gov)
+
+    # outsider has neither governorate nor type → auto chain finds nothing → None
+    # (caller must then fall back to all-active matching, as get_peer_historical_data does)
+    ids_o, by_o = _find_peer_hospital_ids(db_session, outsider.id, peer_mode="governorate")
+    assert by_o is None
+    assert ids_o == []
+
+
+def test_api_peer_mode_param_and_validation(db_session):
+    """/root-cause accepts peer_mode, echoes peer_mode_requested, and FastAPI
+    rejects values outside the allowed pattern."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_db
+
+    target, peers, outsider = _seed_peer_mode_hospitals(db_session)
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        resp = client.get(
+            f"/root-cause/{target.id}?month={_RC_MONTH}&include_history=true&compare_peers=true&peer_mode=all"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data.get("peer_mode_requested") == "all"
+        assert data.get("peer_match_by") == "all"
+        peer_ids = {p["hospital_id"] for p in data.get("peer_hospitals") or []}
+        assert outsider.id in peer_ids
+
+        # invalid value → 422 from FastAPI's pattern validation
+        bad = client.get(
+            f"/root-cause/{target.id}?month={_RC_MONTH}&compare_peers=true&peer_mode=bogus"
+        )
+        assert bad.status_code == 422
+
+        # default (no param) → auto
+        auto = client.get(f"/root-cause/{target.id}?month={_RC_MONTH}&compare_peers=true")
+        assert auto.status_code == 200
+        assert auto.json().get("peer_match_by") == "type"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_frontend_peer_mode_dropdown_present():
+    """The Root Cause tab exposes the Peer Group dropdown and sends peer_mode to the API."""
+    import re
+    with open("static/tabs/root-cause.html", encoding="utf-8") as f:
+        html = f.read()
+    assert 'id="rcPeerMode"' in html
+    for value in ("auto", "type", "governorate", "ownership", "all"):
+        assert f'value="{value}"' in html
+    with open("static/js/settings.js", encoding="utf-8") as f:
+        js = f.read()
+    # peer_mode is appended to root-cause API calls
+    assert js.count("peer_mode=' + encodeURIComponent") >= 1 or "+ _rcPeerQ()" in js
+    # UI state persistence for the selector
+    with open("static/js/main.js", encoding="utf-8") as f:
+        main = f.read()
+    assert "lastRcPeerMode" in main
+    assert main.count("lastRcPeerMode") >= 2  # save + restore mappings

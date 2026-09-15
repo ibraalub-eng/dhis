@@ -5,6 +5,14 @@
                             <select id="rcHospital" onchange="loadRootCause()" style="font-size:0.82rem;padding:0.3rem 0.5rem;min-width:180px;"></select>
                             <label style="font-size:0.78rem;color:var(--text-secondary);">Month:</label>
                             <select id="rcMonth" onchange="loadRootCause()" style="font-size:0.82rem;padding:0.3rem 0.5rem;min-width:110px;"></select>
+                            <label style="font-size:0.78rem;color:var(--text-secondary);" data-i18n="Peer Group:">Peer Group:</label>
+                            <select id="rcPeerMode" onchange="loadRootCause()" style="font-size:0.82rem;padding:0.3rem 0.5rem;min-width:130px;">
+                                <option value="auto" data-i18n="Auto">Auto</option>
+                                <option value="type" data-i18n="By Type">By Type</option>
+                                <option value="governorate" data-i18n="By Governorate">By Governorate</option>
+                                <option value="ownership" data-i18n="By Ownership">By Ownership</option>
+                                <option value="all" data-i18n="All hospitals">All hospitals</option>
+                            </select>
                         </div>
                     </div>
                     <div id="rcLoading" style="display:none;text-align:center;padding:2rem;color:var(--text-muted);"><span class="spinner"></span> Loading...</div>

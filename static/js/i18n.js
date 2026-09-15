@@ -24,6 +24,13 @@
             'Indicator Tree': 'شجرة المؤشرات',
             'Rules Manager': 'إدارة القواعد',
             'Root Cause': 'تحليل الأسباب الجذرية',
+            // Root Cause peer-group selector
+            'Peer Group:': 'مجموعة النظير:',
+            'Auto': 'تلقائي',
+            'By Type': 'حسب النوع',
+            'By Governorate': 'حسب المحافظة',
+            'By Ownership': 'حسب الملكية',
+            'All hospitals': 'جميع المستشفيات',
             'Settings': 'الإعدادات',
             'Upload Data': 'رفع البيانات',
             'Audit Log': 'سجل التدقيق',

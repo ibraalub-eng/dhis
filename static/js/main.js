@@ -5,7 +5,7 @@
             const mappings = {
                 dashboard: [['dashHospital','lastDashHospital'],['dashYear','lastDashYear']],
                 quality: [['qualityMonthFilter','lastQualityMonth']],
-                'root-cause': [['rcHospital','lastRcHospital'],['rcMonth','lastRcMonth']],
+                'root-cause': [['rcHospital','lastRcHospital'],['rcMonth','lastRcMonth'],['rcPeerMode','lastRcPeerMode']],
                 trends: [['trendHospitalSelect','lastTrendHospital']],
                 analysis: [['trendHospitalSelect','lastTrendHospital'],['compareMonthSelect','lastCompareMonth']],
                 clinical: [['clinicalHospitalSelect','lastClinHospital'],['clinicalMonthSelect','lastClinMonth']],
@@ -23,7 +23,7 @@
             const mappings = {
                 dashboard: [['dashHospital','lastDashHospital'],['dashYear','lastDashYear']],
                 quality: [['qualityMonthFilter','lastQualityMonth']],
-                'root-cause': [['rcHospital','lastRcHospital'],['rcMonth','lastRcMonth']],
+                'root-cause': [['rcHospital','lastRcHospital'],['rcMonth','lastRcMonth'],['rcPeerMode','lastRcPeerMode']],
                 trends: [['trendHospitalSelect','lastTrendHospital']],
                 analysis: [['trendHospitalSelect','lastTrendHospital'],['compareMonthSelect','lastCompareMonth']],
                 clinical: [['clinicalHospitalSelect','lastClinHospital'],['clinicalMonthSelect','lastClinMonth']],

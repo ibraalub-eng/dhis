@@ -1,5 +1,7 @@
 import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
+
+_PEER_MODE_PATTERN = "^(auto|type|governorate|ownership|all)$"
 from sqlalchemy.orm import Session
 from app.database import get_db
 
@@ -33,6 +35,7 @@ def get_root_cause_timeline(
     hospital_id: int,
     month: str = Query(..., description="Month YYYY-MM"),
     months_back: int = Query(6, ge=2, le=12, description="Months of history to compare"),
+    peer_mode: str = Query("auto", description="Peer group selection", pattern=_PEER_MODE_PATTERN),
     db: Session = Depends(get_db),
 ):
     """المقارنة الزمنية لكل مؤشر: قيمة المستشفى شهراً بشهر مقابل متوسط النظير.
@@ -59,7 +62,7 @@ def get_root_cause_timeline(
         hist = get_historical_data(db, hospital_id, code, months_back, month=month)
         if len(hist) < 2:
             continue
-        peers = get_peer_historical_data(db, hospital_id, code, months_back, month=month)
+        peers = get_peer_historical_data(db, hospital_id, code, months_back, month=month, peer_mode=peer_mode)
 
         month_peers = {}
         for pts in peers.values():
@@ -98,6 +101,7 @@ def get_root_cause_timeline(
         "hospital": hospital.name,
         "hospital_id": hospital_id,
         "month": month,
+        "peer_mode": peer_mode,
         "indicators": indicators,
     }
 
@@ -110,6 +114,7 @@ def get_root_cause_analysis(
     include_history: bool = Query(False, description="Include historical trend analysis"),
     compare_peers: bool = Query(False, description="Include peer comparison analysis"),
     months_back: int = Query(6, description="Months of history to analyze"),
+    peer_mode: str = Query("auto", description="Peer group selection: auto|type|governorate|ownership|all", pattern=_PEER_MODE_PATTERN),
     db: Session = Depends(get_db),
 ):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
@@ -172,6 +177,7 @@ def get_root_cause_analysis(
         include_history=include_history,
         compare_peers=compare_peers,
         months_back=months_back,
+        peer_mode=peer_mode,
     )
 
     response = {
@@ -294,6 +300,7 @@ def get_root_cause_analysis(
         if compare_peers:
             response["peer_hospitals"] = report.peer_hospitals
             response["peer_match_by"] = report.peer_match_by
+            response["peer_mode_requested"] = peer_mode
         response["summary_arabic"] = report.summary_arabic
 
     return response

@@ -372,6 +372,7 @@ def get_peer_historical_data(
     indicator_code: str,
     months_back: int = 6,
     month: str = "",
+    peer_mode: str = "auto",
 ) -> Dict[str, List[MonthDataPoint]]:
     """
     Retrieve historical data for peer hospitals (same type).
@@ -390,26 +391,27 @@ def get_peer_historical_data(
     peer_query = None
     strategy = "none"
 
-    # 1. Same hospital_type_id
-    if hosp.hospital_type_id:
+    if peer_mode == "all":
+        peer_query = session.query(Hospital.id, Hospital.name).filter(
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        )
+        strategy = "all_active"
+    elif peer_mode == "type" and hosp.hospital_type_id:
         peer_query = session.query(Hospital.id, Hospital.name).filter(
             Hospital.hospital_type_id == hosp.hospital_type_id,
             Hospital.id != hospital_id,
             Hospital.is_active.is_(True),
         )
         strategy = "type_id=%s" % hosp.hospital_type_id
-
-    # 2. Fallback: same facility_ownership_id
-    if not peer_query and hosp.facility_ownership_id:
+    elif peer_mode == "ownership" and hosp.facility_ownership_id:
         peer_query = session.query(Hospital.id, Hospital.name).filter(
             Hospital.facility_ownership_id == hosp.facility_ownership_id,
             Hospital.id != hospital_id,
             Hospital.is_active.is_(True),
         )
         strategy = "ownership_id=%s" % hosp.facility_ownership_id
-
-    # 3. Fallback: same governorate
-    if not peer_query and hosp.governorate_id:
+    elif peer_mode == "governorate" and hosp.governorate_id:
         peer_query = session.query(Hospital.id, Hospital.name).filter(
             Hospital.governorate_id == hosp.governorate_id,
             Hospital.id != hospital_id,
@@ -417,13 +419,39 @@ def get_peer_historical_data(
         )
         strategy = "governorate_id=%s" % hosp.governorate_id
 
-    # 4. Last resort: all other active hospitals
-    if not peer_query:
-        peer_query = session.query(Hospital.id, Hospital.name).filter(
-            Hospital.id != hospital_id,
-            Hospital.is_active.is_(True),
-        )
-        strategy = "all_active"
+    if peer_mode == "auto" or peer_query is None:
+        if peer_mode != "auto":
+            _dbg.warning("Hospital %s has no data for peer_mode=%s, falling back to auto", hospital_id, peer_mode)
+        # auto: same hospital_type_id → ownership → governorate → all
+        peer_query = None
+        strategy = "none"
+        if hosp.hospital_type_id:
+            peer_query = session.query(Hospital.id, Hospital.name).filter(
+                Hospital.hospital_type_id == hosp.hospital_type_id,
+                Hospital.id != hospital_id,
+                Hospital.is_active.is_(True),
+            )
+            strategy = "type_id=%s" % hosp.hospital_type_id
+        if not peer_query and hosp.facility_ownership_id:
+            peer_query = session.query(Hospital.id, Hospital.name).filter(
+                Hospital.facility_ownership_id == hosp.facility_ownership_id,
+                Hospital.id != hospital_id,
+                Hospital.is_active.is_(True),
+            )
+            strategy = "ownership_id=%s" % hosp.facility_ownership_id
+        if not peer_query and hosp.governorate_id:
+            peer_query = session.query(Hospital.id, Hospital.name).filter(
+                Hospital.governorate_id == hosp.governorate_id,
+                Hospital.id != hospital_id,
+                Hospital.is_active.is_(True),
+            )
+            strategy = "governorate_id=%s" % hosp.governorate_id
+        if not peer_query:
+            peer_query = session.query(Hospital.id, Hospital.name).filter(
+                Hospital.id != hospital_id,
+                Hospital.is_active.is_(True),
+            )
+            strategy = "all_active"
 
     peer_ids = [p[0] for p in peer_query.all()]
     _dbg.info("Hospital %s (%s) peers strategy=%s found=%d ids=%s",
@@ -1564,35 +1592,69 @@ def _ar_synthesis_for_ai_rec(r: Dict) -> Dict:
     }
 
 
-def _find_peer_hospital_ids(session: Session, hospital_id: int) -> Tuple[List[int], Optional[str]]:
+def _find_peer_hospital_ids(session: Session, hospital_id: int, peer_mode: str = "auto") -> Tuple[List[int], Optional[str]]:
     """النظير = المستشفيات النشطة من نفس النوع (إن وُجد النوع) أو نفس المحافظة وإلا.
-    مطابقة بحث النظير المعتمدة في بقية التطبيق (مثل شاشة التحليلات الذكية)."""
+    مطابقة بحث النظير المعتمدة في بقية التطبيق (مثل شاشة التحليلات الذكية).
+    peer_mode: "auto" (default), "type", "governorate", "ownership", or "all"."""
     hosp = session.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hosp or not hosp.is_active:
         return [], None
     match_by = None
     peer_ids = []
-    if hosp.hospital_type_id:
+
+    if peer_mode == "all":
+        match_by = "all"
+        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        ).all()]
+    elif peer_mode == "type" and hosp.hospital_type_id:
         match_by = "type"
         peer_ids = [r[0] for r in session.query(Hospital.id).filter(
             Hospital.hospital_type_id == hosp.hospital_type_id,
             Hospital.id != hospital_id,
             Hospital.is_active.is_(True),
         ).all()]
-    elif hosp.governorate_id:
+    elif peer_mode == "governorate" and hosp.governorate_id:
         match_by = "governorate"
         peer_ids = [r[0] for r in session.query(Hospital.id).filter(
             Hospital.governorate_id == hosp.governorate_id,
             Hospital.id != hospital_id,
             Hospital.is_active.is_(True),
         ).all()]
+    elif peer_mode == "ownership" and hosp.facility_ownership_id:
+        match_by = "ownership"
+        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            Hospital.facility_ownership_id == hosp.facility_ownership_id,
+            Hospital.id != hospital_id,
+            Hospital.is_active.is_(True),
+        ).all()]
+
+    if peer_mode == "auto" or match_by is None:
+        # auto: same hospital_type → same governorate
+        if hosp.hospital_type_id:
+            match_by = "type"
+            peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+                Hospital.hospital_type_id == hosp.hospital_type_id,
+                Hospital.id != hospital_id,
+                Hospital.is_active.is_(True),
+            ).all()]
+        elif hosp.governorate_id:
+            match_by = "governorate"
+            peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+                Hospital.governorate_id == hosp.governorate_id,
+                Hospital.id != hospital_id,
+                Hospital.is_active.is_(True),
+            ).all()]
+
     return peer_ids, match_by
 
 
-def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals, peer_meta):
+def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals, peer_meta, peer_mode="auto"):
     """Build peer indicator comparisons for a hospital, scoped to actual peers
-    (same hospital type or, failing that, same governorate)."""
-    peer_ids, match_by = _find_peer_hospital_ids(session, hospital_id)
+    (same hospital type or, failing that, same governorate) — or the group chosen
+    explicitly via peer_mode (type/governorate/ownership/all)."""
+    peer_ids, match_by = _find_peer_hospital_ids(session, hospital_id, peer_mode=peer_mode)
     if match_by is None or len(peer_ids) < MIN_PEER_SIZE:
         return
     peer_meta["match_by"] = match_by
@@ -1665,6 +1727,7 @@ def generate_root_cause_analysis(
     include_history: bool = False,
     compare_peers: bool = False,
     months_back: int = 6,
+    peer_mode: str = "auto",
 ) -> RootCauseReport:
     hospital = session.execute(
         text("SELECT name FROM hospitals WHERE id = :hid"),
@@ -1739,7 +1802,7 @@ def generate_root_cause_analysis(
     peer_meta: Dict[str, Optional[str]] = {"match_by": None}
     if compare_peers:
         try:
-            _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals, peer_meta)
+            _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals, peer_meta, peer_mode=peer_mode)
         except Exception as e:
             logger.warning(f"Peer comparison failed: {e}")
 

@@ -229,6 +229,11 @@ function loadHospitalsSettings() {
 
         // ── Timeline: indicator value vs peer average (95% CI) ───────────
         let _rcTimelineData = { indicators: [] };
+        // Peer-group selector value for Root Cause API calls ('auto' default)
+        function _rcPeerQ() {
+            const el = document.getElementById('rcPeerMode');
+            return '&peer_mode=' + encodeURIComponent(el && el.value ? el.value : 'auto');
+        }
         let _rcTimelineSelCode = null;  // يُحفظ كود المؤشر لا فهرسه (الفهرس يتغير باختلاف المستشفى)
 
         function drawRcTimelineChart(ind) {
@@ -411,8 +416,8 @@ function loadHospitalsSettings() {
                     document.getElementById('rcKpiBar').innerHTML = '<div style="text-align:center;padding:1rem;color:var(--text-muted);">No months with data</div>';
                     return;
                 }
-                const promises = months.map(m =>
-                    apiGet('/root-cause/' + hid + '?month=' + m + '&include_history=true&compare_peers=true&months_back=6')
+            const promises = months.map(m =>
+                    apiGet('/root-cause/' + hid + '?month=' + m + '&include_history=true&compare_peers=true&months_back=6' + _rcPeerQ())
                         .catch(() => null)
                 );
                 Promise.all(promises).then(results => {
@@ -907,7 +912,7 @@ function loadHospitalsSettings() {
             }
             // Timeline (skip for all-months mode)
             if (!isAll && mth !== 'all') {
-                apiGet('/root-cause/' + hid + '/timeline?month=' + mth + '&months_back=6').then(tl => {
+                apiGet('/root-cause/' + hid + '/timeline?month=' + mth + '&months_back=6' + _rcPeerQ()).then(tl => {
                     _rcTimelineData = tl || { indicators: [] };
                     renderRcTimeline();
                 }).catch(() => {
@@ -953,7 +958,7 @@ function loadHospitalsSettings() {
                 _loadRootCauseAllMonths(hid);
                 return;
             }
-            apiGet('/root-cause/' + hid + '?month=' + mth + '&include_history=true&compare_peers=true&months_back=6').then(d => {
+            apiGet('/root-cause/' + hid + '?month=' + mth + '&include_history=true&compare_peers=true&months_back=6' + _rcPeerQ()).then(d => {
                 document.getElementById('rcLoading').style.display = 'none';
                 document.getElementById('rcContent').style.display = 'block';
                 _renderRootCauseResult(d, hid, mth);
@@ -1216,7 +1221,8 @@ function loadHospitalsSettings() {
                     const peersList = d.peer_hospitals || [];
                     if (peersList.length) {
                         const matchLabel = d.peer_match_by === 'type' ? 'نفس نوع المستشفى'
-                            : d.peer_match_by === 'governorate' ? 'نفس المحافظة' : '';
+                            : d.peer_match_by === 'governorate' ? 'نفس المحافظة'
+                            : d.peer_match_by === 'ownership' ? 'نفس الملكية' : 'جميع المستشفيات النشطة';
                         const basisHtml = matchLabel
                             ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">مطابقة النظير: <strong>' + esc(matchLabel) + '</strong> — ' + peersList.length + ' مستشفى</div>'
                             : '';
@@ -1240,7 +1246,7 @@ function loadHospitalsSettings() {
                 }
 
                 // ── Timeline: indicator value vs peer average with 95% CI band ──
-                apiGet('/root-cause/' + hid + '/timeline?month=' + mth + '&months_back=6').then(tl => {
+                apiGet('/root-cause/' + hid + '/timeline?month=' + mth + '&months_back=6' + _rcPeerQ()).then(tl => {
                     _rcTimelineData = tl || { indicators: [] };
                     renderRcTimeline();
                 }).catch(() => {
