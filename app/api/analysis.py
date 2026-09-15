@@ -606,6 +606,7 @@ def reanalyze_all(
     force: bool = Query(False, description="Force re-analysis even if cached results exist"),
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
+    _user=Depends(require_permission("dashboard.write")),
 ):
     hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
     task_id = create_task("Re-analyze All", lambda: None)
