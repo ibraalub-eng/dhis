@@ -869,6 +869,56 @@ def test_peer_mode_all_matches_audit_benchmark(db_session):
     assert cs.peer_count == audit_cs["peer_count"]
 
 
+def test_peer_groups_require_data_for_month(db_session):
+    """Whatever the group type (type/governorate/ownership/all), a peer must be
+    an active hospital WITH data for the report month — same rule as the audit
+    benchmark. A same-type hospital with no data for the month never joins."""
+    from app.engine.root_cause import _find_peer_hospital_ids, generate_root_cause_analysis
+    from app.models import Hospital, HospitalType, Indicator, IndicatorValue
+
+    htype = HospitalType(name="DataGateType")
+    db_session.add(htype)
+    db_session.flush()
+    target = Hospital(name="GateTarget", hospital_type_id=htype.id, is_active=True)
+    with_data = [Hospital(name=f"GatePeer{i}", hospital_type_id=htype.id, is_active=True) for i in range(3)]
+    dataless = Hospital(name="GateDataless", hospital_type_id=htype.id, is_active=True)  # same type, never reports
+    other_month = Hospital(name="GateOtherMonth", hospital_type_id=htype.id, is_active=True)  # reports, but not 2026-06
+    db_session.add_all([target] + with_data + [dataless, other_month])
+    db_session.flush()
+
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in [target] + with_data:
+        vals = {"2": 200, "5": 40}
+        for code, v in vals.items():
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id[code], month="2026-06", value=v))
+    for code, v in {"2": 200, "5": 40}.items():
+        db_session.add(IndicatorValue(hospital_id=other_month.id, indicator_id=code_to_id[code], month="2026-05", value=v))
+    db_session.commit()
+
+    # without month: legacy behavior (active only) — dataless same-type present
+    ids_nm, by_nm = _find_peer_hospital_ids(db_session, target.id, peer_mode="type")
+    assert by_nm == "type"
+    assert dataless.id in ids_nm and other_month.id in ids_nm
+
+    # with month: every group type is narrowed to hospitals with data for it
+    for mode in ("type", "all", "auto"):
+        ids, by = _find_peer_hospital_ids(db_session, target.id, peer_mode=mode, month="2026-06")
+        assert dataless.id not in ids, (mode, by)
+        assert other_month.id not in ids, (mode, by)
+        assert {p.id for p in with_data} <= set(ids), (mode, by)
+
+    # the report path passes the month, so its peer list is data-gated too
+    report = generate_root_cause_analysis(
+        db_session, target.id, "2026-06",
+        quality_data={"score": 80}, confidence_data={"overall_confidence": 80},
+        compare_peers=True, peer_mode="type",
+    )
+    listed = {p["hospital_id"] for p in report.peer_hospitals}
+    assert dataless.id not in listed
+    assert other_month.id not in listed
+    assert {p.id for p in with_data} <= listed
+
+
 def test_peer_mode_explicit_governorate_and_fallback(db_session):
     """Explicit governorate mode matches by governorate; an impossible explicit
     mode (hospital without a governorate) falls back to auto behavior."""

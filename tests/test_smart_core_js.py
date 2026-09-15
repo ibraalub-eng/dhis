@@ -294,6 +294,31 @@ def test_i18n_covers_smart_keys():
         assert key in i18n, key
 
 
+def test_i18n_covers_outliers_keys_and_peers_note():
+    """Every data-i18n key on the Outliers and Audit tabs has an Arabic
+    translation, including the peers = all hospitals note (Outliers legend
+    entry included)."""
+    import os
+    import re
+    i18n_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js")
+    with open(i18n_path, encoding="utf-8") as f:
+        i18n = f.read()
+    tabs = {
+        "outliers": {"Peers note", "Legend peers desc"},
+        "audit": {"Peers note"},
+    }
+    for tab, required in tabs.items():
+        html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", f"{tab}.html")
+        with open(html_path, encoding="utf-8") as f:
+            html = f.read()
+        keys = re.findall(r'data-i18n="([^"]+)"', html)
+        assert keys, f"no data-i18n keys found in {tab}.html"
+        for key in keys:
+            assert f"'{key}':" in i18n, f"{tab}.html: {key}"
+        for req in required:
+            assert req in keys, f"{tab}.html must carry the '{req}' key"
+
+
 def test_single_escape_helper_across_modules():
     import os
     root = os.path.join(os.path.dirname(__file__), "..", "static", "js")

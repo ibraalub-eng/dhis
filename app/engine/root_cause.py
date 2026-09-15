@@ -387,6 +387,20 @@ def get_peer_historical_data(
         _dbg.warning("Hospital %s not found", hospital_id)
         return {}
 
+    # Peer group candidates. Whatever the group type, members must be active
+    # hospitals WITH data for the report month (the same peer rule as the
+    # audit benchmark screen) — dataless hospitals never join the group.
+    from app.engine.smart import _load_hospital_data
+    data_ids = {
+        entry["hospital_id"]
+        for entry in _load_hospital_data(session, month).values()
+    } if month else None
+
+    def _with_data(ids):
+        if data_ids is None:
+            return ids
+        return [i for i in ids if i in data_ids]
+
     # Try peer matching with fallback strategies
     peer_query = None
     strategy = "none"
@@ -453,7 +467,7 @@ def get_peer_historical_data(
             )
             strategy = "all_active"
 
-    peer_ids = [p[0] for p in peer_query.all()]
+    peer_ids = _with_data([p[0] for p in peer_query.all()])
     _dbg.info("Hospital %s (%s) peers strategy=%s found=%d ids=%s",
               hospital_id, hosp.name, strategy, len(peer_ids), peer_ids)
 
@@ -1592,13 +1606,41 @@ def _ar_synthesis_for_ai_rec(r: Dict) -> Dict:
     }
 
 
-def _find_peer_hospital_ids(session: Session, hospital_id: int, peer_mode: str = "auto") -> Tuple[List[int], Optional[str]]:
+def _find_peer_hospital_ids(
+    session: Session,
+    hospital_id: int,
+    peer_mode: str = "auto",
+    month: Optional[str] = None,
+) -> Tuple[List[int], Optional[str]]:
     """النظير = المستشفيات النشطة من نفس النوع (إن وُجد النوع) أو نفس المحافظة وإلا.
     مطابقة بحث النظير المعتمدة في بقية التطبيق (مثل شاشة التحليلات الذكية).
-    peer_mode: "auto" (default), "type", "governorate", "ownership", or "all"."""
+    peer_mode: "auto" (default), "type", "governorate", "ownership", or "all".
+
+    When `month` is given, every group type is narrowed to active hospitals
+    that actually have data for that month — matching the audit benchmark's
+    peer rule (all active hospitals WITH data) for every group, not just "all".
+    """
     hosp = session.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hosp or not hosp.is_active:
         return [], None
+
+    # Same "has data for the month" rule as the audit benchmark loader:
+    # active + at least one enabled, non-null indicator value for the month.
+    # _load_hospital_data returns hospital_id per entry (name keys would risk
+    # collisions), and its inclusion rule matches the audit loader's.
+    data_ids: Optional[set] = None
+    if month:
+        from app.engine.smart import _load_hospital_data
+        data_ids = {
+            entry["hospital_id"]
+            for entry in _load_hospital_data(session, month).values()
+        }
+
+    def _with_data(ids: List[int]) -> List[int]:
+        if data_ids is None:
+            return ids
+        return [i for i in ids if i in data_ids]
+
     match_by = None
     peer_ids = []
 
@@ -1608,44 +1650,45 @@ def _find_peer_hospital_ids(session: Session, hospital_id: int, peer_mode: str =
             Hospital.id != hospital_id,
             Hospital.is_active.is_(True),
         ).all()]
+        peer_ids = _with_data(peer_ids)
     elif peer_mode == "type" and hosp.hospital_type_id:
         match_by = "type"
-        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+        peer_ids = _with_data([r[0] for r in session.query(Hospital.id).filter(
             Hospital.hospital_type_id == hosp.hospital_type_id,
             Hospital.id != hospital_id,
             Hospital.is_active.is_(True),
-        ).all()]
+        ).all()])
     elif peer_mode == "governorate" and hosp.governorate_id:
         match_by = "governorate"
-        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+        peer_ids = _with_data([r[0] for r in session.query(Hospital.id).filter(
             Hospital.governorate_id == hosp.governorate_id,
             Hospital.id != hospital_id,
             Hospital.is_active.is_(True),
-        ).all()]
+        ).all()])
     elif peer_mode == "ownership" and hosp.facility_ownership_id:
         match_by = "ownership"
-        peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+        peer_ids = _with_data([r[0] for r in session.query(Hospital.id).filter(
             Hospital.facility_ownership_id == hosp.facility_ownership_id,
             Hospital.id != hospital_id,
             Hospital.is_active.is_(True),
-        ).all()]
+        ).all()])
 
     if peer_mode == "auto" or match_by is None:
         # auto: same hospital_type → same governorate
         if hosp.hospital_type_id:
             match_by = "type"
-            peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            peer_ids = _with_data([r[0] for r in session.query(Hospital.id).filter(
                 Hospital.hospital_type_id == hosp.hospital_type_id,
                 Hospital.id != hospital_id,
                 Hospital.is_active.is_(True),
-            ).all()]
+            ).all()])
         elif hosp.governorate_id:
             match_by = "governorate"
-            peer_ids = [r[0] for r in session.query(Hospital.id).filter(
+            peer_ids = _with_data([r[0] for r in session.query(Hospital.id).filter(
                 Hospital.governorate_id == hosp.governorate_id,
                 Hospital.id != hospital_id,
                 Hospital.is_active.is_(True),
-            ).all()]
+            ).all()])
 
     return peer_ids, match_by
 
@@ -1653,8 +1696,9 @@ def _find_peer_hospital_ids(session: Session, hospital_id: int, peer_mode: str =
 def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_hospitals, peer_meta, peer_mode="auto"):
     """Build peer indicator comparisons for a hospital, scoped to actual peers
     (same hospital type or, failing that, same governorate) — or the group chosen
-    explicitly via peer_mode (type/governorate/ownership/all)."""
-    peer_ids, match_by = _find_peer_hospital_ids(session, hospital_id, peer_mode=peer_mode)
+    explicitly via peer_mode (type/governorate/ownership/all). Peers must be
+    active hospitals WITH data for the month, whatever the group type."""
+    peer_ids, match_by = _find_peer_hospital_ids(session, hospital_id, peer_mode=peer_mode, month=month)
     if match_by is None or len(peer_ids) < MIN_PEER_SIZE:
         return
     peer_meta["match_by"] = match_by

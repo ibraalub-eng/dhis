@@ -1,7 +1,7 @@
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
                         <div>
                             <h2 style="margin:0;">Outlier Analysis</h2>
-                            <span style="font-size:0.82rem;color:var(--text-muted);">Statistical outliers via Z-score analysis</span>
+                            <span style="font-size:0.82rem;color:var(--text-muted);">Statistical outliers via Z-score analysis · <span data-i18n="Peers note">Peers = all active hospitals with data for the month</span></span>
                         </div>
                         <div id="outlierSummary" style="display:flex;gap:0.4rem;"></div>
                     </div>
@@ -13,6 +13,7 @@
                         <div id="outlierLegendBox" style="display:none;margin-top:0.5rem;font-size:0.78rem;line-height:1.7;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border-default);border-radius:6px;padding:0.6rem 0.8rem;">
                             <div><strong data-i18n="Legend Value">Value</strong> <span data-i18n="Legend value desc">— the facility's actual reported indicator value for the month (e.g., C-section rate %).</span></div>
                             <div><strong data-i18n="Legend Benchmark">Benchmark</strong> <span data-i18n="Legend benchmark desc">— the reference/peer average the value is compared against.</span></div>
+                            <div><strong data-i18n="Legend Peers">Peers</strong> <span data-i18n="Legend peers desc">— every other active hospital that has data for the same month, regardless of type or governorate. The hospital itself is excluded.</span></div>
                             <div><strong data-i18n="Legend Z-Score">Z-Score</strong> <span data-i18n="Legend z desc">— how many standard deviations the value sits from the benchmark mean. |z| &#8805; 2 = unusual, |z| &#8805; 3 = severe outlier.</span></div>
                         </div>
                     </div>
