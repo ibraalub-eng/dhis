@@ -328,3 +328,33 @@ def test_single_escape_helper_across_modules():
             with open(os.path.join(root, "smart", fname), encoding="utf-8") as f:
                 total += f.read().count("function _smartEscapeHtml")
     assert total == 1
+
+def test_i18n_covers_every_tab_and_index():
+    """Global sweep: every data-i18n key in every tab and index.html must have
+    an Arabic translation in i18n.js — no raw keys in either language."""
+    import os
+    import re
+    import glob
+
+    i18n_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js")
+    with open(i18n_path, encoding="utf-8") as f:
+        i18n = f.read()
+
+    pages = (
+        glob.glob(os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "*.html"))
+        + [os.path.join(os.path.dirname(__file__), "..", "static", "index.html")]
+    )
+    checked = 0
+    for page in pages:
+        with open(page, encoding="utf-8") as f:
+            html = f.read()
+        for key in re.findall(r'data-i18n="([^"]+)"', html):
+            checked += 1
+            assert f"'{key}':" in i18n, f"{os.path.basename(page)}: missing translation for {key!r}"
+        # keys must also be displayable text, not Arabic (which can never be re-translated)
+        for key in re.findall(r'data-i18n="([^"]+)"', html):
+            assert not re.search(r"[\u0600-\u06FF]", key), (
+                f"{os.path.basename(page)}: data-i18n key is Arabic text ({key!r}) — "
+                "use an English key with the Arabic as element content"
+            )
+    assert checked > 50
