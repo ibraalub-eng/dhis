@@ -6,6 +6,7 @@ from sqlalchemy import case, text, func
 from app.models import Hospital, Indicator, IndicatorValue, ValidationResult, QualityScore, ConfidenceScore, AnomalyResult, Rule
 import json
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -472,8 +473,21 @@ def calculate_trend(history: List[MonthDataPoint]) -> Dict:
 
     slope, intercept, r_value, p_value, std_err = stats.linregress(months, values)
 
+    # Constant series (zero variance) -> scipy returns NaN for r and p.
+    # NaN values break JSON serialization (500 on /root-cause endpoints), so
+    # clamp to finite, meaningful defaults (flat line = no trend).
+    r_squared = r_value ** 2
+    if not math.isfinite(r_squared):
+        r_squared = 0.0
+    if not math.isfinite(slope):
+        slope = 0.0
+    if not math.isfinite(p_value):
+        p_value = 1.0
+
     changes = np.diff(values)
     volatility = float(np.std(changes)) if len(changes) > 0 else 0
+    if not math.isfinite(volatility):
+        volatility = 0.0
 
     if slope > 0.5:
         direction = "improving"
@@ -484,7 +498,7 @@ def calculate_trend(history: List[MonthDataPoint]) -> Dict:
 
     return {
         "slope": float(round(slope, 2)),
-        "r_squared": float(round(r_value ** 2, 3)),
+        "r_squared": float(round(r_squared, 3)),
         "volatility": float(round(volatility, 2)),
         "direction": direction,
         "significant_change": bool(p_value < 0.05),
