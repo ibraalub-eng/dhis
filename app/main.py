@@ -222,6 +222,62 @@ def _ensure_all_tables():
         print(f"[startup] Table ensure error (non-fatal): {e}")
 
 
+def _ensure_required_columns(engine=None):
+    """Add model columns missing from existing tables (idempotent, best-effort).
+
+    create_all (see _ensure_all_tables) heals missing *tables* but never
+    missing *columns* on tables that already exist. A database created before
+    a column-adding migration and later stamped to head (or hit by a partial
+    migration run) therefore stays on the old shape, and any endpoint whose
+    ORM selects the new columns 500s — e.g. /analysis/outliers raised
+    "no such column: peer_count" after the anomaly peer-metadata migrations.
+
+    This safety net re-adds such columns directly from the ORM metadata:
+      - only nullable columns (or ones with a server default) are added, so
+        existing rows read as NULL/default and no data can be lost;
+      - guarded per column, so it is safe to run at every startup;
+      - alembic remains the primary mechanism — this only covers drift that
+        alembic will never revisit because the DB is stamped at head.
+    """
+    try:
+        from sqlalchemy import inspect as sa_inspect, text
+        from sqlalchemy.schema import CreateColumn
+        from app.database import Base as _Base
+        if engine is None:
+            from app.database import engine as _db_engine
+            engine = _db_engine
+        if engine is None:
+            return
+        from app import models  # noqa: F401  register every model in metadata
+        insp = sa_inspect(engine)
+        preparer = engine.dialect.identifier_preparer
+        existing_tables = set(insp.get_table_names())
+        added = []
+        with engine.begin() as conn:
+            for table in _Base.metadata.sorted_tables:
+                if table.name not in existing_tables:
+                    continue  # missing tables are _ensure_all_tables' job
+                existing_cols = {c["name"] for c in insp.get_columns(table.name)}
+                for col in table.columns:
+                    if col.name in existing_cols:
+                        continue
+                    if col.primary_key or not col.nullable:
+                        continue  # unsafe to ADD COLUMN; leave to alembic
+                    col_ddl = str(
+                        CreateColumn(col).compile(dialect=engine.dialect)
+                    ).strip()
+                    stmt = text(
+                        f"ALTER TABLE {preparer.quote(table.name)} "
+                        f"ADD COLUMN {col_ddl}"
+                    )
+                    conn.execute(stmt)
+                    added.append(f"{table.name}.{col.name}")
+        if added:
+            print(f"[startup] Added missing columns: {', '.join(added)}")
+    except Exception as e:
+        print(f"[startup] Column ensure error (non-fatal): {e}")
+
+
 def seed_app_config(session):
     for key, value, category, label in APP_CONFIG_DEFAULTS:
         existing = session.query(AppConfig).filter(AppConfig.key == key).first()
@@ -429,6 +485,11 @@ async def lifespan(app: FastAPI):
     init_db()
     _log_db_info()
     _ensure_all_tables()
+    # Heal missing columns too (create_all only creates missing tables; a DB
+    # stamped at head with an older column shape would otherwise 500 endpoints
+    # that select newer columns, e.g. /analysis/outliers → "no such column:
+    # peer_count").
+    _ensure_required_columns()
     if not _startup_done:
         session = SessionLocal()
         try:

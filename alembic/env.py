@@ -9,9 +9,13 @@ from alembic import context
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Load .env before anything else reads DATABASE_URL
+# Load .env before anything else reads DATABASE_URL.
+# override=False: a DATABASE_URL exported in the real environment (e.g.
+# `DATABASE_URL=... alembic upgrade head` targeting a scratch DB) must win
+# over the .env default. With override=True the .env value clobbered the
+# caller's URL and ad-hoc migration runs silently hit the dev database.
 from dotenv import load_dotenv
-load_dotenv(override=True)
+load_dotenv(override=False)
 
 from app.database import Base
 from app.models import *  # noqa: F401, F403

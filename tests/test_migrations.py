@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.main import _db_already_initialized
+from app.main import _db_already_initialized, _ensure_required_columns
 
 
 CREATE_APP_CONFIG = """
@@ -105,3 +105,65 @@ def test_stale_revision_is_not_initialized(stale_db):
 
 def test_head_revision_is_initialized(head_db):
     assert _db_already_initialized(head_db) is True
+
+
+def test_ensure_required_columns_heals_old_shape_anomaly_results():
+    """Old-shape DB stamped at head must be healed by the startup column check.
+
+    Reproduces the /analysis/outliers 500: a DB created before the peer-metadata
+    migrations and stamped at head (so alembic never revisits it) lacks the
+    peer columns; the ORM selects them unconditionally → "no such column:
+    peer_count". create_all never adds columns to existing tables, so
+    _ensure_required_columns must add them.
+    """
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    try:
+        with engine.begin() as conn:
+            # Old anomaly_results shape: no peer columns at all
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE anomaly_results (
+                    id INTEGER NOT NULL PRIMARY KEY,
+                    hospital_id INTEGER NOT NULL,
+                    month VARCHAR(7) NOT NULL,
+                    indicator_code VARCHAR(50) NOT NULL,
+                    rate_name VARCHAR(100) NOT NULL,
+                    value FLOAT,
+                    benchmark FLOAT,
+                    z_score FLOAT,
+                    is_outlier BOOLEAN,
+                    created_at DATETIME
+                )
+                """
+            )
+            conn.exec_driver_sql(
+                "INSERT INTO anomaly_results (hospital_id, month, indicator_code, rate_name, value, z_score, is_outlier) "
+                "VALUES (1, '2026-06', '17', 'nmr', 15.0, 2.4, 1)"
+            )
+
+        # No columns added yet → ORM select must fail with the user's error
+        from sqlalchemy import select
+        from app.models import AnomalyResult
+        with pytest.raises(Exception, match="no such column"):
+            with engine.connect() as conn:
+                conn.execute(select(AnomalyResult.peer_count)).all()
+
+        _ensure_required_columns(engine)
+
+        # All model columns present now; pre-existing row reads as NULL
+        from sqlalchemy import inspect as sa_inspect
+        cols = {c["name"] for c in sa_inspect(engine).get_columns("anomaly_results")}
+        for name in ("peer_count", "peer_std", "peer_min", "peer_max", "peer_median", "peers_detail"):
+            assert name in cols
+        with engine.connect() as conn:
+            row = conn.execute(select(AnomalyResult.peer_count, AnomalyResult.peers_detail)).first()
+        assert row == (None, None)
+
+        # Idempotent: a second run must not raise or re-add anything
+        _ensure_required_columns(engine)
+    finally:
+        engine.dispose()
