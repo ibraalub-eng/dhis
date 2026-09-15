@@ -231,7 +231,7 @@ function _bindAll(mod, label) {
       _bind(mod, '_vbDragLeave'); _bind(mod, '_vbDrop'); _bind(mod, '_vbRemoveFromZone');
       _bind(mod, '_vbOnPaletteSearch'); _bind(mod, '_vbOnThresholdChange');
       _bind(mod, '_vbOnZThresholdChange'); _bind(mod, '_vbOnFactorChange');
-      _bind(mod, '_vbOnGeFactorChange');
+      _bind(mod, '_vbOnGeFactorChange'); _bind(mod, '_vbOnOpChange');
       _bind(mod, 'ruleExprTemplate'); _bind(mod, 'toggleExprHelp');
       _bind(mod, 'openRuleModal'); _bind(mod, 'closeRuleModal');
       _bind(mod, 'saveRule'); _bind(mod, 'deleteRule');

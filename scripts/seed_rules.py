@@ -735,7 +735,7 @@ RULES = [
         "description": "Neonatal Deaths must be strictly less than Live Births — equality or more is clinically impossible",
     },
     # ============================================
-    # GROUP 7: FORMULA EXPRESSIONS (R072)
+    # GROUP 7: FORMULA EXPRESSIONS (R072-R076)
     # ============================================
     {
         "code": "R072",
@@ -746,6 +746,46 @@ RULES = [
         "expression_type": "formula",
         "params": json.dumps({"formula": "({6.e} * 2) - {7}", "target": "6"}),
         "description": "(Number of twins/multiples * 2) - Stillbirths >24w should equal Live Births",
+    },
+    {
+        "code": "R073",
+        "name": "Stillbirths <= Live Births",
+        "rule_type": "LOGIC",
+        "severity": "MEDIUM",
+        "category": "BASIC_LOGIC",
+        "expression_type": "formula",
+        "params": json.dumps({"formula": "{7}", "target": "6", "op": "<="}),
+        "description": "Stillbirths >24w must not exceed Live Births — a stillbirth-to-live-birth ratio above 1 flags implausible data",
+    },
+    {
+        "code": "R074",
+        "name": "Maternal Deaths < Total Deliveries (strict)",
+        "rule_type": "CLINICAL",
+        "severity": "CRITICAL",
+        "category": "CLINICAL_CONSISTENCY",
+        "expression_type": "formula",
+        "params": json.dumps({"formula": "{11}", "target": "2", "op": "<"}),
+        "description": "Maternal Deaths must be strictly less than Total Deliveries — equality is clinically impossible",
+    },
+    {
+        "code": "R075",
+        "name": "Adolescent deliveries < 50% of total",
+        "rule_type": "CLINICAL",
+        "severity": "LOW",
+        "category": "PLAUSIBILITY",
+        "expression_type": "formula",
+        "params": json.dumps({"formula": "({2.c} + {2.d})", "target": "2", "op": "<"}),
+        "description": "(<10y + 10-19y deliveries) must be strictly below Total Deliveries — an adolescent share at or above 50% flags implausible data",
+    },
+    {
+        "code": "R076",
+        "name": "SMM complications < 25% of deliveries",
+        "rule_type": "CLINICAL",
+        "severity": "MEDIUM",
+        "category": "PLAUSIBILITY",
+        "expression_type": "formula",
+        "params": json.dumps({"formula": "{10} * 4", "target": "2", "op": "<"}),
+        "description": "4 × SMM complications must be strictly below Total Deliveries — a severe-morbidity share at or above 25% flags implausible data",
     },
 ]
 

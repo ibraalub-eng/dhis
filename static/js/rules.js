@@ -115,7 +115,27 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _vbStateReset(expr) {
-            _vbState = { _expr: expr, parent:'', child:'', children:[], numerator:'', denominator:'', threshold:80, z_threshold:2.5, indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], target:'' };
+            _vbState = { _expr: expr, parent:'', child:'', children:[], numerator:'', denominator:'', threshold:80, z_threshold:2.5, indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], target:'', op:'=' };
+        }
+
+        // ── Formula comparison operator helpers ────────────────────
+        const _FORMULA_OP_ORDER = ['=', '!=', '>', '<', '>=', '<='];
+
+        function _formulaOpDef(op) {
+            const syms = { '=': '=', '!=': '\u2260', '>': '>', '<': '<', '>=': '\u2265', '<=': '\u2264' };
+            const cls = (op === '=' || op === '!=') ? 'eq' : (op === '>' || op === '>=') ? 'gt' : 'lt';
+            return { sym: syms[op] || '=', cls: cls };
+        }
+
+        function _formulaRelText(op) {
+            switch (op) {
+                case '!=': return __('formula result \u2260 target indicator');
+                case '>':  return __('formula result > target indicator');
+                case '<':  return __('formula result < target indicator');
+                case '>=': return __('formula result \u2265 target indicator');
+                case '<=': return __('formula result \u2264 target indicator');
+                default:   return __('formula result == target indicator');
+            }
         }
 
         // ── Formula helpers ────────────────────────────────────────
@@ -184,7 +204,7 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'missing':
                     return JSON.stringify({ code: _vbState.indicator || '' });
                 case 'formula':
-                    return JSON.stringify({ formula: _formulaPartsToString(_vbState.formulaParts || []), target: _vbState.target || '' });
+                    return JSON.stringify({ formula: _formulaPartsToString(_vbState.formulaParts || []), target: _vbState.target || '', op: _vbState.op || '=' });
                 default:
                     return '{}';
             }
@@ -297,6 +317,8 @@ import { confirmDestructive } from './confirm-modal.js';
 
         function _buildVBFormula(expr) {
             let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
+            const op = _vbState.op || '=';
+            const def = _formulaOpDef(op);
             html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">' + __('Formula (left side)') + '</div>';
             html += '<div class="vb-dropzone" id="vb_zone_formula" ondragover="_vbDragOver(event)" ondragenter="_vbDragEnter(event)" ondragleave="_vbDragLeave(event)" ondrop="_vbDropFormula(event)">';
             html += '<div class="vb-dropzone-label">' + __('Drop indicators here') + ' <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem;">(' + __('or use buttons below') + ')</span></div>';
@@ -324,7 +346,12 @@ import { confirmDestructive } from './confirm-modal.js';
             html += '<span style="margin-left:0.4rem;display:inline-flex;align-items:center;gap:0.25rem;"><input type="number" id="vb_formula_num_input" class="vb-num-input" style="width:60px;" value="" placeholder="&#8484;" step="any"><button class="vb-formula-btn" onclick="_vbFormulaAddNum()">+</button></span>';
             html += '<button class="vb-formula-btn vb-formula-btn-danger" onclick="_vbFormulaClear()" title="Clear all">&times; ' + __('Clear') + '</button>';
             html += '</div>';
-            html += '<div class="vb-relation-box"><span class="vb-relation-symbol eq">=</span> ' + __('formula result == target indicator') + '</div>';
+            html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + def.cls + '" id="vb_op_symbol">' + def.sym + '</span> ';
+            html += '<select id="vb_op_select" style="font-size:0.78rem;padding:0.15rem 0.3rem;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;" onchange="_vbOnOpChange()" title="' + __('Comparison operator') + '">';
+            html += _FORMULA_OP_ORDER.map(function(o) {
+                return '<option value="' + o + '"' + (o === op ? ' selected' : '') + '>' + _formulaRelText(o) + '</option>';
+            }).join('');
+            html += '</select></div>';
             html += _vbZoneHTML('vb_zone_target', __('Target Indicator'), _vbState.target ? [_vbState.target] : [], false, __('Drop target indicator here'));
             html += '</div>';
             return html;
@@ -360,6 +387,16 @@ import { confirmDestructive } from './confirm-modal.js';
             const inp = document.getElementById('vb_gefactor_input');
             _vbState.ge_factor = inp ? parseFloat(inp.value) : 1.1;
             _vbUpdateHidden();
+        }
+
+        export function _vbOnOpChange() {
+            const sel = document.getElementById('vb_op_select');
+            if (!sel) return;
+            _vbState.op = sel.value;
+            _vbUpdateHidden();
+            const def = _formulaOpDef(_vbState.op);
+            const symEl = document.getElementById('vb_op_symbol');
+            if (symEl) { symEl.textContent = def.sym; symEl.className = 'vb-relation-symbol ' + def.cls; }
         }
 
         export function _vbFormulaAddOp(op) {
@@ -479,6 +516,7 @@ import { confirmDestructive } from './confirm-modal.js';
             } else if (expr === 'formula') {
                 _vbState.formulaParts = _formulaStringToParts(params.formula || '');
                 _vbState.target = params.target || '';
+                _vbState.op = params.op || '=';
             }
             buildVisualBuilder(expr);
         }

@@ -2802,7 +2802,7 @@ function loadHospitalsSettings() {
             'decimal_check': {title: 'FAIL if any listed code has decimal', text: 'Checks that all listed count indicators are whole numbers (integers). Counts should not have decimal values. Takes codes[] list.'},
             'missing': {title: 'FAIL if indicator has no value', text: 'Checks whether a critical indicator code is present in the data. FAIL if the indicator is missing (null/undefined). Takes a single code.'},
             'all_zero': {title: 'FAIL if ALL listed codes are zero', text: 'Checks if all key indicators are zero, suggesting the facility may not be operational or data is missing. Takes codes[] list.'},
-            'formula': {title: 'formula result == target indicator', text: 'FAILs when the evaluated arithmetic formula does not exactly equal the target indicator. Supports +, -, *, /, parentheses, numeric constants, and indicator codes. Example: {"formula":"(6.e * 2) - 7","target":"6"} evaluates (Number of twins × 2) - Stillbirths and compares to Live Births.'},
+            'formula': {title: 'formula result ≤/≥/=/≠ target indicator', text: 'FAILs when the evaluated arithmetic formula does not satisfy the chosen comparison with the target indicator. Supports +, -, *, /, parentheses, numeric constants, indicator codes, and the operators =, ≠, >, <, ≥, ≤. Example: {"formula":"(6.e * 2) - 7","target":"6","op":">"} evaluates (Number of twins × 2) - Stillbirths and FAILs unless it is strictly greater than Live Births.'},
         };
 
 

@@ -24,6 +24,14 @@
             'Indicator Tree': 'شجرة المؤشرات',
             'Rules Manager': 'إدارة القواعد',
             'Root Cause': 'تحليل الأسباب الجذرية',
+            // Rules Manager: formula comparison operator
+            'Comparison operator': 'معامل المقارنة',
+            'formula result == target indicator': 'نتيجة المعادلة == المؤشر الهدف',
+            'formula result \u2260 target indicator': 'نتيجة المعادلة \u2260 المؤشر الهدف',
+            'formula result > target indicator': 'نتيجة المعادلة > المؤشر الهدف',
+            'formula result < target indicator': 'نتيجة المعادلة < المؤشر الهدف',
+            'formula result \u2265 target indicator': 'نتيجة المعادلة \u2265 المؤشر الهدف',
+            'formula result \u2264 target indicator': 'نتيجة المعادلة \u2264 المؤشر الهدف',
             // Root Cause peer-group selector
             'Peer Group:': 'مجموعة النظير:',
             'Auto': 'تلقائي',
