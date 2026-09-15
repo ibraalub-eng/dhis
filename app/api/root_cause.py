@@ -69,6 +69,16 @@ def get_root_cause_timeline(
             for p in pts:
                 month_peers.setdefault(p.month, []).append(p.value)
 
+        # Per-indicator peer list for the report month: peers whose history
+        # covers this month, each with its value for THIS indicator — lets the
+        # Peer Hospitals table follow the timeline's indicator selection.
+        peers_detail = []
+        for peer_name, pts in peers.items():
+            pt = next((p for p in pts if p.month == month), None)
+            if pt is not None:
+                peers_detail.append({"hospital": peer_name, "value": round(pt.value, 2)})
+        peers_detail.sort(key=lambda x: x["value"])
+
         series = []
         for p in hist:
             pvals = month_peers.get(p.month)
@@ -95,6 +105,7 @@ def get_root_cause_timeline(
             "indicator_code": code,
             "indicator_name": ar_name,
             "series": series,
+            "peers_detail": peers_detail,
         })
 
     return {

@@ -240,6 +240,8 @@ function loadHospitalsSettings() {
             const chartEl = document.getElementById('rcTimelineChart');
             const textEl = document.getElementById('rcTimelineText');
             if (!chartEl || !ind) return;
+            // Keep the Peer Hospitals table in sync with the selected indicator
+            _renderRcPeerHospitalsTable(ind);
 
             const months = ind.series.map(p => p.month);
             const hv = ind.series.map(p => p.hospital_value);
@@ -572,9 +574,86 @@ function loadHospitalsSettings() {
             });
         }
 
+        let _rcReportData = null;
+
+        // Peer Hospitals table — per selected timeline indicator when available:
+        // lists each peer with its value for the chosen indicator (report month).
+        function _renderRcPeerHospitalsTable(ind) {
+            const peerHospEl = document.getElementById('rcPeerHospitals');
+            if (!peerHospEl) return;
+            const d = _rcReportData;
+            if (!d) return;
+            const mth = d._month || d.month || '';
+            const peersList = (ind && ind.peers_detail && ind.peers_detail.length)
+                ? ind.peers_detail
+                : (d.peer_hospitals || []);
+            const perIndicator = ind && ind.peers_detail && ind.peers_detail.length;
+            peerHospEl.innerHTML = '';
+            if (perIndicator) {
+                const rows = ind.peers_detail.map(p => {
+                    const meta = (d.peer_hospitals || []).find(h => h.name === p.hospital) || {};
+                    return {
+                        ...p,
+                        hospital_id: meta.hospital_id,
+                        governorate: meta.governorate || '',
+                        hospital_type: meta.hospital_type || '',
+                    };
+                });
+                const indName = esc(ind.indicator_name || ind.indicator_code);
+                peerHospEl.innerHTML =
+                    '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">نظير مؤشر <strong>' + indName + '</strong> لشهر ' + esc(mth) + ' — ' + rows.length + ' مستشفى (مرتبة حسب القيمة)</div>' +
+                    '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
+                    '<thead><tr style="font-size:0.68rem;color:var(--text-muted);text-align:right;">' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المستشفى</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المحافظة</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">النوع</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">القيمة</th>' +
+                    '</tr></thead><tbody>' +
+                    rows.map((p, i) => {
+                        const click = p.hospital_id
+                            ? ' onclick="goRootCause(' + p.hospital_id + ', \'' + mth + '\')" title="فتح تحليل الجذر لهذا المستشفى"'
+                            : '';
+                        const style = 'padding:0.3rem 0.5rem;';
+                        const valStyle = (i === 0)
+                            ? style + 'font-weight:700;color:var(--accent-green);'
+                            : style + 'font-size:0.74rem;';
+                        return '<tr' + click + ' style="cursor:pointer;border-bottom:1px dashed #e5e7eb;">' +
+                            '<td style="padding:0.3rem 0.5rem;font-weight:600;font-size:0.78rem;">' + esc(p.hospital) + '</td>' +
+                            '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.governorate) + '</td>' +
+                            '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.hospital_type) + '</td>' +
+                            '<td style="' + valStyle + 'text-align:left;direction:ltr;">' + p.value + '</td>' +
+                        '</tr>';
+                    }).join('') +
+                    '</tbody></table></div>';
+            } else if (peersList.length) {
+                const matchLabel = d.peer_match_by === 'type' ? 'نفس نوع المستشفى'
+                    : d.peer_match_by === 'governorate' ? 'نفس المحافظة'
+                    : d.peer_match_by === 'ownership' ? 'نفس الملكية' : 'جميع المستشفيات النشطة';
+                const basisHtml = matchLabel
+                    ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">مطابقة النظير: <strong>' + esc(matchLabel) + '</strong> — ' + peersList.length + ' مستشفى</div>'
+                    : '';
+                peerHospEl.innerHTML = basisHtml + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
+                    '<thead><tr style="font-size:0.68rem;color:var(--text-muted);text-align:right;">' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المستشفى</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المحافظة</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">النوع</th>' +
+                    '</tr></thead><tbody>' +
+                    peersList.map(p =>
+                        '<tr style="cursor:pointer;border-bottom:1px dashed #e5e7eb;" onclick="goRootCause(' + p.hospital_id + ', \'' + mth + '\')" title="فتح تحليل الجذر لهذا المستشفى">' +
+                            '<td style="padding:0.3rem 0.5rem;font-weight:600;font-size:0.78rem;">' + esc(p.name) + '</td>' +
+                            '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.governorate) + '</td>' +
+                            '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.hospital_type) + '</td>' +
+                        '</tr>'
+                    ).join('') +
+                    '</tbody></table></div>';
+            } else {
+                peerHospEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مستشفيات نظيرة للمقارنة.</div>';
+            }
+        }
+
         function _renderRootCauseResult(d, hid, mth) {
+            _rcReportData = { ...d, month: d.month || mth, _month: mth };
             // KPI Banner
-            const qs = d.overall_quality_score || 0;
             const qsColor = qs >= 80 ? 'var(--accent-green)' : qs >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
             const conf = d.overall_confidence || 0;
             const confColor = conf >= 80 ? 'var(--accent-green)' : conf >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
@@ -1214,36 +1293,10 @@ function loadHospitalsSettings() {
                     }
                 }
 
-                // ── Peer Hospitals: actual peer hospitals (click to drill into their root cause) ──
-                const peerHospEl = document.getElementById('rcPeerHospitals');
-                if (peerHospEl) {
-                    peerHospEl.innerHTML = '';
-                    const peersList = d.peer_hospitals || [];
-                    if (peersList.length) {
-                        const matchLabel = d.peer_match_by === 'type' ? 'نفس نوع المستشفى'
-                            : d.peer_match_by === 'governorate' ? 'نفس المحافظة'
-                            : d.peer_match_by === 'ownership' ? 'نفس الملكية' : 'جميع المستشفيات النشطة';
-                        const basisHtml = matchLabel
-                            ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">مطابقة النظير: <strong>' + esc(matchLabel) + '</strong> — ' + peersList.length + ' مستشفى</div>'
-                            : '';
-                        peerHospEl.innerHTML = basisHtml + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
-                            '<thead><tr style="font-size:0.68rem;color:var(--text-muted);text-align:right;">' +
-                            '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المستشفى</th>' +
-                            '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المحافظة</th>' +
-                            '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">النوع</th>' +
-                            '</tr></thead><tbody>' +
-                            peersList.map(p =>
-                                '<tr style="cursor:pointer;border-bottom:1px dashed #e5e7eb;" onclick="goRootCause(' + p.hospital_id + ', \'' + mth + '\')" title="فتح تحليل الجذر لهذا المستشفى">' +
-                                    '<td style="padding:0.3rem 0.5rem;font-weight:600;font-size:0.78rem;">' + esc(p.name) + '</td>' +
-                                    '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.governorate) + '</td>' +
-                                    '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.hospital_type) + '</td>' +
-                                '</tr>'
-                            ).join('') +
-                            '</tbody></table></div>';
-                    } else {
-                        peerHospEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مستشفيات نظيرة للمقارنة.</div>';
-                    }
-                }
+                // ── Peer Hospitals table: rendered from the stored report by
+                // _renderRcPeerHospitalsTable — it follows the selected timeline
+                // indicator (peers_detail) and falls back to peer_hospitals.
+                _renderRcPeerHospitalsTable(null);
 
                 // ── Timeline: indicator value vs peer average with 95% CI band ──
                 apiGet('/root-cause/' + hid + '/timeline?month=' + mth + '&months_back=6' + _rcPeerQ()).then(tl => {

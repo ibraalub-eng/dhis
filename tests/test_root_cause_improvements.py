@@ -995,3 +995,79 @@ def test_frontend_peer_mode_dropdown_present():
         main = f.read()
     assert "lastRcPeerMode" in main
     assert main.count("lastRcPeerMode") >= 2  # save + restore mappings
+
+
+# ── Timeline peer table follows the selected indicator ──────────────
+
+def test_timeline_returns_peers_detail_per_indicator(db_session):
+    """Each timeline indicator carries peers_detail: every peer with data for
+    the report month and its value for THAT indicator, sorted ascending."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+    from app.database import get_db
+    from app.models import Hospital, HospitalType, Governorate, Indicator, IndicatorValue
+
+    gov = Governorate(name="TlGov")
+    htype = HospitalType(name="TlType")
+    db_session.add_all([gov, htype])
+    db_session.flush()
+    target = Hospital(name="TlTarget", hospital_type_id=htype.id,
+                      governorate_id=gov.id, is_active=True)
+    peers = [Hospital(name=f"TlPeer{i}", hospital_type_id=htype.id,
+                      governorate_id=gov.id, is_active=True) for i in range(3)]
+    db_session.add_all([target] + peers)
+    db_session.flush()
+
+    code_to_id = {i.code: i.id for i in db_session.query(Indicator).all()}
+    for h in [target] + peers:
+        high = h is target
+        for month in ("2026-05", "2026-06"):
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id["5"],
+                                          month=month, value=80 if high else 40))
+            db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=code_to_id["2"],
+                                          month=month, value=200))
+    db_session.commit()
+
+    def override_get_db():
+        try:
+            yield db_session
+        finally:
+            pass
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        client = TestClient(app)
+        resp = client.get(f"/root-cause/{target.id}/timeline?month=2026-06&months_back=6&peer_mode=all")
+        assert resp.status_code == 200
+        data = resp.json()
+        by_code = {i["indicator_code"]: i for i in data["indicators"]}
+
+        cs = by_code["5"]
+        assert cs["peers_detail"] == [
+            {"hospital": f"TlPeer{i}", "value": 40.0} for i in range(3)
+        ]  # sorted ascending, target excluded, values for indicator 5 only
+        june = next(p for p in cs["series"] if p["month"] == "2026-06")
+        assert june["peer_count"] == 3
+
+        deliveries = by_code["2"]
+        assert deliveries["peers_detail"] == [
+            {"hospital": f"TlPeer{i}", "value": 200.0} for i in range(3)
+        ]  # different values for a different indicator
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_frontend_peer_table_follows_timeline_selection():
+    """The Peer Hospitals table re-renders from the selected timeline
+    indicator (peers_detail) and falls back to the group list."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "function _renderRcPeerHospitalsTable" in js
+    # called from the chart draw so a dropdown change updates the table
+    assert "_renderRcPeerHospitalsTable(ind)" in js
+    # and once with null on initial report render (group-based fallback)
+    assert "_renderRcPeerHospitalsTable(null)" in js
+    assert "peers_detail" in js
+    # report payload stored for the table's group fallback + drill-down month
+    assert "_rcReportData = { ...d, month: d.month || mth, _month: mth }" in js
