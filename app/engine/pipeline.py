@@ -430,6 +430,16 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
         raise
     except Exception:
         logger.exception("Full analysis failed for %s/%s; saving fallback quality report", hospital_id, month)
+        # The failed step (e.g. _save_anomaly_results) aborts the DB transaction
+        # (PostgreSQL: "current transaction is aborted"). Any further use of the
+        # session without rollback raises InFailedSqlTransaction — "This
+        # Session's transaction has been rolled back due to a previous
+        # exception" — which then cascades to every later hospital/month of a
+        # bulk re-analysis. Reset the session before the fallback save.
+        try:
+            session.rollback()
+        except Exception:
+            logger.exception("Rollback after analysis failure failed for %s/%s", hospital_id, month)
         try:
             _save_quality_score(session, hospital_id, month, {
                 "score": 0,
@@ -441,6 +451,7 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
             })
         except Exception:
             logger.exception("Could not save fallback quality report for %s/%s", hospital_id, month)
+            session.rollback()
         hospital = session.query(Hospital).filter(Hospital.id == hospital_id).first()
         return {
             "hospital": hospital.name if hospital else None,

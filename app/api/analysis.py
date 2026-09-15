@@ -551,6 +551,56 @@ def get_enabled_months(db: Session, hospital_id: int = None) -> list:
     return [m for m in all_months if m not in disabled]
 
 
+def _run_reanalyze_all(hosp_list, frc, progress_cb=None):
+    """Re-run run_full_analysis for every enabled month of the given hospitals.
+
+    A failed month rolls the shared session back (PostgreSQL aborts the whole
+    transaction on error — without rollback every later month fails with
+    InFailedSqlTransaction, "This Session's transaction has been rolled back
+    due to a previous exception", instead of its own real error) and is
+    collected. If any month failed, RuntimeError is raised AFTER the loop with
+    a summary so the caller (run_task) marks the task as 'error' and the
+    settings screen shows it instead of a misleading "done".
+    """
+    bg_db = SessionLocal()
+    try:
+        total = 0
+        skipped = 0
+        errors = []
+        # Calculate total work across all hospitals with their enabled months
+        total_work = 0
+        for h in hosp_list:
+            h_months = get_enabled_months(bg_db, hospital_id=h.id)
+            total_work += len(h_months)
+        done = 0
+        for h in hosp_list:
+            h_months = get_enabled_months(bg_db, hospital_id=h.id)
+            for m in h_months:
+                try:
+                    from app.engine.pipeline import check_analysis_exists
+                    if not frc and check_analysis_exists(bg_db, h.id, m):
+                        skipped += 1
+                    else:
+                        run_full_analysis(bg_db, h.id, m, force=frc)
+                        total += 1
+                except Exception as e:
+                    bg_db.rollback()
+                    errors.append(f"H{h.id}/{m}: {e}")
+                done += 1
+                if progress_cb:
+                    progress_cb(int(done / total_work * 100) if total_work > 0 else 0)
+        # Clear cache after re-analysis so fresh data is served
+        cache.invalidate()
+        if errors:
+            raise RuntimeError(
+                f"{len(errors)} of {total + skipped + len(errors)} analyses failed. "
+                f"First: {errors[0]}"
+            )
+        return {"analyzed": total, "skipped": skipped}
+    finally:
+        bg_db.close()
+
+
 @router.post("/reanalyze-all")
 def reanalyze_all(
     force: bool = Query(False, description="Force re-analysis even if cached results exist"),
@@ -561,38 +611,11 @@ def reanalyze_all(
     task_id = create_task("Re-analyze All", lambda: None)
 
     def _run(tid, hosp_list, frc):
-        bg_db = SessionLocal()
-        try:
-            total = 0
-            skipped = 0
-            errors = []
-            # Calculate total work across all hospitals with their enabled months
-            total_work = 0
-            for h in hosp_list:
-                h_months = get_enabled_months(bg_db, hospital_id=h.id)
-                total_work += len(h_months)
-            done = 0
-            for h in hosp_list:
-                h_months = get_enabled_months(bg_db, hospital_id=h.id)
-                for m in h_months:
-                    try:
-                        from app.engine.pipeline import check_analysis_exists
-                        if not frc and check_analysis_exists(bg_db, h.id, m):
-                            skipped += 1
-                        else:
-                            run_full_analysis(bg_db, h.id, m, force=frc)
-                            total += 1
-                    except Exception as e:
-                        errors.append(f"H{h.id}/{m}: {e}")
-                    done += 1
-                    from app.tasks import set_progress
-                    set_progress(tid, int(done / total_work * 100) if total_work > 0 else 0)
-            # Clear cache after re-analysis so fresh data is served
-            cache.invalidate()
-            from app.tasks import set_status
-            set_status(tid, "done")
-        finally:
-            bg_db.close()
+        from app.tasks import set_progress
+        # Returning the counts lets run_task store them as the task result;
+        # on month failures _run_reanalyze_all raises and run_task marks the
+        # task as 'error' with the summary message.
+        return _run_reanalyze_all(hosp_list, frc, progress_cb=lambda pct: set_progress(tid, pct))
 
     if background_tasks is not None:
         background_tasks.add_task(run_task, task_id, _run, task_id, hospitals, force)

@@ -1,5 +1,6 @@
 """Tests for the pipeline orchestrator (engine.pipeline)."""
 import pytest
+from sqlalchemy import text
 from app.engine.pipeline import (
     run_full_analysis,
     get_values_for_hospital_month,
@@ -9,7 +10,7 @@ from app.engine.pipeline import (
     get_historical_months,
     check_analysis_exists,
 )
-from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig, SystemSetting
+from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig, QualityScore, SystemSetting
 
 
 class TestGetValuesForHospitalMonth:
@@ -250,3 +251,87 @@ class TestRunFullAnalysis:
         assert "consistency" in result
         assert "outlier_penalty" in result
         assert "issues" in result
+
+
+class TestAnalysisFailureRecovery:
+    """Regression tests for the settings-screen re-analysis 500:
+    'This Session's transaction has been rolled back due to a previous
+    exception' (psycopg2 UndefinedColumn on anomaly_results.peer_*)."""
+
+    def test_failed_save_rolls_back_and_still_persists_fallback(self, db_session, monkeypatch, sample_values):
+        """A failing save step (e.g. UndefinedColumn) must not poison the
+        session: run_full_analysis rolls back before the fallback save, so a
+        0-score QualityReport row is still persisted and the session stays
+        usable for the next hospital/month."""
+        from app.engine import pipeline
+
+        hospital = db_session.query(Hospital).first()
+        for code, value in sample_values.items():
+            ind = db_session.query(Indicator).filter(Indicator.code == code).first()
+            if ind:
+                db_session.add(IndicatorValue(hospital_id=hospital.id, indicator_id=ind.id, month="2026-04", value=value))
+        db_session.commit()
+
+        def poisoned_save(session, hospital_id, month, results):
+            # Simulate PostgreSQL aborting the transaction: once a statement
+            # fails there, every later statement raises until ROLLBACK.
+            # SQLAlchemy reproduces the exact user-facing error
+            # (PendingRollbackError) for any subsequent use of the session.
+            try:
+                session.execute(text("SELECT * FROM no_such_table_xyz"))
+            except Exception:
+                pass
+            raise RuntimeError("simulated UndefinedColumn: column \"peer_count\" does not exist")
+
+        monkeypatch.setattr(pipeline, "_save_anomaly_results", poisoned_save)
+
+        result = run_full_analysis(db_session, hospital.id, "2026-04")
+
+        assert result["data_quality_score"] == 0
+        # Fallback report persisted (impossible while the session is poisoned)
+        qs = db_session.query(QualityScore).filter_by(hospital_id=hospital.id, month="2026-04").first()
+        assert qs is not None and qs.score == 0
+        # Session remains usable
+        assert db_session.query(Hospital).count() >= 1
+
+    def test_reanalyze_loop_recovers_and_surfaces_errors(self, db_session, monkeypatch):
+        """The bulk re-analysis loop must roll back after a failed month and
+        still analyze the remaining months, then raise a summary so the task
+        is reported as failed instead of silently 'done'."""
+        import app.api.analysis as analysis_api
+
+        hospital = db_session.query(Hospital).first()
+        monkeypatch.setattr(analysis_api, "get_enabled_months", lambda db, hospital_id=None: ["2026-01", "2026-02"])
+        monkeypatch.setattr(analysis_api, "SessionLocal", lambda: db_session)
+
+        class _FakeCache:
+            def invalidate(self, *a, **k):
+                pass
+
+        monkeypatch.setattr(analysis_api, "cache", _FakeCache())
+
+        state = {"attempted": [], "session_ok_second_month": False}
+
+        def fake_analysis(session, hospital_id, month, force=False):
+            state["attempted"].append(month)
+            if month == "2026-01":
+                try:
+                    session.execute(text("SELECT * FROM no_such_table_xyz"))
+                except Exception:
+                    pass
+                raise RuntimeError("simulated UndefinedColumn: peer_count")
+            # Second month: proves the loop rolled the session back — a
+            # poisoned session raises PendingRollbackError here.
+            session.execute(text("SELECT 1")).all()
+            state["session_ok_second_month"] = True
+            return {"ok": True}
+
+        monkeypatch.setattr(analysis_api, "run_full_analysis", fake_analysis)
+
+        with pytest.raises(RuntimeError, match="1 of 2 analyses failed"):
+            analysis_api._run_reanalyze_all([hospital], True)
+
+        assert state["attempted"] == ["2026-01", "2026-02"]  # loop continued
+        assert state["session_ok_second_month"] is True
+        db_session.rollback()
+        assert db_session.query(Hospital).count() >= 1  # session reusable
