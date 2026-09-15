@@ -358,17 +358,32 @@ def _eval_formula(expr_str: str, values: Dict[str, float]) -> Optional[float]:
         return None
 
 
-def _formula(formula_str: str, target_code: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
-    """Evaluate a formula and check exact equality with a target indicator."""
+_COMPARE_OPS = {
+    "=": lambda a, b: a == b,
+    "!=": lambda a, b: a != b,
+    ">": lambda a, b: a > b,
+    "<": lambda a, b: a < b,
+    ">=": lambda a, b: a >= b,
+    "<=": lambda a, b: a <= b,
+}
+
+
+def _formula(formula_str: str, target_code: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext, op: str = "=") -> RuleResult:
+    """Evaluate a formula and compare with a target indicator using a comparison operator.
+
+    Supported ops: =, !=, >, <, >=, <=
+    """
+    compare = _COMPARE_OPS.get(op, _COMPARE_OPS["="])
     formula_val = _eval_formula(formula_str, ctx.values)
     target_val = _v(ctx, target_code)
     if formula_val is None:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Formula could not be evaluated (missing data)")
     if target_val is None:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Target indicator {target_code} missing")
-    if formula_val == target_val:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Formula={formula_val} == {target_code}={target_val}")
-    return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"Formula={formula_val} != {target_code}={target_val}")
+    if compare(formula_val, target_val):
+        shown = "==" if op == "=" else op
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Formula={formula_val} {shown} {target_code}={target_val}")
+    return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"Formula={formula_val} {op} {target_code}={target_val}")
 
 
 def _all_zero_check(ctx: ValidationContext, code: str, desc: str) -> RuleResult:
@@ -651,7 +666,7 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
     elif expr == "all_zero":
         return _all_zero_check(ctx, code, desc)
     elif expr == "formula":
-        return _formula(params["formula"], params["target"], code, desc, sev, rtype, ctx)
+        return _formula(params["formula"], params["target"], code, desc, sev, rtype, ctx, op=params.get("op", "="))
     else:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Unknown expression type: {expr}")
 
