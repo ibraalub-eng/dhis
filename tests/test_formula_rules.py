@@ -126,3 +126,107 @@ def test_ref_codes_extracts_braces_and_target():
 def test_ref_codes_empty_when_no_braces():
     codes = _get_rule_ref_codes_from_expr("formula", {"formula": "2 * 3", "target": "6"})
     assert codes == ["6"]
+
+
+# ── formula comparison operators via dispatch_rule ─────────────────
+
+def _make_op_rule(op):
+    return _make_rule("R080", "formula", {"formula": "{6.e}", "target": "6", "op": op})
+
+
+def test_formula_op_equal_pass_and_fail():
+    ctx = _make_ctx({"6": 5, "6.e": 5})
+    result = dispatch_rule(_make_op_rule("="), ctx)
+    assert result.status == RuleStatus.PASS
+    assert "==" in result.details
+
+    ctx = _make_ctx({"6": 5, "6.e": 6})
+    result = dispatch_rule(_make_op_rule("="), ctx)
+    assert result.status == RuleStatus.FAIL
+
+
+def test_formula_op_not_equal_pass_and_fail():
+    ctx = _make_ctx({"6": 5, "6.e": 6})
+    result = dispatch_rule(_make_op_rule("!="), ctx)
+    assert result.status == RuleStatus.PASS
+    assert "!=" in result.details
+
+    ctx = _make_ctx({"6": 5, "6.e": 5})
+    result = dispatch_rule(_make_op_rule("!="), ctx)
+    assert result.status == RuleStatus.FAIL
+
+
+def test_formula_op_greater_than_pass_and_fail():
+    ctx = _make_ctx({"6": 5, "6.e": 6})
+    result = dispatch_rule(_make_op_rule(">"), ctx)
+    assert result.status == RuleStatus.PASS
+    assert ">" in result.details
+
+    # strict: equal values must FAIL (this is the > without equality)
+    ctx = _make_ctx({"6": 5, "6.e": 5})
+    result = dispatch_rule(_make_op_rule(">"), ctx)
+    assert result.status == RuleStatus.FAIL
+
+
+def test_formula_op_less_than_pass_and_fail():
+    ctx = _make_ctx({"6": 5, "6.e": 4})
+    result = dispatch_rule(_make_op_rule("<"), ctx)
+    assert result.status == RuleStatus.PASS
+    assert "<" in result.details
+
+    # strict: equal values must FAIL (this is the < without equality)
+    ctx = _make_ctx({"6": 5, "6.e": 5})
+    result = dispatch_rule(_make_op_rule("<"), ctx)
+    assert result.status == RuleStatus.FAIL
+
+
+def test_formula_op_greater_or_equal_pass_and_fail():
+    # equality edge: >= must PASS where > fails
+    ctx = _make_ctx({"6": 5, "6.e": 5})
+    result = dispatch_rule(_make_op_rule(">="), ctx)
+    assert result.status == RuleStatus.PASS
+    assert ">=" in result.details
+
+    ctx = _make_ctx({"6": 5, "6.e": 4})
+    result = dispatch_rule(_make_op_rule(">="), ctx)
+    assert result.status == RuleStatus.FAIL
+
+
+def test_formula_op_less_or_equal_pass_and_fail():
+    # equality edge: <= must PASS where < fails
+    ctx = _make_ctx({"6": 5, "6.e": 5})
+    result = dispatch_rule(_make_op_rule("<="), ctx)
+    assert result.status == RuleStatus.PASS
+    assert "<=" in result.details
+
+    ctx = _make_ctx({"6": 5, "6.e": 6})
+    result = dispatch_rule(_make_op_rule("<="), ctx)
+    assert result.status == RuleStatus.FAIL
+
+
+def test_formula_op_invalid_falls_back_to_equality():
+    """An unrecognized op falls back to '=' (never crashes, never inverts)."""
+    ctx = _make_ctx({"6": 5, "6.e": 5})
+    result = dispatch_rule(_make_op_rule("~garbage~"), ctx)
+    assert result.status == RuleStatus.PASS
+    assert "==" in result.details  # fallback renders the legacy equality message
+
+
+def test_formula_op_boundary_values_strictness_matrix():
+    """Truth table over the three boundary offsets for every operator."""
+    expectations = {
+        "=":  {"lt": False, "eq": True,  "gt": False},
+        "!=": {"lt": True,  "eq": False, "gt": True},
+        ">":  {"lt": False, "eq": False, "gt": True},
+        "<":  {"lt": True,  "eq": False, "gt": False},
+        ">=": {"lt": False, "eq": True,  "gt": True},
+        "<=": {"lt": True,  "eq": True,  "gt": False},
+    }
+    cases = {"lt": 4, "eq": 5, "gt": 6}  # formula value vs target 5
+    for op, expected in expectations.items():
+        for case, fval in cases.items():
+            ctx = _make_ctx({"6": 5, "6.e": fval})
+            result = dispatch_rule(_make_op_rule(op), ctx)
+            assert result.status == (RuleStatus.PASS if expected[case] else RuleStatus.FAIL), (
+                f"op={op!r} case={case} (formula={fval} vs target=5) -> {result.status}"
+            )

@@ -371,9 +371,11 @@ _COMPARE_OPS = {
 def _formula(formula_str: str, target_code: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext, op: str = "=") -> RuleResult:
     """Evaluate a formula and compare with a target indicator using a comparison operator.
 
-    Supported ops: =, !=, >, <, >=, <=
+    Supported ops: =, !=, >, <, >=, <=. Unknown ops fall back to '='.
     """
-    compare = _COMPARE_OPS.get(op, _COMPARE_OPS["="])
+    if op not in _COMPARE_OPS:
+        op = "="
+    compare = _COMPARE_OPS[op]
     formula_val = _eval_formula(formula_str, ctx.values)
     target_val = _v(ctx, target_code)
     if formula_val is None:
