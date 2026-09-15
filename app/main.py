@@ -327,10 +327,54 @@ def _ensure_auth_tables(session):
         print(f"[startup] Auth table creation error: {e}")
 
 
+def _ensure_permission_rows(session, codenames):
+    """Create missing Permission rows (self-heals partially-migrated DBs).
+
+    Migrations can be stamped at head while row inserts were never actually
+    applied (see deployed-Postgres condition described in 6128ff7). Permission
+    grants only link existing rows, so missing rows silently produce 403s
+    ("Missing permission: ...") for every non-superuser. Ensure the canonical
+    rows exist before granting.
+    """
+    from app.models import Permission
+    for codename in codenames:
+        if session.query(Permission.id).filter(Permission.codename == codename).first() is None:
+            session.add(Permission(codename=codename, description=f"Auto-granted permission"))
+    session.commit()
+
+
+CANONICAL_PERMISSION_CODENAMES = [
+    # Base schema (c3a1d5e7f920)
+    "dashboard.read", "analysis.read", "quality.read", "outliers.read",
+    "clinical.read", "alerts.read", "hospitals.read", "smart_analytics.read",
+    "rules.read", "root_cause.read", "audit.read", "settings.read",
+    "data.upload", "data.export", "smart_analytics.generate_report",
+    "system.manage_users",
+    # Extended permissions (e2f3a4b5c6d7)
+    "hospitals.write", "hospitals.manage",
+    "governorates.read", "governorates.write", "governorates.manage",
+    "hospital_types.read", "hospital_types.write", "hospital_types.manage",
+    "facility_ownerships.read", "facility_ownerships.write", "facility_ownerships.manage",
+    "facility_types.read", "facility_types.write", "facility_types.manage",
+    "data.read", "data.manage",
+    "reports.read", "reports.export",
+    "comparative.read", "regional.read",
+    "dashboard.write",
+    "rules.write", "rules.manage",
+    "settings.write",
+    "ai.read", "ai.write",
+    "system.read_audit", "system.manage_data", "system.export_data",
+    # Menu management (b6c7d8e9f0a1)
+    "menu.manage",
+]
+
+
 def _ensure_admin_user(session):
     """Seed default admin user if users table is empty."""
     try:
         from app.models import User, Role
+        _ensure_permission_rows(session, CANONICAL_PERMISSION_CODENAMES)
+
         admin = session.query(User).filter(User.username == "admin").first()
         if admin is None:
             from app.core.security import hash_password
@@ -379,8 +423,7 @@ def _ensure_admin_user(session):
         # Assign new permissions to admin role
         admin_role = session.query(Role).filter(Role.name == "admin").first()
         if admin_role:
-            write_manage_perms = session.query(Permission).filter(
-                Permission.codename.in_([
+            admin_grant_codenames = [
                     "hospitals.write", "hospitals.manage",
                     "governorates.read", "governorates.write", "governorates.manage",
                     "hospital_types.read", "hospital_types.write", "hospital_types.manage",
@@ -395,7 +438,9 @@ def _ensure_admin_user(session):
                     "ai.read", "ai.write",
                     "system.read_audit", "system.manage_data", "system.export_data",
                     "menu.manage",
-                ])
+            ]
+            write_manage_perms = session.query(Permission).filter(
+                Permission.codename.in_(admin_grant_codenames)
             ).all()
             existing_ids = {p.id for p in admin_role.permissions}
             new_perms = [p for p in write_manage_perms if p.id not in existing_ids]
