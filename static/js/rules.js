@@ -93,7 +93,7 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _vbHandleDrop(zoneId, code) {
-            const isSingle = ['vb_zone_parent','vb_zone_child','vb_zone_numerator','vb_zone_denominator','vb_zone_indicator'].includes(zoneId);
+            const isSingle = ['vb_zone_parent','vb_zone_child','vb_zone_numerator','vb_zone_denominator','vb_zone_indicator','vb_zone_target'].includes(zoneId);
             if (isSingle) {
                 _vbState[zoneId.replace('vb_zone_', '')] = code;
             } else if (zoneId === 'vb_zone_children' || zoneId === 'vb_zone_codes') {
@@ -115,7 +115,41 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _vbStateReset(expr) {
-            _vbState = { _expr: expr, parent:'', child:'', children:[], numerator:'', denominator:'', threshold:80, z_threshold:2.5, indicator:'', factor:2.0, ge_factor:1.1, codes:[] };
+            _vbState = { _expr: expr, parent:'', child:'', children:[], numerator:'', denominator:'', threshold:80, z_threshold:2.5, indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], target:'' };
+        }
+
+        // ── Formula helpers ────────────────────────────────────────
+        function _formulaPartsToString(parts) {
+            return parts.map(p => {
+                if (p.t === 'ind') return '{' + p.code + '}';
+                if (p.t === 'num') return String(p.val);
+                return p.op;
+            }).join(' ');
+        }
+
+        function _formulaStringToParts(str) {
+            var parts = [];
+            var i = 0;
+            while (i < str.length) {
+                var ch = str[i];
+                if (ch === ' ' || ch === '\t') { i++; continue; }
+                if (ch === '{') {
+                    var j = str.indexOf('}', i + 1);
+                    if (j === -1) break;
+                    parts.push({ t: 'ind', code: str.slice(i + 1, j) });
+                    i = j + 1;
+                } else if ('+-*/()'.includes(ch)) {
+                    parts.push({ t: 'op', op: ch });
+                    i++;
+                } else if (ch >= '0' && ch <= '9') {
+                    var start = i;
+                    while (i < str.length && ((str[i] >= '0' && str[i] <= '9') || str[i] === '.')) i++;
+                    parts.push({ t: 'num', val: parseFloat(str.slice(start, i)) });
+                } else {
+                    i++;
+                }
+            }
+            return parts;
         }
 
         // ── Build JSON params from visual state ────────────────────
@@ -149,6 +183,8 @@ import { confirmDestructive } from './confirm-modal.js';
                     return JSON.stringify({ codes: _vbState.codes || [] });
                 case 'missing':
                     return JSON.stringify({ code: _vbState.indicator || '' });
+                case 'formula':
+                    return JSON.stringify({ formula: _formulaPartsToString(_vbState.formulaParts || []), target: _vbState.target || '' });
                 default:
                     return '{}';
             }
@@ -259,6 +295,41 @@ import { confirmDestructive } from './confirm-modal.js';
             return html;
         }
 
+        function _buildVBFormula(expr) {
+            let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
+            html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">' + __('Formula (left side)') + '</div>';
+            html += '<div class="vb-dropzone" id="vb_zone_formula" ondragover="_vbDragOver(event)" ondragenter="_vbDragEnter(event)" ondragleave="_vbDragLeave(event)" ondrop="_vbDropFormula(event)">';
+            html += '<div class="vb-dropzone-label">' + __('Drop indicators here') + ' <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem;">(' + __('or use buttons below') + ')</span></div>';
+            var parts = _vbState.formulaParts || [];
+            for (var pi = 0; pi < parts.length; pi++) {
+                var p = parts[pi];
+                if (p.t === 'ind') {
+                    var ind = _indicatorsCache.find(function(x){return x.code === p.code;});
+                    var nm = ind ? ind.name : p.code;
+                    html += '<span class="vb-drag-chip vb-chip-ind" draggable="true" ondragstart="_vbDragStart(event,\'' + p.code + '\')"><span class="vb-chip-code">' + p.code + '</span> <span class="vb-chip-name">' + nm + '</span> <button class="vb-chip-del" onclick="_vbFormulaRemove(' + pi + ')">\u00d7</button></span>';
+                } else if (p.t === 'num') {
+                    html += '<span class="vb-drag-chip vb-chip-num"><span class="vb-chip-code">' + p.val + '</span> <button class="vb-chip-del" onclick="_vbFormulaRemove(' + pi + ')">\u00d7</button></span>';
+                } else {
+                    html += '<span class="vb-drag-chip vb-chip-op"><span class="vb-chip-code">' + p.op + '</span> <button class="vb-chip-del" onclick="_vbFormulaRemove(' + pi + ')">\u00d7</button></span>';
+                }
+            }
+            html += '</div>';
+            html += '<div class="vb-formula-toolbar">';
+            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'(\')" title="Open paren">(</button>';
+            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\')\')" title="Close paren">)</button>';
+            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'+\')" title="Add">+</button>';
+            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'-\')" title="Subtract">&minus;</button>';
+            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'*\')" title="Multiply">&times;</button>';
+            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'/\')" title="Divide">&divide;</button>';
+            html += '<span style="margin-left:0.4rem;display:inline-flex;align-items:center;gap:0.25rem;"><input type="number" id="vb_formula_num_input" class="vb-num-input" style="width:60px;" value="" placeholder="&#8484;" step="any"><button class="vb-formula-btn" onclick="_vbFormulaAddNum()">+</button></span>';
+            html += '<button class="vb-formula-btn vb-formula-btn-danger" onclick="_vbFormulaClear()" title="Clear all">&times; ' + __('Clear') + '</button>';
+            html += '</div>';
+            html += '<div class="vb-relation-box"><span class="vb-relation-symbol eq">=</span> ' + __('formula result == target indicator') + '</div>';
+            html += _vbZoneHTML('vb_zone_target', __('Target Indicator'), _vbState.target ? [_vbState.target] : [], false, __('Drop target indicator here'));
+            html += '</div>';
+            return html;
+        }
+
         // ── Event handlers ─────────────────────────────────────────
         export function _vbOnPaletteSearch() {
             const inp = document.getElementById('vb_palette_search');
@@ -291,6 +362,48 @@ import { confirmDestructive } from './confirm-modal.js';
             _vbUpdateHidden();
         }
 
+        export function _vbFormulaAddOp(op) {
+            if (!_vbState.formulaParts) _vbState.formulaParts = [];
+            _vbState.formulaParts.push({ t: 'op', op: op });
+            _vbRebuild();
+        }
+
+        export function _vbFormulaAddNum() {
+            var inp = document.getElementById('vb_formula_num_input');
+            if (!inp) return;
+            var val = parseFloat(inp.value);
+            if (isNaN(val)) return;
+            if (!_vbState.formulaParts) _vbState.formulaParts = [];
+            _vbState.formulaParts.push({ t: 'num', val: val });
+            inp.value = '';
+            _vbRebuild();
+        }
+
+        export function _vbFormulaAddIndicator(code) {
+            if (!_vbState.formulaParts) _vbState.formulaParts = [];
+            _vbState.formulaParts.push({ t: 'ind', code: code });
+            _vbRebuild();
+        }
+
+        export function _vbFormulaRemove(idx) {
+            if (!_vbState.formulaParts) return;
+            _vbState.formulaParts.splice(idx, 1);
+            _vbRebuild();
+        }
+
+        export function _vbFormulaClear() {
+            _vbState.formulaParts = [];
+            _vbRebuild();
+        }
+
+        export function _vbDropFormula(ev) {
+            ev.preventDefault();
+            ev.currentTarget.classList.remove('drag-over');
+            var code = _vbDragCode || ev.dataTransfer.getData('text/plain');
+            if (!code) return;
+            _vbFormulaAddIndicator(code);
+        }
+
         function _vbRebuild() {
             buildVisualBuilder(_vbState._expr);
         }
@@ -315,6 +428,8 @@ import { confirmDestructive } from './confirm-modal.js';
                 html = _buildVBList(expr);
             } else if (expr === 'missing') {
                 html = _buildVBSingle(expr);
+            } else if (expr === 'formula') {
+                html = _buildVBFormula(expr);
             }
             container.innerHTML = html;
             _vbUpdateHidden();
@@ -361,6 +476,9 @@ import { confirmDestructive } from './confirm-modal.js';
             } else if (listTypes.includes(expr) || expr === 'missing') {
                 _vbState.codes = params.codes || [];
                 _vbState.indicator = params.code || '';
+            } else if (expr === 'formula') {
+                _vbState.formulaParts = _formulaStringToParts(params.formula || '');
+                _vbState.target = params.target || '';
             }
             buildVisualBuilder(expr);
         }

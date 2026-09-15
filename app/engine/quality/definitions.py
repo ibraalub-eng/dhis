@@ -82,6 +82,7 @@ RULE_REF_CODES = {
     "R069": ["2", "6"],
     "R070": ["2", "7"],
     "R071": ["17", "6"],
+    "R072": ["6.e", "7", "6"],
 }
 
 
@@ -157,4 +158,5 @@ RULE_CATALOG = [
     {"code": "R069", "name": "Live Births <= 105% of Total Deliveries", "type": "LOGIC", "severity": "MEDIUM"},
     {"code": "R070", "name": "Total Deliveries > Fetal Deaths (strict)", "type": "LOGIC", "severity": "HIGH"},
     {"code": "R071", "name": "Neonatal Deaths < Live Births (strict)", "type": "CLINICAL", "severity": "HIGH"},
+    {"code": "R072", "name": "Twins formula: (6.e * 2) - Stillbirth = Live Births", "type": "LOGIC", "severity": "MEDIUM"},
 ]

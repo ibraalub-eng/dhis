@@ -255,6 +255,122 @@ def _cross_hospital_rate(num_code: str, den_code: str, z_thresh: float, code: st
     return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.BENCHMARK, f"Rate={cur_rate:.1f}%, z={z:.2f} (OK)")
 
 
+def _parse_formula_tokens(formula: str):
+    """Tokenize a formula string into: {'code', code} references, numbers, operators, parens.
+
+    Indicator codes must be wrapped in braces: {6.e}, {7}. Bare numbers are constants.
+    """
+    tokens = []
+    i = 0
+    while i < len(formula):
+        ch = formula[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if ch == '{':
+            j = formula.find('}', i + 1)
+            if j == -1:
+                raise ValueError("Unclosed '{' in formula")
+            tokens.append(('code', formula[i + 1:j]))
+            i = j + 1
+        elif ch in '+-*/()':
+            tokens.append(('op', ch))
+            i += 1
+        elif ch.isdigit():
+            j = i
+            while j < len(formula) and (formula[j].isdigit() or formula[j] == '.'):
+                j += 1
+            tokens.append(('num', float(formula[i:j])))
+            i = j
+        else:
+            raise ValueError(f"Unexpected character '{ch}' at position {i}")
+    return tokens
+
+
+def _eval_formula(expr_str: str, values: Dict[str, float]) -> Optional[float]:
+    """Evaluate a math expression with {indicator} codes, constants, and operators +,-,*,/,().
+
+    Codes referenced as {code} resolve from the values dict; a missing code yields None.
+    Returns None if any referenced indicator is missing or on error.
+    """
+    tokens = _parse_formula_tokens(expr_str)
+    pos = [0]
+
+    def peek():
+        return tokens[pos[0]] if pos[0] < len(tokens) else None
+
+    def consume():
+        tok = tokens[pos[0]]
+        pos[0] += 1
+        return tok
+
+    def parse_expr():
+        result = parse_term()
+        while peek() and peek()[1] in ('+', '-'):
+            op = consume()[1]
+            right = parse_term()
+            if result is None or right is None:
+                return None
+            result = result + right if op == '+' else result - right
+        return result
+
+    def parse_term():
+        result = parse_factor()
+        while peek() and peek()[1] in ('*', '/'):
+            op = consume()[1]
+            right = parse_factor()
+            if result is None or right is None:
+                return None
+            if op == '/' and right == 0:
+                return None
+            result = result * right if op == '*' else result / right
+        return result
+
+    def parse_factor():
+        tok = peek()
+        if tok is None:
+            return None
+        if tok[0] == 'num':
+            consume()
+            return tok[1]
+        if tok[0] == 'code':
+            consume()
+            return values.get(tok[1])
+        if tok[1] == '(':
+            consume()
+            result = parse_expr()
+            if peek() is None or peek()[1] != ')':
+                raise ValueError("Unbalanced parentheses in formula")
+            consume()
+            return result
+        if tok[1] == '-':
+            consume()
+            result = parse_factor()
+            return -result if result is not None else None
+        return None
+
+    try:
+        result = parse_expr()
+        if pos[0] != len(tokens):
+            raise ValueError("Unexpected trailing tokens in formula")
+        return result
+    except Exception:
+        return None
+
+
+def _formula(formula_str: str, target_code: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
+    """Evaluate a formula and check exact equality with a target indicator."""
+    formula_val = _eval_formula(formula_str, ctx.values)
+    target_val = _v(ctx, target_code)
+    if formula_val is None:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Formula could not be evaluated (missing data)")
+    if target_val is None:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Target indicator {target_code} missing")
+    if formula_val == target_val:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Formula={formula_val} == {target_code}={target_val}")
+    return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"Formula={formula_val} != {target_code}={target_val}")
+
+
 def _all_zero_check(ctx: ValidationContext, code: str, desc: str) -> RuleResult:
     key_codes = ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]
     all_zero = True
@@ -473,6 +589,11 @@ def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
         return params.get("codes", [])
     if expr == "all_zero":
         return ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]
+    if expr == "formula":
+        import re
+        codes = re.findall(r'\{([^}]+)\}', params.get("formula", ""))
+        target = params.get("target", "")
+        return [c for c in codes if c] + ([target] if target else [])
     return []
 
 
@@ -529,6 +650,8 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
         return _missing(params["code"], code, desc, sev, ctx)
     elif expr == "all_zero":
         return _all_zero_check(ctx, code, desc)
+    elif expr == "formula":
+        return _formula(params["formula"], params["target"], code, desc, sev, rtype, ctx)
     else:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Unknown expression type: {expr}")
 

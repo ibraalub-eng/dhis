@@ -734,6 +734,19 @@ RULES = [
         "params": json.dumps({"child": "17", "parent": "6"}),
         "description": "Neonatal Deaths must be strictly less than Live Births — equality or more is clinically impossible",
     },
+    # ============================================
+    # GROUP 7: FORMULA EXPRESSIONS (R072)
+    # ============================================
+    {
+        "code": "R072",
+        "name": "Twins formula: ({6.e} * 2) - {7} = {6}",
+        "rule_type": "LOGIC",
+        "severity": "MEDIUM",
+        "category": "BASIC_LOGIC",
+        "expression_type": "formula",
+        "params": json.dumps({"formula": "({6.e} * 2) - {7}", "target": "6"}),
+        "description": "(Number of twins/multiples * 2) - Stillbirths >24w should equal Live Births",
+    },
 ]
 
 
