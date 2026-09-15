@@ -90,7 +90,7 @@ def detect_anomalies(
                 peer_max=round(float(max(peers)), 2),
                 peer_median=round(float(np.median(peers)), 2),
                 peers_detail=[
-                    {"hospital": h, "rate": round(float(r), 2)}
+                    {"hospital": h, "rate": round(float(r), 4)}
                     for h, r in sorted(peers_map.items(), key=lambda kv: kv[1])
                 ],
             )

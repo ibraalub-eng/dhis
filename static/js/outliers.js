@@ -138,17 +138,12 @@
                 const peerRange = (d.peer_min != null && d.peer_max != null)
                     ? Number(d.peer_min).toFixed(2) + ' – ' + Number(d.peer_max).toFixed(2)
                     : '--';
-                // Tooltip mirrors the audit benchmark screen's breakdown.
-                const peerTip = hasPeers
-                    ? ' title="' + esc('Peers: ' + d.peer_count + ' | Std: ' + (d.peer_std != null ? Number(d.peer_std).toFixed(2) : '--')
-                        + ' | Median: ' + (d.peer_median != null ? Number(d.peer_median).toFixed(2) : '--')) + '"'
-                    : '';
                 // Peers cell is clickable when drill-down detail exists.
                 const rowIdx = d.id != null ? (idxById.get(String(d.id)) ?? i) : i;
                 const peerCell = hasPeers && d.peers_detail && d.peers_detail.length
                     ? '<a href="#" onclick="event.preventDefault();togglePeerPopover(this,' + rowIdx + ')" style="text-decoration:underline dotted;cursor:pointer;">' + d.peer_count + '</a>'
                     : (hasPeers ? d.peer_count : '--');
-                return '<tr>' + peerTip +
+                return '<tr>' +
                     '<td>' + esc(d.hospital) + '</td>' +
                     '<td>' + esc(d.month) + '</td>' +
                     '<td>' + esc(d.rate_name) + '</td>' +
@@ -188,7 +183,8 @@
                 name.textContent = p.hospital;
                 name.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
                 const rate = document.createElement('span');
-                rate.textContent = Number(p.rate).toFixed(2) + '%';
+                const rateNum = Number(p.rate);
+                rate.textContent = (rateNum === 0 ? '0%' : rateNum.toFixed(4).replace(/\.?0+$/, '') + '%');
                 rate.style.cssText = 'font-weight:600;white-space:nowrap;';
                 row.appendChild(name); row.appendChild(rate);
                 pop.appendChild(row);
