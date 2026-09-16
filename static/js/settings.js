@@ -654,6 +654,7 @@ function loadHospitalsSettings() {
         function _renderRootCauseResult(d, hid, mth) {
             _rcReportData = { ...d, month: d.month || mth, _month: mth };
             // KPI Banner
+            const qs = d.overall_quality_score || 0;
             const qsColor = qs >= 80 ? 'var(--accent-green)' : qs >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
             const conf = d.overall_confidence || 0;
             const confColor = conf >= 80 ? 'var(--accent-green)' : conf >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
