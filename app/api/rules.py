@@ -27,13 +27,15 @@ _IMPACT_TTL = 300  # 5 minutes
 
 @router.get("/impact")
 def rules_impact(
+    refresh: bool = False,
     db: Session = Depends(get_db),
 ):
     """Live-evaluate all rules against the latest data month for every
-    active hospital.  Results are cached server-side for 5 minutes."""
+    active hospital.  Results are cached server-side for 5 minutes;
+    pass ?refresh=true to force a recompute ahead of the cache expiry."""
     now = time.time()
     with _impact_cache["lock"]:
-        if _impact_cache["data"] and (now - _impact_cache["ts"]) < _IMPACT_TTL:
+        if not refresh and _impact_cache["data"] and (now - _impact_cache["ts"]) < _IMPACT_TTL:
             return _impact_cache["data"]
 
     # ── determine the latest month that has indicator data ───────

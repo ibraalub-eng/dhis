@@ -39,6 +39,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         let _rulesImpactMap = {};
         let rulesSortCol = null, rulesSortAsc = true;
         let _rulesDirty = false;
+        let _forceRulesImpactRefresh = false;
 
         function _updateRulesImpactHeader(latestMonth) {
             const hdr = document.querySelector('#rulesTable thead th[data-impact-col]');
@@ -2728,8 +2729,11 @@ function loadHospitalsSettings() {
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Loading rules...</td></tr>';
             Promise.all([
                 authFetch(url).then(r => r.json()),
-                authFetch(API() + '/rules/impact').then(r => r.json()).catch(() => []),
+                authFetch(_forceRulesImpactRefresh
+                    ? API() + '/rules/impact?refresh=true'
+                    : API() + '/rules/impact').then(r => r.json()).catch(() => []),
             ]).then(([data, impact]) => {
+                _forceRulesImpactRefresh = false;
                 document.getElementById('rulesLoading').classList.add('hidden');
                 rulesManagerData = data;
                 _rulesImpactMap = {};
@@ -2826,11 +2830,9 @@ function loadHospitalsSettings() {
                     if (imp) {
                         const affected = imp.hospitals_affected || [];
                         if (affected.length) {
-                            const shown = affected.slice(0, 2).map(a => esc(a.name)).join(', ');
-                            const extra = affected.length > 2 ? ' +' + (affected.length - 2) + ' more' : '';
                             const f = affected.length;
                             const fColor = f === 0 ? 'var(--accent-green)' : f >= 20 ? 'var(--accent-red)' : 'var(--accent-orange)';
-                            impactCell = '<span style="color:' + fColor + ';font-weight:600;white-space:nowrap;" title="' + f + ' hospital(s) fail this rule right now (month ' + (imp.month || '?') + ')">' + shown + extra + '</span>';
+                            impactCell = '<span style="color:' + fColor + ';font-weight:600;white-space:nowrap;" title="' + f + ' hospital(s) fail this rule right now (month ' + (imp.month || '?') + ')">' + f + '</span>';
                         } else {
                             impactCell = '<span style="color:var(--accent-green);font-weight:600;" title="No failures recorded">0</span>';
                         }
