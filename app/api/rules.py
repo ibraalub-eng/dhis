@@ -298,6 +298,39 @@ def validate_rule(body: dict, db: Session = Depends(get_db)):
     return {"errors": errors, "warnings": warnings}
 
 
+@router.get("/failures")
+def rule_failures(
+    rule_code: str,
+    hospital_id: int = None,
+    db: Session = Depends(get_db),
+):
+    """Historical failures for a rule code (optionally filtered to one hospital).
+    Returns the months in which the rule failed, sorted descending."""
+    query = db.query(
+        ValidationResult.month,
+        ValidationResult.hospital_id,
+        ValidationResult.details,
+    ).filter(
+        ValidationResult.rule_code == rule_code,
+        ValidationResult.status == "FAIL",
+    )
+    if hospital_id:
+        query = query.filter(ValidationResult.hospital_id == hospital_id)
+    rows = query.order_by(ValidationResult.month.desc()).all()
+
+    month_map = {}
+    for month, hid, details in rows:
+        entry = month_map.setdefault(month, {"month": month, "hospitals": []})
+        entry["hospitals"].append({"hospital_id": hid, "details": details})
+
+    return {
+        "rule_code": rule_code,
+        "hospital_id": hospital_id,
+        "months": list(month_map.values()),
+        "total_months": len(month_map),
+    }
+
+
 @router.get("/", response_model=List[RuleOut])
 def list_rules(
     rule_type: str = None,

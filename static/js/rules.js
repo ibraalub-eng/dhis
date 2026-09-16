@@ -588,6 +588,44 @@ import { confirmDestructive } from './confirm-modal.js';
             if (rsel) rsel.innerHTML = '';
         }
 
+        function _wireHospitalRowClicks(container, ruleCode) {
+            container.querySelectorAll('.rule-test-hospital-row').forEach(function(row) {
+                row.addEventListener('click', function() {
+                    const hid = this.dataset.hid;
+                    const hname = this.dataset.hname;
+                    const detailEl = container.querySelector('.rule-test-hospital-detail[data-hid="' + hid + '"]');
+                    if (!detailEl) return;
+                    if (detailEl.style.display !== 'none') {
+                        detailEl.style.display = 'none';
+                        this.querySelector('span').textContent = hname + ' ➤';
+                        return;
+                    }
+                    detailEl.style.display = '';
+                    detailEl.innerHTML = '<span class="spinner"></span>';
+                    authFetch(API() + '/rules/failures?rule_code=' + encodeURIComponent(ruleCode) + '&hospital_id=' + hid)
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            const months = (d.months || []);
+                            if (!months.length) {
+                                detailEl.innerHTML = '<em>No recorded failures for this rule yet.</em>';
+                                return;
+                            }
+                            let mhtml = '<div style="font-weight:600;color:var(--text-secondary);margin-bottom:2px;">Failed in ' + months.length + ' month(s):</div>';
+                            months.forEach(function(m) {
+                                const hospInMonth = (m.hospitals || []).find(function(x) { return x.hospital_id == hid; });
+                                const details = hospInMonth && hospInMonth.details ? ' — ' + hospInMonth.details : '';
+                                mhtml += '<div style="padding:1px 0;"><strong style="color:var(--accent-red);">' + m.month + '</strong>' + details + '</div>';
+                            });
+                            detailEl.innerHTML = mhtml;
+                            row.querySelector('span').textContent = hname + ' ▾';
+                        })
+                        .catch(function() {
+                            detailEl.innerHTML = '<em>Could not load failure history.</em>';
+                        });
+                });
+            });
+        }
+
         export async function testRuleForHospital() {
             const code = document.getElementById('ruleEditCode').value.trim();
             const name = document.getElementById('ruleEditName').value.trim();
@@ -637,13 +675,15 @@ import { confirmDestructive } from './confirm-modal.js';
                         '<span style="color:var(--text-muted);">' + (d.no_data || 0) + ' no data</span>' +
                         '</div>';
                     if (d.hospitals && d.hospitals.length) {
-                        html += '<div style="margin-top:0.4rem;max-height:140px;overflow-y:auto;font-size:0.7rem;border-top:1px solid ' + color + '33;padding-top:0.3rem;">';
-                        const maxShow = 25;
+                        html += '<div style="margin-top:0.4rem;max-height:150px;overflow-y:auto;font-size:0.7rem;border-top:1px solid ' + color + '33;padding-top:0.3rem;">';
+                        const maxShow = 50;
                         d.hospitals.forEach(function(h) {
                             const hs = h.status || 'NO_DATA';
                             const hc = hs === 'PASS' ? 'var(--accent-green)' : hs === 'FAIL' ? 'var(--accent-red)' : 'var(--text-muted)';
-                            html += '<div style="display:flex;justify-content:space-between;padding:1px 0;"><span>' + esc(h.hospital) + '</span>' +
-                                '<span style="color:' + hc + ';font-weight:600;margin-left:0.5rem;">' + hs + '</span></div>';
+                            html += '<div class="rule-test-hospital-row" data-hid="' + h.hospital_id + '" data-hname="' + esc(h.hospital) + '" data-mstatus="' + hs + '" style="display:flex;justify-content:space-between;align-items:center;padding:3px 4px;border-radius:3px;cursor:pointer;" title="Click to see failed months">' +
+                                '<span style="font-weight:600;color:var(--accent-blue);">' + esc(h.hospital) + ' ➤</span>' +
+                                '<span style="color:' + hc + ';font-weight:600;margin-left:0.5rem;">' + hs + '</span></div>' +
+                                '<div class="rule-test-hospital-detail" data-hid="' + h.hospital_id + '" style="display:none;padding:3px 4px 6px;font-size:0.66rem;color:var(--text-muted);"></div>';
                         });
                         if (d.hospitals.length > maxShow) html += '<div style="color:var(--text-muted);">... and ' + (d.hospitals.length - maxShow) + ' more</div>';
                         html += '</div>';
@@ -664,6 +704,7 @@ import { confirmDestructive } from './confirm-modal.js';
                 }
                 html += '</div>';
                 rsel.innerHTML = html;
+                _wireHospitalRowClicks(rsel, body.code);
             } catch(e) {
                 rsel.innerHTML = '<span style="color:var(--accent-red);">' + __(e.message || 'Test failed') + '</span>';
             }
