@@ -224,3 +224,105 @@ class TestSaveEnabled:
         resp = client.put("/rules/save-enabled", json={"items": [{"id": 99999, "enabled": True}, {"id": valid.id, "enabled": False}]})
         assert resp.status_code == 200
         assert db_session.query(Rule).filter(Rule.id == valid.id).first().enabled is False
+
+
+class TestRuleImpact:
+    def test_impact_shape(self, client):
+        resp = client.get("/rules/impact?months=6")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        for r in data:
+            assert "code" in r
+            assert "ref_codes" in r
+            assert "ref_names" in r
+            assert "failure_count" in r
+            assert "hospitals_affected" in r
+            assert "months_scope" in r
+
+    def test_impact_default_month_window(self, client):
+        resp = client.get("/rules/impact")
+        assert resp.status_code == 200
+        assert resp.json() != []
+
+
+class TestRuleValidate:
+    def test_validate_nonexistent_code_clean(self, client):
+        payload = {
+            "code": "RAAAA",
+            "expression_type": "ge",
+            "params": {"parent": "2", "children": ["3", "4"]},
+        }
+        resp = client.post("/rules/validate", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "errors" in data
+        assert "warnings" in data
+
+    def test_validate_duplicate_code(self, client, db_session):
+        existing = db_session.query(Rule).first()
+        payload = {
+            "code": existing.code,
+            "expression_type": "ge",
+            "params": {"parent": "2", "children": ["3"]},
+        }
+        resp = client.post("/rules/validate", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any("already exists" in e for e in data["errors"])
+
+    def test_validate_exact_duplicate_params(self, client, db_session):
+        existing = db_session.query(Rule).filter(Rule.expression_type == "ge").first()
+        if not existing:
+            existing = db_session.query(Rule).first()
+        resp = client.post("/rules/validate", json={
+            "code": "RBBBB",
+            "expression_type": existing.expression_type,
+            "params": existing.params,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any("Identical" in w for w in data["warnings"])
+
+    def test_validate_opposite_trend_conflict(self, client):
+        resp = client.post("/rules/validate", json={
+            "code": "RCCCC",
+            "expression_type": "month_over",
+            "params": {"code": "2"},
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        for w in data["warnings"]:
+            assert "Conflicts with" in w
+
+    def test_validate_with_string_params(self, client):
+        resp = client.post("/rules/validate", json={
+            "code": "RDDDD",
+            "expression_type": "ge",
+            "params": '{"parent": "2", "children": ["3"]}',
+        })
+        assert resp.status_code == 200
+
+
+class TestRuleTestDryRun:
+    def test_test_missing_params_400(self, client):
+        resp = client.post("/rules/test", json={})
+        assert resp.status_code == 400
+
+    def test_test_unknown_hospital_404(self, client):
+        resp = client.post("/rules/test", json={"hospital_id": 99999, "month": "2025-01"})
+        assert resp.status_code == 404
+
+    def test_test_no_values_returns_no_data(self, client):
+        # Use a huge month that cannot have data
+        resp = client.post("/rules/test", json={
+            "hospital_id": 1,
+            "month": "2099-01",
+            "code": "RTE1",
+            "name": "Dry run",
+            "expression_type": "ge",
+            "params": {"parent": "2", "children": ["3"]},
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "NO_DATA"

@@ -227,9 +227,18 @@
                     </div>
                 </div>
                 <textarea id="ruleEditParams" style="display:none;"></textarea>
+                <div style="margin-top:0.8rem;border-top:1px solid var(--border-default);padding-top:0.6rem;">
+                    <label style="font-size:0.8rem;color:var(--text-secondary);font-weight:600;">Test Against Real Data</label>
+                    <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;margin-top:0.4rem;">
+                        <select id="ruleTestHospital" style="font-size:0.75rem;padding:0.25rem 0.4rem;min-width:180px;"><option value="">Select hospital</option></select>
+                        <select id="ruleTestMonth" style="font-size:0.75rem;padding:0.25rem 0.4rem;min-width:120px;"><option value="">Select month</option></select>
+                        <button class="btn btn-sm btn-outline" onclick="testRuleForHospital()" style="font-size:0.72rem;padding:0.2rem 0.5rem;">Run Test</button>
+                    </div>
+                    <div id="ruleTestResult" style="margin-top:0.5rem;font-size:0.76rem;"></div>
+                </div>
                 <div style="margin-top:0.8rem;display:flex;gap:0.5rem;justify-content:flex-end;">
                     <button class="btn btn-sm btn-outline" onclick="closeRuleModal()">Cancel</button>
-                    <button class="btn btn-sm" onclick="saveRule()">Save Rule</button>
+                    <button class="btn btn-sm" onclick="validateAndSaveRule()">Save Rule</button>
                 </div>
             </div>
         </div>

@@ -1,12 +1,242 @@
+import json
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
 from app.database import get_db
-from app.models import Rule
+from app.models import Rule, Indicator, ValidationResult, Hospital
 from app.schemas import RuleOut, RuleCreate, RuleUpdate
 from app.core.deps import require_permission
+from app.engine.quality.rules import _get_rule_ref_codes_from_expr
+from app.engine.quality import ValidationContext, dispatch_rule
+from app.engine.pipeline import (
+    get_enabled_values_for_hospital_month,
+    get_all_hospital_data_for_month,
+    get_historical_months,
+    get_disabled_indicator_ids,
+)
 
 router = APIRouter(prefix="/rules", tags=["rules"], dependencies=[Depends(require_permission("rules.read"))])
+
+
+@router.get("/impact")
+def rules_impact(
+    months: int = 6,
+    db: Session = Depends(get_db),
+):
+    """Per-rule: referenced indicator codes/names + recent failure footprint
+    from stored validation_results (last N months with data)."""
+    month_rows = db.query(ValidationResult.month).filter(
+        ValidationResult.status == "FAIL",
+    ).distinct().all()
+    months_with_failures = sorted({r[0] for r in month_rows})
+    recent = set(months_with_failures[-months:]) if months_with_failures else set()
+
+    rules = db.query(Rule).order_by(Rule.code).all()
+    ind_map = {i.code: i.name for i in db.query(Indicator).all()}
+
+    fail_counts = {}
+    fail_hospitals = {}
+    if recent:
+        rows = db.query(
+            ValidationResult.rule_code,
+            ValidationResult.hospital_id,
+        ).filter(
+            ValidationResult.status == "FAIL",
+            ValidationResult.month.in_(recent),
+        ).all()
+        for rc, hid in rows:
+            fail_counts[rc] = fail_counts.get(rc, 0) + 1
+            fail_hospitals.setdefault(rc, set()).add(hid)
+
+    result = []
+    for r in rules:
+        params = {}
+        try:
+            params = json.loads(r.params) if isinstance(r.params, str) else (r.params or {})
+        except Exception:
+            params = {}
+        ref_codes = _get_rule_ref_codes_from_expr(r.expression_type, params)
+        result.append({
+            "id": r.id,
+            "code": r.code,
+            "name": r.name,
+            "expression_type": r.expression_type,
+            "rule_type": r.rule_type,
+            "category": r.category,
+            "ref_codes": ref_codes,
+            "ref_names": [ind_map.get(c, c) for c in ref_codes],
+            "failure_count": fail_counts.get(r.code, 0),
+            "hospitals_affected": len(fail_hospitals.get(r.code, set())),
+            "months_scope": len(recent),
+        })
+    return result
+
+
+@router.post("/test")
+def test_rule(body: dict, db: Session = Depends(get_db)):
+    """Dry-run a rule definition against a specific hospital+month's real data
+    without saving. Returns PASS/FAIL with actual values used in the evaluation."""
+    hospital_id = body.get("hospital_id")
+    month = body.get("month")
+    if not hospital_id or not month:
+        raise HTTPException(status_code=400, detail="hospital_id and month are required")
+
+    hosp = db.query(Hospital).filter(
+        Hospital.id == hospital_id,
+        Hospital.is_active.is_(True),
+    ).first()
+    if not hosp:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+
+    values = get_enabled_values_for_hospital_month(db, hospital_id, month)
+    if not values:
+        return {
+            "status": "NO_DATA",
+            "details": "No indicator values found for this hospital/month.",
+            "hospital": hosp.name,
+            "month": month,
+        }
+
+    from types import SimpleNamespace
+    params = body.get("params")
+    if isinstance(params, str):
+        try:
+            params = json.loads(params)
+        except Exception:
+            params = body.get("params") or {}
+
+    rule_obj = SimpleNamespace(
+        code=body.get("code") or "TEST",
+        name=body.get("name") or body.get("code") or "Test Rule",
+        rule_type=body.get("rule_type") or "LOGIC",
+        severity=body.get("severity") or "HIGH",
+        expression_type=body.get("expression_type"),
+        params=json.dumps(params or {}),
+    )
+
+    all_hospital_data = get_all_hospital_data_for_month(db, month)
+    historical_data = get_historical_months(db, hospital_id, month)
+    disabled_ids = get_disabled_indicator_ids(db, hospital_id, month)
+    disabled_codes = set()
+    if disabled_ids:
+        ind_rows = db.query(Indicator).filter(Indicator.id.in_(disabled_ids)).all()
+        disabled_codes = {ind.code for ind in ind_rows}
+
+    ctx = ValidationContext(
+        values=values,
+        hospital_name=hosp.name,
+        month=month,
+        all_hospital_data=all_hospital_data or {},
+        historical_data=historical_data or {},
+        disabled_codes=disabled_codes,
+    )
+
+    try:
+        result = dispatch_rule(rule_obj, ctx)
+    except KeyError as e:
+        raise HTTPException(status_code=400, detail=f"Missing required param: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Evaluation error: {e}")
+
+    if result is None:
+        return {
+            "status": "NO_DATA",
+            "details": "Rule skipped: all referenced indicators are disabled for this month.",
+            "hospital": hosp.name,
+            "month": month,
+        }
+
+    params_dict = params or {}
+    ref_codes = _get_rule_ref_codes_from_expr(body.get("expression_type"), params_dict)
+    ind_map = {i.code: i.name for i in db.query(Indicator).all()}
+    ref_values = {}
+    for c in ref_codes:
+        val = values.get(c)
+        if val is not None:
+            ref_values[c] = {"name": ind_map.get(c, c), "value": val}
+
+    return {
+        "status": result.status.value,
+        "details": result.details,
+        "hospital": hosp.name,
+        "month": month,
+        "ref_values": ref_values,
+    }
+
+
+def _normalize_rule_params(params: dict) -> dict:
+    """Stable dict comparison for duplicate/conflict detection."""
+    out = {}
+    for k, v in (params or {}).items():
+        if isinstance(v, list):
+            out[k] = sorted(str(x) for x in v)
+        elif isinstance(v, float):
+            out[k] = round(v, 6)
+        else:
+            out[k] = v
+    return out
+
+
+@router.post("/validate")
+def validate_rule(body: dict, db: Session = Depends(get_db)):
+    """Pre-save check: detect duplicate code, near-duplicate params, and
+    logical conflicts with existing rules. Returns {errors: [], warnings: []}."""
+    params_raw = body.get("params") or {}
+    if isinstance(params_raw, str):
+        try:
+            params_raw = json.loads(params_raw)
+        except Exception:
+            params_raw = {}
+    exclude_id = body.get("exclude_id")
+    code = (body.get("code") or "").strip()
+
+    errors = []
+    warnings = []
+
+    # 1. Duplicate code
+    q = db.query(Rule).filter(Rule.code == code)
+    if exclude_id:
+        q = q.filter(Rule.id != exclude_id)
+    if q.first():
+        errors.append(f"Rule code '{code}' already exists. Choose a different code.")
+
+    # 2. Near-duplicate & conflict detection
+    existing = db.query(Rule).all()
+    self_norm = json.dumps(_normalize_rule_params(params_raw), sort_keys=True) if params_raw else ""
+    expr = body.get("expression_type")
+
+    for other in existing:
+        if exclude_id and other.id == exclude_id:
+            continue
+        try:
+            other_params = json.loads(other.params) if isinstance(other.params, str) else (other.params or {})
+        except Exception:
+            other_params = {}
+        other_norm = json.dumps(_normalize_rule_params(other_params), sort_keys=True)
+
+        # Near-duplicate: same expression + identical params
+        if self_norm and other.expression_type == expr and other_norm == self_norm:
+            warnings.append(f"Identical to existing rule '{other.code}' ({other.name}).")
+            continue
+
+        # Conflict: month_over vs month_under on the same indicator code
+        if expr in ("month_over", "month_under") and other.expression_type in ("month_over", "month_under") and expr != other.expression_type:
+            if (params_raw.get("code") or "").strip() and params_raw.get("code") == other_params.get("code"):
+                warnings.append(f"Conflicts with '{other.code}': opposite monthly trend directions on same indicator.")
+
+        # Conflict: benchmark_rate vs benchmark_low_rate on the same numerator/denominator pair
+        if expr in ("benchmark_rate", "benchmark_low_rate") and other.expression_type in ("benchmark_rate", "benchmark_low_rate") and expr != other.expression_type:
+            if params_raw.get("num_code") == other_params.get("num_code") and params_raw.get("den_code") == other_params.get("den_code"):
+                warnings.append(f"Conflicts with '{other.code}': opposite threshold directions on same rate.")
+
+        # Conflict: ge vs gt on identical parent+children
+        if expr in ("ge", "gt") and other.expression_type in ("ge", "gt") and expr != other.expression_type:
+            same_parent = params_raw.get("parent") == other_params.get("parent") and params_raw.get("parent")
+            same_children = sorted(params_raw.get("children") or []) == sorted(other_params.get("children") or [])
+            if same_parent and same_children:
+                warnings.append(f"Conflicts with '{other.code}': same comparison set, different strictness.")
+
+    return {"errors": errors, "warnings": warnings}
 
 
 @router.get("/", response_model=List[RuleOut])

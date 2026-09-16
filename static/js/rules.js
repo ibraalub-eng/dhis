@@ -566,6 +566,118 @@ import { confirmDestructive } from './confirm-modal.js';
                 ruleExprTemplate();
             }
             document.getElementById('ruleEditModal').classList.add('show');
+            _populateRuleTestSelects();
+        }
+
+        function _populateRuleTestSelects() {
+            const hsel = document.getElementById('ruleTestHospital');
+            const msel = document.getElementById('ruleTestMonth');
+            const rsel = document.getElementById('ruleTestResult');
+            if (!hsel || !msel) return;
+            if (hsel.options.length <= 1) {
+                apiGet('/hospitals/').then(data => {
+                    const list = data.value || data || [];
+                    hsel.innerHTML = '<option value="">Select hospital</option>' + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
+                }).catch(() => {});
+            }
+            if (msel.options.length <= 1) {
+                apiGet('/analysis/months').then(months => {
+                    msel.innerHTML = '<option value="">Select month</option>' + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                }).catch(() => {});
+            }
+            if (rsel) rsel.innerHTML = '';
+        }
+
+        export async function testRuleForHospital() {
+            const code = document.getElementById('ruleEditCode').value.trim();
+            const name = document.getElementById('ruleEditName').value.trim();
+            const hid = document.getElementById('ruleTestHospital').value;
+            const month = document.getElementById('ruleTestMonth').value;
+            const rsel = document.getElementById('ruleTestResult');
+            if (!rsel) return;
+            if (!code || !name) { rsel.innerHTML = '<span style="color:var(--accent-orange);">Set Code and Name first.</span>'; return; }
+            if (!hid || !month) { rsel.innerHTML = '<span style="color:var(--accent-orange);">Pick a hospital and month.</span>'; return; }
+            rsel.innerHTML = '<span class="spinner"></span> Evaluating against real data...';
+            const paramsRaw = _vbBuildParams();
+            const body = {
+                code: code,
+                name: name,
+                rule_type: document.getElementById('ruleEditType').value,
+                severity: document.getElementById('ruleEditSeverity').value,
+                expression_type: document.getElementById('ruleEditExpr').value,
+                params: paramsRaw,
+                hospital_id: hid,
+                month: month,
+            };
+            try {
+                const res = await authFetch(API() + '/rules/test', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                });
+                const d = await res.json();
+                if (!res.ok) { rsel.innerHTML = '<span style="color:var(--accent-red);">' + __(d.detail || 'Test failed') + '</span>'; return; }
+                if (d.status === 'NO_DATA') {
+                    rsel.innerHTML = '<span style="color:var(--accent-orange);">NO DATA — ' + __(d.details) + '</span>';
+                    return;
+                }
+                const ok = d.status === 'PASS';
+                const color = ok ? 'var(--accent-green)' : 'var(--accent-red)';
+                let html = '<div style="padding:0.4rem 0.6rem;border:1px solid ' + color + '66;border-radius:4px;background:' + color + '11;">' +
+                    '<strong style="color:' + color + ';">' + d.status + '</strong> <span style="color:var(--text-secondary);font-size:0.72rem;">' + d.hospital + ' · ' + d.month + '</span><br>' +
+                    '<span style="color:var(--text-secondary);font-size:0.74rem;">' + __(d.details) + '</span>';
+                const rvs = d.ref_values || {};
+                const keys = Object.keys(rvs);
+                if (keys.length) {
+                    html += '<div style="margin-top:0.3rem;font-size:0.7rem;color:var(--text-secondary);"><strong>Indicator values:</strong> ';
+                    keys.forEach(k => {
+                        html += '<span style="margin-right:0.5rem;">' + k + ' (' + __(rvs[k].name) + ') = <strong>' + rvs[k].value + '</strong></span>';
+                    });
+                    html += '</div>';
+                }
+                html += '</div>';
+                rsel.innerHTML = html;
+            } catch(e) {
+                rsel.innerHTML = '<span style="color:var(--accent-red);">' + __(e.message || 'Test failed') + '</span>';
+            }
+        }
+
+        export async function validateAndSaveRule() {
+            const code = document.getElementById('ruleEditCode').value.trim();
+            const name = document.getElementById('ruleEditName').value.trim();
+            if (!code || !name) { toastWarning(__('Code and Name are required.')); return; }
+            const paramsRaw = _vbBuildParams();
+            const body = {
+                code: code,
+                name: name,
+                rule_type: document.getElementById('ruleEditType').value,
+                severity: document.getElementById('ruleEditSeverity').value,
+                category: document.getElementById('ruleEditCategory').value,
+                expression_type: document.getElementById('ruleEditExpr').value,
+                params: paramsRaw,
+                description: document.getElementById('ruleEditDesc').value.trim(),
+                enabled: document.getElementById('ruleEditEnabled').value === 'true',
+            };
+            try {
+                const res = await authFetch(API() + '/rules/validate', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(body),
+                });
+                const d = await res.json();
+                const errors = d.errors || [];
+                const warnings = d.warnings || [];
+                if (errors.length) {
+                    toastError(errors[0]);
+                    return;
+                }
+                if (warnings.length) {
+                    if (!await confirmDestructive({ title: 'Possible Conflicts', message: warnings[0], okLabel: 'Save Anyway' })) return;
+                }
+                saveRule();
+            } catch(e) {
+                toastError('Validation failed: ' + e.message);
+            }
         }
 
         export function closeRuleModal() {

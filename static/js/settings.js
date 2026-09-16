@@ -36,6 +36,7 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
 
         // ── Rules Manager ─────────────────────────────────────────
         export let rulesManagerData = [];
+        let _rulesImpactMap = {};
         let rulesSortCol = null, rulesSortAsc = true;
         let _rulesDirty = false;
 
@@ -2715,22 +2716,26 @@ function loadHospitalsSettings() {
             const tbody = document.getElementById('rulesTbody');
             document.getElementById('rulesLoading').classList.remove('hidden');
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Loading rules...</td></tr>';
-            authFetch(url)
-                .then(r => r.json())
-                .then(data => {
-                    document.getElementById('rulesLoading').classList.add('hidden');
-                    rulesManagerData = data;
-                    // Always display sorted by code
-                    rulesManagerData.sort(function(a, b) {
-                        return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
-                    });
-                    _rulesDirty = false;
-                    renderRulesManager();
-                    _updateRulesSaveButton();
-                })
-                .catch(e => {
-                    document.getElementById('rulesLoading').classList.add('hidden');
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#a00;">Error: ' + e.message + '</td></tr>';
+            Promise.all([
+                authFetch(url).then(r => r.json()),
+                authFetch(API() + '/rules/impact?months=6').then(r => r.json()).catch(() => []),
+            ]).then(([data, impact]) => {
+                document.getElementById('rulesLoading').classList.add('hidden');
+                rulesManagerData = data;
+                _rulesImpactMap = {};
+                if (Array.isArray(impact)) {
+                    impact.forEach(imp => { _rulesImpactMap[imp.code] = imp; });
+                }
+                // Always display sorted by code
+                rulesManagerData.sort(function(a, b) {
+                    return a.code < b.code ? -1 : a.code > b.code ? 1 : 0;
+                });
+                _rulesDirty = false;
+                renderRulesManager();
+                _updateRulesSaveButton();
+            }).catch(e => {
+                document.getElementById('rulesLoading').classList.add('hidden');
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:#a00;">Error: ' + e.message + '</td></tr>';
             });
         }
 
@@ -2756,33 +2761,80 @@ function loadHospitalsSettings() {
             document.getElementById('rulesManagerCount').textContent = rulesManagerData.length + ' rule(s)';
             const filtered = document.getElementById('rulesTbody');
             if (!rulesManagerData.length) {
-                filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">No rules found.</td></tr>';
+                filtered.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:2rem;">No rules found.</td></tr>';
                 return;
             }
+            const searchBox = document.getElementById('rulesSearchInput');
+            const q = (searchBox ? searchBox.value : '').trim().toLowerCase();
             const typeColors = {'LOGIC': 'var(--accent-blue)', 'CLINICAL': 'var(--accent-purple)', 'BENCHMARK': 'var(--accent-orange)', 'DATA_QUALITY': 'var(--accent-red)'};
             const sevClass = {'CRITICAL': 'badge-critical', 'HIGH': 'badge-high', 'MEDIUM': 'badge-medium', 'LOW': 'badge-low'};
+
+            let visible = rulesManagerData;
+            if (q) {
+                visible = rulesManagerData.filter(r =>
+                    (r.code || '').toLowerCase().includes(q) ||
+                    (r.name || '').toLowerCase().includes(q) ||
+                    (r.description || '').toLowerCase().includes(q) ||
+                    (r.category || '').toLowerCase().includes(q) ||
+                    (r.expression_type || '').toLowerCase().includes(q)
+                );
+            }
+
+            // Group by category, then by rule_type within each category
+            const groups = {};
+            visible.forEach(r => {
+                const key = r.category || 'UNCATEGORIZED';
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(r);
+            });
+            const keys = Object.keys(groups).sort();
+
             let html = '';
-            rulesManagerData.forEach((r, idx) => {
-                const tc = typeColors[r.rule_type] || '#666';
-                const typeB = '<span class="badge" style="background:'+tc+'22;color:'+tc+';border:1px solid '+tc+'44;">'+r.rule_type+'</span>';
-                const sevB = '<span class="badge ' + (sevClass[r.severity] || 'badge-low') + '">' + r.severity + '</span>';
-                const enabledIcon = r.enabled
-                    ? '<span class="tree-toggle on" style="cursor:pointer;" title="Click to disable">✓</span>'
-                    : '<span class="tree-toggle off" style="cursor:pointer;" title="Click to enable">✗</span>';
-                html += '<tr class="rule-row" data-id="' + r.id + '" data-code="' + esc(r.code) + '">' +
-                    '<td style="display:none;"></td>' +
-                    '<td><code>' + esc(r.code) + '</code></td>' +
-                    '<td>' + esc(r.name) + '</td>' +
-                    '<td>' + typeB + '</td>' +
-                    '<td>' + sevB + '</td>' +
-                    '<td style="font-size:0.75rem;color:var(--text-secondary);">' + esc(r.category) + '</td>' +
-                    '<td style="font-size:0.75rem;font-family:Consolas,monospace;color:var(--text-muted);">' + esc(r.expression_type) + '</td>' +
-                    '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
-                    '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-red);border-color:#ef5350;">Del</button></td>' +
-                    '</tr>';
+            keys.forEach(cat => {
+                const catRules = groups[cat];
+                const enabledCount = catRules.filter(r => r.enabled).length;
+                html += '<tr class="rule-category-header" data-cat="' + esc(cat) + '">' +
+                    '<td colspan="10" style="background:var(--bg-surface-hover);padding:0.35rem 0.5rem;font-weight:700;font-size:0.78rem;color:var(--text-primary);">' +
+                        '<span class="cat-toggle" style="cursor:pointer;margin-right:0.4rem;">▼</span>' +
+                        esc(cat) + ' <span style="font-weight:400;color:var(--text-muted);">(' + enabledCount + '/' + catRules.length + ' enabled)</span>' +
+                        '<span style="float:right;">' +
+                            '<button class="btn btn-sm btn-outline" onclick="bulkToggleCategory(\'' + esc(cat) + '\',true)" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Enable all</button> ' +
+                            '<button class="btn btn-sm btn-outline" onclick="bulkToggleCategory(\'' + esc(cat) + '\',false)" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Disable all</button>' +
+                        '</span>' +
+                    '</td></tr>';
+                catRules.forEach((r, idx) => {
+                    const tc = typeColors[r.rule_type] || '#666';
+                    const typeB = '<span class="badge" style="background:'+tc+'22;color:'+tc+';border:1px solid '+tc+'44;">'+r.rule_type+'</span>';
+                    const sevB = '<span class="badge ' + (sevClass[r.severity] || 'badge-low') + '">' + r.severity + '</span>';
+                    const enabledIcon = r.enabled
+                        ? '<span class="tree-toggle on" style="cursor:pointer;" title="Click to disable">✓</span>'
+                        : '<span class="tree-toggle off" style="cursor:pointer;" title="Click to enable">✗</span>';
+                    const imp = _rulesImpactMap[r.code];
+                    let impactCell = '<span style="color:var(--text-muted);">--</span>';
+                    if (imp) {
+                        const fC = imp.failure_count || 0;
+                        const fColor = fC === 0 ? 'var(--accent-green)' : fC >= 20 ? 'var(--accent-red)' : 'var(--accent-orange)';
+                        impactCell = '<span style="color:' + fColor + ';font-weight:600;" title="Failures in last ' + (imp.months_scope || 0) + ' months across ' + (imp.hospitals_affected || 0) + ' hospitals">' + fC + '</span>';
+                        if (imp.ref_codes && imp.ref_codes.length) {
+                            impactCell += '<div style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">' + esc(imp.ref_names.join(', ')) + '</div>';
+                        }
+                    }
+                    html += '<tr class="rule-row" data-id="' + r.id + '" data-code="' + esc(r.code) + '" data-cat="' + esc(cat) + '" style="background:var(--bg-surface);">' +
+                        '<td style="display:none;"></td>' +
+                        '<td><code>' + esc(r.code) + '</code></td>' +
+                        '<td>' + esc(r.name) + '</td>' +
+                        '<td>' + typeB + '</td>' +
+                        '<td>' + sevB + '</td>' +
+                        '<td style="font-size:0.75rem;color:var(--text-secondary);">' + esc(r.category) + '</td>' +
+                        '<td style="font-size:0.75rem;font-family:Consolas,monospace;color:var(--text-muted);">' + esc(r.expression_type) + '</td>' +
+                        '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
+                        '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-red);border-color:#ef5350;">Del</button></td>' +
+                        '<td style="text-align:center;font-size:0.7rem;">' + impactCell + '</td>' +
+                        '</tr>';
+                });
             });
             filtered.innerHTML = html;
-            document.getElementById('rulesManagerFilteredCount').textContent = rulesManagerData.length + ' shown';
+            document.getElementById('rulesManagerFilteredCount').textContent = visible.length + ' shown' + (q ? ' (search: "' + esc(q) + '")' : '');
 
             // Wire toggle clicks
             filtered.querySelectorAll('.rule-toggle-cell').forEach(cell => {
@@ -2803,7 +2855,33 @@ function loadHospitalsSettings() {
                     _updateRulesSaveButton();
                 });
             });
+
+            // Category collapse/expand
+            filtered.querySelectorAll('.rule-category-header').forEach(hdr => {
+                hdr.addEventListener('click', function(e) {
+                    if (e.target.closest('button')) return;
+                    const cat = this.dataset.cat;
+                    const rows = filtered.querySelectorAll('.rule-row[data-cat="' + cat + '"]');
+                    const isCollapsed = this.querySelector('.cat-toggle').textContent === '▶';
+                    rows.forEach(row => row.style.display = isCollapsed ? '' : 'none');
+                    this.querySelector('.cat-toggle').textContent = isCollapsed ? '▼' : '▶';
+                });
+            });
         }
+
+        // Search box oninput
+        window.onRulesSearch = function() { renderRulesManager(); };
+
+        // Bulk toggle all rules in a category (local-only, saved via Save button)
+        window.bulkToggleCategory = function(cat, enable) {
+            rulesManagerData.forEach(r => {
+                if ((r.category || 'UNCATEGORIZED') === cat) r.enabled = enable;
+            });
+            _rulesDirty = true;
+            _updateRulesSaveButton();
+            renderRulesManager();
+            toastSuccess('Category "' + cat + '" ' + (enable ? 'enabled' : 'disabled') + ' — click Save to apply');
+        };
 
         function _updateRulesSaveButton() {
             const btn = document.getElementById('rulesSaveBtn');

@@ -122,6 +122,8 @@ window.openRuleModal = _stub('openRuleModal');
 window.closeRuleModal = _stub('closeRuleModal');
 window.saveRule = _stub('saveRule');
 window.deleteRule = _stub('deleteRule');
+window.testRuleForHospital = _stub('testRuleForHospital');
+window.validateAndSaveRule = _stub('validateAndSaveRule');
 window.initAudit = _stub('initAudit');
 window.loadAudit = _stub('loadAudit');
 window.downloadAuditJSON = _stub('downloadAuditJSON');
@@ -235,6 +237,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'ruleExprTemplate'); _bind(mod, 'toggleExprHelp');
       _bind(mod, 'openRuleModal'); _bind(mod, 'closeRuleModal');
       _bind(mod, 'saveRule'); _bind(mod, 'deleteRule');
+      _bind(mod, 'testRuleForHospital'); _bind(mod, 'validateAndSaveRule');
       break;
     case 'audit':
       _bind(mod, 'initAudit'); _bind(mod, 'loadAudit');
