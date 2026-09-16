@@ -247,6 +247,8 @@ tbody tr { transition: background 0.12s; }
 #detailModal.show { display: flex; }
 #ruleEditModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 1001; display: none; align-items: center; justify-content: center; backdrop-filter:blur(2px); overflow: hidden; }
 #ruleEditModal.show { display: flex; }
+#ruleTestModal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.65); z-index: 1002; display: none; align-items: center; justify-content: center; backdrop-filter:blur(2px); overflow: hidden; }
+#ruleTestModal.show { display: flex; }
 .modal-content { background: var(--bg-elevated); border-radius: 12px; max-width: 920px; width: 92%; max-height: 85vh; overflow-y: auto; overflow-x: hidden; padding: 1.5rem 2rem; box-shadow: var(--shadow-lg); border: 1px solid var(--border-default); }
 .modal-close { float: right; background: none; border: none; font-size: 1.4rem; cursor: pointer; color: var(--text-muted); transition:color 0.15s; }
 .modal-close:hover { color: var(--text-primary); }

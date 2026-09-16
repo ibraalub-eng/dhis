@@ -2848,8 +2848,7 @@ function loadHospitalsSettings() {
                         '<td style="text-align:center;font-size:0.7rem;">' + impactCell + '</td>' +
                         '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
                         '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-red);border-color:#ef5350;">Del</button> <button class="btn btn-sm btn-outline" onclick="_testRuleById(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-blue);border-color:var(--accent-blue);">Test</button></td>' +
-                        '</tr>' +
-                        '<tr class="rule-test-row" id="testResult_' + r.id + '" style="display:none;"><td colspan="10" style="padding:0.4rem 0.6rem;background:var(--bg-surface-alt,#f8f9fa);border-top:1px solid var(--border-default);"><div id="testResultInner_' + r.id + '"></div></td></tr>';
+                        '</tr>';
                 });
             });
             filtered.innerHTML = html;
@@ -2905,18 +2904,20 @@ function loadHospitalsSettings() {
         window._testRuleById = function(id) {
             const r = rulesManagerData.find(x => x.id == id);
             if (!r) return;
-            const resultRow = document.getElementById('testResult_' + id);
-            const resultInner = document.getElementById('testResultInner_' + id);
-            if (!resultRow || !resultInner) return;
-            if (resultRow.style.display !== 'none') {
-                resultRow.style.display = 'none';
-                return;
+            const modal = document.getElementById('ruleTestModal');
+            const body = document.getElementById('ruleTestModalBody');
+            const title = document.getElementById('ruleTestModalTitle');
+            if (!modal || !body || !title) return;
+            if (!modal.dataset.bound) {
+                modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('show'); });
+                modal.dataset.bound = '1';
             }
-            resultRow.style.display = '';
-            resultInner.innerHTML = '<span class="spinner"></span> ' + __('Running test...') + ' <span style="color:var(--text-muted);font-size:0.72rem;">' + esc(r.code) + '</span>';
+            title.textContent = __('Rule Test') + ' — ' + esc(r.code);
+            body.innerHTML = '<span class="spinner"></span> ' + __('Running test...');
+            modal.classList.add('show');
             let paramsRaw;
             try { paramsRaw = JSON.parse(r.params || '{}'); } catch(e) { paramsRaw = {}; }
-            const body = {
+            const payload = {
                 code: r.code,
                 name: r.name,
                 rule_type: r.rule_type,
@@ -2927,47 +2928,47 @@ function loadHospitalsSettings() {
             authFetch(API() + '/rules/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
+                body: JSON.stringify(payload),
             }).then(res => res.json()).then(d => {
-                if (d.detail) { resultInner.innerHTML = '<span style="color:var(--accent-red);">' + __(d.detail) + '</span>'; return; }
+                if (d.detail) { body.innerHTML = '<span style="color:var(--accent-red);">' + __(d.detail) + '</span>'; return; }
                 const ok = d.status === 'PASS';
                 const color = ok ? 'var(--accent-green)' : d.status === 'FAIL' ? 'var(--accent-red)' : 'var(--accent-orange)';
-                let html = '<div style="padding:0.4rem 0.6rem;border:1px solid ' + color + '66;border-radius:4px;background:' + color + '11;">';
+                let html = '<div style="padding:0.5rem 0.7rem;border:1px solid ' + color + '66;border-radius:4px;background:var(--bg-surface-hover);">';
                 if (d.scope === 'all') {
                     const barMax = d.total || 1;
                     const passedPct = Math.round(((d.passed || 0) / barMax) * 100);
                     const failedPct = Math.round(((d.failed || 0) / barMax) * 100);
                     const ndPct = 100 - passedPct - failedPct;
-                    html += '<strong style="color:' + color + ';">' + d.status + '</strong> <span style="color:var(--text-secondary);font-size:0.72rem;">' + d.month + '</span><br>' +
-                        '<span style="color:var(--text-secondary);font-size:0.74rem;">' + __(d.details) + '</span>';
-                    html += '<div style="margin-top:0.3rem;display:flex;height:10px;border-radius:4px;overflow:hidden;">' +
+                    html += '<strong style="color:' + color + ';font-size:1rem;">' + d.status + '</strong> <span style="color:var(--text-secondary);font-size:0.72rem;">' + d.month + '</span><br>' +
+                        '<span style="color:var(--text-secondary);font-size:0.78rem;">' + __(d.details) + '</span>';
+                    html += '<div style="margin-top:0.4rem;display:flex;height:10px;border-radius:6px;overflow:hidden;">' +
                         '<div style="width:' + passedPct + '%;background:var(--accent-green);"></div>' +
                         '<div style="width:' + failedPct + '%;background:var(--accent-red);"></div>' +
-                        '<div style="width:' + ndPct + '%;background:var(--bg-surface-hover);"></div></div>';
-                    html += '<div style="margin-top:0.25rem;font-size:0.68rem;display:flex;gap:0.7rem;">' +
+                        '<div style="width:' + ndPct + '%;background:var(--text-muted);"></div></div>';
+                    html += '<div style="margin-top:0.25rem;font-size:0.72rem;display:flex;gap:0.8rem;">' +
                         '<span style="color:var(--accent-green);">' + (d.passed || 0) + ' ' + __('passed') + '</span>' +
                         '<span style="color:var(--accent-red);">' + (d.failed || 0) + ' ' + __('failed') + '</span>' +
                         '<span style="color:var(--text-muted);">' + (d.no_data || 0) + ' ' + __('no data') + '</span></div>';
                     if (d.hospitals && d.hospitals.length) {
-                        html += '<div style="margin-top:0.4rem;max-height:150px;overflow-y:auto;font-size:0.7rem;border-top:1px solid ' + color + '33;padding-top:0.3rem;">';
-                        d.hospitals.slice(0, 50).forEach(function(h) {
+                        html += '<div style="margin-top:0.5rem;max-height:280px;overflow-y:auto;font-size:0.72rem;border-top:1px solid var(--border-default);padding-top:0.3rem;">';
+                        d.hospitals.slice(0, 200).forEach(function(h) {
                             const hs = h.status || 'NO_DATA';
                             const hc = hs === 'PASS' ? 'var(--accent-green)' : hs === 'FAIL' ? 'var(--accent-red)' : 'var(--text-muted)';
-                            html += '<div style="display:flex;justify-content:space-between;padding:2px 4px;border-radius:3px;">' +
-                                '<span style="font-weight:600;">' + esc(h.hospital) + '</span>' +
+                            html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:3px 5px;border-radius:4px;cursor:default;">' +
+                                '<span style="font-weight:600;color:var(--text-primary);">' + esc(h.hospital) + '</span>' +
                                 '<span style="color:' + hc + ';font-weight:600;">' + hs + '</span></div>';
                         });
-                        if (d.hospitals.length > 50) html += '<div style="color:var(--text-muted);">... +' + (d.hospitals.length - 50) + '</div>';
+                        if (d.hospitals.length > 200) html += '<div style="color:var(--text-muted);padding:0.2rem 0.4rem;">+ ' + (d.hospitals.length - 200) + ' more</div>';
                         html += '</div>';
                     }
                 } else {
                     html += '<strong style="color:' + color + ';">' + d.status + '</strong> <span style="color:var(--text-secondary);font-size:0.72rem;">' + (d.hospital || '') + ' · ' + d.month + '</span><br>' +
-                        '<span style="color:var(--text-secondary);font-size:0.74rem;">' + __(d.details) + '</span>';
+                        '<span style="color:var(--text-secondary);font-size:0.78rem;">' + __(d.details) + '</span>';
                     const hospResult = (d.hospitals && d.hospitals[0]) || {};
                     const rvs = hospResult.ref_values || d.ref_values || {};
                     const keys = Object.keys(rvs);
                     if (keys.length) {
-                        html += '<div style="margin-top:0.3rem;font-size:0.7rem;color:var(--text-secondary);"><strong>' + __('Indicator values') + ':</strong> ';
+                        html += '<div style="margin-top:0.4rem;font-size:0.74rem;color:var(--text-secondary);"><strong>' + __('Indicator values') + ':</strong> ';
                         keys.forEach(function(k) {
                             html += '<span style="margin-right:0.5rem;">' + k + ' (' + __(rvs[k].name) + ') = <strong>' + rvs[k].value + '</strong></span>';
                         });
@@ -2975,10 +2976,15 @@ function loadHospitalsSettings() {
                     }
                 }
                 html += '</div>';
-                resultInner.innerHTML = html;
+                body.innerHTML = html;
             }).catch(function(e) {
-                resultInner.innerHTML = '<span style="color:var(--accent-red);">' + __('Test failed') + ': ' + esc(e.message) + '</span>';
+                body.innerHTML = '<span style="color:var(--accent-red);">' + __('Test failed') + ': ' + esc(e.message) + '</span>';
             });
+        };
+
+        window.closeRuleTestModal = function() {
+            const modal = document.getElementById('ruleTestModal');
+            if (modal) modal.classList.remove('show');
         };
 
         function _updateRulesSaveButton() {
