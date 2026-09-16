@@ -271,6 +271,19 @@ class TestRuleValidate:
         data = resp.json()
         assert any("already exists" in e for e in data["errors"])
 
+    def test_validate_own_code_with_exclude_id_no_error(self, client, db_session):
+        existing = db_session.query(Rule).first()
+        payload = {
+            "code": existing.code,
+            "expression_type": existing.expression_type,
+            "params": existing.params,
+            "exclude_id": existing.id,
+        }
+        resp = client.post("/rules/validate", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert not any("already exists" in e for e in data["errors"])
+
     def test_validate_exact_duplicate_params(self, client, db_session):
         existing = db_session.query(Rule).filter(Rule.expression_type == "ge").first()
         if not existing:

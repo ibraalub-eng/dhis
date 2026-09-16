@@ -658,6 +658,7 @@ import { confirmDestructive } from './confirm-modal.js';
                 description: document.getElementById('ruleEditDesc').value.trim(),
                 enabled: document.getElementById('ruleEditEnabled').value === 'true',
             };
+            if (ruleEditId) body.exclude_id = ruleEditId;
             try {
                 const res = await authFetch(API() + '/rules/validate', {
                     method: 'POST',
