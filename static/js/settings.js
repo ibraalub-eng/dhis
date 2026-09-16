@@ -40,13 +40,13 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         let rulesSortCol = null, rulesSortAsc = true;
         let _rulesDirty = false;
 
-        function _updateRulesImpactHeader(scope) {
+        function _updateRulesImpactHeader(latestMonth) {
             const hdr = document.querySelector('#rulesTable thead th[data-impact-col]');
             if (hdr) {
                 hdr.textContent = 'Affected Hospitals';
-                hdr.title = scope > 0
-                    ? 'Hospitals with failures over the last ' + scope + ' months of data'
-                    : 'Hospitals with recorded failures';
+                hdr.title = latestMonth
+                    ? 'Hospitals where the rule fails right now, live-checked for month ' + latestMonth
+                    : 'Hospitals where the rule currently fails';
             }
         }
 
@@ -2735,7 +2735,7 @@ function loadHospitalsSettings() {
                 _rulesImpactMap = {};
                 if (Array.isArray(impact)) {
                     impact.forEach(imp => { _rulesImpactMap[imp.code] = imp; });
-                    const scope = impact.length ? impact[0].months_scope : 0;
+                    const scope = impact.length ? impact[0].month : null;
                     _updateRulesImpactHeader(scope);
                 }
                 // Always display sorted by code
@@ -2830,7 +2830,7 @@ function loadHospitalsSettings() {
                             const extra = affected.length > 2 ? ' +' + (affected.length - 2) + ' more' : '';
                             const f = affected.length;
                             const fColor = f === 0 ? 'var(--accent-green)' : f >= 20 ? 'var(--accent-red)' : 'var(--accent-orange)';
-                            impactCell = '<span style="color:' + fColor + ';font-weight:600;" title="' + f + ' hospital(s) had failures in the last ' + (imp.months_scope || 0) + ' months">' + f + ' ❝</span>';
+                            impactCell = '<span style="color:' + fColor + ';font-weight:600;" title="' + f + ' hospital(s) fail this rule right now (month ' + (imp.month || '?') + ')">' + f + ' ❝</span>';
                             impactCell += '<div style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">' + shown + extra + '</div>';
                         } else {
                             impactCell = '<span style="color:var(--accent-green);font-weight:600;" title="No failures recorded">0</span>';

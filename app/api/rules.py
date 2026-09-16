@@ -1,9 +1,11 @@
 import json
+import time
+import threading
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Rule, Indicator, ValidationResult, Hospital
+from app.models import Rule, Indicator, IndicatorValue, ValidationResult, Hospital
 from app.schemas import RuleOut, RuleCreate, RuleUpdate
 from app.core.deps import require_permission
 from app.engine.quality.rules import _get_rule_ref_codes_from_expr
@@ -18,42 +20,75 @@ from app.engine.pipeline import (
 router = APIRouter(prefix="/rules", tags=["rules"], dependencies=[Depends(require_permission("rules.read"))])
 
 
+# ── Impact cache ─────────────────────────────────────────────────
+_impact_cache = {"data": None, "ts": 0, "lock": threading.Lock()}
+_IMPACT_TTL = 300  # 5 minutes
+
+
 @router.get("/impact")
 def rules_impact(
-    months: int = None,
     db: Session = Depends(get_db),
 ):
-    """Per-rule: referenced indicator codes/names + recent failure footprint
-    from stored validation_results. By default spans every month with data;
-    pass months=N to limit to the last N months."""
-    month_rows = db.query(ValidationResult.month).distinct().all()
-    all_months = sorted({r[0] for r in month_rows})
-    if months and months > 0:
-        recent = set(all_months[-months:]) if all_months else set()
-    else:
-        recent = set(all_months)
+    """Live-evaluate all rules against the latest data month for every
+    active hospital.  Results are cached server-side for 5 minutes."""
+    now = time.time()
+    with _impact_cache["lock"]:
+        if _impact_cache["data"] and (now - _impact_cache["ts"]) < _IMPACT_TTL:
+            return _impact_cache["data"]
 
+    # ── determine the latest month that has indicator data ───────
+    month_sources = (
+        db.query(IndicatorValue.month).distinct().order_by(IndicatorValue.month.desc()).first(),
+        db.query(ValidationResult.month).distinct().order_by(ValidationResult.month.desc()).first(),
+    )
+    latest_month = None
+    for src in month_sources:
+        if src and src[0]:
+            latest_month = src[0]
+            break
+    if not latest_month:
+        return [
+            {
+                "id": r.id, "code": r.code, "name": r.name,
+                "expression_type": r.expression_type,
+                "rule_type": r.rule_type, "category": r.category,
+                "ref_codes": [], "ref_names": [],
+                "failure_count": 0, "hospitals_affected": [], "month": None,
+            }
+            for r in db.query(Rule).order_by(Rule.code).all()
+        ]
+
+    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).order_by(Hospital.id).all()
+    hospital_map = {h.id: h.name for h in hospitals}
     rules = db.query(Rule).order_by(Rule.code).all()
     ind_map = {i.code: i.name for i in db.query(Indicator).all()}
 
-    fail_counts = {}
-    fail_hospitals = {}
-    fail_details = {}
-    if recent:
-        rows = db.query(
-            ValidationResult.rule_code,
-            ValidationResult.hospital_id,
-            ValidationResult.details,
-        ).filter(
-            ValidationResult.status == "FAIL",
-            ValidationResult.month.in_(recent),
-        ).all()
-        for rc, hid, details in rows:
-            fail_counts[rc] = fail_counts.get(rc, 0) + 1
-            fail_hospitals.setdefault(rc, set()).add(hid)
-            fail_details.setdefault(rc, {})[hid] = details
+    # ── pre-fetch shared data once per month ────────────────────
+    all_hospital_data = get_all_hospital_data_for_month(db, latest_month) or {}
 
-    hospital_map = {h.id: h.name for h in db.query(Hospital).all()}
+    # ── build per-hospital context once, then evaluate each rule ─
+    hospital_contexts = {}
+    for h in hospitals:
+        values = get_enabled_values_for_hospital_month(db, h.id, latest_month)
+        if not values:
+            hospital_contexts[h.id] = None
+            continue
+        historical = get_historical_months(db, h.id, latest_month)
+        disabled_ids = get_disabled_indicator_ids(db, h.id, latest_month)
+        disabled_codes = set()
+        if disabled_ids:
+            dis_rows = db.query(Indicator).filter(Indicator.id.in_(disabled_ids)).all()
+            disabled_codes = {ind.code for ind in dis_rows}
+        hospital_contexts[h.id] = ValidationContext(
+            values=values,
+            hospital_name=h.name,
+            month=latest_month,
+            all_hospital_data=all_hospital_data,
+            historical_data=historical or {},
+            disabled_codes=disabled_codes,
+        )
+
+    # ── evaluate each rule ──────────────────────────────────────
     result = []
     for r in rules:
         params = {}
@@ -63,12 +98,29 @@ def rules_impact(
             params = {}
         ref_codes = _get_rule_ref_codes_from_expr(r.expression_type, params)
         affected = []
-        for hid in sorted(fail_hospitals.get(r.code, set())):
-            affected.append({
-                "id": hid,
-                "name": hospital_map.get(hid, f"Hospital #{hid}"),
-                "details": fail_details.get(r.code, {}).get(hid),
-            })
+        fail_count = 0
+        from types import SimpleNamespace
+        rule_obj = SimpleNamespace(
+            code=r.code, name=r.name, rule_type=r.rule_type,
+            severity=r.severity, expression_type=r.expression_type,
+            params=json.dumps(params),
+        )
+        if r.enabled:
+            for h in hospitals:
+                ctx = hospital_contexts.get(h.id)
+                if ctx is None:
+                    continue
+                try:
+                    res = dispatch_rule(rule_obj, ctx)
+                except Exception:
+                    continue
+                if res is not None and res.status.value == "FAIL":
+                    affected.append({
+                        "id": h.id,
+                        "name": h.name,
+                        "details": res.details,
+                    })
+                    fail_count += 1
         result.append({
             "id": r.id,
             "code": r.code,
@@ -78,10 +130,14 @@ def rules_impact(
             "category": r.category,
             "ref_codes": ref_codes,
             "ref_names": [ind_map.get(c, c) for c in ref_codes],
-            "failure_count": fail_counts.get(r.code, 0),
+            "failure_count": fail_count,
             "hospitals_affected": affected,
-            "months_scope": len(recent),
+            "month": latest_month,
         })
+
+    with _impact_cache["lock"]:
+        _impact_cache["data"] = result
+        _impact_cache["ts"] = time.time()
     return result
 
 

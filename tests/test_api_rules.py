@@ -246,7 +246,7 @@ class TestRuleFailures:
 
 class TestRuleImpact:
     def test_impact_shape(self, client):
-        resp = client.get("/rules/impact?months=6")
+        resp = client.get("/rules/impact")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -258,9 +258,9 @@ class TestRuleImpact:
             assert isinstance(r["hospitals_affected"], list)
             for h in r["hospitals_affected"]:
                 assert "id" in h and "name" in h and "details" in h
-            assert "months_scope" in r
+            assert "month" in r
 
-    def test_impact_default_month_window(self, client):
+    def test_impact_nonempty(self, client):
         resp = client.get("/rules/impact")
         assert resp.status_code == 200
         assert resp.json() != []
