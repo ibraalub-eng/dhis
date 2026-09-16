@@ -358,3 +358,34 @@ def test_i18n_covers_every_tab_and_index():
                 "use an English key with the Arabic as element content"
             )
     assert checked > 50
+
+
+def test_audit_screen_uses_authenticated_api_with_section_isolation():
+    """audit.js must call the four audit endpoints through the authenticated
+    apiGet helper and tolerate a single section failing (allSettled), instead
+    of raw fetch() that hides HTTP errors and kills the whole screen."""
+    import os
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "audit.js")
+    with open(js_path, encoding="utf-8") as f:
+        js = f.read()
+    assert js.count("apiGet('/audit/") == 4, "all four audit endpoints must use apiGet"
+    assert "Promise.allSettled" in js, "section failures must be isolated"
+    assert "fetch(API()" not in js, "raw unauthenticated fetch must not be used"
+    assert "reason.message" in js, "failed sections must surface their error"
+
+
+def test_audit_screen_all_strings_translated():
+    """Every literal string passed to __() in audit.js must exist as a key in
+    i18n.js, so Arabic mode never falls back silently and English mode never
+    shows raw keys."""
+    import os
+    import re
+    root = os.path.join(os.path.dirname(__file__), "..")
+    with open(os.path.join(root, "static", "js", "audit.js"), encoding="utf-8") as f:
+        js = f.read()
+    with open(os.path.join(root, "static", "js", "i18n.js"), encoding="utf-8") as f:
+        i18n = f.read()
+    keys = re.findall(r"__\('([^']+)'\)", js)
+    assert len(keys) >= 25, f"expected substantial i18n usage, found {len(keys)}"
+    missing = [k for k in keys if f"'{k}':" not in i18n]
+    assert not missing, f"audit.js uses keys missing from i18n.js: {missing}"
