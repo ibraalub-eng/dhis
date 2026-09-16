@@ -40,6 +40,17 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         let rulesSortCol = null, rulesSortAsc = true;
         let _rulesDirty = false;
 
+        function _updateRulesImpactHeader(scope) {
+            const hdr = document.querySelector('#rulesTable thead th[data-impact-col]');
+            if (hdr) {
+                const label = scope > 0 ? 'Impact (' + scope + 'mo)' : 'Impact';
+                hdr.textContent = label;
+                hdr.title = scope > 0
+                    ? 'Failures across the last ' + scope + ' months of data (all hospitals)'
+                    : 'Failures across all months of data (all hospitals)';
+            }
+        }
+
         export function updateWeightDisplay() {
             const fields = ['rule_compliance', 'historical', 'cross_hospital', 'trend', 'completeness'];
             let total = 0;
@@ -2718,13 +2729,15 @@ function loadHospitalsSettings() {
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Loading rules...</td></tr>';
             Promise.all([
                 authFetch(url).then(r => r.json()),
-                authFetch(API() + '/rules/impact?months=6').then(r => r.json()).catch(() => []),
+                authFetch(API() + '/rules/impact').then(r => r.json()).catch(() => []),
             ]).then(([data, impact]) => {
                 document.getElementById('rulesLoading').classList.add('hidden');
                 rulesManagerData = data;
                 _rulesImpactMap = {};
                 if (Array.isArray(impact)) {
                     impact.forEach(imp => { _rulesImpactMap[imp.code] = imp; });
+                    const scope = impact.length ? impact[0].months_scope : 0;
+                    _updateRulesImpactHeader(scope);
                 }
                 // Always display sorted by code
                 rulesManagerData.sort(function(a, b) {

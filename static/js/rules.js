@@ -596,8 +596,8 @@ import { confirmDestructive } from './confirm-modal.js';
             const rsel = document.getElementById('ruleTestResult');
             if (!rsel) return;
             if (!code || !name) { rsel.innerHTML = '<span style="color:var(--accent-orange);">Set Code and Name first.</span>'; return; }
-            if (!hid || !month) { rsel.innerHTML = '<span style="color:var(--accent-orange);">Pick a hospital and month.</span>'; return; }
-            rsel.innerHTML = '<span class="spinner"></span> Evaluating against real data...';
+            const scopeLabel = hid && month ? 'single hospital' : hid ? 'all hospitals, latest month' : month ? 'all hospitals' : 'all hospitals, latest month';
+            rsel.innerHTML = '<span class="spinner"></span> Evaluating against ' + scopeLabel + '...';
             const paramsRaw = _vbBuildParams();
             const body = {
                 code: code,
@@ -606,9 +606,9 @@ import { confirmDestructive } from './confirm-modal.js';
                 severity: document.getElementById('ruleEditSeverity').value,
                 expression_type: document.getElementById('ruleEditExpr').value,
                 params: paramsRaw,
-                hospital_id: hid,
-                month: month,
             };
+            if (hid) body.hospital_id = hid;
+            if (month) body.month = month;
             try {
                 const res = await authFetch(API() + '/rules/test', {
                     method: 'POST',
@@ -617,23 +617,50 @@ import { confirmDestructive } from './confirm-modal.js';
                 });
                 const d = await res.json();
                 if (!res.ok) { rsel.innerHTML = '<span style="color:var(--accent-red);">' + __(d.detail || 'Test failed') + '</span>'; return; }
-                if (d.status === 'NO_DATA') {
-                    rsel.innerHTML = '<span style="color:var(--accent-orange);">NO DATA — ' + __(d.details) + '</span>';
-                    return;
-                }
                 const ok = d.status === 'PASS';
-                const color = ok ? 'var(--accent-green)' : 'var(--accent-red)';
-                let html = '<div style="padding:0.4rem 0.6rem;border:1px solid ' + color + '66;border-radius:4px;background:' + color + '11;">' +
-                    '<strong style="color:' + color + ';">' + d.status + '</strong> <span style="color:var(--text-secondary);font-size:0.72rem;">' + d.hospital + ' · ' + d.month + '</span><br>' +
-                    '<span style="color:var(--text-secondary);font-size:0.74rem;">' + __(d.details) + '</span>';
-                const rvs = d.ref_values || {};
-                const keys = Object.keys(rvs);
-                if (keys.length) {
-                    html += '<div style="margin-top:0.3rem;font-size:0.7rem;color:var(--text-secondary);"><strong>Indicator values:</strong> ';
-                    keys.forEach(k => {
-                        html += '<span style="margin-right:0.5rem;">' + k + ' (' + __(rvs[k].name) + ') = <strong>' + rvs[k].value + '</strong></span>';
-                    });
-                    html += '</div>';
+                const color = ok ? 'var(--accent-green)' : d.status === 'FAIL' ? 'var(--accent-red)' : 'var(--accent-orange)';
+                let html = '<div style="padding:0.4rem 0.6rem;border:1px solid ' + color + '66;border-radius:4px;background:' + color + '11;">';
+                if (d.scope === 'all') {
+                    const barMax = d.total || 1;
+                    const passedPct = Math.round(((d.passed || 0) / barMax) * 100);
+                    const failedPct = Math.round(((d.failed || 0) / barMax) * 100);
+                    const ndPct = 100 - passedPct - failedPct;
+                    html += '<strong style="color:' + color + ';">' + d.status + '</strong> <span style="color:var(--text-secondary);font-size:0.72rem;">' + d.month + '</span><br>' +
+                        '<span style="color:var(--text-secondary);font-size:0.74rem;">' + __(d.details) + '</span>';
+                    html += '<div style="margin-top:0.3rem;display:flex;height:10px;border-radius:4px;overflow:hidden;">' +
+                        '<div style="width:' + passedPct + '%;background:var(--accent-green);"></div>' +
+                        '<div style="width:' + failedPct + '%;background:var(--accent-red);"></div>' +
+                        '<div style="width:' + ndPct + '%;background:var(--bg-surface-hover);"></div></div>';
+                    html += '<div style="margin-top:0.25rem;font-size:0.68rem;display:flex;gap:0.7rem;">' +
+                        '<span style="color:var(--accent-green);">' + (d.passed || 0) + ' passed</span>' +
+                        '<span style="color:var(--accent-red);">' + (d.failed || 0) + ' failed</span>' +
+                        '<span style="color:var(--text-muted);">' + (d.no_data || 0) + ' no data</span>' +
+                        '</div>';
+                    if (d.hospitals && d.hospitals.length) {
+                        html += '<div style="margin-top:0.4rem;max-height:140px;overflow-y:auto;font-size:0.7rem;border-top:1px solid ' + color + '33;padding-top:0.3rem;">';
+                        const maxShow = 25;
+                        d.hospitals.forEach(function(h) {
+                            const hs = h.status || 'NO_DATA';
+                            const hc = hs === 'PASS' ? 'var(--accent-green)' : hs === 'FAIL' ? 'var(--accent-red)' : 'var(--text-muted)';
+                            html += '<div style="display:flex;justify-content:space-between;padding:1px 0;"><span>' + esc(h.hospital) + '</span>' +
+                                '<span style="color:' + hc + ';font-weight:600;margin-left:0.5rem;">' + hs + '</span></div>';
+                        });
+                        if (d.hospitals.length > maxShow) html += '<div style="color:var(--text-muted);">... and ' + (d.hospitals.length - maxShow) + ' more</div>';
+                        html += '</div>';
+                    }
+                } else {
+                    html += '<strong style="color:' + color + ';">' + d.status + '</strong> <span style="color:var(--text-secondary);font-size:0.72rem;">' + (d.hospital || '') + ' · ' + d.month + '</span><br>' +
+                        '<span style="color:var(--text-secondary);font-size:0.74rem;">' + __(d.details) + '</span>';
+                    const hospResult = (d.hospitals && d.hospitals[0]) || {};
+                    const rvs = hospResult.ref_values || d.ref_values || {};
+                    const keys = Object.keys(rvs);
+                    if (keys.length) {
+                        html += '<div style="margin-top:0.3rem;font-size:0.7rem;color:var(--text-secondary);"><strong>Indicator values:</strong> ';
+                        keys.forEach(function(k) {
+                            html += '<span style="margin-right:0.5rem;">' + k + ' (' + __(rvs[k].name) + ') = <strong>' + rvs[k].value + '</strong></span>';
+                        });
+                        html += '</div>';
+                    }
                 }
                 html += '</div>';
                 rsel.innerHTML = html;

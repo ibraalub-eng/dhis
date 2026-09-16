@@ -20,16 +20,18 @@ router = APIRouter(prefix="/rules", tags=["rules"], dependencies=[Depends(requir
 
 @router.get("/impact")
 def rules_impact(
-    months: int = 6,
+    months: int = None,
     db: Session = Depends(get_db),
 ):
     """Per-rule: referenced indicator codes/names + recent failure footprint
-    from stored validation_results (last N months with data)."""
-    month_rows = db.query(ValidationResult.month).filter(
-        ValidationResult.status == "FAIL",
-    ).distinct().all()
-    months_with_failures = sorted({r[0] for r in month_rows})
-    recent = set(months_with_failures[-months:]) if months_with_failures else set()
+    from stored validation_results. By default spans every month with data;
+    pass months=N to limit to the last N months."""
+    month_rows = db.query(ValidationResult.month).distinct().all()
+    all_months = sorted({r[0] for r in month_rows})
+    if months and months > 0:
+        recent = set(all_months[-months:]) if all_months else set()
+    else:
+        recent = set(all_months)
 
     rules = db.query(Rule).order_by(Rule.code).all()
     ind_map = {i.code: i.name for i in db.query(Indicator).all()}
@@ -74,36 +76,31 @@ def rules_impact(
 
 @router.post("/test")
 def test_rule(body: dict, db: Session = Depends(get_db)):
-    """Dry-run a rule definition against a specific hospital+month's real data
-    without saving. Returns PASS/FAIL with actual values used in the evaluation."""
+    """Dry-run a rule definition against real data without saving.
+
+    - month omitted  -> uses the most recent month that has data
+    - hospital_id omitted -> evaluates every active hospital for the month
+    Returns PASS/FAIL with a per-hospital breakdown and the actual values used.
+    """
+    from types import SimpleNamespace
     hospital_id = body.get("hospital_id")
     month = body.get("month")
-    if not hospital_id or not month:
-        raise HTTPException(status_code=400, detail="hospital_id and month are required")
 
-    hosp = db.query(Hospital).filter(
-        Hospital.id == hospital_id,
-        Hospital.is_active.is_(True),
-    ).first()
-    if not hosp:
-        raise HTTPException(status_code=404, detail="Hospital not found")
+    # Resolve month to the most recent month with data
+    if not month:
+        month_rows = db.query(ValidationResult.month).distinct().all()
+        months_sorted = sorted({r[0] for r in month_rows})
+        if not months_sorted:
+            raise HTTPException(status_code=400, detail="No data months found in the system")
+        month = months_sorted[-1]
 
-    values = get_enabled_values_for_hospital_month(db, hospital_id, month)
-    if not values:
-        return {
-            "status": "NO_DATA",
-            "details": "No indicator values found for this hospital/month.",
-            "hospital": hosp.name,
-            "month": month,
-        }
-
-    from types import SimpleNamespace
     params = body.get("params")
     if isinstance(params, str):
         try:
             params = json.loads(params)
         except Exception:
             params = body.get("params") or {}
+    params = params or {}
 
     rule_obj = SimpleNamespace(
         code=body.get("code") or "TEST",
@@ -111,56 +108,118 @@ def test_rule(body: dict, db: Session = Depends(get_db)):
         rule_type=body.get("rule_type") or "LOGIC",
         severity=body.get("severity") or "HIGH",
         expression_type=body.get("expression_type"),
-        params=json.dumps(params or {}),
+        params=json.dumps(params),
     )
 
-    all_hospital_data = get_all_hospital_data_for_month(db, month)
-    historical_data = get_historical_months(db, hospital_id, month)
-    disabled_ids = get_disabled_indicator_ids(db, hospital_id, month)
-    disabled_codes = set()
-    if disabled_ids:
-        ind_rows = db.query(Indicator).filter(Indicator.id.in_(disabled_ids)).all()
-        disabled_codes = {ind.code for ind in ind_rows}
+    # Build the scope of hospitals
+    if hospital_id:
+        hosp = db.query(Hospital).filter(
+            Hospital.id == hospital_id,
+            Hospital.is_active.is_(True),
+        ).first()
+        if not hosp:
+            raise HTTPException(status_code=404, detail="Hospital not found")
+        hospitals = [hosp]
+    else:
+        hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).order_by(Hospital.name).all()
 
-    ctx = ValidationContext(
-        values=values,
-        hospital_name=hosp.name,
-        month=month,
-        all_hospital_data=all_hospital_data or {},
-        historical_data=historical_data or {},
-        disabled_codes=disabled_codes,
-    )
-
-    try:
-        result = dispatch_rule(rule_obj, ctx)
-    except KeyError as e:
-        raise HTTPException(status_code=400, detail=f"Missing required param: {e}")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Evaluation error: {e}")
-
-    if result is None:
-        return {
-            "status": "NO_DATA",
-            "details": "Rule skipped: all referenced indicators are disabled for this month.",
-            "hospital": hosp.name,
-            "month": month,
-        }
-
-    params_dict = params or {}
-    ref_codes = _get_rule_ref_codes_from_expr(body.get("expression_type"), params_dict)
+    all_hospital_data = get_all_hospital_data_for_month(db, month) or {}
     ind_map = {i.code: i.name for i in db.query(Indicator).all()}
-    ref_values = {}
-    for c in ref_codes:
-        val = values.get(c)
-        if val is not None:
-            ref_values[c] = {"name": ind_map.get(c, c), "value": val}
+    ref_codes = _get_rule_ref_codes_from_expr(body.get("expression_type"), params)
+
+    per_hospital = []
+    failed_count = 0
+    passed_count = 0
+    no_data_count = 0
+    for hosp in hospitals:
+        values = get_enabled_values_for_hospital_month(db, hosp.id, month)
+        if not values:
+            per_hospital.append({
+                "hospital_id": hosp.id,
+                "hospital": hosp.name,
+                "status": "NO_DATA",
+                "details": "No indicator values found for this hospital/month.",
+            })
+            no_data_count += 1
+            continue
+
+        historical_data = get_historical_months(db, hosp.id, month)
+        disabled_ids = get_disabled_indicator_ids(db, hosp.id, month)
+        disabled_codes = set()
+        if disabled_ids:
+            ind_rows = db.query(Indicator).filter(Indicator.id.in_(disabled_ids)).all()
+            disabled_codes = {ind.code for ind in ind_rows}
+
+        ctx = ValidationContext(
+            values=values,
+            hospital_name=hosp.name,
+            month=month,
+            all_hospital_data=all_hospital_data,
+            historical_data=historical_data or {},
+            disabled_codes=disabled_codes,
+        )
+
+        try:
+            result = dispatch_rule(rule_obj, ctx)
+        except KeyError as e:
+            raise HTTPException(status_code=400, detail=f"Missing required param: {e}")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Evaluation error: {e}")
+
+        if result is None:
+            per_hospital.append({
+                "hospital_id": hosp.id,
+                "hospital": hosp.name,
+                "status": "NO_DATA",
+                "details": "Rule skipped: all referenced indicators are disabled for this month.",
+            })
+            no_data_count += 1
+            continue
+
+        ref_values = {}
+        for c in ref_codes:
+            val = values.get(c)
+            if val is not None:
+                ref_values[c] = {"name": ind_map.get(c, c), "value": val}
+
+        per_hospital.append({
+            "hospital_id": hosp.id,
+            "hospital": hosp.name,
+            "status": result.status.value,
+            "details": result.details,
+            "ref_values": ref_values,
+        })
+        if result.status.value == "FAIL":
+            failed_count += 1
+        else:
+            passed_count += 1
+
+    if failed_count:
+        overall = "FAIL"
+        details = f"The rule triggered in {failed_count} of {len(per_hospital)} hospital(s)."
+    elif no_data_count == len(per_hospital):
+        overall = "NO_DATA"
+        details = "No evaluable data for any hospital this month."
+    elif no_data_count:
+        overall = "PASS"
+        details = f"Passed in {passed_count} hospital(s); {no_data_count} hospital(s) had no data."
+    else:
+        overall = "PASS"
+        details = f"Passed in all {passed_count} hospital(s)."
 
     return {
-        "status": result.status.value,
-        "details": result.details,
-        "hospital": hosp.name,
+        "status": overall,
+        "details": details,
         "month": month,
-        "ref_values": ref_values,
+        "scope": "single" if hospital_id else "all",
+        "hospital": per_hospital[0]["hospital"] if hospital_id and per_hospital else None,
+        "passed": passed_count,
+        "failed": failed_count,
+        "no_data": no_data_count,
+        "total": len(per_hospital),
+        "ref_codes": ref_codes,
+        "ref_names": [ind_map.get(c, c) for c in ref_codes],
+        "hospitals": per_hospital,
     }
 
 
