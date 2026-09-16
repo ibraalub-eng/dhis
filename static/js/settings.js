@@ -2845,8 +2845,8 @@ function loadHospitalsSettings() {
                         '<td>' + sevB + '</td>' +
                         '<td style="font-size:0.75rem;color:var(--text-secondary);">' + esc(r.category) + '</td>' +
                         '<td style="font-size:0.75rem;font-family:Consolas,monospace;color:var(--text-muted);">' + esc(r.expression_type) + '</td>' +
-                        '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
                         '<td style="text-align:center;font-size:0.7rem;">' + impactCell + '</td>' +
+                        '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
                         '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-red);border-color:#ef5350;">Del</button> <button class="btn btn-sm btn-outline" onclick="_testRuleById(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-blue);border-color:var(--accent-blue);">Test</button></td>' +
                         '</tr>' +
                         '<tr class="rule-test-row" id="testResult_' + r.id + '" style="display:none;"><td colspan="10" style="padding:0.4rem 0.6rem;background:var(--bg-surface-alt,#f8f9fa);border-top:1px solid var(--border-default);"><div id="testResultInner_' + r.id + '"></div></td></tr>';
