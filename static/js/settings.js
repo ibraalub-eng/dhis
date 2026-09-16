@@ -43,11 +43,10 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         function _updateRulesImpactHeader(scope) {
             const hdr = document.querySelector('#rulesTable thead th[data-impact-col]');
             if (hdr) {
-                const label = scope > 0 ? 'Impact (' + scope + 'mo)' : 'Impact';
-                hdr.textContent = label;
+                hdr.textContent = 'Affected Hospitals';
                 hdr.title = scope > 0
-                    ? 'Failures across the last ' + scope + ' months of data (all hospitals)'
-                    : 'Failures across all months of data (all hospitals)';
+                    ? 'Hospitals with failures over the last ' + scope + ' months of data'
+                    : 'Hospitals with recorded failures';
             }
         }
 
@@ -2825,11 +2824,19 @@ function loadHospitalsSettings() {
                     const imp = _rulesImpactMap[r.code];
                     let impactCell = '<span style="color:var(--text-muted);">--</span>';
                     if (imp) {
-                        const fC = imp.failure_count || 0;
-                        const fColor = fC === 0 ? 'var(--accent-green)' : fC >= 20 ? 'var(--accent-red)' : 'var(--accent-orange)';
-                        impactCell = '<span style="color:' + fColor + ';font-weight:600;" title="Failures in last ' + (imp.months_scope || 0) + ' months across ' + (imp.hospitals_affected || 0) + ' hospitals">' + fC + '</span>';
+                        const affected = imp.hospitals_affected || [];
+                        if (affected.length) {
+                            const shown = affected.slice(0, 2).map(a => esc(a.name)).join(', ');
+                            const extra = affected.length > 2 ? ' +' + (affected.length - 2) + ' more' : '';
+                            const f = affected.length;
+                            const fColor = f === 0 ? 'var(--accent-green)' : f >= 20 ? 'var(--accent-red)' : 'var(--accent-orange)';
+                            impactCell = '<span style="color:' + fColor + ';font-weight:600;" title="' + f + ' hospital(s) had failures in the last ' + (imp.months_scope || 0) + ' months">' + f + ' ❝</span>';
+                            impactCell += '<div style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">' + shown + extra + '</div>';
+                        } else {
+                            impactCell = '<span style="color:var(--accent-green);font-weight:600;" title="No failures recorded">0</span>';
+                        }
                         if (imp.ref_codes && imp.ref_codes.length) {
-                            impactCell += '<div style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">' + esc(imp.ref_names.join(', ')) + '</div>';
+                            impactCell += '<div style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">' + esc(imp.ref_names.join(', ')) + '</div>';
                         }
                     }
                     html += '<tr class="rule-row" data-id="' + r.id + '" data-code="' + esc(r.code) + '" data-cat="' + esc(cat) + '" style="background:var(--bg-surface);">' +

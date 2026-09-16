@@ -38,18 +38,22 @@ def rules_impact(
 
     fail_counts = {}
     fail_hospitals = {}
+    fail_details = {}
     if recent:
         rows = db.query(
             ValidationResult.rule_code,
             ValidationResult.hospital_id,
+            ValidationResult.details,
         ).filter(
             ValidationResult.status == "FAIL",
             ValidationResult.month.in_(recent),
         ).all()
-        for rc, hid in rows:
+        for rc, hid, details in rows:
             fail_counts[rc] = fail_counts.get(rc, 0) + 1
             fail_hospitals.setdefault(rc, set()).add(hid)
+            fail_details.setdefault(rc, {})[hid] = details
 
+    hospital_map = {h.id: h.name for h in db.query(Hospital).all()}
     result = []
     for r in rules:
         params = {}
@@ -58,6 +62,13 @@ def rules_impact(
         except Exception:
             params = {}
         ref_codes = _get_rule_ref_codes_from_expr(r.expression_type, params)
+        affected = []
+        for hid in sorted(fail_hospitals.get(r.code, set())):
+            affected.append({
+                "id": hid,
+                "name": hospital_map.get(hid, f"Hospital #{hid}"),
+                "details": fail_details.get(r.code, {}).get(hid),
+            })
         result.append({
             "id": r.id,
             "code": r.code,
@@ -68,7 +79,7 @@ def rules_impact(
             "ref_codes": ref_codes,
             "ref_names": [ind_map.get(c, c) for c in ref_codes],
             "failure_count": fail_counts.get(r.code, 0),
-            "hospitals_affected": len(fail_hospitals.get(r.code, set())),
+            "hospitals_affected": affected,
             "months_scope": len(recent),
         })
     return result

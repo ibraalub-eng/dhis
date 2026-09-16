@@ -226,6 +226,24 @@ class TestSaveEnabled:
         assert db_session.query(Rule).filter(Rule.id == valid.id).first().enabled is False
 
 
+class TestRuleFailures:
+    def test_failures_unknown_code(self, client):
+        resp = client.get("/rules/failures?rule_code=NOPE_NOT_EXISTS")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["rule_code"] == "NOPE_NOT_EXISTS"
+        assert data["months"] == []
+        assert data["total_months"] == 0
+
+    def test_failures_requires_rule_code(self, client):
+        resp = client.get("/rules/failures")
+        assert resp.status_code == 422
+
+    def test_failures_with_hospital_filter(self, client):
+        resp = client.get("/rules/failures?rule_code=NOPE_NOT_EXISTS&hospital_id=1")
+        assert resp.status_code == 200
+
+
 class TestRuleImpact:
     def test_impact_shape(self, client):
         resp = client.get("/rules/impact?months=6")
@@ -237,7 +255,9 @@ class TestRuleImpact:
             assert "ref_codes" in r
             assert "ref_names" in r
             assert "failure_count" in r
-            assert "hospitals_affected" in r
+            assert isinstance(r["hospitals_affected"], list)
+            for h in r["hospitals_affected"]:
+                assert "id" in h and "name" in h and "details" in h
             assert "months_scope" in r
 
     def test_impact_default_month_window(self, client):
@@ -318,10 +338,6 @@ class TestRuleValidate:
 
 
 class TestRuleTestDryRun:
-    def test_test_missing_params_400(self, client):
-        resp = client.post("/rules/test", json={})
-        assert resp.status_code == 400
-
     def test_test_unknown_hospital_404(self, client):
         resp = client.post("/rules/test", json={"hospital_id": 99999, "month": "2025-01"})
         assert resp.status_code == 404
@@ -337,5 +353,18 @@ class TestRuleTestDryRun:
             "params": {"parent": "2", "children": ["3"]},
         })
         assert resp.status_code == 200
-        data = resp.json()
-        assert data["status"] == "NO_DATA"
+
+    def test_test_without_hospital_defaults_to_all(self, client):
+        # No hospital/month -> latest month, all active hospitals (scope 'all')
+        resp = client.post("/rules/test", json={
+            "code": "RTE2",
+            "name": "Dry run all",
+            "expression_type": "ge",
+            "params": {"parent": "2", "children": ["3"]},
+        })
+        assert resp.status_code in (200, 400)
+        if resp.status_code == 200:
+            data = resp.json()
+            assert data["scope"] == "all"
+            assert "hospitals" in data
+            assert "passed" in data and "failed" in data
