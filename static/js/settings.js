@@ -2830,13 +2830,9 @@ function loadHospitalsSettings() {
                             const extra = affected.length > 2 ? ' +' + (affected.length - 2) + ' more' : '';
                             const f = affected.length;
                             const fColor = f === 0 ? 'var(--accent-green)' : f >= 20 ? 'var(--accent-red)' : 'var(--accent-orange)';
-                            impactCell = '<span style="color:' + fColor + ';font-weight:600;" title="' + f + ' hospital(s) fail this rule right now (month ' + (imp.month || '?') + ')">' + f + ' ❝</span>';
-                            impactCell += '<div style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">' + shown + extra + '</div>';
+                            impactCell = '<span style="color:' + fColor + ';font-weight:600;white-space:nowrap;" title="' + f + ' hospital(s) fail this rule right now (month ' + (imp.month || '?') + ')">' + shown + extra + '</span>';
                         } else {
                             impactCell = '<span style="color:var(--accent-green);font-weight:600;" title="No failures recorded">0</span>';
-                        }
-                        if (imp.ref_codes && imp.ref_codes.length) {
-                            impactCell += '<div style="font-size:0.62rem;color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;">' + esc(imp.ref_names.join(', ')) + '</div>';
                         }
                     }
                     html += '<tr class="rule-row" data-id="' + r.id + '" data-code="' + esc(r.code) + '" data-cat="' + esc(cat) + '" style="background:var(--bg-surface);">' +
