@@ -2729,13 +2729,6 @@ function loadHospitalsSettings() {
 
         export function loadRulesManager() {
             if (!document.getElementById('rulesTbody')) return; // التبويب لم يُحمَّل بعد
-            // Browser autofill/form-restore can inject saved credentials (e.g. the
-            // login username) into this first text input of the dynamically loaded
-            // tab, filtering every rule out ("0 shown"). Clear it on every load.
-            const searchBox = document.getElementById('rulesSearchInput');
-            if (searchBox && searchBox.value && document.activeElement !== searchBox) {
-                searchBox.value = '';
-            }
             const typeFilter = document.getElementById('rulesTypeFilter').value;
             const sevFilter = document.getElementById('rulesSeverityFilter').value;
             const enabledFilter = document.getElementById('rulesEnabledFilter').value;
@@ -2808,6 +2801,10 @@ function loadHospitalsSettings() {
             }
             const searchBox = document.getElementById('rulesSearchInput');
             const q = (searchBox ? searchBox.value : '').trim().toLowerCase();
+            // ✕ clear button beside the search box: visible only when there is
+            // something to clear.
+            const searchClearBtn = document.getElementById('rulesSearchClear');
+            if (searchClearBtn) searchClearBtn.style.display = q ? '' : 'none';
             const typeColors = {'LOGIC': 'var(--accent-blue)', 'CLINICAL': 'var(--accent-purple)', 'BENCHMARK': 'var(--accent-orange)', 'DATA_QUALITY': 'var(--accent-red)'};
             const sevClass = {'CRITICAL': 'badge-critical', 'HIGH': 'badge-high', 'MEDIUM': 'badge-medium', 'LOW': 'badge-low'};
 

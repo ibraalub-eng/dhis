@@ -264,3 +264,28 @@ def test_rules_sort_indicators_applied_on_render():
     js = _read_settings_js()
     assert "querySelectorAll('#rulesTable thead th.sortable')" in js
     assert "classList.add(_rulesSortAsc ? 'sort-asc' : 'sort-desc')" in js
+
+
+# ── Search box clear button (no hard-coded auto-clear) ──────────────
+
+def test_rules_search_has_clear_button():
+    """The search row carries a ✕ button wired to clearRulesSearch(), and the
+    input keeps its autofill defenses (autocomplete=off)."""
+    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "rules-manager.html")
+    with open(html_path, encoding="utf-8") as f:
+        html = f.read()
+    assert 'id="rulesSearchClear"' in html
+    assert 'onclick="clearRulesSearch()"' in html
+    assert 'autocomplete="off"' in html
+
+
+def test_rules_search_not_force_cleared_on_load():
+    """loadRulesManager must not silently wipe the search box (removed hard-
+    coded auto-clear); instead renderRulesManager syncs the ✕ button visibility
+    and clearRulesSearch() is the single explicit clear path."""
+    js = _read_settings_js()
+    fn_start = js.index("export function loadRulesManager()")
+    fn_src = js[fn_start:fn_start + 900]
+    assert "searchBox.value = ''" not in fn_src
+    assert "rulesSearchClear" in js          # visibility synced in render
+    assert "window.clearRulesSearch" in js   # explicit clear handler
