@@ -8,13 +8,13 @@
                     <div class="card" style="padding:0.5rem 0.8rem;margin-bottom:0.7rem;">
                         <div style="display:flex;align-items:center;gap:0.4rem;">
                             <button onclick="outlierLegend()" style="background:none;border:1px solid var(--border-default);border-radius:50%;width:1.35rem;height:1.35rem;font-size:0.8rem;line-height:1;color:var(--text-muted);cursor:pointer;" title="Column explanations">?</button>
-                            <span data-i18n="Outlier legend" style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);">Column explanations</span>
+                            <span data-i18n="Column explanations" style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);">Column explanations</span>
                         </div>
                         <div id="outlierLegendBox" style="display:none;margin-top:0.5rem;font-size:0.78rem;line-height:1.7;color:var(--text-secondary);background:var(--bg-primary);border:1px solid var(--border-default);border-radius:6px;padding:0.6rem 0.8rem;">
-                            <div><strong data-i18n="Legend Value">Value</strong> <span data-i18n="Legend value desc">— the facility's actual reported indicator value for the month (e.g., C-section rate %).</span></div>
-                            <div><strong data-i18n="Legend Benchmark">Benchmark</strong> <span data-i18n="Legend benchmark desc">— the reference/peer average the value is compared against.</span></div>
-                            <div><strong data-i18n="Legend Peers">Peers</strong> <span data-i18n="Legend peers desc">— every other active hospital that has data for the same month, regardless of type or governorate. The hospital itself is excluded.</span></div>
-                            <div><strong data-i18n="Legend Z-Score">Z-Score</strong> <span data-i18n="Legend z desc">— how many standard deviations the value sits from the benchmark mean. |z| &#8805; 2 = unusual, |z| &#8805; 3 = severe outlier.</span></div>
+                            <div><strong data-i18n="Value">Value</strong> <span data-i18n="— the actual reported indicator value of the facility for the month (e.g., C-section rate %).">— the actual reported indicator value of the facility for the month (e.g., C-section rate %).</span></div>
+                            <div><strong data-i18n="Benchmark">Benchmark</strong> <span data-i18n="— the reference/peer average the value is compared against.">— the reference/peer average the value is compared against.</span></div>
+                            <div><strong data-i18n="Peers">Peers</strong> <span data-i18n="— every other active hospital that has data for the same month, regardless of type or governorate. The hospital itself is excluded.">— every other active hospital that has data for the same month, regardless of type or governorate. The hospital itself is excluded.</span></div>
+                            <div><strong data-i18n="Z-Score">Z-Score</strong> <span data-i18n="— how many standard deviations the value sits from the benchmark mean. |z| ≥ 2 = unusual, |z| ≥ 3 = severe outlier.">— how many standard deviations the value sits from the benchmark mean. |z| ≥ 2 = unusual, |z| ≥ 3 = severe outlier.</span></div>
                         </div>
                     </div>
                     <div class="card" style="padding:0.6rem 0.8rem;">

@@ -304,7 +304,7 @@ def test_i18n_covers_outliers_keys_and_peers_note():
     with open(i18n_path, encoding="utf-8") as f:
         i18n = f.read()
     tabs = {
-        "outliers": {"Peers = all active hospitals with data for the month", "Legend peers desc"},
+        "outliers": {"Peers = all active hospitals with data for the month", "— every other active hospital that has data for the same month, regardless of type or governorate. The hospital itself is excluded."},
         "audit": {"Peers = all active hospitals with data for the month"},
     }
     for tab, required in tabs.items():
@@ -480,3 +480,48 @@ def test_fresh_login_renders_sidebar():
     idx_render = auth.index("window.renderSidebar()")
     idx_switch = auth.index("window.switchTab('dashboard')", idx_render)
     assert idx_render < idx_switch
+
+
+def test_i18n_key_matches_visible_english_text():
+    """Regression for the Peers-note trap: a data-i18n key must be the same
+    English text the element displays by default. applyLang overwrites the
+    element with __(key), which returns the key verbatim in English mode —
+    so a stylized key like 'Legend Value' or 'apply_filter' makes English
+    users see the raw key instead of real text. Two checks per element:
+      1. If the element has a non-empty first text node, the key must equal it.
+      2. No snake_case keys (never real English display text).
+    """
+    import os
+    import re
+    import glob
+
+    pages = (
+        glob.glob(os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "*.html"))
+        + [os.path.join(os.path.dirname(__file__), "..", "static", "index.html")]
+    )
+    checked = 0
+    for page in pages:
+        with open(page, encoding="utf-8") as f:
+            src = f.read()
+        for i, line in enumerate(src.splitlines(), 1):
+            for m in re.finditer(r'data-i18n="([^"]+)"', line):
+                key = m.group(1)
+                checked += 1
+                assert "_" not in key, (
+                    f"{os.path.basename(page)}:{i}: snake_case data-i18n key {key!r} "
+                    "would show raw to English users — use the English display text"
+                )
+                rest = line[m.end():]
+                gt = rest.find(">")
+                if gt == -1:
+                    continue  # multi-line tag: nothing visible on this line
+                inner = rest[gt + 1:]
+                tm = re.match(r"\s*([^<]*)", inner)
+                first = (tm.group(1) if tm else "").strip()
+                if not first or re.search(r"[\u0600-\u06FF]", first):
+                    continue  # empty or Arabic-default content is fine
+                assert first == key, (
+                    f"{os.path.basename(page)}:{i}: data-i18n key {key!r} does not "
+                    f"match displayed text {first!r} — English users would see the raw key"
+                )
+    assert checked > 50
