@@ -230,3 +230,37 @@ def test_load_rules_manager_sends_category_filter():
     js = _read_settings_js()
     assert "rulesCategoryFilter" in js
     assert "'category=' + encodeURIComponent(catFilter)" in js
+
+
+# ── Sortable columns (Code / Severity / Affected Hospitals) ─────────
+
+def test_rules_table_sortable_headers_declared():
+    """Code, Severity, and Affected Hospitals headers carry the sortable
+    class, a data-col key, and the inline onRulesSort() hook."""
+    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "rules-manager.html")
+    with open(html_path, encoding="utf-8") as f:
+        html = f.read()
+    for col in ("code", "severity", "impact"):
+        assert f'data-col="{col}"' in html
+        assert f"onRulesSort('{col}')" in html
+    assert html.count('class="sortable"') == 3
+
+
+def test_rules_sort_state_and_cycle_logic():
+    """onRulesSort cycles asc → desc → default (code asc) and the render
+    sorts by the active key: severity rank, impact count, or code."""
+    js = _read_settings_js()
+    assert "let _rulesSortCol = null;" in js
+    assert "window.onRulesSort = function(col)" in js
+    assert "_rulesSortAsc = false;" in js            # second click
+    assert "_rulesSortCol = null; _rulesSortAsc = true;" in js  # third click
+    assert "sevRank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }" in js
+    assert "_rulesSortCol === 'impact'" in js
+    assert "hospitals_affected || []).length" in js
+
+
+def test_rules_sort_indicators_applied_on_render():
+    """Every render reapplies sort-asc/sort-desc classes to the headers."""
+    js = _read_settings_js()
+    assert "querySelectorAll('#rulesTable thead th.sortable')" in js
+    assert "classList.add(_rulesSortAsc ? 'sort-asc' : 'sort-desc')" in js

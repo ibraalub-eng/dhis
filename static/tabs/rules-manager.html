@@ -48,6 +48,8 @@
                             </div>
                             <div style="display:flex;align-items:center;gap:0.4rem;">
                                 <span id="rulesManagerFilteredCount" style="font-size:0.72rem;color:var(--text-muted);"></span>
+                                <button class="btn btn-sm btn-outline" id="rulesBulkEnableBtn" onclick="bulkToggleFiltered(true)" style="font-size:0.65rem;padding:0.15rem 0.4rem;display:none;" data-i18n="Enable all">Enable all</button>
+                                <button class="btn btn-sm btn-outline" id="rulesBulkDisableBtn" onclick="bulkToggleFiltered(false)" style="font-size:0.65rem;padding:0.15rem 0.4rem;display:none;color:var(--accent-red);border-color:#ef5350;" data-i18n="Disable all">Disable all</button>
                                 <span id="rulesLoading" class="hidden" style="font-size:0.72rem;color:var(--text-muted);"><span class="spinner"></span></span>
                             </div>
                         </div>
@@ -55,18 +57,17 @@
                             <input id="rulesSearchInput" type="text" placeholder="Search code, name, description, category..." oninput="onRulesSearch()" style="font-size:0.75rem;padding:0.25rem 0.5rem;width:100%;box-sizing:border-box;">
                         </div>
                         <div id="rulesTableContainer" style="max-height:500px;overflow-y:auto;font-size:0.82rem;">
-                        <table id="rulesTable">
+                        <table id="rulesTable" style="min-width:1060px;">
                             <thead><tr>
-                                <th style="width:20px;"></th>
-                                <th>Code</th>
-                                <th>Name</th>
-                                <th>Type</th>
-                                <th>Severity</th>
-                                <th>Category</th>
-                                <th>Expression</th>
-                                <th style="width:120px;" data-impact-col>Affected Hospitals</th>
-                                <th style="width:60px;">Enabled</th>
-                                <th style="width:100px;">Actions</th>
+                                <th style="width:9%;" class="sortable" data-col="code" title="Sort by rule code" onclick="onRulesSort('code')">Code</th>
+                                <th style="width:17%;">Name</th>
+                                <th style="width:8%;">Type</th>
+                                <th style="width:7%;" class="sortable" data-col="severity" title="Sort by severity" onclick="onRulesSort('severity')">Severity</th>
+                                <th style="width:13%;">Category</th>
+                                <th style="width:18%;">Expression</th>
+                                <th style="width:9%;white-space:normal;" data-impact-col class="sortable" data-col="impact" title="Sort by hospitals affected" onclick="onRulesSort('impact')">Affected Hospitals</th>
+                                <th style="width:6%;text-align:center;">Enabled</th>
+                                <th style="width:13%;">Actions</th>
                             </tr></thead>
                             <tbody id="rulesTbody"></tbody>
                         </table>

@@ -5,6 +5,7 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
         import { esc } from './tree.js';
         import { _saveUIState, _restoreUIState, SwitchTab, _tabInited } from './main.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
+import { confirmDestructive } from './confirm-modal.js';
 
         // ── Progressive Disclosure: auto-wrap <h3> in collapsible sections ──
         const _SECTION_ICONS = {
@@ -37,6 +38,8 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
         // ── Rules Manager ─────────────────────────────────────────
         export let rulesManagerData = [];
         let _rulesImpactMap = {};
+        let _rulesSortCol = null;   // null = default order (code asc)
+        let _rulesSortAsc = true;
         let rulesSortCol = null, rulesSortAsc = true;
         let _rulesDirty = false;
         let _forceRulesImpactRefresh = false;
@@ -2785,10 +2788,10 @@ function loadHospitalsSettings() {
         // ── Month Toggle Settings ──────────────────────────────────────────
 
         function renderRulesManager() {
-            document.getElementById('rulesManagerCount').textContent = rulesManagerData.length + ' rule(s)';
+            document.getElementById('rulesManagerCount').textContent = rulesManagerData.length + ' ' + __('rule(s)');
             const filtered = document.getElementById('rulesTbody');
             if (!rulesManagerData.length) {
-                filtered.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:2rem;">No rules found.</td></tr>';
+                filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">No rules found.</td></tr>';
                 return;
             }
             const searchBox = document.getElementById('rulesSearchInput');
@@ -2809,8 +2812,24 @@ function loadHospitalsSettings() {
 
             // Flat list sorted by rule code — categories live in the
             // Category filter dropdown, not as table sections.
+            const sevRank = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
             visible = visible.slice().sort(function(a, b) {
-                return (a.code || '') < (b.code || '') ? -1 : (a.code || '') > (b.code || '') ? 1 : 0;
+                if (_rulesSortCol === 'severity') {
+                    const ra = sevRank[a.severity] !== undefined ? sevRank[a.severity] : 9;
+                    const rb = sevRank[b.severity] !== undefined ? sevRank[b.severity] : 9;
+                    const d = ra - rb;
+                    return _rulesSortAsc ? d : -d;
+                }
+                if (_rulesSortCol === 'impact') {
+                    const fa = (_rulesImpactMap[a.code] && _rulesImpactMap[a.code].hospitals_affected || []).length;
+                    const fb = (_rulesImpactMap[b.code] && _rulesImpactMap[b.code].hospitals_affected || []).length;
+                    const d = fa - fb;
+                    return _rulesSortAsc ? d : -d;
+                }
+                // Default (and "code"): rule code asc/desc
+                const ca = a.code || '', cb = b.code || '';
+                const d = ca < cb ? -1 : ca > cb ? 1 : 0;
+                return _rulesSortAsc ? d : -d;
             });
 
             let html = '';
@@ -2836,21 +2855,30 @@ function loadHospitalsSettings() {
                         }
                     }
                     html += '<tr class="rule-row" data-id="' + r.id + '" data-code="' + esc(r.code) + '" data-cat="' + esc(cat) + '" style="background:var(--bg-surface);">' +
-                        '<td style="display:none;"></td>' +
-                        '<td><code>' + esc(r.code) + '</code></td>' +
-                        '<td>' + esc(r.name) + '</td>' +
+                        '<td><code style="white-space:nowrap;">' + esc(r.code) + '</code></td>' +
+                        '<td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(r.name) + '">' + esc(r.name) + '</td>' +
                         '<td>' + typeB + '</td>' +
-                        '<td>' + sevB + '</td>' +
-                        '<td style="font-size:0.75rem;color:var(--text-secondary);">' + esc(r.category) + '</td>' +
-                        '<td style="font-size:0.72rem;font-family:Consolas,monospace;color:var(--text-muted);" title="' + esc(exprTypeLabel(r.expression_type)) + '">' + esc(exprTypeLabel(r.expression_type)) + '</td>' +
-                        '<td style="text-align:center;font-size:0.7rem;">' + impactCell + '</td>' +
-                        '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
+                        '<td style="white-space:nowrap;">' + sevB + '</td>' +
+                        '<td style="font-size:0.75rem;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(r.category) + '">' + esc(r.category) + '</td>' +
+                        '<td style="font-size:0.72rem;font-family:Consolas,monospace;color:var(--text-muted);max-width:280px;" title="' + esc(exprTypeLabel(r.expression_type)) + '">' + esc(exprTypeLabel(r.expression_type)) + '</td>' +
+                        '<td style="text-align:center;font-size:0.7rem;white-space:nowrap;">' + impactCell + '</td>' +
+                        '<td style="text-align:center;white-space:nowrap;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
                         '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-red);border-color:#ef5350;">Del</button> <button class="btn btn-sm btn-outline" onclick="_testRuleById(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-blue);border-color:var(--accent-blue);">Test</button></td>' +
                         '</tr>';
                 }
             });
             filtered.innerHTML = html;
             document.getElementById('rulesManagerFilteredCount').textContent = visible.length + ' shown' + (q ? ' (search: "' + esc(q) + '")' : '');
+            // Sort indicators on the sortable headers (matches th.sort-asc/desc styles)
+            document.querySelectorAll('#rulesTable thead th.sortable').forEach(th => {
+                th.classList.remove('sort-asc', 'sort-desc');
+                if (th.dataset.col === _rulesSortCol) th.classList.add(_rulesSortAsc ? 'sort-asc' : 'sort-desc');
+            });
+            // Show bulk buttons only when there is something to bulk-toggle
+            const bulkOn = document.getElementById('rulesBulkEnableBtn');
+            const bulkOff = document.getElementById('rulesBulkDisableBtn');
+            if (bulkOn) bulkOn.style.display = visible.length ? '' : 'none';
+            if (bulkOff) bulkOff.style.display = visible.length ? '' : 'none';
 
             // Wire toggle clicks
             filtered.querySelectorAll('.rule-toggle-cell').forEach(cell => {
@@ -2877,6 +2905,75 @@ function loadHospitalsSettings() {
         // Search box oninput
         window.onRulesSearch = function() { renderRulesManager(); };
 
+        // Column sorting (Code / Severity / Affected Hospitals). Re-renders
+        // from rulesManagerData so the sort survives toggles and filters.
+        window.onRulesSort = function(col) {
+            if (_rulesSortCol === col) {
+                if (_rulesSortAsc) {
+                    _rulesSortAsc = false;               // second click: descending
+                } else {
+                    _rulesSortCol = null; _rulesSortAsc = true;  // third click: back to default
+                }
+            } else {
+                _rulesSortCol = col; _rulesSortAsc = true;       // first click: ascending
+            }
+            renderRulesManager();
+        };
+
+        // Bulk enable/disable for the rules currently shown (filter + search
+        // scope). Single confirmation for the destructive direction, then the
+        // same immediate-persist path as bulkToggleCategory.
+        window.bulkToggleFiltered = function(enable) {
+            const tbody = document.getElementById('rulesTbody');
+            if (!tbody) return;
+            const ids = [...tbody.querySelectorAll('.rule-row')].map(row => parseInt(row.dataset.id, 10));
+            if (!ids.length) return;
+            const targets = rulesManagerData.filter(r => ids.includes(r.id) && r.enabled !== enable);
+            if (!targets.length) { toastWarning(__('All shown rules are already ' + (enable ? 'enabled' : 'disabled'))); return; }
+            const catFilter = document.getElementById('rulesCategoryFilter') ? document.getElementById('rulesCategoryFilter').value : '';
+            const typeFilter = document.getElementById('rulesTypeFilter') ? document.getElementById('rulesTypeFilter').value : '';
+            const sevFilter = document.getElementById('rulesSeverityFilter') ? document.getElementById('rulesSeverityFilter').value : '';
+            const scope = [];
+            if (catFilter) scope.push(__('Category') + ': ' + catFilter);
+            if (typeFilter) scope.push(__('Type') + ': ' + typeFilter);
+            if (sevFilter) scope.push(__('Severity') + ': ' + sevFilter);
+            const scopeText = scope.length ? scope.join(', ') : __('Current search');
+            const msg = __('This will') + ' ' + (enable ? __('enable') : __('disable')) + ' ' + targets.length + ' ' + __('rule(s)') + ' — ' + scopeText + '. ' + (enable ? '' : __('Disabled rules are skipped during analysis.'));
+            const doApply = function() {
+                targets.forEach(r => { r.enabled = enable; });
+                _rulesDirty = false;
+                renderRulesManager();
+                const btn = document.getElementById('rulesSaveBtn');
+                if (btn) { btn.textContent = __('Saving...'); btn.disabled = true; }
+                const items = rulesManagerData.map(r => ({ id: r.id, enabled: r.enabled }));
+                authFetch(API() + '/rules/save-enabled', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ items: items }),
+                })
+                    .then(r => r.json())
+                    .then(data => {
+                        toastSuccess((enable ? __('Enabled') : __('Disabled')) + ' ' + targets.length + ' ' + __('rule(s)') + ' (' + __('saved') + ')');
+                        loadRulesManager();
+                    })
+                    .catch(e => {
+                        _rulesDirty = true;
+                        if (btn) { btn.textContent = __('Save'); btn.disabled = false; }
+                        _updateRulesSaveButton();
+                        toastError(__('Save failed') + ': ' + e.message);
+                    });
+            };
+            if (enable) {
+                doApply();
+            } else {
+                confirmDestructive({
+                    title: __('Disable all'),
+                    message: msg,
+                    okLabel: __('Disable all'),
+                }).then(ok => { if (ok) doApply(); });
+            }
+        };
+
         // Bulk toggle all rules in a category — persists immediately (no Save click needed)
         window.bulkToggleCategory = function(cat, enable) {
             let count = 0;
@@ -2899,7 +2996,7 @@ function loadHospitalsSettings() {
             })
                 .then(r => r.json())
                 .then(data => {
-                    toastSuccess('Category "' + cat + '" ' + (enable ? 'enabled' : 'disabled') + ' (' + count + ' rule(s) saved)');
+                    toastSuccess(__('Category') + ' "' + cat + '" ' + (enable ? __('enabled') : __('disabled')) + ' (' + count + ' ' + __('rule(s)') + ' ' + __('saved') + ')');
                     loadRulesManager();
                 })
                 .catch(e => {
