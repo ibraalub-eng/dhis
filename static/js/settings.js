@@ -2742,13 +2742,17 @@ function loadHospitalsSettings() {
             document.getElementById('rulesLoading').classList.remove('hidden');
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Loading rules...</td></tr>';
             Promise.all([
-                authFetch(url).then(r => r.json()),
+                authFetch(url).then(r => {
+                    if (!r.ok) throw new Error('HTTP ' + r.status + ' loading rules');
+                    return r.json();
+                }),
                 authFetch(_forceRulesImpactRefresh
                     ? API() + '/rules/impact?refresh=true'
                     : API() + '/rules/impact').then(r => r.json()).catch(() => []),
             ]).then(([data, impact]) => {
                 _forceRulesImpactRefresh = false;
                 document.getElementById('rulesLoading').classList.add('hidden');
+                if (!Array.isArray(data)) throw new Error('Unexpected response from /rules');
                 rulesManagerData = data;
                 _rulesImpactMap = {};
                 if (Array.isArray(impact)) {
@@ -2790,6 +2794,7 @@ function loadHospitalsSettings() {
         function renderRulesManager() {
             document.getElementById('rulesManagerCount').textContent = rulesManagerData.length + ' ' + __('rule(s)');
             const filtered = document.getElementById('rulesTbody');
+            if (!filtered) return;
             if (!rulesManagerData.length) {
                 filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:2rem;">No rules found.</td></tr>';
                 return;
@@ -2901,6 +2906,20 @@ function loadHospitalsSettings() {
             });
 
         }
+
+        // Error-surfacing wrapper — a throw inside renderRulesManager leaves the
+        // tbody empty with headers intact (the "disappeared rules" symptom).
+        // Surface the real error on the page and in the console instead.
+        const _renderRulesManagerRaw = renderRulesManager;
+        renderRulesManager = function() {
+            try {
+                _renderRulesManagerRaw();
+            } catch (e) {
+                const tbody = document.getElementById('rulesTbody');
+                if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--accent-red);padding:1.5rem;">⚠ Render error: ' + esc(String(e && e.message || e)) + '</td></tr>';
+                console.error('renderRulesManager failed:', e);
+            }
+        };
 
         // Search box oninput
         window.onRulesSearch = function() { renderRulesManager(); };

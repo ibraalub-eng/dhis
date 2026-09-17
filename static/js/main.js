@@ -102,9 +102,21 @@
             function _tryInit(name, retries) {
                 var fn = window[name];
                 if (typeof fn === 'function' && fn.toString().indexOf('Module not loaded') === -1) {
-                    fn();
+                    try { fn(); } catch (err) { console.error('[tabs] ' + name + ' failed:', err); }
                 } else if (retries > 0) {
                     setTimeout(function() { _tryInit(name, retries - 1); }, 300);
+                } else {
+                    // Module never arrived (stale/failed import chain): surface it
+                    // instead of leaving an empty tab that silently never initializes.
+                    var targetContent = document.getElementById('tab-' + name);
+                    if (targetContent) {
+                        targetContent.innerHTML = '<div style="padding:2rem;text-align:center;">' +
+                            '<div style="font-size:1.5rem;margin-bottom:0.5rem;">⚠️</div>' +
+                            '<div style="color:var(--accent-red);font-size:0.9rem;font-weight:600;margin-bottom:0.3rem;">Failed to load this section</div>' +
+                            '<div style="color:var(--text-muted);font-size:0.78rem;margin-bottom:1rem;">The page module did not load — a hard refresh (Ctrl+F5) usually fixes this.</div>' +
+                            '<button class="btn btn-sm" onclick="window._retryTab(\'' + name + '\')" style="background:var(--accent-blue);color:white;">↻ Retry</button>' +
+                            '</div>';
+                    }
                 }
             }
             if (name === 'dashboard') _tryInit('initDashboard', 10);
