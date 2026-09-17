@@ -25,7 +25,7 @@
                         <div class="card" style="padding:0.8rem 1rem;margin-bottom:1rem;border-right:4px solid var(--accent-teal);background:var(--bg-elevated);">
                             <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
                                 <span style="font-size:1rem;">&#128172;</span>
-                                <span style="font-weight:700;font-size:0.9rem;color:var(--accent-teal);">الملخص التنفيذي</span>
+                                <span style="font-weight:700;font-size:0.9rem;color:var(--accent-teal);" data-i18n="Executive summary">الملخص التنفيذي</span>
                                 <span style="font-size:0.6rem;background:var(--accent-teal);color:#fff;padding:1px 7px;border-radius:8px;font-weight:600;">Executive Summary</span>
                             </div>
                             <div id="rcSummaryArabic" style="font-size:0.88rem;line-height:1.8;color:var(--accent-teal);"></div>
@@ -36,7 +36,7 @@
                         <div class="card" style="padding:0.7rem 1rem;margin-bottom:1rem;border-top:3px solid var(--accent-teal);">
                             <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.6rem;">
                                 <span style="font-size:0.9rem;">&#127919;</span>
-                                <h4 style="margin:0;font-size:0.9rem;color:var(--accent-teal);">السلاسل السببية</h4>
+                                <h4 style="margin:0;font-size:0.9rem;color:var(--accent-teal);" data-i18n="Causal chains">السلاسل السببية</h4>
                                 <span style="font-size:0.6rem;background:rgba(45,212,191,0.12);color:var(--accent-teal);padding:1px 7px;border-radius:8px;font-weight:600;">Root Cause Chains</span>
                             </div>
                             <div id="rcCausalChains" style="font-size:0.8rem;"></div>
@@ -46,14 +46,14 @@
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
                             <div class="card" style="padding:0.6rem 0.8rem;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
-                                    <h3 style="margin:0;font-size:0.9rem;color:var(--accent-red);">&#9888; الإجراءات ذات الأولوية</h3>
+                                    <h3 style="margin:0;font-size:0.9rem;color:var(--accent-red);">&#9888; <span data-i18n="Priority actions">الإجراءات ذات الأولوية</span></h3>
                                     <span style="font-size:0.6rem;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 7px;border-radius:8px;font-weight:600;">Priority Actions</span>
                                 </div>
                                 <div id="rcActionsList"></div>
                             </div>
                             <div class="card" style="padding:0.6rem 0.8rem;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
-                                    <h3 style="margin:0;font-size:0.9rem;color:var(--accent-blue);">&#129504; التوصيات الذكية</h3>
+                                    <h3 style="margin:0;font-size:0.9rem;color:var(--accent-blue);">&#129504; <span data-i18n="AI recommendations">التوصيات الذكية</span></h3>
                                     <span style="background:rgba(79,140,255,0.15);color:var(--accent-blue);font-size:0.6rem;padding:1px 6px;border-radius:3px;font-weight:600;">AI</span>
                                     <span style="font-size:0.6rem;background:rgba(167,139,250,0.15);color:var(--accent-purple);padding:1px 7px;border-radius:8px;font-weight:600;">Recommendations</span>
                                 </div>
@@ -64,34 +64,34 @@
                         <!-- Diagnostic Evidence Grid: 2x2 -->
                         <div style="display:flex;align-items:center;gap:0.5rem;margin:0 0 0.6rem 0;">
                             <span style="font-size:0.9rem;">&#128269;</span>
-                            <span style="font-weight:700;font-size:0.88rem;color:var(--text-primary);">الأدلة التشخيصية</span>
+                            <span style="font-weight:700;font-size:0.88rem;color:var(--text-primary);" data-i18n="Diagnostic evidence">الأدلة التشخيصية</span>
                             <span style="font-size:0.6rem;background:var(--bg-elevated);color:var(--text-secondary);padding:1px 7px;border-radius:8px;font-weight:600;">Diagnostic Evidence</span>
                         </div>
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
                             <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid var(--accent-red);">
                                 <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
-                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-red);">&#9888; فشل قواعد التحقق</h4>
+                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-red);">&#9888; <span data-i18n="Rule failures">فشل قواعد التحقق</span></h4>
                                     <span style="font-size:0.58rem;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:8px;">Rule Failures</span>
                                 </div>
                                 <div id="rcRuleFailures" style="font-size:0.8rem;"></div>
                             </div>
                             <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid var(--accent-blue);">
                                 <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
-                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-blue);">&#128202; محركات جودة البيانات</h4>
+                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-blue);">&#128202; <span data-i18n="Quality drivers">محركات جودة البيانات</span></h4>
                                     <span style="font-size:0.58rem;background:rgba(21,101,192,0.12);color:var(--accent-blue);padding:1px 6px;border-radius:8px;">Quality Drivers</span>
                                 </div>
                                 <div id="rcQualityDrivers" style="font-size:0.8rem;"></div>
                             </div>
                             <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid var(--accent-orange);">
                                 <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
-                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-orange);">&#128270; فجوات الثقة</h4>
+                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-orange);">&#128270; <span data-i18n="Confidence gaps">فجوات الثقة</span></h4>
                                     <span style="font-size:0.58rem;background:rgba(230,81,0,0.12);color:var(--accent-orange);padding:1px 6px;border-radius:8px;">Confidence Gaps</span>
                                 </div>
                                 <div id="rcConfidenceGaps" style="font-size:0.8rem;"></div>
                             </div>
                             <div class="card" style="padding:0.6rem 0.8rem;border-top:3px solid var(--accent-purple);">
                                 <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.5rem;">
-                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-purple);">&#128200; أنماط الشذوذ</h4>
+                                    <h4 style="margin:0;font-size:0.85rem;color:var(--accent-purple);">&#128200; <span data-i18n="Anomaly patterns">أنماط الشذوذ</span></h4>
                                     <span style="font-size:0.58rem;background:rgba(123,31,162,0.12);color:var(--accent-purple);padding:1px 6px;border-radius:8px;">Anomaly Patterns</span>
                                 </div>
                                 <div id="rcAnomalyPatterns" style="font-size:0.8rem;"></div>
@@ -105,11 +105,11 @@
                         <!-- Details: causal tree + peer comparisons -->
                         <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
                             <div class="card" style="padding:0.7rem 1rem;border-top:3px solid var(--accent-teal);">
-                                <h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:var(--accent-teal);">&#127795; شجرة العوامل السببية</h4>
+                                <h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:var(--accent-teal);">&#127795; <span data-i18n="Causal factor tree">شجرة العوامل السببية</span></h4>
                                 <div id="rcCausalTree" style="font-size:0.78rem;"></div>
                             </div>
                             <div class="card" style="padding:0.7rem 1rem;border-top:3px solid var(--accent-purple);">
-                                <h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:var(--accent-purple);">&#128200; مقارنة النظير لكل مؤشر</h4>
+                                <h4 style="margin:0 0 0.5rem;font-size:0.85rem;color:var(--accent-purple);">&#128200; <span data-i18n="Peer comparison per indicator">مقارنة النظير لكل مؤشر</span></h4>
                                 <div id="rcPeerComparisons" style="font-size:0.78rem;"></div>
                             </div>
                         </div>
@@ -119,10 +119,10 @@
                             <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.4rem;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
                                     <span style="font-size:0.95rem;">&#128200;</span>
-                                    <h4 style="margin:0;font-size:0.9rem;color:var(--accent-purple);">المقارنة الزمنية بالمؤشرات</h4>
+                                    <h4 style="margin:0;font-size:0.9rem;color:var(--accent-purple);" data-i18n="Timeline comparison by indicator">المقارنة الزمنية بالمؤشرات</h4>
                                     <span style="font-size:0.6rem;background:rgba(123,31,162,0.12);color:var(--accent-purple);padding:1px 7px;border-radius:8px;font-weight:600;">Timeline vs Peers</span>
                                 </div>
-                                <label style="font-size:0.75rem;color:var(--text-secondary);">المؤشر:
+                                <label style="font-size:0.75rem;color:var(--text-secondary);"><span data-i18n="Indicator:">المؤشر:</span>
                                     <select id="rcTimelineIndicator" onchange="renderRcTimelineChart()" style="font-size:0.8rem;padding:0.25rem 0.4rem;min-width:170px;"></select>
                                 </label>
                             </div>
@@ -137,10 +137,10 @@
                             <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.6rem;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
                                     <span style="font-size:0.95rem;">&#127973;</span>
-                                    <h4 style="margin:0;font-size:0.9rem;color:var(--accent-purple);">مستشفيات النظير</h4>
+                                    <h4 style="margin:0;font-size:0.9rem;color:var(--accent-purple);" data-i18n="Peer hospitals">مستشفيات النظير</h4>
                                     <span style="font-size:0.6rem;background:rgba(123,31,162,0.12);color:var(--accent-purple);padding:1px 7px;border-radius:8px;font-weight:600;">Peer Hospitals</span>
                                 </div>
-                                <span style="font-size:0.72rem;color:var(--text-muted);">انقر على أي مستشفى للانتقال إلى تحليله الجذري</span>
+                                <span style="font-size:0.72rem;color:var(--text-muted);" data-i18n="Click any hospital to open its root cause analysis">انقر على أي مستشفى للانتقال إلى تحليله الجذري</span>
                             </div>
                             <div id="rcPeerHospitals" style="font-size:0.78rem;"></div>
                         </div>

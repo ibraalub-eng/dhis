@@ -243,7 +243,10 @@ def test_frontend_renders_chain_path():
         content = f.read()
     assert "chain_path" in content
     assert "chain_path_arabic" in content
-    assert "سلسلة السبب والنتيجة" in content
+    # Chain tooltip is translated through __(); the Arabic lives in i18n.js
+    assert "__('Full cause-and-effect chain (deepest ← latest)')" in content
+    i18n = open(os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js"), encoding="utf-8").read()
+    assert "سلسلة السبب والنتيجة" in i18n
 
 
 def test_api_returns_primary_cause_ar(db_session):
@@ -398,8 +401,11 @@ def test_frontend_renders_impact_effort_roi():
     assert "det.impact" in content
     assert "det.effort" in content
     assert "det.roi" in content
-    assert "الأثر" in content
-    assert "عائد" in content
+    # Impact/ROI/Effort labels are translated via __(); Arabic lives in i18n.js
+    assert "__('Impact')" in content
+    assert "__('ROI')" in content
+    assert "__('Effort')" in content
+    assert "__('quality points')" in content
 
 
 def test_causal_tree_serializes_history(db_session):
@@ -499,7 +505,9 @@ def test_frontend_renders_peer_governorates():
         content = f.read()
     assert "peer_governorate_counts" in content
     assert "peer_types" in content
-    assert "النظير" in content
+    assert "__('Peers')" in content
+    assert "__('governorates')" in content
+    assert "__('types')" in content
 
 
 def test_peer_comparison_includes_governorates(db_session):

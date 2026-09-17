@@ -133,9 +133,12 @@ class TestDrawRcTimelineChart:
 
     def test_two_datasets_defined(self):
         content = _read("static/js/settings.js")
-        # The datasets array should have two entries: hospital + peer
-        assert "المستشفى" in content  # hospital label in Arabic
-        assert "متوسط النظير" in content  # peer mean label
+        # Dataset labels are translated through __(); Arabic lives in i18n.js
+        assert "__('Hospital')" in content  # hospital dataset label
+        assert "__('Peer average')" in content  # peer mean label
+        i18n = _read("static/js/i18n.js")
+        assert "المستشفى" in i18n
+        assert "متوسط النظير" in i18n
 
     def test_ci_band_plugin_registered(self):
         content = _read("static/js/settings.js")
@@ -192,7 +195,7 @@ class TestRenderRcTimeline:
 
     def test_handles_empty_data(self):
         content = _read("static/js/settings.js")
-        assert "لا توجد بيانات زمنية كافية" in content
+        assert "__('Not enough time-series data')" in content
 
     def test_app_joins_and_exports(self):
         content = _read("static/js/app.js")
@@ -205,15 +208,18 @@ class TestTextDescription:
 
     def test_text_mentions_hospital_line(self):
         content = _read("static/js/settings.js")
-        assert "الخط الصلب: قيمة المستشفى" in content
+        assert "__('Solid line: hospital value month by month. Dashed line: peer average. Shaded band: 95% confidence interval around the peer average.')" in content
 
     def test_text_mentions_peer_dashed(self):
         content = _read("static/js/settings.js")
-        assert "الخط المتقطع: متوسط النظير" in content
+        assert "__('Peer average')" in content
 
     def test_text_mentions_ci_band(self):
         content = _read("static/js/settings.js")
-        assert "فاصل ثقة 95%" in content
+        # The 95% CI band text is part of the translated legend sentence
+        assert "95% confidence interval" in content
+        i18n = _read("static/js/i18n.js")
+        assert "فاصل ثقة 95%" in i18n
 
 
 # ===================================================================
