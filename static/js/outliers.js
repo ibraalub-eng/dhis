@@ -1,4 +1,4 @@
-        import { API, apiGet } from './api.js';
+        import { apiGet } from './api.js';
         import { __ } from './i18n.js';
         import { esc } from './tree.js';
 
@@ -280,15 +280,12 @@
             const loading = document.getElementById('ruleFailLoading');
             if (loading) loading.classList.remove('hidden');
             tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading rule failures...</td></tr>';
-            let url = API() + '/analysis/rule-failures?';
+            let url = '/analysis/rule-failures?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
             if (sev) url += 'severity=' + encodeURIComponent(sev) + '&';
             if (typ) url += 'rule_type=' + encodeURIComponent(typ) + '&';
-            fetch(url).then(r => {
-                if (!r.ok) throw new Error('HTTP ' + r.status);
-                return r.json();
-            }).then(data => {
+            apiGet(url).then(data => {
                 if (loading) loading.classList.add('hidden');
                 updateRuleFailUI(data, hosp, mon);
             }).catch(err => {

@@ -1239,8 +1239,8 @@ window._adminAssignHospitals = function(id, btn) {
   window.adminPreviewDb=function(){
     var ct=document.getElementById("adminDbPreviewContainer");var co=document.getElementById("adminDbPreviewContent");
     if(!ct||!co)return;ct.style.display="block";co.innerHTML="Loading...";
-    var tok=getAccessToken();var hdrs={"Authorization":"Bearer "+tok,"Content-Type":"application/json"};
-    fetch(API_BASE+"/config/database/preview",{headers:hdrs}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();}).then(function(data){
+    api("/config/database/preview").then(function(data){if(!data)return; // eslint-disable-line
+      if(data._error||data._forbidden){co.innerHTML="<p style=\"color:var(--accent-red)\">Error: "+(data.detail||"request failed")+"</p>";return;}
       if(!data.tables||!data.tables.length){co.innerHTML="<p style=\"color:var(--text-muted)\">No tables.</p>";return;}
       var h="<div style=\"margin-bottom:0.6rem;font-size:0.82rem;color:var(--text-secondary)\"><strong>"+data.total_tables+"</strong> tables found</div>";
       data.tables.forEach(function(t){
@@ -1260,8 +1260,7 @@ window._adminAssignHospitals = function(id, btn) {
   window.adminExportDb=function(){
     var s=document.getElementById("adminDbExportStatus");if(s)s.textContent="Preparing export...";
     var btn=document.getElementById("adminBtnExportDb");if(btn)btn.disabled=true;
-    var tok=getAccessToken();var hdrs={"Authorization":"Bearer "+tok};
-    fetch(API_BASE+"/config/database/export",{headers:hdrs}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);var d=r.headers.get("Content-Disposition")||"";var m=d.match(/filename=\"?([^"]+)\"?/);return r.blob().then(function(b){return{blob:b,filename:m?m[1]:"export.json"};});}).then(function(r){
+    window.authFetch(API_BASE+"/config/database/export",{headers:{"Content-Type":"application/json"}}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);var d=r.headers.get("Content-Disposition")||"";var m=d.match(/filename=\"?([^"]+)\"?/);return r.blob().then(function(b){return{blob:b,filename:m?m[1]:"export.json"};});}).then(function(r){
       var u=URL.createObjectURL(r.blob);var a=document.createElement("a");a.href=u;a.download=r.filename;document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(u);if(s)s.textContent="Downloaded: "+r.filename;
     }).catch(function(e){if(s)s.textContent="Failed: "+e.message;}).finally(function(){if(btn)btn.disabled=false;});
   };

@@ -389,3 +389,65 @@ def test_audit_screen_all_strings_translated():
     assert len(keys) >= 25, f"expected substantial i18n usage, found {len(keys)}"
     missing = [k for k in keys if f"'{k}':" not in i18n]
     assert not missing, f"audit.js uses keys missing from i18n.js: {missing}"
+
+
+def test_no_raw_api_fetches_outside_auth_layer():
+    """Every API fetch in tab JS must go through the auth layer (apiGet /
+    window.authFetch / admin.js's own api() wrapper). Raw fetch() is allowed
+    only inside auth.js itself (it IS the auth layer) and for loading tab
+    HTML from /static/, which is unauthenticated by design."""
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..", "static", "js")
+    allowed = {
+        "auth.js": None,  # whole file exempt: the auth/bootstrap layer
+        "admin.js": ["var resp = await fetch(API_BASE + path, opts);"],
+        "main.js": ["fetch(src).then"],  # /static/ tab HTML only
+    }
+    offenders = []
+    for fname in sorted(os.listdir(root)):
+        if not fname.endswith(".js"):
+            continue
+        if fname in allowed and allowed[fname] is None:
+            continue
+        with open(os.path.join(root, fname), encoding="utf-8") as f:
+            for lineno, line in enumerate(f, 1):
+                if "fetch(" not in line or "authFetch(" in line:
+                    continue
+                if any(mark in line for mark in allowed.get(fname, [])):
+                    continue
+                offenders.append(f"{fname}:{lineno}: {line.strip()[:90]}")
+    smart = os.path.join(root, "smart")
+    if os.path.isdir(smart):
+        for fname in sorted(os.listdir(smart)):
+            if not fname.endswith(".js"):
+                continue
+            with open(os.path.join(smart, fname), encoding="utf-8") as f:
+                for lineno, line in enumerate(f, 1):
+                    if "fetch(" not in line or "authFetch(" in line:
+                        continue
+                    offenders.append(f"smart/{fname}:{lineno}: {line.strip()[:90]}")
+    assert not offenders, "raw fetch() outside the auth layer:\n" + "\n".join(offenders)
+
+
+def test_converted_raw_fetch_sites_use_auth_path():
+    """The converted sites keep going through the auth layer: outliers
+    rule-failures via apiGet, sidebar menu via window.authFetch, admin db
+    preview/export via api()/window.authFetch."""
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..", "static", "js")
+
+    def read(name):
+        with open(os.path.join(root, name), encoding="utf-8") as f:
+            return f.read()
+
+    outliers = read("outliers.js")
+    assert "apiGet(url)" in outliers and "fetch(url)" not in outliers
+    rs = read("renderSidebar.js")
+    assert "window.authFetch('/menu')" in rs
+    assert "localStorage.getItem('access_token')" not in rs, \
+        "sidebar must not hand-roll token headers anymore"
+    admin = read("admin.js")
+    assert 'fetch(API_BASE+"/config/database/preview"' not in admin
+    assert 'fetch(API_BASE+"/config/database/export"' not in admin
+    assert 'api("/config/database/preview")' in admin
+    assert 'window.authFetch(API_BASE+"/config/database/export"' in admin

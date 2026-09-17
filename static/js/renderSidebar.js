@@ -113,8 +113,10 @@ function _highlightActive() {
  */
 export async function renderSidebar() {
     try {
-        var token = (typeof window.getAccessToken === 'function' && window.getAccessToken()) || localStorage.getItem('access_token') || '';
-        var resp = await fetch('/menu', { headers: { 'Authorization': 'Bearer ' + token } });
+        // authFetch is the global installed by auth.js (same pattern api.js
+        // uses): attaches the Bearer token, refreshes on 401, redirects to
+        // login when the session is dead — instead of hand-rolled headers.
+        var resp = await window.authFetch('/menu');
         if (!resp.ok) throw new Error(resp.status);
         var data = await resp.json();
         _sidebarData = data;
