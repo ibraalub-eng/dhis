@@ -22,6 +22,7 @@ window._restoreUIState = _restoreUIState;
 window._tabInited = _tabInited;
 window.SwitchTab = SwitchTab;
 window.switchTab = switchTab;
+window.renderSidebar = renderSidebar;
 
 // Re-export for other modules
 export { showLoader, hideLoader, SwitchTab, switchTab, __, API, apiGet, apiPost, apiPut };

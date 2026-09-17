@@ -304,8 +304,8 @@ def test_i18n_covers_outliers_keys_and_peers_note():
     with open(i18n_path, encoding="utf-8") as f:
         i18n = f.read()
     tabs = {
-        "outliers": {"Peers note", "Legend peers desc"},
-        "audit": {"Peers note"},
+        "outliers": {"Peers = all active hospitals with data for the month", "Legend peers desc"},
+        "audit": {"Peers = all active hospitals with data for the month"},
     }
     for tab, required in tabs.items():
         html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", f"{tab}.html")
@@ -451,3 +451,32 @@ def test_converted_raw_fetch_sites_use_auth_path():
     assert 'fetch(API_BASE+"/config/database/export"' not in admin
     assert 'api("/config/database/preview")' in admin
     assert 'window.authFetch(API_BASE+"/config/database/export"' in admin
+
+
+def test_fresh_login_renders_sidebar():
+    """Regression: the login-success handler must re-render the sidebar.
+
+    app.js renders the sidebar only on page boot; after a fresh login
+    (auth.js handleLogin) the menu stayed empty until the next full page
+    reload. auth.js must now call window.renderSidebar() before switching
+    to the dashboard, and app.js must expose it globally.
+    """
+    import os
+    root = os.path.join(os.path.dirname(__file__), "..", "static", "js")
+
+    def read(name):
+        with open(os.path.join(root, name), encoding="utf-8") as f:
+            return f.read()
+
+    app = read("app.js")
+    assert "window.renderSidebar = renderSidebar;" in app, \
+        "app.js must expose renderSidebar globally for auth.js"
+
+    auth = read("auth.js")
+    assert "window.renderSidebar()" in auth, \
+        "login-success handler must re-render the sidebar"
+    # The dashboard switch must wait for the sidebar render (or remain as a
+    # fallback when renderSidebar is unavailable).
+    idx_render = auth.index("window.renderSidebar()")
+    idx_switch = auth.index("window.switchTab('dashboard')", idx_render)
+    assert idx_render < idx_switch

@@ -259,7 +259,13 @@
       }).catch(function() {});
       // Always start at dashboard after login
       localStorage.removeItem('lastTab');
-      if (typeof window.switchTab === 'function') {
+      // Re-render the sidebar (boot path does this; a fresh login must too,
+      // otherwise the menu stays empty until the next full page load).
+      if (typeof window.renderSidebar === 'function') {
+        window.renderSidebar().then(function() {
+          if (typeof window.switchTab === 'function') window.switchTab('dashboard');
+        });
+      } else if (typeof window.switchTab === 'function') {
         window.switchTab('dashboard');
       } else if (typeof window.initDashboard === 'function') {
         window.initDashboard();
