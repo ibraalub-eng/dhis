@@ -1441,3 +1441,36 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 
 .sidebar .tab .count-badge { margin-inline-start:auto; }
 [dir="rtl"] .sidebar .tab .count-badge { margin-right:auto; margin-left:0; }
+
+/* ── Audit screen ─────────────────────────────────────────────────────────── */
+.audit-kpis { margin-top:0.25rem; }
+.audit-kpis .kpi-card { padding:0.9rem 0.5rem; }
+.audit-kpis .kpi-card .icon { font-size:1.4rem; margin-bottom:0.2rem; }
+.audit-kpis .kpi-card .value { font-size:1.5rem; line-height:1.25; }
+.audit-kpis .kpi-card .label { font-size:0.7rem; }
+
+.audit-summary {
+  display:flex; justify-content:space-between; align-items:center; gap:0.5rem;
+  cursor:pointer; list-style:none; padding:0.1rem 0;
+}
+.audit-summary::-webkit-details-marker { display:none; }
+.audit-sect-title { font-size:0.9rem; font-weight:600; color:var(--accent-blue); }
+.audit-sect-badge { display:inline-flex; align-items:center; gap:0.3rem; font-size:0.72rem; flex-shrink:0; }
+
+.audit-label {
+  font-size:0.7rem; font-weight:600; color:var(--text-muted);
+  text-transform:uppercase; letter-spacing:0.03em; margin:0.5rem 0 0.3rem;
+}
+
+.range-legend { display:flex; flex-wrap:wrap; gap:0.8rem; font-size:0.66rem; color:var(--text-secondary); margin:0.2rem 0 0.4rem; }
+.range-legend .legend-dot { display:inline-block; width:0.6rem; height:0.6rem; border-radius:50%; background:var(--accent-blue); vertical-align:middle; margin-inline-end:0.2rem; }
+.range-legend .legend-tick { display:inline-block; width:2px; height:0.7rem; vertical-align:middle; margin-inline-end:0.2rem; }
+.range-legend .legend-tick-med { background:var(--accent-purple); }
+.range-legend .legend-tick-avg { background:var(--text-muted); }
+
+.range-track { position:relative; height:0.7rem; background:var(--border-default); border-radius:3px; margin:0.3rem 0 0.25rem; }
+.range-track .range-tick { position:absolute; top:-0.2rem; bottom:-0.2rem; width:2px; border-radius:1px; }
+.range-track .range-tick-med { background:var(--accent-purple); opacity:0.9; }
+.range-track .range-tick-avg { background:var(--text-muted); opacity:0.75; }
+.range-track .range-dot { position:absolute; top:50%; width:0.85rem; height:0.85rem; border-radius:50%; transform:translate(-50%,-50%); border:2px solid var(--bg-surface); }
+.range-scale { display:flex; justify-content:space-between; gap:0.5rem; font-size:0.66rem; color:var(--text-muted); }
