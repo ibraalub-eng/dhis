@@ -2890,15 +2890,37 @@ function loadHospitalsSettings() {
         // Search box oninput
         window.onRulesSearch = function() { renderRulesManager(); };
 
-        // Bulk toggle all rules in a category (local-only, saved via Save button)
+        // Bulk toggle all rules in a category — persists immediately (no Save click needed)
         window.bulkToggleCategory = function(cat, enable) {
+            let count = 0;
             rulesManagerData.forEach(r => {
-                if ((r.category || 'UNCATEGORIZED') === cat) r.enabled = enable;
+                if ((r.category || 'UNCATEGORIZED') === cat) {
+                    r.enabled = enable;
+                    count++;
+                }
             });
-            _rulesDirty = true;
-            _updateRulesSaveButton();
+            if (!count) return;
+            _rulesDirty = false;
             renderRulesManager();
-            toastSuccess('Category "' + cat + '" ' + (enable ? 'enabled' : 'disabled') + ' — click Save to apply');
+            const btn = document.getElementById('rulesSaveBtn');
+            if (btn) { btn.textContent = __('Saving...'); btn.disabled = true; }
+            const items = rulesManagerData.map(r => ({ id: r.id, enabled: r.enabled }));
+            authFetch(API() + '/rules/save-enabled', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: items }),
+            })
+                .then(r => r.json())
+                .then(data => {
+                    toastSuccess('Category "' + cat + '" ' + (enable ? 'enabled' : 'disabled') + ' (' + count + ' rule(s) saved)');
+                    loadRulesManager();
+                })
+                .catch(e => {
+                    _rulesDirty = true;
+                    if (btn) { btn.textContent = __('Save'); btn.disabled = false; }
+                    _updateRulesSaveButton();
+                    toastError('Save failed: ' + e.message);
+                });
         };
 
         window._testRuleById = function(id) {

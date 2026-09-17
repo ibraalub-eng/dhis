@@ -9,6 +9,12 @@ def _read_rules_js():
         return f.read()
 
 
+def _read_settings_js():
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 def test_rules_js_imports_confirm_destructive():
     """deleteRule() awaits confirmDestructive(). Without the import the rule
     delete buttons silently no-op because confirmDestructive is module-scoped
@@ -161,3 +167,28 @@ def test_seed_op_rules_dispatch_correctly(db_session):
 
     # missing data must never fail a rule (formula unobservable -> PASS)
     assert _run("R074", {}).status == RuleStatus.PASS
+
+
+# ── Bulk Enable/Disable-all persistence (rules manager) ─────────────
+
+def _get_bulk_toggle_block():
+    js = _read_settings_js()
+    start = js.index("window.bulkToggleCategory = function")
+    end = js.index("window.", start + 10)
+    return js[start:end]
+
+
+def test_bulk_toggle_persists_immediately():
+    """Enable all / Disable all must PUT /rules/save-enabled right away instead
+    of deferring to a manual Save click, and must never claim 'click Save'."""
+    block = _get_bulk_toggle_block()
+    assert "/rules/save-enabled" in block
+    assert "authFetch(" in block
+    assert "click Save to apply" not in block
+
+
+def test_bulk_toggle_reloads_after_save():
+    """After persisting, the rules manager must reload so the UI reflects the
+    saved state (what the user sees matches the database)."""
+    block = _get_bulk_toggle_block()
+    assert "loadRulesManager(" in block
