@@ -281,11 +281,11 @@ def test_rules_search_has_clear_button():
 
 def test_rules_search_not_force_cleared_on_load():
     """loadRulesManager must not silently wipe the search box (removed hard-
-    coded auto-clear); instead renderRulesManager syncs the ✕ button visibility
-    and clearRulesSearch() is the single explicit clear path."""
+    coded auto-clear); the ✕ button is always visible in the toolbar and
+    clearRulesSearch() is the single explicit clear path."""
     js = _read_settings_js()
     fn_start = js.index("export function loadRulesManager()")
     fn_src = js[fn_start:fn_start + 900]
     assert "searchBox.value = ''" not in fn_src
-    assert "rulesSearchClear" in js          # visibility synced in render
-    assert "window.clearRulesSearch" in js   # explicit clear handler
+    assert 'id="rulesSearchClear"' not in js  # button lives in the tab HTML, static
+    assert "window.clearRulesSearch" in js    # explicit clear handler
