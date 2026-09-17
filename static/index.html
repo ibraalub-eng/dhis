@@ -162,7 +162,12 @@
                 <h2 id="ruleEditTitle" style="color:var(--text-primary);margin-bottom:1rem;">New Rule</h2>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
                     <div><label style="font-size:0.8rem;color:var(--text-secondary);">Code</label><br><input id="ruleEditCode" style="width:100%;" placeholder="R061"></div>
-                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Name</label><br><input id="ruleEditName" style="width:100%;" placeholder="Rule description"></div>
+                    <div><label style="font-size:0.8rem;color:var(--text-secondary);">Name</label><br><input id="ruleEditName" style="width:100%;" placeholder="Rule description">
+                        <div id="ruleNameSuggestionWrap" style="display:none;margin-top:0.3rem;font-size:0.72rem;color:var(--text-secondary);align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                            <span><span data-i18n="Suggested name:">Suggested name:</span> <strong id="ruleNameSuggestion" style="color:var(--accent-green);"></strong></span>
+                            <button type="button" onclick="applyRuleNameSuggestion()" style="font-size:0.65rem;padding:0.1rem 0.4rem;cursor:pointer;" data-i18n="Use suggestion">Use suggestion</button>
+                        </div>
+                    </div>
                     <div><label style="font-size:0.8rem;color:var(--text-secondary);">Rule Type</label><br>
                         <select id="ruleEditType" style="width:100%;">
                             <option value="LOGIC">LOGIC</option>

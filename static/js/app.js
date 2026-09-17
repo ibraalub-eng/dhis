@@ -239,6 +239,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'openRuleModal'); _bind(mod, 'closeRuleModal');
       _bind(mod, 'saveRule'); _bind(mod, 'deleteRule');
       _bind(mod, 'testRuleForHospital'); _bind(mod, 'validateAndSaveRule');
+      _bind(mod, 'applyRuleNameSuggestion');
       break;
     case 'audit':
       _bind(mod, 'initAudit'); _bind(mod, 'loadAudit');

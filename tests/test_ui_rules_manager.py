@@ -289,3 +289,96 @@ def test_rules_search_not_force_cleared_on_load():
     assert "searchBox.value = ''" not in fn_src
     assert 'id="rulesSearchClear"' not in js  # button lives in the tab HTML, static
     assert "window.clearRulesSearch" in js    # explicit clear handler
+
+
+# ── Suggested rule name (New Rule modal) ────────────────────────────
+
+def _read_index_html():
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "index.html")
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def _read_i18n_js():
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js")
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+RULES_MANAGER_EXPRS = [
+    "ge", "gt", "ge_factor", "eq", "le", "lt", "le_sum",
+    "benchmark_rate", "benchmark_low_rate", "cross_hospital_rate",
+    "month_over", "month_under", "neg_check", "decimal_check",
+    "missing", "all_zero", "formula",
+]
+
+
+def test_suggest_rule_name_function_exists():
+    """suggestRuleName() must exist and have a suggestion template for every
+    expression type the builder can produce."""
+    js = _read_rules_js()
+    assert "export function suggestRuleName(" in js
+    fn_start = js.index("export function suggestRuleName(")
+    tail = js[fn_start:]
+    for expr in RULES_MANAGER_EXPRS:
+        assert f"case '{expr}':" in tail, f"suggestRuleName missing template for {expr}"
+
+
+def test_suggest_rule_name_uses_indicator_names():
+    """The name must be built from human-readable indicator names (via
+    _indicatorsCache), never raw codes, matching seeded rules like
+    'Total Deliveries >= Normal Vaginal + ...'."""
+    js = _read_rules_js()
+    fn_start = js.index("export function suggestRuleName(")
+    fn_src = js[fn_start:]
+    assert "_indicatorsCache" in fn_src
+    assert ".name" in fn_src
+    # ge template is parent-first with '>=' and children joined by ' + '
+    assert "+ '" in fn_src or "join(' + ')" in fn_src
+    assert ">= " in fn_src or ">= '" in fn_src
+
+
+def test_suggest_rule_name_preview_updates_in_builder():
+    """Rebuilding the visual builder must refresh the live name suggestion
+    preview so it tracks whatever the user has dropped in."""
+    js = _read_rules_js()
+    # buildVisualBuilder is called on every param change; it must call the
+    # suggestion updater (which also hides the preview when not applicable).
+    assert "buildVisualBuilder(expr) {" in js
+    tail = js[js.index("function buildVisualBuilder(expr) {"):]
+    assert "updateRuleNameSuggestion(" in tail
+
+
+def test_suggest_rule_name_modal_ui_exists():
+    """The New Rule modal must contain a suggestion preview span plus a way to
+    apply it into the Name field."""
+    html = _read_index_html()
+    assert 'id="ruleNameSuggestion"' in html
+    assert 'id="ruleEditName"' in html
+    assert "onclick=\"applyRuleNameSuggestion()\"" in html
+
+
+def test_apply_rule_name_suggestion_bound_and_exported():
+    """applyRuleNameSuggestion() must be exported from rules.js (so app.js can
+    bind it) and actually writes into the ruleEditName input."""
+    js = _read_rules_js()
+    assert "export function applyRuleNameSuggestion(" in js
+    assert "ruleEditName" in js
+
+
+def test_apply_rule_name_suggestion_bound_in_app_js():
+    """Inline onclick=applyRuleNameSuggestion() needs it on window via _bind,
+    otherwise the button silently no-ops (same failure mode as the
+    confirmDestructive import)."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "app.js")
+    with open(path, encoding="utf-8") as f:
+        app_js = f.read()
+    assert "_bind(mod, 'applyRuleNameSuggestion')" in app_js
+
+
+def test_suggest_rule_name_i18n_keys_exist():
+    """The suggestion preview label and the apply button carry translatable
+    English keys (Arabic values must be present too, per i18n policy)."""
+    i18n = _read_i18n_js()
+    assert "'Suggested name:':" in i18n
+    assert "'Use suggestion':" in i18n

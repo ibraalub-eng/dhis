@@ -599,6 +599,8 @@
             'Checks if all key indicators are zero, suggesting the facility may not be operational or data is missing. Takes codes[] list.': 'يتحقق مما إذا كانت جميع المؤشرات الرئيسية صفراً، مما يشير إلى أن المنشأة قد لا تعمل أو أن البيانات مفقودة. يأخذ قائمة codes[].',
             'Code and Name are required.': 'الرمز والاسم مطلوبان.',
             'Save Rule': 'حفظ القاعدة',
+            'Use suggestion': 'استخدم الاقتراح',
+            'Suggested name:': 'الاسم المقترح:',
             'Delete rule ... This cannot be undone.': 'حذف القاعدة... لا يمكن التراجع عن هذا.',
 
             // Settings tabs

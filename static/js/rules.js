@@ -470,6 +470,7 @@ import { confirmDestructive } from './confirm-modal.js';
             }
             container.innerHTML = html;
             _vbUpdateHidden();
+            updateRuleNameSuggestion();
         }
 
         // ── Expr template (called on change, also builds visual) ───
@@ -519,6 +520,98 @@ import { confirmDestructive } from './confirm-modal.js';
                 _vbState.op = params.op || '=';
             }
             buildVisualBuilder(expr);
+        }
+
+        // ── Rule-name suggestion (New Rule modal) ──────────────────
+        // Builds a human-readable name from the indicator names the user has
+        // dropped into the visual builder, matching the seeded catalog style
+        // (e.g. "Total Deliveries >= Normal Vaginal + Assisted Vaginal + ...").
+        export function suggestRuleName() {
+            const expr = _vbState._expr;
+            if (!expr) return '';
+            const indName = (code) => {
+                if (!code) return '';
+                const ind = _indicatorsCache.find(i => i.code === code);
+                return ind ? ind.name : code;
+            };
+            const joinNames = (codes) => (codes || []).map(indName).filter(Boolean).join(' + ');
+            const listNames = (codes) => (codes || []).map(indName).filter(Boolean).join(', ');
+            const parent = indName(_vbState.parent);
+            const child = indName(_vbState.child);
+            switch (expr) {
+                case 'ge':
+                case 'gt':
+                    if (!_vbState.parent || !(_vbState.children || []).length) return '';
+                    return parent + (expr === 'gt' ? ' > ' : ' >= ') + joinNames(_vbState.children);
+                case 'ge_factor':
+                    if (!_vbState.parent || !(_vbState.children || []).length) return '';
+                    return joinNames(_vbState.children) + ' <= ' + (Math.round((parseFloat(_vbState.ge_factor) || 1) * 100)) + '% of ' + parent;
+                case 'eq':
+                    if (!_vbState.parent || !(_vbState.children || []).length) return '';
+                    return joinNames(_vbState.children) + ' = ' + parent;
+                case 'le':
+                case 'lt':
+                    if (!_vbState.child || !_vbState.parent) return '';
+                    return child + (expr === 'lt' ? ' < ' : ' <= ') + parent;
+                case 'le_sum':
+                    if (!_vbState.child || !(_vbState.children || []).length) return '';
+                    return child + ' >= ' + joinNames(_vbState.children);
+                case 'benchmark_rate':
+                case 'benchmark_low_rate':
+                    if (!_vbState.numerator || !_vbState.denominator) return '';
+                    return indName(_vbState.numerator) + ' Rate ' + (expr === 'benchmark_low_rate' ? '< ' : '> ') + (parseFloat(_vbState.threshold) || (expr === 'benchmark_low_rate' ? 10 : 80)) + '% alert';
+                case 'cross_hospital_rate':
+                    if (!_vbState.numerator || !_vbState.denominator) return '';
+                    return indName(_vbState.numerator) + '/' + indName(_vbState.denominator) + ' rate outlier across hospitals';
+                case 'month_over':
+                case 'month_under':
+                    if (!_vbState.indicator) return '';
+                    return indName(_vbState.indicator) + (expr === 'month_over' ? ' > ' : ' < ') + (expr === 'month_over'
+                        ? (parseFloat(_vbState.factor) || 2) + 'x previous month'
+                        : (Math.round((parseFloat(_vbState.factor) || 0.5) * 100)) + '% of previous month');
+                case 'neg_check':
+                case 'decimal_check':
+                case 'all_zero':
+                    if (!(_vbState.codes || []).length) return '';
+                    const label = expr === 'neg_check' ? 'Negative values: '
+                        : expr === 'decimal_check' ? 'Decimal values: '
+                        : 'All zero check: ';
+                    return label + listNames(_vbState.codes);
+                case 'missing':
+                    if (!_vbState.indicator) return '';
+                    return 'Missing ' + indName(_vbState.indicator);
+                case 'formula':
+                    if (!_vbState.target) return '';
+                    const op = _formulaOpDef(_vbState.op || '=').sym;
+                    return 'Formula result ' + op + ' ' + indName(_vbState.target);
+                default:
+                    return '';
+            }
+        }
+
+        function updateRuleNameSuggestion() {
+            const wrap = document.getElementById('ruleNameSuggestionWrap');
+            const preview = document.getElementById('ruleNameSuggestion');
+            if (!wrap || !preview) return;
+            // Only ever suggest names for brand-new rules — never overwrite an
+            // existing rule's hand-written name while editing.
+            if (ruleEditId) { wrap.style.display = 'none'; return; }
+            const s = suggestRuleName();
+            if (s) {
+                preview.textContent = s;
+                wrap.style.display = 'flex';
+            } else {
+                wrap.style.display = 'none';
+            }
+        }
+
+        export function applyRuleNameSuggestion() {
+            const nameInput = document.getElementById('ruleEditName');
+            if (!nameInput || ruleEditId) return;
+            const s = suggestRuleName();
+            if (!s) return;
+            nameInput.value = s;
+            updateRuleNameSuggestion();
         }
 
         export function toggleExprHelp() {
