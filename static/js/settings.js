@@ -278,7 +278,7 @@ function loadHospitalsSettings() {
                     labels: months,
                     datasets: [
                         {
-                            label: (ind.indicator_name || ind.indicator_code) + ' — المستشفى',
+                            label: (ind.indicator_name || ind.indicator_code) + ' — ' + __('Hospital'),
                             data: hv,
                             borderColor: CHART_COLORS.primary,
                             backgroundColor: CHART_COLORS.primary,
@@ -290,7 +290,7 @@ function loadHospitalsSettings() {
                             fill: false,
                         },
                         {
-                            label: 'متوسط النظير',
+                            label: __('Peer average'),
                             data: pm,
                             borderColor: CHART_COLORS.secondary,
                             backgroundColor: CHART_COLORS.secondary,
@@ -374,9 +374,9 @@ function loadHospitalsSettings() {
                     ? Math.round(withPeer.reduce((a, p) => a + (p.peer_count || 0), 0) / withPeer.length)
                     : 0;
                 if (avgPeers > 0) {
-                    textEl.innerHTML = 'الخط الصلب: قيمة المستشفى شهراً بشهر. الخط المتقطع: متوسط النظير. النطاق المظلل: فاصل ثقة 95% حول متوسط النظير. <strong>متوسط عدد النظير: ' + avgPeers + ' مستشفى</strong>';
+                    textEl.innerHTML = __('Solid line: hospital value month by month. Dashed line: peer average. Shaded band: 95% confidence interval around the peer average.') + ' <strong>' + __('Average peer count:') + ' ' + avgPeers + '</strong>';
                 } else {
-                    textEl.innerHTML = '⚠️ لا توجد بيانات نظير لهذا المستشفى. تم عرض قيمة المستشفى فقط. للمقارنة بالنظير, يجب تحديد حسب المستشفى بعمود معلومات النوع (نوع/الملكية/المحافظة).';
+                    textEl.innerHTML = '⚠️ ' + __('No peer data for this hospital. Only the hospital value is shown. For peer comparison, select by hospital using the type info column (type/ownership/governorate).');
                 }
             }
         }
@@ -388,12 +388,12 @@ function loadHospitalsSettings() {
             if (!sel || !chartEl) return;
             const inds = (_rcTimelineData.indicators || []).filter(i => (i.series || []).length >= 2);
             if (!inds.length) {
-                sel.innerHTML = '<option value="">لا توجد بيانات زمنية كافية</option>';
+                sel.innerHTML = '<option value="">' + __('Not enough time-series data') + '</option>';
                 if (window._rcTimelineChartInstance) {
                     window._rcTimelineChartInstance.destroy();
                     window._rcTimelineChartInstance = null;
                 }
-                if (textEl) textEl.textContent = 'لا توجد بيانات — تتطلب المقارنة الزمنية شهرين أو أكثر للمستشفى وللنظراء.';
+                if (textEl) textEl.textContent = __('No data — the timeline comparison needs two or more months for the hospital and its peers.');
                 return;
             }
             sel.innerHTML = inds.map((i, idx) =>
@@ -613,17 +613,17 @@ function loadHospitalsSettings() {
                 });
                 const indName = esc(ind.indicator_name || ind.indicator_code);
                 peerHospEl.innerHTML =
-                    '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">نظير مؤشر <strong>' + indName + '</strong> لشهر ' + esc(mth) + ' — ' + rows.length + ' مستشفى (مرتبة حسب القيمة)</div>' +
+                    '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">' + __('Peers for indicator') + ' <strong>' + indName + '</strong> ' + __('for month') + ' ' + esc(mth) + ' — ' + rows.length + ' ' + __('hospital(s), sorted by value') + '</div>' +
                     '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
                     '<thead><tr style="font-size:0.68rem;color:var(--text-muted);text-align:right;">' +
-                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المستشفى</th>' +
-                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المحافظة</th>' +
-                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">النوع</th>' +
-                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">القيمة</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">' + __('Hospital') + '</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">' + __('Governorate') + '</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">' + __('Type') + '</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">' + __('Value') + '</th>' +
                     '</tr></thead><tbody>' +
                     rows.map((p, i) => {
                         const click = p.hospital_id
-                            ? ' onclick="goRootCause(' + p.hospital_id + ', \'' + mth + '\')" title="فتح تحليل الجذر لهذا المستشفى"'
+                            ? ' onclick="goRootCause(' + p.hospital_id + ', \'' + mth + '\')" title="' + __('Open the root cause analysis for this hospital') + '"'
                             : '';
                         const style = 'padding:0.3rem 0.5rem;';
                         const valStyle = (i === 0)
@@ -638,20 +638,20 @@ function loadHospitalsSettings() {
                     }).join('') +
                     '</tbody></table></div>';
             } else if (peersList.length) {
-                const matchLabel = d.peer_match_by === 'type' ? 'نفس نوع المستشفى'
-                    : d.peer_match_by === 'governorate' ? 'نفس المحافظة'
-                    : d.peer_match_by === 'ownership' ? 'نفس الملكية' : 'جميع المستشفيات النشطة';
+                const matchLabel = d.peer_match_by === 'type' ? __('Same hospital type')
+                    : d.peer_match_by === 'governorate' ? __('Same governorate')
+                    : d.peer_match_by === 'ownership' ? __('Same ownership') : __('All active hospitals');
                 const basisHtml = matchLabel
-                    ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">مطابقة النظير: <strong>' + esc(matchLabel) + '</strong> — ' + peersList.length + ' مستشفى</div>'
+                    ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.4rem;">' + __('Peer matching:') + ' <strong>' + esc(matchLabel) + '</strong> — ' + peersList.length + ' ' + __('hospital(s)') + '</div>'
                     : '';
                 peerHospEl.innerHTML = basisHtml + '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
                     '<thead><tr style="font-size:0.68rem;color:var(--text-muted);text-align:right;">' +
-                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المستشفى</th>' +
-                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">المحافظة</th>' +
-                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">النوع</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">' + __('Hospital') + '</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">' + __('Governorate') + '</th>' +
+                    '<th style="padding:0.3rem 0.5rem;border-bottom:1px solid var(--border-default);">' + __('Type') + '</th>' +
                     '</tr></thead><tbody>' +
                     peersList.map(p =>
-                        '<tr style="cursor:pointer;border-bottom:1px dashed #e5e7eb;" onclick="goRootCause(' + p.hospital_id + ', \'' + mth + '\')" title="فتح تحليل الجذر لهذا المستشفى">' +
+                        '<tr style="cursor:pointer;border-bottom:1px dashed #e5e7eb;" onclick="goRootCause(' + p.hospital_id + ', \'' + mth + '\')" title="' + __('Open the root cause analysis for this hospital') + '">' +
                             '<td style="padding:0.3rem 0.5rem;font-weight:600;font-size:0.78rem;">' + esc(p.name) + '</td>' +
                             '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.governorate) + '</td>' +
                             '<td style="padding:0.3rem 0.5rem;font-size:0.74rem;color:var(--text-secondary);">' + esc(p.hospital_type) + '</td>' +
@@ -659,7 +659,7 @@ function loadHospitalsSettings() {
                     ).join('') +
                     '</tbody></table></div>';
             } else {
-                peerHospEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مستشفيات نظيرة للمقارنة.</div>';
+                peerHospEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">' + __('No peer hospitals available for comparison.') + '</div>';
             }
         }
 
@@ -675,23 +675,23 @@ function loadHospitalsSettings() {
             const monthBadge = isAll ? '<span style="display:inline-block;font-size:0.65rem;background:var(--accent-blue);color:#fff;padding:1px 6px;border-radius:8px;margin-left:0.3rem;">' + d._monthCount + ' months</span>' : '';
             document.getElementById('rcKpiBar').innerHTML =
                 '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + qsColor + ';">' +
-                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">جودة البيانات / Quality' + monthBadge + '</div>' +
+                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">' + __('Data quality') + monthBadge + '</div>' +
                     '<div style="font-size:2rem;font-weight:700;color:' + qsColor + ';">' + qs + '</div>' +
                     '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
                         '<div style="width:' + Math.min(qs, 100) + '%;height:100%;background:' + qsColor + ';border-radius:2px;"></div>' +
                     '</div>' +
                 '</div>' +
                 '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + confColor + ';">' +
-                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">الثقة / Confidence</div>' +
+                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">' + __('Confidence') + '</div>' +
                     '<div style="font-size:2rem;font-weight:700;color:' + confColor + ';">' + conf + '</div>' +
                     '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 1rem;overflow:hidden;">' +
                         '<div style="width:' + Math.min(conf, 100) + '%;height:100%;background:' + confColor + ';border-radius:2px;"></div>' +
                     '</div>' +
                 '</div>' +
                 '<div class="card" style="text-align:center;padding:0.8rem 0.5rem;border-top:4px solid ' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' +
-                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">المشاكل الحرجة / Critical Issues</div>' +
+                    '<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">' + __('Critical issues') + '</div>' +
                     '<div style="font-size:2rem;font-weight:700;color:' + (ci > 0 ? 'var(--accent-red)' : 'var(--accent-green)') + ';">' + ci + '</div>' +
-                    '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">' + (ci > 0 ? 'يتطلب انتباهاً' : 'لا توجد مشاكل حرجة') + '</div>' +
+                    '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.2rem;">' + (ci > 0 ? __('Needs attention') : __('No critical issues')) + '</div>' +
                 '</div>';
             // ── Month-by-Month Trend Chart (all-months view) ──
             let trendContainer = document.getElementById('rcTrendChart');
@@ -827,9 +827,14 @@ function loadHospitalsSettings() {
             }
             // Summary
             const arSumEl = document.getElementById('rcSummaryArabic');
+            const enSumEl = document.getElementById('rcSummary');
+            const _rcIsAr0 = (typeof window.currentLang === 'undefined') ? true : (window.currentLang === 'ar');
+            if (arSumEl) arSumEl.style.display = _rcIsAr0 ? '' : 'none';
             if (arSumEl) arSumEl.innerHTML = d.summary_arabic || '';
-            document.getElementById('rcSummary').innerHTML =
-                '<span style="color:var(--text-muted);">EN summary:</span> ' + (d.summary || 'No summary available.');
+            if (enSumEl) {
+                enSumEl.style.display = _rcIsAr0 ? 'none' : '';
+                enSumEl.innerHTML = '<span style="color:var(--text-muted);">' + __('Summary') + ':</span> ' + (d.summary || 'No summary available.');
+            }
             // Priority Actions
             const al = document.getElementById('rcActionsList');
             al.innerHTML = '';
@@ -844,17 +849,17 @@ function loadHospitalsSettings() {
                     const impact = Math.max(0, Math.min(100, det.impact || 0));
                     const effort = Math.max(1, Math.min(5, det.effort || 3));
                     const roi = det.roi || 0;
-                    let barHtml = '<div style="margin-top:0.2rem;font-size:0.62rem;color:var(--text-muted);">— لا يوجد تقدير كمي</div>';
+                    let barHtml = '<div style="margin-top:0.2rem;font-size:0.62rem;color:var(--text-muted);">— ' + __('No quantitative estimate') + '</div>';
                     if (impact > 0) {
                         const roiCol = roi >= 15 ? 'var(--accent-green)' : roi >= 8 ? 'var(--accent-orange)' : '#888';
                         const impactCol = impact >= 60 ? 'var(--accent-red)' : impact >= 30 ? 'var(--accent-orange)' : 'var(--accent-green)';
-                        const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:var(--accent-yellow);font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
+                        const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:var(--accent-yellow);font-size:0.7rem;" title="' + __('Effort (1-5)') + ': ' + effort + '">' +
                             '&#9679;'.repeat(effort) + '<span style="color:var(--text-muted);">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
                         barHtml = '<div style="margin-top:0.3rem;">' +
                             '<div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--text-muted);margin-bottom:1px;">' +
-                                '<span>&#128200; الأثر: ' + impact.toFixed(0) + ' نقطة جودة</span>' +
-                                '<span style="color:' + roiCol + ';font-weight:700;">&#128176; عائد ' + roi.toFixed(1) + '</span>' +
-                                '<span>الجهد: ' + effortDots + '</span>' +
+                                '<span>&#128200; ' + __('Impact') + ': ' + impact.toFixed(0) + ' ' + __('quality points') + '</span>' +
+                                '<span style="color:' + roiCol + ';font-weight:700;">&#128176; ' + __('ROI') + ' ' + roi.toFixed(1) + '</span>' +
+                                '<span>' + __('Effort') + ': ' + effortDots + '</span>' +
                             '</div>' +
                             '<div style="height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +
                                 '<div style="width:' + impact + '%;height:100%;background:linear-gradient(90deg,' + impactCol + 'cc,' + impactCol + ');border-radius:3px;"></div>' +
@@ -932,7 +937,7 @@ function loadHospitalsSettings() {
                                 '<span style="font-size:0.65rem;background:' + prioColor + ';padding:1px 8px;border-radius:10px;white-space:nowrap;font-weight:600;">' + esc(prio) + '</span>' +
                             '</div>' +
                             (c.chain_path && c.chain_path.length > 1
-                                ? '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.2rem;margin:0.35rem 0;direction:rtl;" title="سلسلة السبب والنتيجة الكاملة (الأعمق ← الأحدث)">' +
+                                ? '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.2rem;margin:0.35rem 0;direction:ltr;" title="' + __('Full cause-and-effect chain (deepest ← latest)') + '">' +
                                     c.chain_path.map((code, ci) => {
                                         const isRoot = ci === c.chain_path.length - 1;
                                         return '<span style="font-size:0.66rem;padding:1px 8px;border-radius:10px;font-weight:600;white-space:nowrap;' +
@@ -945,18 +950,17 @@ function loadHospitalsSettings() {
                             '<div style="margin:0.4rem 0;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +
                                 '<div style="width:' + pct + '%;height:100%;background:' + confColor + ';border-radius:3px;"></div>' +
                             '</div>' +
-                            '<div style="display:flex;gap:0.8rem;font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +
-                                '<span title="قوة الثقة في السبب الجذري">الثقة <strong>' + pct + '%</strong></span>' +
-                                '<span title="الأثر المتوقع عند الإصلاح">الأثر <strong>' + (c.impact_if_fixed || 0) + '</strong></span>' +
+                            '<div style="display:flex;gap:0.8rem;font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +                                    '<span title="' + __('Confidence in the root cause') + '">' + __('Confidence') + ' <strong>' + pct + '%</strong></span>' +
+                                    '<span title="' + __('Expected impact when fixed') + '">' + __('Impact') + ' <strong>' + (c.impact_if_fixed || 0) + '</strong></span>' +
                             '</div>' +
                             (c.affected_factors && c.affected_factors.length
-                                ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;"><strong>العوامل المتأثرة:</strong> ' + c.affected_factors.map(esc).join(' ← ') + '</div>' : '') +
+                                ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;"><strong>' + __('Affected factors') + ':</strong> ' + c.affected_factors.map(esc).join(' ← ') + '</div>' : '') +
                             (c.recommended_action ? '<div style="font-size:0.72rem;color:#0f766e;margin-top:0.2rem;">&#128161; ' + esc(c.recommended_action) + '</div>' : '') +
                             (c.evidence && c.evidence.length ? '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem;">' + c.evidence.slice(0, 3).map(esc).join(' | ') + '</div>' : '') +
                         '</div>';
                     }).join('');
                 } else {
-                    chainsEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد سلاسل سببية — فعّل التحليل التاريخي أو لا توجد فشل قواعد حرج.</div>';
+                    chainsEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">' + __('No causal chains — enable historical analysis or no critical rule failures.') + '</div>';
                 }
             }
             // Causal Tree
@@ -976,7 +980,7 @@ function loadHospitalsSettings() {
                         '</div>';
                     }).join('');
                 } else {
-                    treeEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد بيانات شجرة سببية.</div>';
+                    treeEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">' + __('No causal tree data.') + '</div>';
                 }
             }
             // Peer Comparisons
@@ -995,11 +999,11 @@ function loadHospitalsSettings() {
                                 '<span style="font-weight:600;font-size:0.78rem;">' + esc(c.indicator_name || c.indicator_code) + '</span>' +
                                 '<span style="font-size:0.7rem;color:' + color + ';font-weight:700;">' + (over ? '▲ +' : '▼ ') + Math.abs(gap).toFixed(1) + '%</span>' +
                             '</div>' +
-                            '<div style="font-size:0.68rem;color:var(--text-muted);">المستشفى ' + c.hospital_value + ' مقابل متوسط النظير ' + c.peer_mean + ' (' + c.peer_count + ' مستشفى)</div>' +
+                            '<div style="font-size:0.68rem;color:var(--text-muted);">' + __('Hospital') + ' ' + c.hospital_value + ' ' + __('vs peer average') + ' ' + c.peer_mean + ' (' + c.peer_count + ' ' + __('hospitals') + ')</div>' +
                         '</div>';
                     }).join('');
                 } else {
-                    peerEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مقارنات نظير.</div>';
+                    peerEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">' + __('No peer comparisons.') + '</div>';
                 }
             }
             // Timeline (skip for all-months mode)
@@ -1055,11 +1059,16 @@ function loadHospitalsSettings() {
                 document.getElementById('rcContent').style.display = 'block';
                 _renderRootCauseResult(d, hid, mth);
 
-                // ── Summary: Arabic primary (rendered into rcSummaryArabic), English secondary line ──
+                // ── Summary: narrative matches the app language (both available from the engine) ──
                 const arSumEl = document.getElementById('rcSummaryArabic');
+                const enSumEl = document.getElementById('rcSummary');
+                const _rcIsAr = (typeof window.currentLang === 'undefined') ? true : (window.currentLang === 'ar');
+                if (arSumEl) arSumEl.style.display = _rcIsAr ? '' : 'none';
                 if (arSumEl) arSumEl.textContent = d.summary_arabic || '';
-                document.getElementById('rcSummary').innerHTML =
-                    '<span style="color:var(--text-muted);">EN summary:</span> ' + (d.summary || 'No summary available.');
+                if (enSumEl) {
+                    enSumEl.style.display = _rcIsAr ? 'none' : '';
+                    enSumEl.innerHTML = '<span style="color:var(--text-muted);">' + __('Summary') + ':</span> ' + (d.summary || 'No summary available.');
+                }
 
                 // ── Priority Actions (with quantified impact/effort/ROI) ──
                 const al = document.getElementById('rcActionsList');
@@ -1075,17 +1084,17 @@ function loadHospitalsSettings() {
                         const impact = Math.max(0, Math.min(100, det.impact || 0));
                         const effort = Math.max(1, Math.min(5, det.effort || 3));
                         const roi = det.roi || 0;
-                        let barHtml = '<div style="margin-top:0.2rem;font-size:0.62rem;color:var(--text-muted);">— لا يوجد تقدير كمي</div>';
+                        let barHtml = '<div style="margin-top:0.2rem;font-size:0.62rem;color:var(--text-muted);">— ' + __('No quantitative estimate') + '</div>';
                         if (impact > 0) {
                             const roiCol = roi >= 15 ? 'var(--accent-green)' : roi >= 8 ? 'var(--accent-orange)' : '#888';
                             const impactCol = impact >= 60 ? 'var(--accent-red)' : impact >= 30 ? 'var(--accent-orange)' : 'var(--accent-green)';
-                            const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:var(--accent-yellow);font-size:0.7rem;" title="الجهد (1-5): ' + effort + '">' +
+                            const effortDots = '<span style="direction:ltr;unicode-bidi:isolate;letter-spacing:2px;color:var(--accent-yellow);font-size:0.7rem;" title="' + __('Effort (1-5)') + ': ' + effort + '">' +
                                 '&#9679;'.repeat(effort) + '<span style="color:var(--text-muted);">' + '&#9679;'.repeat(5 - effort) + '</span></span>';
                             barHtml = '<div style="margin-top:0.3rem;">' +
                                 '<div style="display:flex;justify-content:space-between;font-size:0.62rem;color:var(--text-muted);margin-bottom:1px;">' +
-                                    '<span>&#128200; الأثر: ' + impact.toFixed(0) + ' نقطة جودة</span>' +
-                                    '<span style="color:' + roiCol + ';font-weight:700;">&#128176; عائد ' + roi.toFixed(1) + '</span>' +
-                                    '<span>الجهد: ' + effortDots + '</span>' +
+                                    '<span>&#128200; ' + __('Impact') + ': ' + impact.toFixed(0) + ' ' + __('quality points') + '</span>' +
+                                    '<span style="color:' + roiCol + ';font-weight:700;">&#128176; ' + __('ROI') + ' ' + roi.toFixed(1) + '</span>' +
+                                    '<span>' + __('Effort') + ': ' + effortDots + '</span>' +
                                 '</div>' +
                                 '<div style="height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">' +
                                     '<div style="width:' + impact + '%;height:100%;background:linear-gradient(90deg,' + impactCol + 'cc,' + impactCol + ');border-radius:3px;"></div>' +
@@ -1107,8 +1116,8 @@ function loadHospitalsSettings() {
                 const aiList = document.getElementById('rcAIList');
                 aiList.innerHTML = '';
                 const isAr = (typeof window.currentLang === 'undefined') ? true : (window.currentLang === 'ar');
-                const prioAr = { critical: 'حرج', high: 'عالٍ', medium: 'متوسط', low: 'منخفض' };
-                const aiPrioLabel = p => (isAr && prioAr[p]) ? prioAr[p] : p;
+                const prioKey = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+                const aiPrioLabel = p => __(prioKey[p] || p);
                 if (d.ai_recommendations && d.ai_recommendations.length) {
                     const priorityColors = {critical:'var(--accent-red)',high:'var(--accent-orange)',medium:'var(--accent-yellow)',low:'var(--accent-green)'};
                     d.ai_recommendations.forEach(r => {
@@ -1129,7 +1138,7 @@ function loadHospitalsSettings() {
                             '<span style="font-size:0.6rem;background:' + pCol + ';color:#fff;padding:0 6px;border-radius:8px;white-space:nowrap;">' + esc(aiPrioLabel(r.priority)) + '</span></div>' +
                             (desc ? '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.2rem;">' + esc(desc) + '</div>' : '') +
                             (rat ? '<div style="font-size:0.7rem;color:var(--text-muted);font-style:italic;margin-top:0.15rem;">' + esc(rat) + '</div>' : '') +
-                            (items && items.length ? '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.15rem;"><strong>' + (isAr ? 'الإجراءات:' : 'Actions:') + '</strong> ' + items.map(esc).join('; ') + '</div>' : '');
+                            (items && items.length ? '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.15rem;"><strong>' + __('Actions') + ':</strong> ' + items.map(esc).join('; ') + '</div>' : '');
                         aiList.appendChild(card);
                     });
                 } else {
@@ -1226,7 +1235,7 @@ function loadHospitalsSettings() {
                                     '<span style="font-size:0.65rem;background:' + prioColor + ';padding:1px 8px;border-radius:10px;white-space:nowrap;font-weight:600;">' + esc(prio) + '</span>' +
                                 '</div>' +
                                 (c.chain_path && c.chain_path.length > 1
-                                    ? '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.2rem;margin:0.35rem 0;direction:rtl;" title="سلسلة السبب والنتيجة الكاملة (الأعمق ← الأحدث)">' +
+                                    ? '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.2rem;margin:0.35rem 0;direction:ltr;" title="' + __('Full cause-and-effect chain (deepest ← latest)') + '">' +
                                         c.chain_path.map((code, ci) => {
                                             const isRoot = ci === c.chain_path.length - 1;
                                             return '<span style="font-size:0.66rem;padding:1px 8px;border-radius:10px;font-weight:600;white-space:nowrap;' +
@@ -1240,17 +1249,17 @@ function loadHospitalsSettings() {
                                     '<div style="width:' + pct + '%;height:100%;background:' + confColor + ';border-radius:3px;"></div>' +
                                 '</div>' +
                                 '<div style="display:flex;gap:0.8rem;font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;">' +
-                                    '<span title="قوة الثقة في السبب الجذري">الثقة <strong>' + pct + '%</strong></span>' +
-                                    '<span title="الأثر المتوقع عند الإصلاح">الأثر <strong>' + (c.impact_if_fixed || 0) + '</strong></span>' +
+                                    '<span title="' + __('Confidence in the root cause') + '">' + __('Confidence') + ' <strong>' + pct + '%</strong></span>' +
+                                    '<span title="' + __('Expected impact when fixed') + '">' + __('Impact') + ' <strong>' + (c.impact_if_fixed || 0) + '</strong></span>' +
                                 '</div>' +
                                 (c.affected_factors && c.affected_factors.length
-                                    ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;"><strong>العوامل المتأثرة:</strong> ' + c.affected_factors.map(esc).join(' ← ') + '</div>' : '') +
+                                    ? '<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:0.3rem;"><strong>' + __('Affected factors') + ':</strong> ' + c.affected_factors.map(esc).join(' ← ') + '</div>' : '') +
                                 (c.recommended_action ? '<div style="font-size:0.72rem;color:#0f766e;margin-top:0.2rem;">&#128161; ' + esc(c.recommended_action) + '</div>' : '') +
                                 (c.evidence && c.evidence.length ? '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.2rem;">' + c.evidence.slice(0, 3).map(esc).join(' | ') + '</div>' : '') +
                             '</div>';
                         }).join('');
                     } else {
-                        chainsEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد سلاسل سببية — فعّل التحليل التاريخي أو لا توجد فشل قواعد حرج.</div>';
+                        chainsEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">' + __('No causal chains — enable historical analysis or no critical rule failures.') + '</div>';
                     }
                 }
 
@@ -1267,13 +1276,13 @@ function loadHospitalsSettings() {
                                 '<span style="font-weight:600;font-size:0.78rem;">' + esc(n.factor) + '</span>' +
                                 '<span style="font-size:0.7rem;color:var(--text-secondary);">' + (n.current_value != null ? n.current_value : '') + '</span>' +
                                 (n.history && n.history.length > 1
-                                    ? '<span title="الاتجاه عبر الأشهر: ' + esc(n.history.map(h => h.month + ' = ' + h.value).join('، ')) + '">' + _rcSparkline(n.history) + '</span>'
-                                    : '<span style="font-size:0.7rem;color:var(--text-muted);" title="الاتجاه عبر الأشهر">' + trendArrow + ' ' + esc(n.trend || '') + '</span>') +
+                                    ? '<span title="' + __('Trend across months') + ': ' + esc(n.history.map(h => h.month + ' = ' + h.value).join(', ')) + '">' + _rcSparkline(n.history) + '</span>'
+                                    : '<span style="font-size:0.7rem;color:var(--text-muted);" title="' + __('Trend across months') + '">' + trendArrow + ' ' + esc(n.trend || '') + '</span>') +
                                 '<span style="margin-right:auto;font-size:0.65rem;color:var(--text-muted);">' + esc(n.factor_type || '') + '</span>' +
                             '</div>';
                         }).join('');
                     } else {
-                        treeEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد بيانات شجرة سببية.</div>';
+                        treeEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">' + __('No causal tree data.') + '</div>';
                     }
                 }
 
@@ -1290,19 +1299,19 @@ function loadHospitalsSettings() {
                             const color = Math.abs(gap) > 20 ? (over ? 'var(--accent-red)' : 'var(--accent-blue)') : 'var(--text-muted)';
                             const govs = (c.peer_governorate_counts || {});
                             const govParts = Object.entries(govs).sort((a, b) => b[1] - a[1])
-                                .map(g => g[0] + ' (' + g[1] + ')').join('، ');
-                            const types = (c.peer_types || []).join('، ');
+                                .map(g => g[0] + ' (' + g[1] + ')').join(', ');
+                            const types = (c.peer_types || []).join(', ');
                             return '<div style="padding:0.35rem 0;border-bottom:1px dashed #e5e7eb;">' +
                                 '<div style="display:flex;justify-content:space-between;align-items:center;">' +
                                     '<span style="font-weight:600;font-size:0.78rem;">' + esc(c.indicator_name || c.indicator_code) + '</span>' +
                                     '<span style="font-size:0.7rem;color:' + color + ';font-weight:700;">' + (over ? '▲ +' : '▼ ') + Math.abs(gap).toFixed(1) + '%</span>' +
                                 '</div>' +
-                                '<div style="font-size:0.68rem;color:var(--text-muted);">المستشفى ' + c.hospital_value + ' مقابل متوسط النظير ' + c.peer_mean + ' (' + c.peer_count + ' مستشفى) — مئوية ' + c.hospital_percentile + ' | z=' + c.hospital_z_score + '</div>' +
-                                (govParts || types ? '<div style="font-size:0.66rem;color:var(--text-muted);margin-top:0.1rem;">النظير: محافظات: ' + (govParts || '—') + ' | أنواع: ' + (types || '—') + '</div>' : '') +
+                                '<div style="font-size:0.68rem;color:var(--text-muted);">' + __('Hospital') + ' ' + c.hospital_value + ' ' + __('vs peer average') + ' ' + c.peer_mean + ' (' + c.peer_count + ' ' + __('hospitals') + ') — ' + __('percentile') + ' ' + c.hospital_percentile + ' | z=' + c.hospital_z_score + '</div>' +
+                                (govParts || types ? '<div style="font-size:0.66rem;color:var(--text-muted);margin-top:0.1rem;">' + __('Peers') + ' — ' + __('governorates') + ': ' + (govParts || '—') + ' | ' + __('types') + ': ' + (types || '—') + '</div>' : '') +
                             '</div>';
                         }).join('');
                     } else {
-                        peerEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">لا توجد مقارنات نظير — تحتاج 3+ مستشفيات بنفس النوع أو المحافظة.</div>';
+                        peerEl.innerHTML = '<div style="padding:0.5rem;color:var(--text-muted);font-size:0.78rem;">' + __('No peer comparisons — need 3+ hospitals of the same type or governorate.') + '</div>';
                     }
                 }
 
@@ -2720,7 +2729,9 @@ function loadHospitalsSettings() {
             const typeFilter = document.getElementById('rulesTypeFilter').value;
             const sevFilter = document.getElementById('rulesSeverityFilter').value;
             const enabledFilter = document.getElementById('rulesEnabledFilter').value;
+            const catFilter = document.getElementById('rulesCategoryFilter') ? document.getElementById('rulesCategoryFilter').value : '';
             let url = API() + '/rules/?';
+            if (catFilter) url += 'category=' + encodeURIComponent(catFilter) + '&';
             if (typeFilter) url += 'rule_type=' + encodeURIComponent(typeFilter) + '&';
             if (sevFilter) url += 'severity=' + encodeURIComponent(sevFilter) + '&';
             if (enabledFilter) url += 'enabled=' + enabledFilter + '&';
@@ -2796,29 +2807,16 @@ function loadHospitalsSettings() {
                 );
             }
 
-            // Group by category, then by rule_type within each category
-            const groups = {};
-            visible.forEach(r => {
-                const key = r.category || 'UNCATEGORIZED';
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(r);
+            // Flat list sorted by rule code — categories live in the
+            // Category filter dropdown, not as table sections.
+            visible = visible.slice().sort(function(a, b) {
+                return (a.code || '') < (b.code || '') ? -1 : (a.code || '') > (b.code || '') ? 1 : 0;
             });
-            const keys = Object.keys(groups).sort();
 
             let html = '';
-            keys.forEach(cat => {
-                const catRules = groups[cat];
-                const enabledCount = catRules.filter(r => r.enabled).length;
-                html += '<tr class="rule-category-header" data-cat="' + esc(cat) + '">' +
-                    '<td colspan="10" style="background:var(--bg-surface-hover);padding:0.35rem 0.5rem;font-weight:700;font-size:0.78rem;color:var(--text-primary);">' +
-                        '<span class="cat-toggle" style="cursor:pointer;margin-right:0.4rem;">▼</span>' +
-                        esc(cat) + ' <span style="font-weight:400;color:var(--text-muted);">(' + enabledCount + '/' + catRules.length + ' enabled)</span>' +
-                        '<span style="float:right;">' +
-                            '<button class="btn btn-sm btn-outline" onclick="bulkToggleCategory(\'' + esc(cat) + '\',true)" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Enable all</button> ' +
-                            '<button class="btn btn-sm btn-outline" onclick="bulkToggleCategory(\'' + esc(cat) + '\',false)" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Disable all</button>' +
-                        '</span>' +
-                    '</td></tr>';
-                catRules.forEach((r, idx) => {
+            visible.forEach((r, idx) => {
+                {
+                    const cat = r.category || 'UNCATEGORIZED';
                     const tc = typeColors[r.rule_type] || '#666';
                     const typeB = '<span class="badge" style="background:'+tc+'22;color:'+tc+';border:1px solid '+tc+'44;">'+r.rule_type+'</span>';
                     const sevB = '<span class="badge ' + (sevClass[r.severity] || 'badge-low') + '">' + r.severity + '</span>';
@@ -2849,7 +2847,7 @@ function loadHospitalsSettings() {
                         '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
                         '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-red);border-color:#ef5350;">Del</button> <button class="btn btn-sm btn-outline" onclick="_testRuleById(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-blue);border-color:var(--accent-blue);">Test</button></td>' +
                         '</tr>';
-                });
+                }
             });
             filtered.innerHTML = html;
             document.getElementById('rulesManagerFilteredCount').textContent = visible.length + ' shown' + (q ? ' (search: "' + esc(q) + '")' : '');
@@ -2874,17 +2872,6 @@ function loadHospitalsSettings() {
                 });
             });
 
-            // Category collapse/expand
-            filtered.querySelectorAll('.rule-category-header').forEach(hdr => {
-                hdr.addEventListener('click', function(e) {
-                    if (e.target.closest('button')) return;
-                    const cat = this.dataset.cat;
-                    const rows = filtered.querySelectorAll('.rule-row[data-cat="' + cat + '"]');
-                    const isCollapsed = this.querySelector('.cat-toggle').textContent === '▶';
-                    rows.forEach(row => row.style.display = isCollapsed ? '' : 'none');
-                    this.querySelector('.cat-toggle').textContent = isCollapsed ? '▼' : '▶';
-                });
-            });
         }
 
         // Search box oninput

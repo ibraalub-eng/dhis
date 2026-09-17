@@ -192,3 +192,41 @@ def test_bulk_toggle_reloads_after_save():
     saved state (what the user sees matches the database)."""
     block = _get_bulk_toggle_block()
     assert "loadRulesManager(" in block
+
+
+# ── Flat category-free table + Category filter ───────────────────────
+
+def test_rules_table_has_no_category_sections():
+    """The rules table renders one flat code-sorted list — no category
+    header rows, no collapse toggles. Category moved to the filter bar."""
+    js = _read_settings_js()
+    assert 'rule-category-header' not in js, \
+        "category header rows must be gone from the render path"
+    assert 'Category collapse/expand' not in js
+    # Rows carry their category as data so other tooling can still target them
+    assert 'data-cat=' in js
+    # Flat render sorts by code defensively
+    assert "visible.slice().sort(function(a, b)" in js
+    # Category column remains a per-row cell
+    assert "esc(r.category)" in js
+
+
+def test_rules_html_has_category_filter():
+    """Category filtering lives in the filter bar as a dropdown."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "rules-manager.html")
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    assert 'id="rulesCategoryFilter"' in html
+    assert 'onchange="loadRulesManager()"' in html
+    for cat in ("BASIC_LOGIC", "CLINICAL_CONSISTENCY", "CLINICAL_LOGIC",
+                "PLAUSIBILITY", "STATISTICAL_BENCHMARK", "TREND_DATA_QUALITY"):
+        assert cat in html, f"missing category option {cat}"
+
+
+def test_load_rules_manager_sends_category_filter():
+    """loadRulesManager must pass the selected category to the API, which
+    already supports the category query param (server-side filter)."""
+    js = _read_settings_js()
+    assert "rulesCategoryFilter" in js
+    assert "'category=' + encodeURIComponent(catFilter)" in js
