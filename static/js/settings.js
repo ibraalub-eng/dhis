@@ -2729,6 +2729,13 @@ function loadHospitalsSettings() {
 
         export function loadRulesManager() {
             if (!document.getElementById('rulesTbody')) return; // التبويب لم يُحمَّل بعد
+            // Browser autofill/form-restore can inject saved credentials (e.g. the
+            // login username) into this first text input of the dynamically loaded
+            // tab, filtering every rule out ("0 shown"). Clear it on every load.
+            const searchBox = document.getElementById('rulesSearchInput');
+            if (searchBox && searchBox.value && document.activeElement !== searchBox) {
+                searchBox.value = '';
+            }
             const typeFilter = document.getElementById('rulesTypeFilter').value;
             const sevFilter = document.getElementById('rulesSeverityFilter').value;
             const enabledFilter = document.getElementById('rulesEnabledFilter').value;
@@ -2884,6 +2891,11 @@ function loadHospitalsSettings() {
             const bulkOff = document.getElementById('rulesBulkDisableBtn');
             if (bulkOn) bulkOn.style.display = visible.length ? '' : 'none';
             if (bulkOff) bulkOff.style.display = visible.length ? '' : 'none';
+            // Search matched nothing: say so and offer a one-click clear, so an
+            // autofilled search never looks like the table is stuck.
+            if (!visible.length && q) {
+                filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:1.5rem;">No rules match "' + esc(q) + '". <a href="#" onclick="clearRulesSearch();return false;" style="color:var(--accent-blue);">Clear search</a></td></tr>';
+            }
 
             // Wire toggle clicks
             filtered.querySelectorAll('.rule-toggle-cell').forEach(cell => {
@@ -2923,6 +2935,13 @@ function loadHospitalsSettings() {
 
         // Search box oninput
         window.onRulesSearch = function() { renderRulesManager(); };
+
+        // One-click clear of the search box (used by the no-match row link)
+        window.clearRulesSearch = function() {
+            const searchBox = document.getElementById('rulesSearchInput');
+            if (searchBox) searchBox.value = '';
+            renderRulesManager();
+        };
 
         // Column sorting (Code / Severity / Affected Hospitals). Re-renders
         // from rulesManagerData so the sort survives toggles and filters.
