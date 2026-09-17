@@ -615,21 +615,21 @@ def test_analysis_js_has_plotly_quality_trend():
     assert "fillcolor: cfg.color" in content
     # تلميحات hover تعرض مكونات الدرجة
     assert "hovermode: 'x unified'" in content
-    assert "خصم الشذوذ" in content
+    assert "__('Outlier deduction')" in content
     # SVG الثابت القديم لم يعد موجوداً (رسم Sparkline يحتفظ بـ svg بلا viewBox)
     assert "Build SVG chart" not in content
 
 
 def test_analysis_js_has_metric_toggle_labels():
-    """أزرار التبديل تعرض أسماء المكونات بالعربية وتربط كل مقياس ببياناته"""
+    """أزرار التبديل تمر عبر __() فتظهر بالعربية أو الإنجليزية حسب اللغة"""
     import os
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "validation.js")
     with open(path, encoding="utf-8") as f:
         content = f.read()
-    assert "درجة الجودة" in content
-    assert "الاكتمال" in content
-    assert "الالتزام" in content
-    assert "الاتساق" in content
+    assert "__('Quality Score')" in content
+    assert "__('Completeness')" in content
+    assert "__('Validation rule')" in content
+    assert "__('Consistency')" in content
     assert "data-metric=\"score\"" in content
     assert "data-metric=\"completeness\"" in content
     assert "data-metric=\"rule_compliance\"" in content
@@ -640,7 +640,7 @@ def test_analysis_js_has_metric_toggle_labels():
     assert "_qtValue(s, 'consistency')" in content
     assert "s[metric]" in content
     # عند اختيار مكوّن تظهر درجة الجودة كخط مرجعي متقطع
-    assert "درجة الجودة (مرجع)" in content
+    assert "qScore + ' (' + __('reference') + ')'" in content
 
 
 def test_styles_have_quality_trend_toggle_css():

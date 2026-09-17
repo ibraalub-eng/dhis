@@ -690,7 +690,7 @@ export function openDrilldown(hospitalId) {
   apiSmartGet(`/smart/drilldown/${hospitalId}/${month}`).then(d => {
     if (d.empty || !d.anomaly) {
       document.getElementById('smart-drilldown-name').textContent = d.hospital_name || hospitalId;
-      document.getElementById('smart-drilldown-text').textContent = d.message || _t('No data');
+      document.getElementById('smart-drilldown-text').textContent = _t(d.message) || _t('No data');
       return;
     }
     document.getElementById('smart-drilldown-name').textContent = d.hospital_name;

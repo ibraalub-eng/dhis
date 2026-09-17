@@ -2844,7 +2844,7 @@ function loadHospitalsSettings() {
                         '<td>' + typeB + '</td>' +
                         '<td>' + sevB + '</td>' +
                         '<td style="font-size:0.75rem;color:var(--text-secondary);">' + esc(r.category) + '</td>' +
-                        '<td style="font-size:0.75rem;font-family:Consolas,monospace;color:var(--text-muted);">' + esc(r.expression_type) + '</td>' +
+                        '<td style="font-size:0.72rem;font-family:Consolas,monospace;color:var(--text-muted);" title="' + esc(exprTypeLabel(r.expression_type)) + '">' + esc(exprTypeLabel(r.expression_type)) + '</td>' +
                         '<td style="text-align:center;font-size:0.7rem;">' + impactCell + '</td>' +
                         '<td style="text-align:center;" class="rule-toggle-cell" data-id="' + r.id + '">' + enabledIcon + '</td>' +
                         '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="openRuleModal(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;">Edit</button> <button class="btn btn-sm btn-outline" onclick="deleteRule(' + r.id + ',\'' + esc(r.code) + '\')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-red);border-color:#ef5350;">Del</button> <button class="btn btn-sm btn-outline" onclick="_testRuleById(' + r.id + ')" style="font-size:0.65rem;padding:0.15rem 0.4rem;color:var(--accent-blue);border-color:var(--accent-blue);">Test</button></td>' +
@@ -3062,10 +3062,13 @@ function loadHospitalsSettings() {
             'all_zero': {title: 'FAIL if ALL listed codes are zero', text: 'Checks if all key indicators are zero, suggesting the facility may not be operational or data is missing. Takes codes[] list.'},
             'formula': {title: 'formula result ≤/≥/=/≠ target indicator', text: 'FAILs when the evaluated arithmetic formula does not satisfy the chosen comparison with the target indicator. Supports +, -, *, /, parentheses, numeric constants, indicator codes, and the operators =, ≠, >, <, ≥, ≤. Example: {"formula":"(6.e * 2) - 7","target":"6","op":">"} evaluates (Number of twins × 2) - Stillbirths and FAILs unless it is strictly greater than Live Births.'},
         };
-
-
-
-
+        // Short human-readable label per expression type — "code — meaning",
+        // matching the edit-modal dropdown convention. Falls back to the raw
+        // code for unknown types so new backend types never render blank.
+        export function exprTypeLabel(expr) {
+            const expl = EXPR_EXPLANATIONS[expr];
+            return expl ? expr + ' — ' + __(expl.title) : (expr || '--');
+        }
 
 
 

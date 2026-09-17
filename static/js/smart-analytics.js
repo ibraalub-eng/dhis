@@ -87,7 +87,7 @@ async function loadAnomaliesTable(month, _retries) {
       }
       return;
     }
-    if (d.empty) { showSmartSectionEmpty('anomalies', d.message); return; }
+    if (d.empty) { showSmartSectionEmpty('anomalies', window.__ ? window.__(d.message) : d.message); return; }
     const rows = d.anomalies.map(a => `<tr>
       <td>${_smartEscapeHtml(a.hospital_name)}</td>
       <td>${_smartEscapeHtml(a.governorate)}</td>
@@ -189,7 +189,7 @@ async function loadTimeOverview(_retries) {
       }
       return;
     }
-    if (d.empty) { showSmartSectionEmpty('time-overview', d.message); return; }
+    if (d.empty) { showSmartSectionEmpty('time-overview', window.__ ? window.__(d.message) : d.message); return; }
     const s = d.series;
     renderPlot('smart-time-avg', [{ x: s.avg_score.map(p => p.month), y: s.avg_score.map(p => p.value), type: 'scatter', mode: 'lines+markers' }], { title: _t('Average anomaly score') });
     renderPlot('smart-time-severity', [

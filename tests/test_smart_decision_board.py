@@ -131,7 +131,7 @@ def test_decision_board_empty_month(client):
     assert resp.status_code == 200
     data = resp.json()
     assert data.get("empty") is True
-    assert "لا توجد بيانات" in data.get("message", "")
+    assert "No data for this month" in data.get("message", "")
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))

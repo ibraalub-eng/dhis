@@ -24,9 +24,9 @@ def _get_envelope_or_empty(db: Session, month: str) -> dict:
     """Common pre-check: returns envelope, or None if computing/empty."""
     envelope = _get_smart_data(db, month)
     if envelope.get("computing"):
-        return {"computing": True, "message": "جاري التحليل...", "month": month}
+        return {"computing": True, "message": "Computing...", "month": month}
     if envelope.get("hospitals_count", 0) == 0:
-        return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        return {"empty": True, "message": "No data for this month", "month": month}
     return envelope
 
 
@@ -231,7 +231,7 @@ def _compute_smart_data(db, month: str) -> dict:
                 "hospitals_count": 0,
                 "computing": False,
                 "error": True,
-                "message": "فشل التحليل الذكي لهذا الشهر",
+                "message": "Smart analytics failed for this month",
                 "detail": str(e),
                 "data": {
                     "kpi": {}, "anomalies": [], "clustering": None,
@@ -359,9 +359,9 @@ def get_decision_board(month: str, db: Session = Depends(get_db)):
         cache.invalidate(f"smart_overview_{month}_")
         raise
     if envelope.get("computing"):
-        return {"computing": True, "message": "جاري التحليل...", "month": month}
+        return {"computing": True, "message": "Computing...", "month": month}
     if envelope.get("hospitals_count", 0) == 0:
-        return {"empty": True, "message": "لا توجد بيانات لهذا الشهر", "month": month}
+        return {"empty": True, "message": "No data for this month", "month": month}
     data = envelope.get("data", {})
     order = {"critical": 0, "warning": 1, "normal": 2}
     anomalies = sorted(data.get("anomalies", []), key=lambda a: (order.get(a.get("severity", "normal"), 2), -a.get("anomaly_score", 0)))
@@ -476,7 +476,7 @@ def get_xgboost(month: str, db: Session = Depends(get_db)):
     xgb = (envelope.get("data") or {}).get("xgboost")
     if not xgb or not xgb.get("predictions"):
         return {"month": month, "empty": True,
-                "message": "لا توجد تنبؤات كافية لهذا الشهر", "xgboost": None}
+                "message": "Not enough data for predictions this month", "xgboost": None}
     return {"month": month, "xgboost": xgb}
 
 
@@ -767,7 +767,7 @@ def get_time_overview(db: Session = Depends(get_db)):
     from app.models import QualityScore
     months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
     if not months:
-        response = {"empty": True, "message": "لا توجد بيانات بعد", "months": []}
+        response = {"empty": True, "message": "No data yet", "months": []}
         cache.set(cache_key, response, ttl=1800)
         return response
 
@@ -792,7 +792,7 @@ def get_time_overview(db: Session = Depends(get_db)):
         populated_months.append(m)
 
     if not populated_months:
-        return {"empty": True, "message": "جاري التحليل... أعد المحاولة بعد قليل", "months": months}
+        return {"empty": True, "message": "Computing... try again shortly", "months": months}
     response = _sanitize({"months": populated_months, "series": series})
     cache.set(cache_key, response, ttl=1800)
     return response

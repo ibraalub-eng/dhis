@@ -117,7 +117,7 @@ def test_slice_endpoints_empty_month(client):
         assert resp.status_code == 200, path
         data = resp.json()
         assert data.get("empty") is True, path
-        assert "لا توجد بيانات" in data.get("message", ""), path
+        assert "No data for this month" in data.get("message", ""), path
 
 
 def test_months_endpoint_returns_list(client):

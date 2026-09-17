@@ -40,18 +40,18 @@ export async function loadDecisionBoard(month) {
   if (data.computing) {
     // Backend is computing in background — show spinner and poll
     const status = document.getElementById('smart-status');
-    if (status) status.textContent = data.message || _t('Computing...');
+    if (status) status.textContent = _t(data.message) || _t('Computing...');
     const c = document.getElementById('smart-kpi-container');
-    if (c) c.innerHTML = `<div class="smart-empty-state"><span class="spinner"></span> ${_smartEscapeHtml(data.message || _t('Computing...'))}</div>`;
+    if (c) c.innerHTML = `<div class="smart-empty-state"><span class="spinner"></span> ${_smartEscapeHtml(_t(data.message) || _t('Computing...'))}</div>`;
     // Poll every 3 seconds, max 60 seconds
     _pollDecisionBoard(month, 20);
     return;
   }
   if (data.empty) {
     const status = document.getElementById('smart-status');
-    if (status) status.textContent = data.message || _t('No data for this month');
+    if (status) status.textContent = _t(data.message) || _t('No data for this month');
     const c = document.getElementById('smart-kpi-container');
-    if (c) c.innerHTML = `<div class="smart-empty-state">${_smartEscapeHtml(data.message || '')}</div>`;
+    if (c) c.innerHTML = `<div class="smart-empty-state">${_smartEscapeHtml(_t(data.message) || _t('No data for this month'))}</div>`;
     return;
   }
   document.getElementById('smart-decision-month').textContent = month;

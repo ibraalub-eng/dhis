@@ -47,7 +47,7 @@ async function fetchSection(path, key, _retries) {
         retryPath: path, retryKey: key
       });
     } else if (res && res.empty) {
-      showSmartSectionEmpty(key, res.message || _t('No data for this period. Upload data and try again.'), {
+      showSmartSectionEmpty(key, _t(res.message) || _t('No data for this period. Upload data and try again.'), {
         retryPath: path, retryKey: key
       });
     } else if (!res || res._error) {
@@ -132,7 +132,7 @@ export function loadXGBoostTab(month) {
     // Even if empty, try to show the latest month's model info as fallback
     if (d.empty) {
       const c = document.getElementById('smart-xgboost-predictions');
-      if (c) c.innerHTML = `<div class="smart-empty-state">${_smartEscapeHtml(d.message || _t('No predictions for this month'))}</div>`;
+      if (c) c.innerHTML = `<div class="smart-empty-state">${_smartEscapeHtml(_t(d.message) || _t('No predictions for this month'))}</div>`;
       // Try to load the latest month's model info as reference
       _showLatestModelInfo(month);
       return;

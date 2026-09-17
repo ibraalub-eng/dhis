@@ -17,7 +17,7 @@ export async function loadGeoSection(month, _retries) {
       }
       return;
     }
-    if (d.empty) { showSmartSectionEmpty('geo', d.message || _t('No data')); return; }
+    if (d.empty) { showSmartSectionEmpty('geo', _t(d.message) || _t('No data')); return; }
     renderGeoMap(d.geo || {});
     renderGovernorates(d.geo || {});
     renderRegionalAnalysis(d.geo || {});

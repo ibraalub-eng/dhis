@@ -420,11 +420,11 @@
                 </div>
                 ${declineHtml ? `<div style="background:var(--severity-critical-bg);border:1px solid var(--severity-critical-border);border-radius:4px;padding:0.4rem 0.8rem;margin-bottom:0.8rem;font-size:0.82rem;color:var(--accent-red);">${declineHtml}</div>` : ''}
                 <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.6rem;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;padding:0.4rem 0.6rem;">
-                    <span style="font-size:0.78rem;color:var(--text-secondary);font-weight:600;">المقياس:</span>
-                    <button data-metric="score" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--accent-blue);background:var(--accent-blue);color:white;font-weight:700;" onclick="switchQualityTrendMetric('score')">درجة الجودة</button>
-                    <button data-metric="completeness" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('completeness')">الاكتمال</button>
-                    <button data-metric="rule_compliance" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('rule_compliance')">الالتزام</button>
-                    <button data-metric="consistency" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('consistency')">الاتساق</button>
+                    <span style="font-size:0.78rem;color:var(--text-secondary);font-weight:600;">${__('Metric')}:</span>
+                    <button data-metric="score" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--accent-blue);background:var(--accent-blue);color:white;font-weight:700;" onclick="switchQualityTrendMetric('score')">${__('Quality Score')}</button>
+                    <button data-metric="completeness" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('completeness')">${__('Completeness')}</button>
+                    <button data-metric="rule_compliance" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('rule_compliance')">${__('Validation rule')}</button>
+                    <button data-metric="consistency" class="qt-metric-btn" style="font-size:0.75rem;padding:0.25rem 0.7rem;border-radius:4px;cursor:pointer;border:1px solid var(--border-default);background:var(--bg-surface);color:var(--accent-blue);" onclick="switchQualityTrendMetric('consistency')">${__('Consistency')}</button>
                 </div>
                 <div id="qualityTrendPlot" style="width:100%;height:340px;"></div>
             `;
@@ -433,10 +433,10 @@
 
         // ── Interactive Plotly quality trend chart ────────────────
         const QUALITY_METRICS = {
-            score: { label: 'درجة الجودة', color: '#1a237e' },
-            completeness: { label: 'الاكتمال', color: '#2e7d32' },
-            rule_compliance: { label: 'قاعدة التحقق', color: '#e65100' },
-            consistency: { label: 'الاتساق', color: '#6a1b9a' },
+            score: { label: () => __('Quality Score'), color: '#1a237e' },
+            completeness: { label: () => __('Completeness'), color: '#2e7d32' },
+            rule_compliance: { label: () => __('Validation rule'), color: '#e65100' },
+            consistency: { label: () => __('Consistency'), color: '#6a1b9a' },
         };
 
         function _qtValue(s, key) {
@@ -450,16 +450,24 @@
             const scores = data.data;
             const months = scores.map(s => s.month);
             const cfg = QUALITY_METRICS[metric] || QUALITY_METRICS.score;
+            const cfgLabel = cfg.label();
+            const qScore = __('Quality Score');
+            const qComplete = __('Completeness');
+            const qRule = __('Validation rule');
+            const qConsistency = __('Consistency');
+            const peerAvgLabel = __('Peer average');
+            const outlierDedLabel = __('Outlier deduction');
+            const issuesLabel = __('Issues');
 
             const hoverText = scores.map(s => {
-                const parts = ['<b>' + s.month + '</b>', cfg.label + ': <b>' + _qtValue(s, metric) + '</b>'];
-                if (s.peer_avg !== null && s.peer_avg !== undefined) parts.push('متوسط النظير: <b>' + Number(s.peer_avg).toFixed(1) + '</b>');
-                if (metric !== 'score') parts.push('درجة الجودة: ' + _qtValue(s, 'score'));
-                parts.push('الاكتمال: ' + _qtValue(s, 'completeness'));
-                parts.push('الالتزام: ' + _qtValue(s, 'rule_compliance'));
-                parts.push('الاتساق: ' + _qtValue(s, 'consistency'));
-                if (s.outlier_penalty !== null && s.outlier_penalty !== undefined) parts.push('خصم الشذوذ: ' + Number(s.outlier_penalty).toFixed(1));
-                if (s.issues_count) parts.push('المشكلات: ' + s.issues_count);
+                const parts = ['<b>' + s.month + '</b>', cfgLabel + ': <b>' + _qtValue(s, metric) + '</b>'];
+                if (s.peer_avg !== null && s.peer_avg !== undefined) parts.push(peerAvgLabel + ': <b>' + Number(s.peer_avg).toFixed(1) + '</b>');
+                if (metric !== 'score') parts.push(qScore + ': ' + _qtValue(s, 'score'));
+                parts.push(qComplete + ': ' + _qtValue(s, 'completeness'));
+                parts.push(qRule + ': ' + _qtValue(s, 'rule_compliance'));
+                parts.push(qConsistency + ': ' + _qtValue(s, 'consistency'));
+                if (s.outlier_penalty !== null && s.outlier_penalty !== undefined) parts.push(outlierDedLabel + ': ' + Number(s.outlier_penalty).toFixed(1));
+                if (s.issues_count) parts.push(issuesLabel + ': ' + s.issues_count);
                 return parts.join('<br>');
             });
 
@@ -467,7 +475,7 @@
                 type: 'scatter', mode: 'lines+markers',
                 x: months,
                 y: scores.map(s => s[metric]),
-                name: cfg.label,
+                name: cfgLabel,
                 line: { color: cfg.color, width: 3, shape: 'spline' },
                 marker: { size: 10, color: cfg.color, line: { width: 2, color: '#fff' } },
                 fill: 'tozeroy',
@@ -481,7 +489,7 @@
                 traces.push({
                     type: 'scatter', mode: 'lines',
                     x: months, y: scores.map(s => s.score),
-                    name: 'درجة الجودة (مرجع)',
+                    name: qScore + ' (' + __('reference') + ')',
                     line: { color: '#1a237e', width: 1.5, dash: 'dot' },
                     hoverinfo: 'skip',
                 });
@@ -494,10 +502,10 @@
                 traces.push({
                     type: 'scatter', mode: 'lines',
                     x: months, y: peerData,
-                    name: 'متوسط النظير (Peer Avg)',
+                    name: peerAvgLabel + ' (Peer Avg)',
                     line: { color: '#d97706', width: 2, dash: 'dashdot' },
                     marker: { size: 6, color: '#d97706', symbol: 'diamond' },
-                    hovertemplate: 'متوسط النظير: <b>%{y:.1f}</b><extra></extra>',
+                    hovertemplate: peerAvgLabel + ': <b>%{y:.1f}</b><extra></extra>',
                 });
             }
 
@@ -505,8 +513,8 @@
             var _gColor = getComputedStyle(document.documentElement).getPropertyValue('--border-default').trim() || '#2A2E3B';
             Plotly.newPlot(el, traces, {
                 margin: { t: 20, b: 45, l: 45, r: 15 },
-                xaxis: { title: 'الشهر', tickangle: -35, gridcolor: _gColor },
-                yaxis: { title: 'الدرجة (0-100)', range: [0, 100], gridcolor: 'rgba(128,128,128,0.2)', zeroline: false },
+                xaxis: { title: __('Month'), tickangle: -35, gridcolor: _gColor },
+                yaxis: { title: __('Score (0-100)'), range: [0, 100], gridcolor: 'rgba(128,128,128,0.2)', zeroline: false },
                 hovermode: 'x unified',
                 legend: { orientation: 'h', y: 1.08, x: 0 },
                 paper_bgcolor: 'rgba(0,0,0,0)',

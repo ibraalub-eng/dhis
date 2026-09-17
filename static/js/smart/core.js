@@ -296,7 +296,7 @@ window.__smartRetry = function(path, key) {
       if (data && !data.computing && !data.empty) {
         clearSmartSectionState(key);
       } else if (data && (data.computing || data.empty)) {
-        showSmartSectionEmpty(key, data.message || _t('Still computing...'), { retryPath: path, retryKey: key });
+        showSmartSectionEmpty(key, _t(data.message) || _t('Still computing...'), { retryPath: path, retryKey: key });
       }
     });
   }
