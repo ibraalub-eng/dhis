@@ -1,5 +1,5 @@
 """Authentication endpoints: login, refresh, logout, me."""
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -222,7 +222,9 @@ def get_sessions(request: Request, db: Session = Depends(get_db), user=Depends(g
     """Return recent session events. Superadmin only."""
     if not user.is_superuser:
         raise HTTPException(status_code=403, detail="Superadmin only")
-    from sqlalchemy import func, text
+    from sqlalchemy import func, or_, text
+    from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
+    cutoff = datetime.utcnow() - timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     limit = int(request.query_params.get("limit", 100))
     limit = min(limit, 500)
     try:
@@ -239,7 +241,10 @@ def get_sessions(request: Request, db: Session = Depends(get_db), user=Depends(g
         online_rows = (
             db.query(SessionLog)
             .join(last_events, (SessionLog.user_id == last_events.c.user_id) & (SessionLog.created_at == last_events.c.last_at))
-            .filter(SessionLog.event.in_(["login", "refresh"]))
+            .filter(
+                SessionLog.event.in_(["login", "refresh"]),
+                SessionLog.created_at >= cutoff,
+            )
             .all()
         )
         online_user_ids = {r.user_id for r in online_rows if r.user_id}

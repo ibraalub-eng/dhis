@@ -12,7 +12,7 @@ from app.core.security import (
     hash_password, verify_password,
     create_access_token, create_refresh_token, decode_token,
 )
-from app.models import User, Role, Permission, RefreshToken, user_roles, role_permissions
+from app.models import User, Role, Permission, RefreshToken, SessionLog, user_roles, role_permissions
 
 
 def test_hash_and_verify_password():
@@ -459,3 +459,29 @@ def test_kick_user_missing_target(client, db_session):
     boss_headers = {"Authorization": "Bearer " + boss_login.json()["access_token"]}
     resp = client.post("/auth/sessions/kick-user", headers=boss_headers, json={"user_id": 99999})
     assert resp.status_code == 404
+
+
+def test_sessions_online_recency(client, db_session):
+    """Only users whose latest login/refresh is within the access-token lifetime
+    may count as 'online'. Stale events (e.g. days-old logins) must NOT show."""
+    from datetime import datetime, timedelta
+    aged = _seed_user(db_session, username="ageduser", password="test123", is_superuser=False)
+    fresh = _seed_user(db_session, username="freshuser", password="test123", is_superuser=False)
+    _seed_user(db_session, username="boss", password="boss123", is_superuser=True)
+
+    client.post("/auth/login", json={"username": "ageduser", "password": "test123"})
+    client.post("/auth/login", json={"username": "freshuser", "password": "test123"})
+
+    # Age the stale user's session events well beyond the online window
+    for row in db_session.query(SessionLog).filter(SessionLog.user_id == aged.id).all():
+        row.created_at = datetime.utcnow() - timedelta(days=45)
+    db_session.commit()
+
+    boss_login = client.post("/auth/login", json={"username": "boss", "password": "boss123"})
+    boss_headers = {"Authorization": "Bearer " + boss_login.json()["access_token"]}
+    resp = client.get("/auth/sessions", headers=boss_headers)
+    assert resp.status_code == 200
+    online = resp.json()["online"]
+
+    assert fresh.id in online, "fresh login should count as online"
+    assert aged.id not in online, "day-old login must not count as online"
