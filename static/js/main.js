@@ -59,7 +59,13 @@
         export const _tabInited = new Set();
         export function SwitchTab(name) { const t = document.querySelector('.tab[data-tab="' + name + '"]'); if (t) t.click(); }
 
-        export function switchTab(name) {
+        export async function switchTab(name) {
+            const activeContent = document.querySelector('.tab-content.active');
+            const activeId = activeContent ? activeContent.id : '';
+            if (activeId === 'tab-settings' && name !== 'settings' && typeof window._settingsGuardSwitch === 'function') {
+                const ok = await window._settingsGuardSwitch(name);
+                if (!ok) return;
+            }
             document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
             const targetTab = document.querySelector('.tab[data-tab="' + name + '"]');

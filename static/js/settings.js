@@ -5,7 +5,7 @@ import { DataTable, scoreBadge, trendIcon, confidenceBar } from './table-utils.j
         import { esc } from './tree.js';
         import { _saveUIState, _restoreUIState, SwitchTab, _tabInited } from './main.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
-import { confirmDestructive } from './confirm-modal.js';
+import { confirmDestructive, confirmWarning } from './confirm-modal.js';
 
         // ── Progressive Disclosure: auto-wrap <h3> in collapsible sections ──
         const _SECTION_ICONS = {
@@ -71,6 +71,7 @@ import { confirmDestructive } from './confirm-modal.js';
                 status.textContent = '\u2717 Must be 1.0';
                 status.style.color = 'var(--accent-red)';
             }
+            _renderConfPreview();
         }
 
         export function updateCfgDisplay(category) {
@@ -92,12 +93,15 @@ import { confirmDestructive } from './confirm-modal.js';
                     status.style.color = 'var(--accent-red)';
                 }
             }
+            _renderQualityPreview();
         }
 
         export function updateCfgVal(key) {
             const el = document.getElementById('cfg_' + key);
             const valEl = document.getElementById('cfgval_' + key);
             if (el && valEl) valEl.textContent = fmtCfgVal(key, el.value);
+            if (key && key.indexOf('clinical_') === 0 && typeof _refreshClinicalPreviews === 'function') _refreshClinicalPreviews();
+            if (key && key.indexOf('confidence_') === 0 && typeof _renderConfPreview === 'function') _renderConfPreview();
         }
 
         function fmtCfgVal(key, value) {
@@ -130,6 +134,8 @@ import { confirmDestructive } from './confirm-modal.js';
             if (name === 'ai') loadAiSettings();
             if (name === 'hospitals') loadHospitalsSettings();
             if (name === 'account') loadSelfProfile();
+            window._activeSettingsTab = name;
+            if (typeof settingsApplySearchFilter === 'function') settingsApplySearchFilter();
         }
 
 
@@ -2477,10 +2483,29 @@ function loadHospitalsSettings() {
             ]).then(() => {
                 const l = document.getElementById('settingsLoading');
                 if (l) l.classList.add('hidden');
+                _settingsInitUX();
             });
         }
 
         export function saveAllSettings() {
+            const wEl = document.getElementById('weight_total');
+            const qEl = document.getElementById('cfgtotal_quality');
+            const wTotal = wEl ? parseFloat(wEl.textContent) : 1;
+            const qTotal = qEl ? parseFloat(qEl.textContent) : 1;
+            if (Math.abs(wTotal - 1.0) >= 0.01 || Math.abs(qTotal - 1.0) >= 0.01) {
+                const statusEl = document.getElementById('settingsStatus');
+                if (statusEl) {
+                    statusEl.textContent = '\u2717 ' + __('Weight totals must equal 1.0 before saving');
+                    statusEl.style.color = 'var(--accent-red)';
+                    setTimeout(() => { statusEl.textContent = ''; }, 4000);
+                }
+                const qSec = document.getElementById('settings-quality');
+                const cSec = document.getElementById('settings-confidence');
+                if (Math.abs(qTotal - 1.0) >= 0.01 && qSec) qSec.classList.add('settings-section-invalid');
+                if (Math.abs(wTotal - 1.0) >= 0.01 && cSec) cSec.classList.add('settings-section-invalid');
+                setTimeout(() => { if (qSec) qSec.classList.remove('settings-section-invalid'); if (cSec) cSec.classList.remove('settings-section-invalid'); }, 3000);
+                return;
+            }
             const updates = {};
             ['quality_rule_compliance', 'quality_completeness', 'quality_consistency', 'quality_outlier_penalty',
              'outlier_multiplier', 'severity_high', 'severity_medium', 'severity_low',
@@ -2546,6 +2571,8 @@ function loadHospitalsSettings() {
                 document.getElementById('settingsStatus').textContent = '\u2713 All settings saved';
                 document.getElementById('settingsStatus').style.color = 'var(--accent-green)';
                 setTimeout(() => { document.getElementById('settingsStatus').textContent = ''; }, 3000);
+                _settingsSnapshot();
+                _settingsRefreshDirtyUI();
             }).catch(e => {
                 document.getElementById('settingsStatus').textContent = '\u2717 Error: ' + e.message;
                 document.getElementById('settingsStatus').style.color = 'var(--accent-red)';
@@ -3231,3 +3258,329 @@ window.changeSelfPassword = async function() {
         errEl.style.display = 'block';
     }
 };
+
+// ── Settings UX: search, dirty tracking, safe saving, live previews ────────
+let _settingsBaseline = {};
+
+function _settingsInputs() {
+    return Array.from(document.querySelectorAll('input[type=range], input[type=checkbox]'))
+        .filter(i => (i.id || '').indexOf('cfg_') === 0 || (i.id || '').indexOf('weight_') === 0);
+}
+
+function _settingsSnapshot() {
+    _settingsBaseline = {};
+    _settingsInputs().forEach(el => {
+        _settingsBaseline[el.id] = el.type === 'checkbox' ? !!el.checked : el.value;
+    });
+}
+
+function _settingsChangedKeys() {
+    const changed = [];
+    _settingsInputs().forEach(el => {
+        const v = el.type === 'checkbox' ? !!el.checked : el.value;
+        if (_settingsBaseline[el.id] !== undefined && String(_settingsBaseline[el.id]) !== String(v)) changed.push(el.id);
+    });
+    return changed;
+}
+
+function _settingsSectionOf(el) {
+    return el.closest('.settings-collapsible');
+}
+
+function _settingsTabOf(el) {
+    const sec = el.closest('.settings-section');
+    if (!sec) return null;
+    const m = /^settings-(.+)$/.exec(sec.id || '');
+    return m ? m[1] : null;
+}
+
+function _settingsTabLabel(name) {
+    const btn = document.getElementById('stbtn-' + name);
+    if (btn) {
+        const t = btn.textContent.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\uFE0F]/gu, '').trim();
+        if (t) return t;
+    }
+    return name;
+}
+
+function _settingsRefreshDirtyUI() {
+    const changed = _settingsChangedKeys();
+    const bySection = new Set();
+    const byTab = new Set();
+    changed.forEach(k => {
+        const el = document.getElementById(k);
+        if (!el) return;
+        const sec = _settingsSectionOf(el);
+        if (sec) bySection.add(sec);
+        const tab = _settingsTabOf(el);
+        if (tab) byTab.add(tab);
+    });
+    document.querySelectorAll('.settings-dirty-dot').forEach(d => d.remove());
+    document.querySelectorAll('.settings-section-dirty').forEach(s => s.classList.remove('settings-section-dirty'));
+    document.querySelectorAll('.stbtn-dirty').forEach(b => b.classList.remove('stbtn-dirty'));
+    bySection.forEach(sec => {
+        const hdr = sec.querySelector('.settings-section-header');
+        if (!hdr) return;
+        const dot = document.createElement('span');
+        dot.className = 'settings-dirty-dot';
+        dot.title = __('Unsaved changes');
+        hdr.appendChild(dot);
+        sec.classList.add('settings-section-dirty');
+    });
+    byTab.forEach(tab => document.getElementById('stbtn-' + tab)?.classList.add('stbtn-dirty'));
+    const chip = document.getElementById('settingsSaveChip');
+    if (chip) {
+        if (changed.length) {
+            chip.style.display = '';
+            chip.textContent = '💾 ' + __('Save') + ' (' + changed.length + ')';
+        } else {
+            chip.style.display = 'none';
+        }
+    }
+}
+
+function _settingsWatchInputs() {
+    _settingsInputs().forEach(el => {
+        if (el.dataset.settingsWatched) return;
+        el.dataset.settingsWatched = '1';
+        ['input', 'change'].forEach(evt => el.addEventListener(evt, _settingsRefreshDirtyUI));
+    });
+}
+
+function _settingsActiveTab() {
+    return window._activeSettingsTab || 'quality';
+}
+
+function settingsApplySearchFilter() {
+    const input = document.getElementById('settingsSearch');
+    if (input) settingsLiveSearch(input.value);
+}
+
+window.settingsLiveSearch = function(q) {
+    const info = document.getElementById('settingsSearchInfo');
+    const results = document.getElementById('settingsSearchResults');
+    q = (q || '').trim().toLowerCase();
+    if (!q) {
+        document.querySelectorAll('.settings-search-hit, .settings-search-miss').forEach(el => {
+            el.classList.remove('settings-search-hit', 'settings-search-miss');
+        });
+        if (info) info.textContent = '';
+        if (results) { results.innerHTML = ''; results.style.display = 'none'; }
+        return;
+    }
+    const active = _settingsActiveTab();
+    let activeMatches = 0, totalMatches = 0;
+    const otherHits = [];
+    document.querySelectorAll('#settings-tabs .settings-section, .settings-section').forEach(sec => {
+        const m = /^settings-(.+)$/.exec(sec.id || '');
+        if (!m) return;
+        const tab = m[1];
+        let secMatches = 0;
+        sec.querySelectorAll(':scope > .settings-collapsible').forEach(col => {
+            const hit = (col.textContent || '').toLowerCase().indexOf(q) !== -1;
+            if (hit) secMatches++;
+            col.classList.toggle('settings-search-hit', hit);
+            col.classList.toggle('settings-search-miss', !hit);
+        });
+        if (secMatches) {
+            totalMatches += secMatches;
+            if (tab === active) activeMatches += secMatches;
+            else otherHits.push({ tab, count: secMatches });
+        }
+    });
+    if (results) {
+        let html = '';
+        if (activeMatches) {
+            html += '<span>' + __('matches') + ': <strong>' + activeMatches + '</strong></span>';
+        } else {
+            html += '<span style="color:var(--accent-orange);">' + __('No matches') + ' — ' + esc(_settingsTabLabel(active)) + '</span>';
+        }
+        if (otherHits.length) {
+            html += ' &nbsp;·&nbsp; ' + __('Found in') + ': ';
+            html += otherHits.slice(0, 4).map(h =>
+                '<button class="btn btn-sm btn-outline settings-jump" style="font-size:0.7rem;padding:0.15rem 0.5rem;margin:0.1rem;" onclick="settingsJumpTo(\'' + h.tab + '\')">' + esc(_settingsTabLabel(h.tab)) + ' (' + h.count + ')</button>'
+            ).join('');
+        } else if (!totalMatches) {
+            html += '<span style="color:var(--text-muted);">' + __('No settings match') + ' &quot;' + esc(q) + '&quot;</span>';
+        }
+        results.innerHTML = html;
+        results.style.display = '';
+    }
+};
+
+window.settingsJumpTo = function(tabName) {
+    showSettingsTab(tabName);
+    const sec = document.getElementById('settings-' + tabName);
+    if (!sec) return;
+    const first = sec.querySelector('.settings-collapsible.settings-search-hit');
+    if (first) first.classList.add('open');
+    sec.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    const results = document.getElementById('settingsSearchResults');
+    if (results) results.style.display = 'none';
+};
+
+function _settingsFindCollapsible(title) {
+    const els = Array.from(document.querySelectorAll('.settings-collapsible .settings-section-header'));
+    const hdr = els.find(h => (h.textContent || '').indexOf(title) !== -1);
+    return hdr ? hdr.closest('.settings-collapsible') : null;
+}
+
+// ── Live previews ──
+function _cfgVal(key, def) {
+    const el = document.getElementById('cfg_' + key);
+    if (!el || el.value === '') return def;
+    const v = parseFloat(el.value);
+    return isNaN(v) ? def : v;
+}
+
+function _weightVal(key, def) {
+    const el = document.getElementById('weight_' + key);
+    if (!el || el.value === '') return def;
+    const v = parseFloat(el.value);
+    return isNaN(v) ? def : v;
+}
+
+function _settingsInjectPreviews() {
+    const qCol = _settingsFindCollapsible('Quality Score Formula Weights');
+    if (qCol && !document.getElementById('settingsQualityPreview')) {
+        const box = document.createElement('div');
+        box.id = 'settingsQualityPreview';
+        box.className = 'settings-preview';
+        qCol.querySelector('.settings-section-body').appendChild(box);
+        _renderQualityPreview();
+    }
+    const cCol = _settingsFindCollapsible('Confidence Signal Weights');
+    if (cCol && !document.getElementById('settingsConfPreview')) {
+        const box = document.createElement('div');
+        box.id = 'settingsConfPreview';
+        box.className = 'settings-preview';
+        cCol.querySelector('.settings-section-body').appendChild(box);
+        _renderConfPreview();
+    }
+    _settingsInjectClinicalPreviews();
+    _refreshClinicalPreviews();
+}
+
+function _renderQualityPreview() {
+    const box = document.getElementById('settingsQualityPreview');
+    if (!box) return;
+    const w1 = _cfgVal('quality_rule_compliance', 0.35);
+    const w2 = _cfgVal('quality_completeness', 0.25);
+    const w3 = _cfgVal('quality_consistency', 0.25);
+    const w4 = _cfgVal('quality_outlier_penalty', 0.15);
+    const demo = { rc: 0.92, comp: 0.86, cons: 0.81, pen: 0.08 };
+    const parts = [
+        { label: __('Rule compliance'), color: '#1a237e', share: w1 * demo.rc },
+        { label: __('Completeness'), color: '#2e7d32', share: w2 * demo.comp },
+        { label: __('Consistency'), color: '#e65100', share: w3 * demo.cons },
+        { label: __('Outlier (1-penalty)'), color: '#6a1b9a', share: w4 * (1 - demo.pen) }
+    ];
+    const score = Math.max(0, Math.min(100, parts.reduce((a, p) => a + p.share, 0) * 100));
+    const tone = score >= 80 ? 'badge-pass' : score >= 70 ? 'badge-medium' : score >= 50 ? 'badge-high' : 'badge-critical';
+    box.innerHTML =
+        '<div class="settings-preview-title">📊 ' + __('Live preview — sample components') + '</div>' +
+        '<div style="display:flex;gap:0.6rem;flex-wrap:wrap;font-size:0.72rem;color:var(--text-secondary);margin:0.35rem 0 0.4rem;">' +
+        parts.map(p => '<span><span style="display:inline-block;width:0.55rem;height:0.55rem;background:' + p.color + ';border-radius:2px;vertical-align:middle;"></span> ' + esc(p.label) + ' × ' + p.share.toFixed(3) + '</span>').join('') +
+        '</div>' +
+        '<div style="display:flex;height:0.7rem;border-radius:4px;overflow:hidden;border:1px solid var(--border-default);direction:ltr;">' +
+        parts.map(p => '<div style="width:' + (p.share * 100).toFixed(2) + '%;background:' + p.color + ';" title="' + esc(p.label) + '""></div>').join('') +
+        '</div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.4rem;"><span style="font-size:0.72rem;color:var(--text-muted);">' + __('Example final score') + '</span>' +
+        '<span style="font-weight:700;font-size:1rem;">' + score.toFixed(1) + ' <span class="badge ' + tone + '">' + (score >= 80 ? __('Reliable') : score >= 50 ? __('Needs attention') : __('Critical')) + '</span></span></div>';
+}
+
+function _renderConfPreview() {
+    const box = document.getElementById('settingsConfPreview');
+    if (!box) return;
+    const ws = [
+        { key: 'rule_compliance', label: __('Validation rule'), sig: 0.80, color: '#1a237e' },
+        { key: 'historical', label: __('Historical consistency'), sig: 0.62, color: '#2e7d32' },
+        { key: 'cross_hospital', label: __('Cross-hospital'), sig: 0.70, color: '#6a1b9a' },
+        { key: 'trend', label: __('Trend'), sig: 0.88, color: '#e65100' },
+        { key: 'completeness', label: __('Completeness'), sig: 0.84, color: '#00838f' }
+    ];
+    const conf = Math.max(0, Math.min(100, ws.reduce((a, w) => a + _weightVal(w.key, 0.2) * w.sig, 0) * 100));
+    const hi = _cfgVal('confidence_high', 80);
+    const med = _cfgVal('confidence_medium', 50);
+    const lo = _cfgVal('confidence_low', 25);
+    const level = conf >= hi ? 'HIGH' : conf >= med ? 'MEDIUM' : conf >= lo ? 'LOW' : 'CRITICAL';
+    const tone = level === 'HIGH' ? 'badge-pass' : level === 'MEDIUM' ? 'badge-medium' : 'badge-critical';
+    const tick = v => '<div class="range-tick" style="left:' + v + '%;background:var(--accent-purple);" title="' + __('Confidence cutoff') + ' ' + v + '"></div>';
+    const dotColor = level === 'HIGH' ? 'var(--accent-green)' : level === 'MEDIUM' ? 'var(--accent-orange)' : 'var(--accent-red)';
+    box.innerHTML =
+        '<div class="settings-preview-title">🎯 ' + __('Live preview — sample signals') + '</div>' +
+        '<div style="display:flex;gap:0.6rem;flex-wrap:wrap;font-size:0.72rem;color:var(--text-secondary);margin:0.35rem 0 0.4rem;">' +
+        ws.map(w => '<span>' + esc(w.label) + ' ' + (w.sig * 100).toFixed(0) + '% × ' + _weightVal(w.key, 0.2).toFixed(2) + '</span>').join('') +
+        '</div>' +
+        '<div class="range-track" style="margin:0.6rem 0 0.2rem;">' + tick(lo) + tick(med) + tick(hi) +
+        '<div class="range-dot" style="left:' + conf.toFixed(1) + '%;background:' + dotColor + ';width:1rem;height:1rem;" title="' + __('Example confidence') + '"></div></div>' +
+        '<div class="range-scale"><span>' + __('Levels') + ': ≥' + hi + ' ' + __('High') + ' · ≥' + med + ' ' + __('Medium') + ' · ≥' + lo + ' ' + __('Low') + ' · < ' + lo + ' ' + __('Critical') + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.45rem;"><span style="font-size:0.72rem;color:var(--text-muted);">' + __('Example confidence') + '</span>' +
+        '<span style="font-weight:700;font-size:1rem;">' + conf.toFixed(1) + ' <span class="badge ' + tone + '">' + level + '</span></span></div>';
+}
+
+// ── Clinical threshold live previews ──
+function _settingsInjectClinicalPreviews() {
+    document.querySelectorAll('#settings-clinical table tbody tr').forEach(row => {
+        const inputs = row.querySelectorAll('input[type=range]');
+        if (inputs.length < 3) return;
+        const first = inputs[0].id;
+        const base = first.replace(/_(elevated|high|critical)$/, '');
+        let cell = row.querySelector('td');
+        if (!cell) return;
+        if (!cell.querySelector('.clinical-preview')) {
+            const div = document.createElement('div');
+            div.className = 'clinical-preview';
+            div.id = 'clp_' + base;
+            cell.appendChild(div);
+        }
+    });
+    window._settingsClinicalBases = Array.from(document.querySelectorAll('.clinical-preview')).map(d => d.id.replace(/^clp_/, ''));
+}
+
+function _refreshClinicalPreviews() {
+    const bases = window._settingsClinicalBases || [];
+    bases.forEach(base => {
+        const el = document.getElementById('clp_' + base);
+        if (!el) return;
+        const elevated = _cfgVal(base + '_elevated', 0);
+        const high = _cfgVal(base + '_high', 0);
+        const critical = _cfgVal(base + '_critical', 0);
+        const sample = (elevated + high) / 2;
+        const ordered = elevated <= high && high <= critical;
+        if (!ordered) {
+            el.innerHTML = '<span style="color:var(--accent-red);">⚠ ' + __('Thresholds not in ascending order') + ' (elevated ' + elevated + ', high ' + high + ', critical ' + critical + ')</span>';
+            return;
+        }
+        const level = sample >= critical ? 'CRITICAL' : sample >= high ? 'HIGH' : sample >= elevated ? 'ELEVATED' : 'NORMAL';
+        const color = level === 'CRITICAL' ? 'var(--accent-red)' : level === 'HIGH' ? 'var(--accent-orange)' : level === 'ELEVATED' ? 'var(--accent-blue)' : 'var(--accent-green)';
+        el.innerHTML = __('Sample rate') + ' <strong>' + sample.toFixed(1) + '</strong> → <span style="color:' + color + ';font-weight:600;">' + level + '</span>';
+    });
+}
+
+// ── Init + safe saving guards ──
+function _settingsInitUX() {
+    _settingsSnapshot();
+    _settingsWatchInputs();
+    _settingsRefreshDirtyUI();
+    _settingsInjectPreviews();
+    settingsApplySearchFilter();
+}
+
+window._settingsGuardSwitch = async function() {
+    if (_settingsChangedKeys().length === 0) return true;
+    return await confirmWarning({
+        title: __('Unsaved changes'),
+        message: __('You have unsaved changes in Settings.'),
+        details: __('Leave this tab without saving?'),
+        okLabel: __('Discard changes'),
+        cancelLabel: __('Keep editing')
+    });
+};
+
+window.addEventListener('beforeunload', function(e) {
+    if (_settingsChangedKeys().length > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+    }
+});

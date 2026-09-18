@@ -416,3 +416,46 @@ def test_refresh_token_rotation(client, db_session):
     assert rt.revoked is True
     resp2 = client.post("/auth/refresh", json={"refresh_token": new_tokens["refresh_token"]})
     assert resp2.status_code == 200
+
+
+def test_kick_user_revokes_all_tokens(client, db_session):
+    """Force logoff: /auth/sessions/kick-user revokes every active refresh token."""
+    victim = _seed_user(db_session, username="victim", password="test123", is_superuser=False)
+    _seed_user(db_session, username="boss", password="boss123", is_superuser=True)
+    login_victim = client.post("/auth/login", json={"username": "victim", "password": "test123"})
+    assert login_victim.status_code == 200
+    refresh1 = login_victim.json()["refresh_token"]
+    refresh2 = client.post("/auth/login", json={"username": "victim", "password": "test123"}).json()["refresh_token"]
+    assert refresh2 != refresh1
+
+    boss_login = client.post("/auth/login", json={"username": "boss", "password": "boss123"})
+    boss_headers = {"Authorization": "Bearer " + boss_login.json()["access_token"]}
+
+    resp = client.post("/auth/sessions/kick-user", headers=boss_headers, json={"user_id": victim.id})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["success"] is True
+    assert data["username"] == "victim"
+    assert data["revoked"] == 2
+
+    reused1 = client.post("/auth/refresh", json={"refresh_token": refresh1})
+    assert reused1.status_code == 401
+    reused2 = client.post("/auth/refresh", json={"refresh_token": refresh2})
+    assert reused2.status_code == 401
+
+
+def test_kick_user_requires_superadmin(client, db_session):
+    victim = _seed_user(db_session, username="victim", password="test123", is_superuser=False)
+    _seed_user(db_session, username="pleb", password="pleb123", is_superuser=False)
+    pleb_login = client.post("/auth/login", json={"username": "pleb", "password": "pleb123"})
+    pleb_headers = {"Authorization": "Bearer " + pleb_login.json()["access_token"]}
+    resp = client.post("/auth/sessions/kick-user", headers=pleb_headers, json={"user_id": victim.id})
+    assert resp.status_code == 403
+
+
+def test_kick_user_missing_target(client, db_session):
+    _seed_user(db_session, username="boss", password="boss123", is_superuser=True)
+    boss_login = client.post("/auth/login", json={"username": "boss", "password": "boss123"})
+    boss_headers = {"Authorization": "Bearer " + boss_login.json()["access_token"]}
+    resp = client.post("/auth/sessions/kick-user", headers=boss_headers, json={"user_id": 99999})
+    assert resp.status_code == 404

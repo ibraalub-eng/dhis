@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -283,3 +284,26 @@ def kick_user(req: LogoutRequest, db: Session = Depends(get_db), user=Depends(ge
             db.commit()
             return {"success": True, "message": "User kicked"}
     return {"success": False, "message": "Token already revoked or not found"}
+
+
+class KickUserRequest(BaseModel):
+    user_id: int
+
+
+@router.post("/sessions/kick-user")
+def kick_user_all_sessions(req: KickUserRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Revoke all refresh tokens for a user, forcing them fully offline. Superadmin only."""
+    if not user.is_superuser:
+        raise HTTPException(status_code=403, detail="Superadmin only")
+    target = db.query(User).filter(User.id == req.user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    revoked = db.query(RefreshToken).filter(
+        RefreshToken.user_id == req.user_id,
+        or_(RefreshToken.revoked.is_(None), RefreshToken.revoked.is_(False)),
+    ).all()
+    for rt in revoked:
+        rt.revoked = True
+    _log_session_event(db, target.id, target.username, "kick_user", ip=None, ua="superadmin force logoff")
+    db.commit()
+    return {"success": True, "username": target.username, "revoked": len(revoked)}

@@ -1474,3 +1474,117 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .range-track .range-tick-avg { background:var(--text-muted); opacity:0.75; }
 .range-track .range-dot { position:absolute; top:50%; width:0.85rem; height:0.85rem; border-radius:50%; transform:translate(-50%,-50%); border:2px solid var(--bg-surface); }
 .range-scale { display:flex; justify-content:space-between; gap:0.5rem; font-size:0.66rem; color:var(--text-muted); }
+
+/* ── Settings screen UX ─────────────────────────────────────────────────── */
+.settings-preview {
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border-default);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  margin: 0.9rem 0 0.3rem;
+  font-size: 0.8rem;
+}
+.settings-preview-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent-blue);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.2rem;
+}
+.settings-collapsible.settings-section-dirty {
+  border-color: var(--accent-orange);
+  box-shadow: 0 0 0 1px var(--accent-orange);
+}
+.settings-section-invalid {
+  border-color: var(--accent-red) !important;
+  box-shadow: 0 0 0 2px var(--accent-red) !important;
+}
+.settings-dirty-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--accent-orange);
+  flex-shrink: 0;
+  animation: settings-pulse 1.6s infinite;
+}
+@keyframes settings-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.stbtn-dirty {
+  box-shadow: 0 0 0 2px var(--accent-orange);
+}
+.settings-search-miss { display: none !important; }
+.settings-jump { border-color: var(--accent-blue); color: var(--accent-blue); }
+.clinical-preview {
+  font-size: 0.68rem;
+  color: var(--text-secondary);
+  margin-top: 0.3rem;
+}
+
+/* ── System Control (admin) UX ──────────────────────────────────────────── */
+.admin-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+.admin-kpis .kpi-card { padding: 0.8rem 0.5rem; box-shadow: none; }
+.admin-kpis .kpi-card .icon { font-size: 1.25rem; margin-bottom: 0.15rem; }
+.admin-kpis .kpi-card .value { font-size: 1.45rem; line-height: 1.25; }
+.admin-kpis .kpi-card .label { font-size: 0.68rem; }
+.admin-chip {
+  display: inline-block;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--accent-blue);
+  vertical-align: middle;
+  margin-inline-start: 0.3rem;
+}
+.admin-log-row {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border-default);
+  font-size: 0.78rem;
+}
+.admin-log-row:hover { background: var(--bg-surface-hover); }
+.log-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  min-width: 62px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.log-badge-CRITICAL { background: var(--accent-red); color: white; }
+.log-badge-ERROR { background: var(--severity-critical-bg); color: var(--accent-red); border: 1px solid var(--severity-critical-border); }
+.log-badge-WARNING { background: var(--severity-warning-bg); color: var(--accent-orange); border: 1px solid var(--severity-warning-border); }
+.log-badge-INFO { background: var(--severity-info-bg); color: var(--accent-blue); border: 1px solid var(--severity-info-border); }
+.log-badge-DEBUG { background: var(--bg-elevated); color: var(--text-muted); border: 1px solid var(--border-default); }
+.session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: var(--severity-success-bg);
+  border: 1px solid var(--severity-success-border);
+  border-radius: 8px;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  margin: 0.2rem;
+}
+.session-chip .online-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent-green);
+  display: inline-block;
+  flex-shrink: 0;
+}

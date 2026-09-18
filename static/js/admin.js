@@ -28,6 +28,76 @@ function _toastShow(type, msg) {
   var API_BASE = '';
   API_BASE = '';
 
+  function _adminKpi(id, value) {
+    var el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+  }
+
+  // Self-contained styled confirm dialog (reuses shared .cm-* CSS).
+  var _adminModalEl = null;
+  var _adminResolve = null;
+  function _adminEnsureModal() {
+    if (_adminModalEl) return _adminModalEl;
+    _adminModalEl = document.getElementById('confirm-modal-overlay') || document.createElement('div');
+    if (!_adminModalEl.parentNode) {
+      _adminModalEl.id = 'confirm-modal-overlay';
+      _adminModalEl.className = 'cm-overlay';
+      _adminModalEl.innerHTML = '<div class="cm-dialog"><div class="cm-header"><span class="cm-icon"></span><span class="cm-title"></span></div><div class="cm-body"></div><div class="cm-actions"></div></div>';
+      document.body.appendChild(_adminModalEl);
+      _adminModalEl.addEventListener('click', function(e) {
+        if (e.target === _adminModalEl) _adminClose(false);
+      });
+    }
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && _adminModalEl && _adminModalEl.classList.contains('cm-visible')) _adminClose(false);
+    });
+    return _adminModalEl;
+  }
+  function _adminClose(result) {
+    if (_adminModalEl) _adminModalEl.classList.remove('cm-visible');
+    if (_adminResolve) { _adminResolve(result); _adminResolve = null; }
+  }
+  function _adminOpen(opts) {
+    var modal = _adminEnsureModal();
+    var icon = opts.danger ? '⚠️' : opts.warning ? '⚠️' : opts.info ? 'ℹ️' : '❓';
+    var titleColor = opts.danger ? 'var(--accent-red)' : opts.warning ? 'var(--accent-orange)' : 'var(--accent-blue)';
+    modal.querySelector('.cm-icon').textContent = icon;
+    modal.querySelector('.cm-title').innerHTML = '<span style="color:' + titleColor + '">' + (opts.title || (__('Confirm'))) + '</span>';
+    var bodyHtml = '<p>' + (opts.message || ('Are you sure?')) + '</p>';
+    if (opts.details) bodyHtml += '<p class="cm-details">' + opts.details + '</p>';
+    if (opts.confirmText) {
+      bodyHtml += '<div class="cm-confirm-input"><input type="text" id="cm-confirm-typing" placeholder="Type "' + opts.confirmText + '" to confirm" autocomplete="off"></div>';
+    }
+    modal.querySelector('.cm-body').innerHTML = bodyHtml;
+    modal.querySelector('.cm-actions').innerHTML =
+      '<button class="cm-btn cm-cancel">' + (opts.cancelLabel || __('Cancel')) + '</button>' +
+      '<button class="cm-btn cm-ok ' + (opts.danger ? 'cm-btn-danger' : opts.warning ? 'cm-btn-warning' : '') + '">' + (opts.okLabel || __('Confirm')) + '</button>';
+    var okBtn = modal.querySelector('.cm-ok');
+    var cancelBtn = modal.querySelector('.cm-cancel');
+    var input = modal.querySelector('#cm-confirm-typing');
+    if (opts.confirmText && input) {
+      okBtn.disabled = true;
+      input.addEventListener('input', function() {
+        okBtn.disabled = input.value.toUpperCase() !== opts.confirmText.toUpperCase();
+      });
+      setTimeout(function() { input.focus(); }, 100);
+    } else {
+      setTimeout(function() { okBtn.focus(); }, 100);
+    }
+    okBtn.addEventListener('click', function() { _adminClose(true); });
+    cancelBtn.addEventListener('click', function() { _adminClose(false); });
+    modal.classList.add('cm-visible');
+  }
+  window.confirmAction = function(opts) {
+    return new Promise(function(resolve) { _adminResolve = resolve; _adminOpen(opts); });
+  };
+  window.confirmDestructive = function(opts) {
+    return window.confirmAction(Object.assign({ danger: true }, opts));
+  };
+  window.confirmWarning = function(opts) {
+    return window.confirmAction(Object.assign({ warning: true }, opts));
+  };
+
   async function api(path, opts) {
     var token = getAccessToken();
     if (!token) { showLoginPage(); return null; }
@@ -91,6 +161,15 @@ window._adminAssignHospitals = function(id, btn) {
 
     container.innerHTML = `
       <div style="padding:1rem;">
+        <!-- KPI Summary -->
+        <div class="admin-kpis">
+          <div class="kpi-card"><div class="icon">👥</div><div class="value">${users.filter(function(u){ return u.is_active !== false; }).length}</div><div class="label">${__('Active Users')}</div></div>
+          <div class="kpi-card"><div class="icon">🛡️</div><div class="value">${roles.length}</div><div class="label">${__('Roles')}</div></div>
+          <div class="kpi-card"><div class="icon">🔑</div><div class="value">${perms.length}</div><div class="label">${__('Permissions')}</div></div>
+          <div class="kpi-card"><div class="icon">🟢</div><div class="value" id="adminKpiOnline">—</div><div class="label">${__('Online now')}</div></div>
+          <div class="kpi-card"><div class="icon">⚠️</div><div class="value" id="adminKpiLogs">—</div><div class="label">${__('Warnings / Errors')}</div></div>
+          <div class="kpi-card"><div class="icon">🗄️</div><div class="value" id="adminKpiDb" style="font-size:1rem;margin-top:0.25rem;">—</div><div class="label">${__('Database')}</div></div>
+        </div>
         <!-- Admin Tab Bar -->
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
           <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
@@ -110,7 +189,7 @@ window._adminAssignHospitals = function(id, btn) {
           <!-- Users -->
           <div style="flex:2;min-width:400px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-              <h3 style="color:var(--accent-blue);margin:0;">Users (${users.length})</h3>
+              <h3 style="color:var(--accent-blue);margin:0;">Users (${users.length}) <span class="admin-chip">${users.filter(function(u){ return u.is_active !== false; }).length} ${__('active')}</span></h3>
               <button class="btn btn-sm" onclick="showCreateUserModal()">+ New User</button>
             </div>
             <div style="overflow-x:auto;">
@@ -402,6 +481,7 @@ window._adminAssignHospitals = function(id, btn) {
           <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Server Logs</h2>
             <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Recent server warnings and errors. Auto-refreshes every 10 seconds.</p>
             <div style="display:flex;gap:0.5rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap;">
+              <input type="text" id="logsSearchFilter" oninput="adminLogsSearch(this.value)" placeholder="${__('Search logs...')}" autocomplete="off" style="flex:1;min-width:180px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:4px;font-size:0.82rem;background:var(--bg-surface);color:var(--text-primary);">
               <select id="logsLevelFilter" style="padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:4px;font-size:0.82rem;">
                 <option value="WARNING">⚠️ WARNING+</option>
                 <option value="ERROR">🔴 ERROR+</option>
@@ -922,14 +1002,14 @@ window._adminAssignHospitals = function(id, btn) {
     closeRoleModal(); loadAdminPanel();
   };
   window.deleteRole = async function(roleId) {
-    if (!await confirmDestructive({ title: 'Delete Role', message: 'Delete this role? Users with this role will lose its permissions.', okLabel: 'Delete' })) return;
+    if (!await window.confirmDestructive({ title: __('Delete Role'), message: __('Delete this role? Users with this role will lose its permissions.'), okLabel: __('Delete') })) return;
     var resp = await api('/admin/roles/' + roleId, { method: 'DELETE' });
     if (resp && resp.detail) { toastError(resp.detail); return; }
     loadAdminPanel();
   };
 
   window.deactivateUser = async function(userId) {
-    if (!await confirmDestructive({ title: 'Deactivate User', message: 'Deactivate this user? They will not be able to log in.', okLabel: 'Deactivate' })) return;
+    if (!await window.confirmDestructive({ title: __('Deactivate User'), message: __('Deactivate this user? They will not be able to log in.'), okLabel: __('Deactivate') })) return;
     await api('/admin/users/' + userId, { method: 'DELETE' });
     loadAdminPanel();
   };
@@ -1153,31 +1233,61 @@ window._adminAssignHospitals = function(id, btn) {
       var data=await api('/logs?level='+level+'&limit=200');
       if(!data||data._error){el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Failed to load logs: '+(data?data.detail||data._error:'No response')+'</div>';return;}
       var entries=data.entries||[];
+      window._logsEntries=entries;
       if(countEl)countEl.textContent=entries.length+' / '+data.total+' entries';
-      if(entries.length===0){el.innerHTML='<div style="padding:1.5rem;text-align:center;color:var(--text-muted);">No log entries at this level.</div>';return;}
-      var html='';
-      entries.forEach(function(e){
-        var color=e.level==='CRITICAL'?'#dc2626':e.level==='ERROR'?'#ef4444':e.level==='WARNING'?'#f59e0b':e.level==='INFO'?'#3b82f6':'#6b7280';
-        html+='<div style="padding:0.2rem 0.5rem;border-bottom:1px solid var(--border-default);display:flex;gap:0.8rem;align-items:flex-start;">';
-        html+='<span style="color:var(--text-muted);white-space:nowrap;min-width:130px;">'+e.time+'</span>';
-        html+='<span style="color:'+color+';font-weight:600;min-width:65px;">'+e.level+'</span>';
-        html+='<span style="color:var(--text-muted);min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="'+e.logger+'">'+e.logger+'</span>';
-        html+='<span style="flex:1;word-break:break-word;">'+e.message+'</span>';
-        html+='</div>';
-      });
-      el.innerHTML=html;
+      _adminKpi('adminKpiLogs', entries.length);
+      _adminRenderLogs();
     }catch(err){
       el.innerHTML='<div style="padding:1rem;color:var(--accent-red);">Error loading logs: '+err.message+'</div>';
     }
   };
+  window.adminLogsSearch = function(v) {
+    window._logsSearch = (v||'').trim().toLowerCase();
+    _adminRenderLogs();
+  };
+  window.adminLogsClearSearch = function() {
+    window._logsSearch = '';
+    var input = document.getElementById('logsSearchFilter');
+    if (input) input.value = '';
+    _adminRenderLogs();
+  };
+  function _adminRenderLogs() {
+    var el=document.getElementById('logsContainer');
+    if(!el)return;
+    var entries=window._logsEntries||[];
+    var q=window._logsSearch||'';
+    var filtered=entries;
+    if(q){
+      filtered=entries.filter(function(e){
+        return (e.message||'').toLowerCase().indexOf(q)!==-1
+          || (e.logger||'').toLowerCase().indexOf(q)!==-1
+          || (e.level||'').toLowerCase().indexOf(q)!==-1;
+      });
+    }
+    if(filtered.length===0){
+      el.innerHTML='<div style="padding:1.5rem;text-align:center;color:var(--text-muted);">'+(q?__('No log entries match'):__('No log entries at this level.'))+'</div>';
+      return;
+    }
+    var html='';
+    filtered.forEach(function(e){
+      var lv=esc(e.level)||'DEBUG';
+      html+='<div class="admin-log-row">';
+      html+='<span style="color:var(--text-muted);white-space:nowrap;min-width:130px;">'+esc(e.time)+'</span>';
+      html+='<span class="log-badge log-badge-'+lv+'">'+lv+'</span>';
+      html+='<span style="color:var(--text-muted);min-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="'+esc(e.logger)+'">'+esc(e.logger)+'</span>';
+      html+='<span style="flex:1;word-break:break-word;">'+esc(e.message)+'</span>';
+      html+='</div>';
+    });
+    el.innerHTML=html;
+  }
   window.clearAdminLogs = async function() {
-    if(!confirm('Clear all log entries from memory?'))return;
+    if (!await window.confirmDestructive({ title: __('Clear logs'), message: __('Clear all log entries from memory?'), details: __('This cannot be undone.'), okLabel: __('Clear logs') })) return;
     try{
       await api('/logs',{method:'DELETE'});
       loadAdminLogs();
-      if(typeof toastSuccess==='function')toastSuccess('Logs cleared');
+      if(typeof toastSuccess==='function')toastSuccess(__('Logs cleared'));
     }catch(err){
-      if(typeof toastError==='function')toastError('Failed to clear logs: '+err.message);
+      if(typeof toastError==='function')toastError(__('Failed to clear logs')+': '+err.message);
     }
   };
   window.exportLogsCSV = function() {
@@ -1218,7 +1328,8 @@ window._adminAssignHospitals = function(id, btn) {
     var el=document.getElementById("adminDbStatus");
     if(!el)return;el.innerHTML="Loading...";
     var data=await api("/config/database-status");
-    if(!data||data._error){el.innerHTML="<span style=\"color:var(--accent-red)\">Failed to load</span>";return;}
+    if(!data||data._error){el.innerHTML="<span style=\"color:var(--accent-red)\">Failed to load</span>";_adminKpi('adminKpiDb', '\u2717 ?');return;}
+    _adminKpi('adminKpiDb', data.connected ? ('\u2713 ' + (data.engine || __('Connected'))) : '\u2717 ' + __('Not connected'));
     if(data.connected){
       var h="<span style=\"color:var(--accent-green)\">Connected to "+(data.engine||"PostgreSQL")+"</span><br>";
       h+="<div style=\"margin-top:0.5rem;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.5rem;\">";
@@ -1472,6 +1583,7 @@ window._adminAssignHospitals = function(id, btn) {
         }
       });
       var onlineList = Object.values(onlineMap);
+      _adminKpi('adminKpiOnline', onlineList.length);
       if (countEl) {
         countEl.textContent = onlineList.length ? '\ud83d\udfe2 ' + onlineList.length + ' online' : '\u2014';
       }
@@ -1480,11 +1592,12 @@ window._adminAssignHospitals = function(id, btn) {
           var oh = '';
           onlineList.forEach(function(e) {
             var t = e.created_at ? new Date(e.created_at).toLocaleTimeString() : '';
-            oh += '<div style="background:var(--severity-success-bg);border:1px solid var(--severity-success-border);border-radius:6px;padding:0.4rem 0.7rem;font-size:0.8rem;display:inline-flex;align-items:center;gap:0.4rem;margin:0.2rem;">';
-            oh += '<span style="width:8px;height:8px;border-radius:50%;background:var(--accent-green);display:inline-block;"></span>';
+            oh += '<div class="session-chip">';
+            oh += '<span class="online-dot"></span>';
             oh += '<strong>' + esc(e.username) + '</strong>';
             oh += '<span style="color:var(--text-muted);font-size:0.72rem;">' + t + '</span>';
             oh += '<span style="color:var(--text-muted);font-size:0.72rem;">(' + esc(e.ip_address || '\u2014') + ')</span>';
+            oh += '<button class="btn btn-sm btn-outline" style="font-size:0.66rem;padding:0.1rem 0.45rem;color:var(--accent-red);border-color:var(--accent-red);" onclick="adminForceLogoff(' + e.user_id + ', decodeURIComponent(\'' + encodeURIComponent(e.username || '') + '\'))">' + __('Force logoff') + '</button>';
             oh += '</div>';
           });
           onlineEl.innerHTML = oh;
@@ -1530,6 +1643,20 @@ window._adminAssignHospitals = function(id, btn) {
     } catch(err) {
       tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1.5rem;color:var(--accent-red);">Error: ' + esc(err.message) + '</td></tr>';
     }
+  };
+  window.adminForceLogoff = async function(userId, username) {
+    if (!await window.confirmDestructive({
+      title: __('Force logoff'),
+      message: __('Force logoff') + ' ' + (username || '') + '?',
+      details: __('This will revoke all active sessions for this user.'),
+      okLabel: __('Force logoff')
+    })) return;
+    try {
+      var resp = await api('/auth/sessions/kick-user', { method: 'POST', body: JSON.stringify({ user_id: userId }) });
+      if (resp && (resp.detail || resp._error)) { if (typeof toastError === 'function') toastError(resp.detail || __('Failed')); return; }
+      if (typeof toastSuccess === 'function') toastSuccess(__('Logoff') + ' ' + (username || '') + ' — ' + resp.revoked + ' ' + __('session(s)') + ' ' + __('revoked'));
+      loadSessions();
+    } catch (err) { if (typeof toastError === 'function') toastError(__('Error') + ': ' + err.message); }
   };
   window.toggleSessionsAutoRefresh = function() {
     if (_sessionsInterval) { clearInterval(_sessionsInterval); _sessionsInterval = null; }
