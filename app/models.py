@@ -350,6 +350,12 @@ user_hospitals = Table(
     Column("hospital_id", Integer, ForeignKey("hospitals.id", ondelete="CASCADE"), primary_key=True),
 )
 
+user_permissions = Table(
+    "user_permissions", Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("permission_id", Integer, ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class User(Base):
     __tablename__ = "users"
@@ -363,6 +369,7 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     roles = relationship("Role", secondary=user_roles, backref="users")
+    permissions = relationship("Permission", secondary=user_permissions, backref="users")
     hospitals = relationship("Hospital", secondary=user_hospitals, backref="users")
 
 

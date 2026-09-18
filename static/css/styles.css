@@ -1547,6 +1547,17 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   vertical-align: middle;
   margin-inline-start: 0.3rem;
 }
+.admin-user-perm {
+  display: inline-block;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent-purple);
+  color: var(--accent-purple);
+  border-radius: 4px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.72rem;
+  margin-right: 0.2rem;
+  margin-bottom: 0.1rem;
+}
 .admin-log-row {
   display: flex;
   gap: 0.7rem;

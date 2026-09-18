@@ -105,6 +105,21 @@ def test_create_user_with_role(db_session):
     assert fetched.roles[0].name == "viewer"
 
 
+def test_user_direct_permissions_model(db_session):
+    """A user can hold direct permissions separate from roles."""
+    p = Permission(codename="data.upload", description="Upload data")
+    user = User(
+        username="directp", email="directp@test.com", full_name="Direct P",
+        password_hash=hash_password("pass123"), permissions=[p],
+    )
+    db_session.add(user)
+    db_session.commit()
+    fetched = db_session.query(User).filter_by(username="directp").first()
+    assert fetched is not None
+    assert len(fetched.permissions) == 1
+    assert fetched.permissions[0].codename == "data.upload"
+
+
 def test_refresh_token_model(db_session):
     from datetime import datetime
     user = User(username="u1", email="u1@test.com", full_name="U1", password_hash=hash_password("p"))
@@ -399,6 +414,82 @@ def test_login_returns_roles_and_permissions(client, db_session):
     data = resp.json()
     assert data["user"]["roles"] == ["analyst"]
     assert set(data["user"]["permissions"]) == {"dashboard.read", "data.upload"}
+
+
+def test_login_merges_role_and_direct_permissions(client, db_session):
+    """Login must union permissions coming from roles AND direct per-user ones."""
+    p1 = Permission(codename="dashboard.read")
+    p2 = Permission(codename="data.upload")
+    p3 = Permission(codename="quality.read")
+    role = Role(name="viewer2", permissions=[p1])
+    user = User(
+        username="hybrid", email="hybrid@test.com", full_name="Hybrid",
+        password_hash=hash_password("pass123"), roles=[role], permissions=[p2, p3],
+    )
+    db_session.add(user)
+    db_session.commit()
+    resp = client.post("/auth/login", json={"username": "hybrid", "password": "pass123"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["user"]["roles"] == ["viewer2"]
+    assert set(data["user"]["permissions"]) == {"dashboard.read", "data.upload", "quality.read"}
+
+
+def test_me_merges_direct_permissions(client, db_session):
+    """/auth/me must include direct per-user permissions too."""
+    role = Role(name="viewer", permissions=[Permission(codename="dashboard.read")])
+    user = User(
+        username="hybrid2", email="hybrid2@test.com", full_name="Hybrid Two",
+        password_hash=hash_password("pass123"), roles=[role],
+        permissions=[Permission(codename="alerts.read")],
+    )
+    db_session.add(user)
+    db_session.commit()
+    login = client.post("/auth/login", json={"username": "hybrid2", "password": "pass123"})
+    headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+    resp = client.get("/auth/me", headers=headers)
+    assert resp.status_code == 200
+    assert set(resp.json()["permissions"]) == {"dashboard.read", "alerts.read"}
+
+
+def test_direct_permission_grants_admin_access(client, db_session):
+    """A user holding ONLY a direct permission passes require_permission."""
+    role = Role(name="viewer", permissions=[Permission(codename="dashboard.read")])
+    user = User(
+        username="directadmin", email="directadmin@test.com", full_name="Direct Admin",
+        password_hash=hash_password("pass123"), roles=[role],
+        permissions=[Permission(codename="system.manage_users")],
+    )
+    db_session.add(user)
+    db_session.commit()
+    login = client.post("/auth/login", json={"username": "directadmin", "password": "pass123"})
+    assert login.status_code == 200
+    headers = {"Authorization": "Bearer " + login.json()["access_token"]}
+    resp = client.get("/admin/users", headers=headers)
+    assert resp.status_code == 200
+
+
+def test_admin_user_direct_permission_ids(client, db_session):
+    """Create + update a user with permission_ids via the admin API."""
+    headers = _auth_header(client, db_session)
+    p1 = Permission(codename="data.upload")
+    p2 = Permission(codename="alerts.read")
+    db_session.add_all([p1, p2])
+    db_session.commit()
+
+    create = client.post("/admin/users", headers=headers, json={
+        "username": "permuser", "email": "permuser@test.com", "full_name": "Perm User",
+        "password": "pass123", "permission_ids": [p1.id, p2.id],
+    })
+    assert create.status_code == 201
+    data = create.json()
+    assert {p["codename"] for p in data["direct_permissions"]} == {"data.upload", "alerts.read"}
+    assert "data.upload" in data["permissions"]
+
+    uid = data["id"]
+    resp = client.put(f"/admin/users/{uid}", headers=headers, json={"permission_ids": [p1.id]})
+    assert resp.status_code == 200
+    assert [p["codename"] for p in resp.json()["direct_permissions"]] == ["data.upload"]
 
 
 def test_refresh_token_rotation(client, db_session):

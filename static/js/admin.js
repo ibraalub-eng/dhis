@@ -200,6 +200,7 @@ window._adminAssignHospitals = function(id, btn) {
                     <th style="padding:0.4rem;text-align:left;">Full Name</th>
                     <th style="padding:0.4rem;text-align:left;">Email</th>
                     <th style="padding:0.4rem;text-align:left;">Roles</th>
+                    <th style="padding:0.4rem;text-align:left;">Permissions</th>
                     <th style="padding:0.4rem;text-align:left;">Status</th>
                     <th style="padding:0.4rem;text-align:left;">Actions</th>
                   </tr>
@@ -211,6 +212,7 @@ window._adminAssignHospitals = function(id, btn) {
                       <td style="padding:0.4rem;">${esc(u.full_name)}</td>
                       <td style="padding:0.4rem;color:var(--text-secondary);">${esc(u.email)}</td>
                       <td style="padding:0.4rem;">${u.roles.map(r => '<span style="background:var(--bg-surface-hover);color:var(--accent-purple);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;margin-right:0.2rem;">' + esc(r.name) + '</span>').join('')}</td>
+                      <td style="padding:0.4rem;">${(u.direct_permissions || []).map(p => '<span class="admin-user-perm" title="Direct">' + esc(p.codename) + '</span>').join('') || '<span style="color:var(--text-muted);font-size:0.75rem;">—</span>'}</td>
                       <td style="padding:0.4rem;">${u.is_active ? '<span style="color:var(--accent-green);">Active</span>' : '<span style="color:var(--accent-red);">Inactive</span>'}</td>
                       <td style="padding:0.4rem;">
                         <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})" style="font-size:0.72rem;">Edit</button>
@@ -324,6 +326,12 @@ window._adminAssignHospitals = function(id, btn) {
               <label style="font-size:0.82rem;font-weight:600;">Roles</label>
               <div id="adminRoleCheckboxes" style="max-height:120px;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.4rem;">
                 ${roles.map(r => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-role-cb" value="' + r.id + '"> ' + esc(r.name) + (r.is_system ? ' <span style="color:var(--text-muted);font-size:0.7rem;">(system)</span>' : '') + '</label>').join('')}
+              </div>
+            </div>
+            <div style="margin-bottom:0.8rem;">
+              <label style="font-size:0.82rem;font-weight:600;">${__('Direct Permissions')}</label>
+              <div id="adminUserPermCheckboxes" style="max-height:120px;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.4rem;">
+                ${perms.map(p => '<label style="display:flex;align-items:center;gap:0.4rem;padding:0.2rem 0;font-size:0.82rem;cursor:pointer;"><input type="checkbox" class="admin-user-perm-cb" value="' + p.id + '"> <strong style="color:var(--accent-purple);">' + esc(p.codename) + '</strong></label>').join('')}
               </div>
             </div>
             <div id="adminModalError" style="display:none;color:var(--accent-red);font-size:0.82rem;margin-bottom:0.5rem;"></div>
@@ -887,6 +895,7 @@ window._adminAssignHospitals = function(id, btn) {
     document.getElementById('adminPassword').value = '';
     document.getElementById('adminPassHint').textContent = '(required)';
     document.getElementById('adminModalError').style.display = 'none';
+    document.querySelectorAll('.admin-user-perm-cb').forEach(function(c) { c.checked = false; });
     document.getElementById('adminUserModal').style.display = 'flex';
   };
 
@@ -908,6 +917,10 @@ window._adminAssignHospitals = function(id, btn) {
     document.querySelectorAll('.admin-role-cb').forEach(function(cb) {
       cb.checked = userRoleIds.indexOf(parseInt(cb.value)) !== -1;
     });
+    var userPermIds = (data.direct_permissions || []).map(function(p) { return p.id; });
+    document.querySelectorAll('.admin-user-perm-cb').forEach(function(cb) {
+      cb.checked = userPermIds.indexOf(parseInt(cb.value)) !== -1;
+    });
     document.getElementById('adminUserModal').style.display = 'flex';
   };
 
@@ -920,11 +933,14 @@ window._adminAssignHospitals = function(id, btn) {
     var editId = document.getElementById('adminEditUserId').value;
     var checkedRoles = document.querySelectorAll('.admin-role-cb:checked');
     var roleIds = Array.from(checkedRoles).map(function(c) { return parseInt(c.value); });
+    var checkedPerms = document.querySelectorAll('.admin-user-perm-cb:checked');
+    var permIds = Array.from(checkedPerms).map(function(c) { return parseInt(c.value); });
     var body = {
       username: document.getElementById('adminUsername').value,
       full_name: document.getElementById('adminFullName').value,
       email: document.getElementById('adminEmail').value,
       role_ids: roleIds,
+      permission_ids: permIds,
     };
     var pw = document.getElementById('adminPassword').value;
     if (pw) body.password = pw;

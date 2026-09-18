@@ -889,6 +889,7 @@
             // System Control UX
             'Active Users': 'المستخدمون النشطون',
             'Permissions': 'الصلاحيات',
+            'Direct Permissions': 'الصلاحيات المباشرة',
             'Online now': 'متصل الآن',
             'Warnings / Errors': 'تحذيرات / أخطاء',
             'Database': 'قاعدة البيانات',

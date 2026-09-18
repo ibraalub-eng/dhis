@@ -34,7 +34,8 @@ def require_permission(codename: str):
     ):
         if user.is_superuser:
             return user
-        user_perms = {p.codename for r in user.roles for p in r.permissions}
+        user_perms = ({p.codename for p in user.permissions} |
+                       {p.codename for r in user.roles for p in r.permissions})
         if codename not in user_perms:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

@@ -21,6 +21,7 @@ class UserCreate(BaseModel):
     full_name: str
     password: str
     role_ids: list[int] = []
+    permission_ids: list[int] = []
     is_superuser: bool = False
 
 
@@ -31,6 +32,7 @@ class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
     is_superuser: Optional[bool] = None
     role_ids: Optional[list[int]] = None
+    permission_ids: Optional[list[int]] = None
 
 
 class AdminPasswordChangeRequest(BaseModel):
@@ -56,6 +58,8 @@ def _user_dict(u: User) -> dict:
         "full_name": u.full_name, "is_active": u.is_active,
         "is_superuser": u.is_superuser,
         "roles": [{"id": r.id, "name": r.name} for r in u.roles],
+        "direct_permissions": [{"id": p.id, "codename": p.codename} for p in u.permissions],
+        "permissions": sorted({p.codename for p in u.permissions} | {p.codename for r in u.roles for p in r.permissions}),
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
 
@@ -81,6 +85,8 @@ def create_user(req: UserCreate, db: Session = Depends(get_db)):
     )
     if req.role_ids:
         user.roles = db.query(Role).filter(Role.id.in_(req.role_ids)).all()
+    if req.permission_ids:
+        user.permissions = db.query(Permission).filter(Permission.id.in_(req.permission_ids)).all()
     db.add(user)
     db.commit()
     db.refresh(user)
@@ -115,6 +121,8 @@ def update_user(user_id: int, req: UserUpdate, db: Session = Depends(get_db)):
         user.is_superuser = req.is_superuser
     if req.role_ids is not None:
         user.roles = db.query(Role).filter(Role.id.in_(req.role_ids)).all()
+    if req.permission_ids is not None:
+        user.permissions = db.query(Permission).filter(Permission.id.in_(req.permission_ids)).all()
     db.commit()
     db.refresh(user)
     return _user_dict(user)

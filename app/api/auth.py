@@ -69,7 +69,7 @@ def login(req: LoginRequest, request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is inactive")
 
     roles = [r.name for r in user.roles]
-    permissions = list({p.codename for r in user.roles for p in r.permissions})
+    permissions = list({p.codename for p in user.permissions} | {p.codename for r in user.roles for p in r.permissions})
     if user.is_superuser:
         permissions = ["*.*"]
 
@@ -116,7 +116,7 @@ def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User inactive")
 
     roles = [r.name for r in user.roles]
-    permissions = list({p.codename for r in user.roles for p in r.permissions})
+    permissions = list({p.codename for p in user.permissions} | {p.codename for r in user.roles for p in r.permissions})
     if user.is_superuser:
         permissions = ["*.*"]
 
@@ -153,7 +153,7 @@ def logout(req: LogoutRequest, request: Request, db: Session = Depends(get_db)):
 @router.get("/me")
 def me(user=Depends(get_current_user)):
     roles = [r.name for r in user.roles]
-    permissions = list({p.codename for r in user.roles for p in r.permissions})
+    permissions = list({p.codename for p in user.permissions} | {p.codename for r in user.roles for p in r.permissions})
     if user.is_superuser:
         permissions = ["*.*"]
     return {

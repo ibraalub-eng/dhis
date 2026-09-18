@@ -76,3 +76,29 @@ def test_admin_i18n_coverage():
     keys = re.findall(r"__\('([^']+)'\)", js)
     for key in keys:
         assert f"'{key}': " in i18n, f"i18n missing admin key: {key}"
+
+
+def test_admin_users_table_permissions_column():
+    """Users table must render direct per-user permissions separately from roles."""
+    js = _read("admin.js")
+    assert "admin-user-perm" in js
+    assert "direct_permissions" in js
+
+
+def test_admin_user_modal_direct_permission_checkboxes():
+    """Edit User modal must have a Direct Permissions checkbox list distinct from Roles."""
+    js = _read("admin.js")
+    assert "adminUserPermCheckboxes" in js
+    assert "admin-user-perm-cb" in js
+
+
+def test_admin_save_user_sends_permission_ids():
+    """saveAdminUser must send the checked direct permission ids."""
+    js = _read("admin.js")
+    assert "permission_ids" in js
+
+
+def test_admin_user_edit_fills_direct_permissions():
+    """editUser must check the user's assigned direct permissions."""
+    js = _read("admin.js")
+    assert "data.direct_permissions" in js
