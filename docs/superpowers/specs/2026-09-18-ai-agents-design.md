@@ -4,7 +4,8 @@
 2026-09-18
 
 ## Status
-Approved design (brainstorming complete, user-confirmed scope; updated per review)
+Approved design (brainstorming complete, user-confirmed scope; updated per review
+rounds 1 and 2 — provider abstraction added)
 
 ## Problem
 The app already ships single-shot LLM features (`app/plugins/ai/`): generated
@@ -14,7 +15,7 @@ is no *agentic* capability: users cannot ask free-form questions about their dat
 deep-dive a flagged outlier with gathered context, generate narrative reports on
 demand, or get a prioritized triage digest — and any such capability must stay
 permission-gated, hospital-scoped, off-by-default, grounded in tool-fetched facts,
-and free of cost blowups on a free-tier Gemini key.
+and free of cost/blowups on a free-tier Gemini key.
 
 ## Goals (user-confirmed)
 1. Four specialized, read-only agents: **NL Q&A**, **anomaly/alert explainer**,
@@ -29,12 +30,20 @@ and free of cost blowups on a free-tier Gemini key.
    `agents_enabled` default **OFF**. When OFF, all existing AI behavior is unchanged.
 6. **Grounding policy**: agents state only tool-returned facts; no invented data,
    thresholds, trends, or causal claims.
+7. **Provider abstraction**: the runtime resolves its synthesis model from
+   configuration — local LLM (Ollama), Gemini, OpenAI-compatible, or Auto — with
+   all agent behavior provider-independent.
 
 ## Non-goals
 - No DB writes by agents (read-only tools). No production scheduler/cron.
 - No streaming/websockets/SSE. No agent-framework dependency (no LangGraph etc.).
 - No schema/seed changes for permissions (reuses existing `ai.read`/`ai.write`).
 - No parallel tool execution beyond the 3-call per-step batch already designed.
+- **No per-profile provider routing table in v1** (e.g. Q&A→local,
+  reports→Gemini). "Auto" resolves one provider per run; route-splitting is a
+  documented extension.
+- Existing single-shot AI features are **not** rewired by the provider selector
+  (it applies to the agents layer only).
 
 ## Design principle (verified against codebase)
 The agent layer is an **orchestration + explanation layer**. Every tool calls the
@@ -53,7 +62,14 @@ Agent Tool Layer (read-only, hospital-scoped, validated)
 Agent Runtime (profiles, budgets, retries, fallback)
         │
         ▼
-LLM / Gemini (grounded synthesis only)
+   LLM Provider (resolved from config)
+        │
+   ┌────┼───────────────┐
+   │    │               │
+  Local  Gemini   OpenAI-compatible
+  (Ollama)
+   │
+ Qwen3 8B / Gemma 4 12B
         │
         ▼
 User / Dashboard
@@ -78,8 +94,9 @@ app/agents/
 
 ### 2. Agent runtime (`runtime.py`)
 
-ReAct loop over `_call_api` from `app/plugins/ai/providers.py` (same provider,
-config, and error handling as existing AI features):
+ReAct loop over the resolved provider's `_call_api` (from
+`app/plugins/ai/providers.py`, provider chosen per Section 3 — same base
+interface, config, and error handling as existing AI features):
 
 1. Build context: profile system prompt (incl. grounding policy) + compressed
    conversation history + this run's transcript (tool calls and observations).
@@ -108,7 +125,65 @@ config, and error handling as existing AI features):
 All LLM answers are **bilingual by default** (Arabic or English per requesting
 user), matching existing AI output.
 
-### 3. Tools (`tools.py`) — read-only, hospital-scoped, validated
+### 3. LLM provider abstraction
+
+The agent runtime resolves its synthesis model through an explicit provider
+abstraction. **The runtime MUST NOT depend on a specific provider.** The agent
+tools, permissions, hospital scope, grounding, budgets, caching, and fallback
+behavior are provider-independent — the same four agents work regardless of the
+selected model.
+
+Supported providers:
+
+- **Local LLM** — Ollama (e.g. Qwen3 8B, Gemma 4 12B) exposed via its
+  OpenAI-compatible endpoint (`http://localhost:11434/v1`, no API key). Reuses
+  the existing OpenAI-compatible path in `app/plugins/ai/providers.py` — **no new
+  SDK dependency**.
+- **Gemini** — existing default provider.
+- **OpenAI-compatible** — existing provider path (incl. MiniMax).
+
+All providers implement the same interface, already satisfied by the existing
+`_call_api` (returns text + prompt/completion token counts):
+
+- `chat()` — single-turn completion for one ReAct step.
+- Structured JSON response (strict-parse; tolerate code fences).
+- Token usage reporting.
+- Timeout handling.
+- Retry/error handling (incl. 429 `Retry-After`).
+
+**Configuration (System Control → Settings → AI):**
+
+| Setting | Values | Effect |
+|---|---|---|
+| `ai_provider` | `local` \| `gemini` \| `openai_compatible` \| `auto` (default `auto`) | provider the agents runtime uses |
+| `local_runtime` | `ollama` (default) | local runtime type |
+| `local_model` | e.g. `qwen3:8b` (default) | model name for the local provider |
+| `local_url` | `http://localhost:11434` (default) | local provider base URL |
+
+- `auto` (default): use the **local provider if configured and reachable**, else
+  the existing default cloud provider. Exactly one provider is resolved per run;
+  per-profile routing (Q&A→local, reports→Gemini) is a documented extension, not
+  v1.
+- The `agents_enabled` toggle is independent of provider selection.
+
+**Expectation setting for local models:** small models (8B–12B) are weaker at
+strict tool-call JSON and may consume more budget steps or reach the
+deterministic fallback more often. Grounding holds in all cases — the model only
+summarizes tool-fetched facts — and bounded retry + fallback absorb the extra
+malformed JSON.
+
+**Deployment models**
+
+| Deployment | Stack |
+|---|---|
+| Private / on-prem install | HEALTH-ai → Ollama → Qwen3 8B (fully offline) |
+| Cloud install | HEALTH-ai → Gemini |
+| Mixed | any single provider per run via config |
+
+In every mode: the same four agents, tools, permissions, hospital scope,
+grounding, budgets, caching, and fallback — only the synthesis model changes.
+
+### 4. Tools (`tools.py`) — read-only, hospital-scoped, validated
 
 **Scope enforcement is server-side and cannot be bypassed by the LLM:**
 the runtime computes `authorized_hospital_ids = get_user_hospital_ids(user, db)`
@@ -152,7 +227,7 @@ Common tools:
 indicators 10, max hospitals 20. Oversized results are truncated/rounded before
 reaching the model.
 
-### 4. Profiles
+### 5. Profiles
 
 | Profile | Role | allowed_tools | steps | Output shape |
 |---|---|---|---|---|
@@ -187,7 +262,7 @@ The agent must NOT:
 If evidence is insufficient: "Insufficient data to determine the cause."
 ```
 
-### 5. Data model + migrations (3 new Alembic migrations, one commit)
+### 6. Data model + migrations (3 new Alembic migrations, one commit)
 
 - `conversations` — id, user_id (FK users, CASCADE, index), title, lang,
   created_at.
@@ -210,7 +285,7 @@ If evidence is insufficient: "Insufficient data to determine the cause."
 Models in `app/models.py`; tables follow the `user_permissions` migration
 pattern; startup `create_all(checkfirst=True)` heal covers drift as usual.
 
-### 6. Caching (free-tier: entity-keyed, versioned, scope-safe)
+### 7. Caching (free-tier: entity-keyed, versioned, scope-safe)
 
 - Cache key includes **the complete effective authorization scope** so a cache
   hit can never leak data across users:
@@ -229,7 +304,7 @@ pattern; startup `create_all(checkfirst=True)` heal covers drift as usual.
 - **History compression**: older turns are folded into a short summary stored on
   the conversation; only the last ~6 messages + summary are sent to the model.
 
-### 7. API — new router `app/api/agents.py` (prefix `/ai/agents`)
+### 8. API — new router `app/api/agents.py` (prefix `/ai/agents`)
 
 All non-admin endpoints: require `ai.read`, respect `agents_enabled`, inject the
 current user, and enforce hospital scope. Structured responses carry
@@ -246,16 +321,17 @@ current user, and enforce hospital scope. Structured responses carry
 - `POST /ai/agents/digest` — (body: month) → runs `triage` across the user's
   hospitals. Requires `ai.read` **and** `ai.write`. UI label:
   **"Generate Triage Digest"** (on-demand; not a scheduled daily job).
-- `GET /ai/agents/status` — `{enabled, permissions}` for UI gating. Auth only.
+- `GET /ai/agents/status` — `{enabled, permissions, provider}` for UI gating.
+  Auth only.
 - Admin-only (System Control, `system.manage_users`):
   - `GET /ai/agents/runs` — paginated audit (metadata columns above).
   - `GET/PUT /ai/agents/admin` — per-user daily caps, `agents_enabled` toggle,
-    retention period.
+    provider + local model settings, retention period.
 
 Daily cap: per-user daily counter (default 20 runs/day) stops a single account,
 with a clear message.
 
-### 8. Access control summary (user-confirmed + review-clarified)
+### 9. Access control summary (user-confirmed + review-clarified)
 
 Explicit permission semantics:
 
@@ -263,29 +339,31 @@ Explicit permission semantics:
 |---|---|
 | `ai.read` | Agent may **read authorized analytical data** and run Q&A/explainer. |
 | `ai.write` | Agent may **create/persist AI-generated artifacts** (report, digest) in addition to `ai.read`. Agents never modify analytical/source data under either permission. |
-| `system.manage_users` (admin) | `agent_runs` audit + daily caps + `agents_enabled` toggle + retention, **in System Control only**. |
+| `system.manage_users` (admin) | `agent_runs` audit + daily caps + `agents_enabled` toggle + provider settings + retention, **in System Control only**. |
 | superadmin | bypasses all permission gates. |
 
 | Config | Effect |
 |---|---|
 | `agents_enabled` (**default OFF**) | OFF → all `/ai/agents/*` disabled (UI hidden, API returns `{enabled:false}`), existing AI features untouched. |
+| `ai_provider` / `local_runtime` / `local_model` / `local_url` | provider resolution for agents (Section 3); independent of the kill-switch. |
 
 Hospital scope: every tool limited to `get_user_hospital_ids` (server-enforced,
-Section 3).
+Section 4).
 
 Permissions are existing seeded rows (`ai.read`/`ai.write` in
 CANONICAL_PERMISSION_CODENAMES); no role except superadmin is granted them by
 seed — admins grant via the existing Role editor / Direct-Permission picker.
 
-### 9. Kill-switch
+### 10. Kill-switch
 
-- New key `agents_enabled` added to `AI_CONFIG_KEYS` (`app/config_utils.py`),
-  default `"false"`, stored in SystemSetting, editable from System Control →
-  Settings → AI via the existing config GET/PUT endpoints.
-- Runtime reads it via `reload_ai_config()`-style refresh; the agents router
-  checks it before any work. When OFF, **no LLM call is made**.
+- New keys added to `AI_CONFIG_KEYS` (`app/config_utils.py`): `agents_enabled`
+  (default `"false"`), plus `ai_provider`, `local_runtime`, `local_model`,
+  `local_url` — stored in SystemSetting, editable from System Control →
+  Settings → AI via the existing config GET/PUT endpoints (with validation).
+- Runtime reads them via `reload_ai_config()`-style refresh; the agents router
+  checks `agents_enabled` before any work. When OFF, **no LLM call is made**.
 
-### 10. Frontend
+### 11. Frontend
 
 - New `static/js/agents.js` (+ chat panel):
   - AI Assistant surface for Q&A (visible only with `ai.read` + `agents_enabled`).
@@ -296,16 +374,21 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
   - All panels auto-hide when `agents_enabled` is false (status endpoint).
 - System Control gains an **AI Agents admin view**: `agent_runs` audit table
   (showing data_version, model, language, cache_hit, fallback_used, duration,
-  status), daily-cap fields, `agents_enabled` toggle, retention setting —
-  admin-only, mirroring Users/Logs patterns in `admin.js`.
+  status), daily-cap fields, `agents_enabled` toggle, **AI provider radio
+  (Local / Gemini / OpenAI-compatible / Auto) with local fields (runtime, model,
+  URL)**, retention setting — admin-only, mirroring Users/Logs patterns in
+  `admin.js`.
 - i18n keys added for every new static string (EN + AR) per repo policy.
 
-### 11. Tests (TDD — write failing tests first)
+### 12. Tests (TDD — write failing tests first)
 
 - `tests/test_agents_runtime.py` — mock LLM (scripted tool JSON): loop mechanics,
-  protocol shape (no `thought` accepted), parallel batching, early finish, step/
+  protocol shape (tools/done only), parallel batching, early finish, step/
   tool-call/token/runtime budget enforcement, JSON-parse failure + 429 retry +
-  deterministic fallback, single-flight dedup, history compression.
+  deterministic fallback, single-flight dedup, history compression, **provider
+  resolution: `ai_provider` = local/gemini/openai_compatible/auto (auto picks
+  local when configured and reachable, else default cloud); unreachable local
+  falls back without erroring**.
 - `tests/test_agents_tools.py` — **mandatory security/isolation suite**:
   - User A (hospital A) requests hospital B → `ACCESS_DENIED`.
   - Invalid hospital ID / malformed month → rejected.
@@ -316,21 +399,26 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
   - Tool response limits: max rows/chars enforced; top-k truncation works.
   - Daily-cap enforcement.
 - `tests/test_agents_api.py` — permissions (403s), status endpoint with
-  `agents_enabled` off/on, superadmin bypass, admin runs audit (retention-aware),
-  conversation/messages round-trip with `message_type`.
+  `agents_enabled` off/on and provider field, superadmin bypass, admin runs
+  audit (retention-aware), admin provider settings round-trip, conversation/
+  messages round-trip with `message_type`.
 - `tests/test_agents_js.py` — static checks: gating vars, explain blocks, digest
-  button label, `agents_enabled` hiding, `__()` i18n coverage for `agents.js`.
+  button label, `agents_enabled` hiding, provider radio/labels in the AI config
+  view, `__()` i18n coverage for `agents.js`.
 
 ## Files touched
 - New: `app/agents/` package (runtime, tools, cache, 4 profiles, grounding
   policy), `app/api/agents.py`, 3 Alembic migrations, `static/js/agents.js`,
   `tests/test_agents_*.py`.
 - Edited: `app/models.py` (3 tables), `app/plugins/ai/cache.py` (entity key +
-  version stamp), `app/config_utils.py` (`agents_enabled` key), `app/api/config_api.py`
-  (`agents_enabled` + retention in System Control settings), upload/analysis
-  re-run hooks (stamp bump), `static/css/styles.css`, `static/js/i18n.js`,
-  `static/js/admin.js` (AI Agents admin view), existing report/anomaly UI
-  (explain buttons), `app/main.py` route registration if needed.
+  version stamp), `app/plugins/ai/providers.py` (local/Ollama provider config
+  reusing the OpenAI-compatible path), `app/config_utils.py` (`agents_enabled`,
+  `ai_provider`, `local_runtime`, `local_model`, `local_url` keys),
+  `app/api/config_api.py` (validation + System Control AI settings),
+  upload/analysis re-run hooks (data_version stamp bump), `static/css/styles.css`,
+  `static/js/i18n.js`, `static/js/admin.js` (AI Agents admin view + provider
+  settings), existing report/anomaly UI (explain buttons), `app/main.py` route
+  registration if needed.
 
 ## Verification
 - Full pytest suite green (currently 1237); `node --check` on new/modified JS.
@@ -338,4 +426,5 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
   unchanged; ON + `ai.read` granted → Q&A returns tool-grounded numbers in the
   FACTS block; quota exhausted (mock 429) → deterministic fallback, HTTP 200;
   restricted user cannot obtain another hospital's numbers via chat, cache, or
-  malformed args.
+  malformed args; provider = `auto` with local reachable → runs against local
+  (Ollama), with local unreachable → cloud fallback, HTTP 200.
