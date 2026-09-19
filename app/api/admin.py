@@ -278,23 +278,18 @@ def list_permissions(db: Session = Depends(get_db)):
 
 # --- Role Visibility Matrix ---
 
-# Tab definitions: tab_id -> (label, required_permission)
-_TAB_DEFS = {
-    "dashboard": ("📊 Dashboard", "dashboard.read"),
-    "upload": ("📤 Upload", "data.upload"),
-    "analysis": ("📈 Analysis", "analysis.read"),
-    "quality": ("✅ Quality", "quality.read"),
-    "outliers": ("⚠️ Outliers", "outliers.read"),
-    "clinical": ("🏥 Clinical", "clinical.read"),
-    "alerts": ("🔔 Alerts", "alerts.read"),
-    "hospitals": ("🏢 Hospitals", "hospitals.read"),
-    "smart_analytics": ("🛡️ Smart Analytics", "smart_analytics.read"),
-    "rules": ("📋 Rules", "rules.read"),
-    "root_cause": ("🔍 Root Cause", "root_cause.read"),
-    "audit": ("📝 Audit", "audit.read"),
-    "settings": ("⚙️ Settings", "settings.read"),
-    "admin": ("👤 Admin", "system.manage_users"),
-}
+# Single source of truth: the real sidebar registry. A hand-copied list here
+# drifted once before (phantom "hospitals" tab, missing "indicator-tree",
+# mismatched ids like smart_analytics vs smart-analytics) — see
+# docs/superpowers/plans/2026-09-19-system-control-cleanup.md Task 1.
+def _visibility_tabs() -> dict:
+    """{tab_id: {label, permission}} derived from TAB_REGISTRY, so the
+    Visibility Matrix always mirrors the sidebar the user actually sees."""
+    from app.menu_registry import TAB_REGISTRY
+    return {
+        tab_id: {"label": f"{spec['icon']} {spec['label']}", "permission": spec["permission"]}
+        for tab_id, spec in TAB_REGISTRY.items()
+    }
 
 
 # --- Quality Score Repair ---
@@ -539,13 +534,15 @@ def get_visibility_matrix(db: Session = Depends(get_db)):
     """Return a matrix of roles × tabs showing which tabs each role can see."""
     roles = db.query(Role).order_by(Role.id).all()
     result = {"tabs": {}, "roles": []}
-    for tab_id, (label, perm) in _TAB_DEFS.items():
-        result["tabs"][tab_id] = {"label": label, "permission": perm}
+    tabs = _visibility_tabs()
+    for tab_id, spec in tabs.items():
+        result["tabs"][tab_id] = {"label": spec["label"], "permission": spec["permission"]}
     for role in roles:
         perm_codes = {p.codename for p in role.permissions}
         is_super = role.is_system and role.name == "superadmin"
         tab_access = {}
-        for tab_id, (_, perm) in _TAB_DEFS.items():
+        for tab_id, spec in tabs.items():
+            perm = spec["permission"]
             tab_access[tab_id] = is_super or ("*.*" in perm_codes) or (perm in perm_codes)
         result["roles"].append({
             "id": role.id,

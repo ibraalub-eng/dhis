@@ -804,9 +804,8 @@ window._adminAssignHospitals = function(id, btn) {
     sim.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   };
 
-// Auto-load when admin panel opens
-  setTimeout(function() { if (document.getElementById('visMatrixBody')) loadVisibilityMatrix(); }, 500);
-
+// Loaded via switchAdminTab('roles') — the old one-shot setTimeout hook fired
+// before the admin panel existed, so the matrix never auto-loaded.
   // ---- Password Change ----
   window.changePassword = function(userId, username) {
     document.getElementById('pwModalUserId').value = userId;
@@ -1215,6 +1214,7 @@ window._adminAssignHospitals = function(id, btn) {
     if(m)m.style.display=tab==="menu"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
     if(tab==="control"){adminLoadControlSettings();}
+    if(tab==="roles"){loadVisibilityMatrix();}
     if(tab==="logs"){loadAdminLogs();_startLogsAutoRefresh();}
     if(tab==="sessions"){loadSessions();}
     if(tab==="menu"){adminMenuLayoutPanel();}

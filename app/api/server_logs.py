@@ -57,7 +57,7 @@ def install_buffer_handler(level: int = logging.WARNING) -> None:
 def get_logs(
     level: str = Query("WARNING", description="Minimum level: DEBUG, INFO, WARNING, ERROR, CRITICAL"),
     limit: int = Query(100, ge=1, le=500, description="Max entries to return"),
-    user=Depends(require_permission("admin.manage")),
+    user=Depends(require_permission("system.read_audit")),
 ):
     """Return the most recent log entries stored in memory.
 
@@ -82,7 +82,7 @@ def get_logs(
 
 @router.delete("")
 def clear_logs(
-    user=Depends(require_permission("admin.manage")),
+    user=Depends(require_permission("system.read_audit")),
 ):
     """Clear all entries from the in-memory log buffer."""
     with _buffer_lock:
