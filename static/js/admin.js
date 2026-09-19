@@ -172,7 +172,9 @@ window._adminAssignHospitals = function(id, btn) {
         </div>
         <!-- Admin Tab Bar -->
         <div style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
-          <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
+          <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('roles')" id="atab-roles" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🏷️ Roles</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('permissions')" id="atab-permissions" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🔑 Permissions</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('control')" id="atab-control" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🎛️ Analysis Control</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('logs')" id="atab-logs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
@@ -180,14 +182,13 @@ window._adminAssignHospitals = function(id, btn) {
           <button class="admin-tab-btn" onclick="switchAdminTab('menu')" id="atab-menu" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🧭 Menu Layout</button>
         </div>
 
-        <!-- Users and Roles Tab -->
+        <!-- Users / Roles / Permissions Tab -->
         <div id="adminUsersPanel">
+        <!-- Users Sub-Tab -->
+        <div id="adminUsersSubPanel">
         <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">User Management</h2>
-        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Create, edit, and deactivate user accounts. Assign roles to control access.</p>
-
-        <div style="display:flex;gap:1.5rem;flex-wrap:wrap;">
-          <!-- Users -->
-          <div style="flex:2;min-width:400px;">
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Create, edit, and deactivate user accounts. Assign roles and direct permissions to control access.</p>
+          <div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
               <h3 style="color:var(--accent-blue);margin:0;">Users (${users.length}) <span class="admin-chip">${users.filter(function(u){ return u.is_active !== false; }).length} ${__('active')}</span></h3>
               <button class="btn btn-sm" onclick="showCreateUserModal()">+ New User</button>
@@ -226,9 +227,13 @@ window._adminAssignHospitals = function(id, btn) {
               </table>
             </div>
           </div>
+        </div> <!-- /adminUsersSubPanel -->
 
-          <!-- Roles -->
-          <div style="flex:1;min-width:250px;">
+        <!-- Roles Sub-Tab -->
+        <div id="adminRolesSubPanel" style="display:none;">
+        <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Role Management</h2>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Create, rename, or delete roles. Click a row to preview its permission codenames; to change them, use <strong>⚙ Perms</strong> or the Permissions tab.</p>
+          <div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
               <h3 style="color:var(--accent-blue);margin:0;">Roles (${roles.length})</h3>
               <button class="btn btn-sm" onclick="showCreateRoleModal()">+ New Role</button>
@@ -244,27 +249,31 @@ window._adminAssignHospitals = function(id, btn) {
                   </tr>
                 </thead>
                 <tbody>
-                  ${roles.map(r => `
-                    <tr style="border-bottom:1px solid var(--border-default);">
-                      <td style="padding:0.4rem;font-weight:600;">${esc(r.name)}${r.is_system ? ' <span style="font-size:0.7rem;color:var(--text-muted);">(system)</span>' : ''}</td>
+                  ${roles.map(r => {
+                    var rolePerms = perms.filter(function(p){ return (r.permission_ids || []).indexOf(p.id) !== -1; });
+                    var expanded = (window._expandedRoleIds || []).indexOf(r.id) !== -1;
+                    return `
+                    <tr style="border-bottom:1px solid var(--border-default);cursor:pointer;" onclick="toggleRolePerms(${r.id})" title="Show/hide permission codenames">
+                      <td style="padding:0.4rem;font-weight:600;"><span id="roleCaret-${r.id}" style="display:inline-block;width:1em;color:var(--text-muted);">${expanded ? '▾' : '▸'}</span>${esc(r.name)}${r.is_system ? ' <span style="font-size:0.7rem;color:var(--text-muted);">(system)</span>' : ''}</td>
                       <td style="padding:0.4rem;">${r.user_count}</td>
                       <td style="padding:0.4rem;font-size:0.75rem;color:var(--text-secondary);">${r.permission_ids.length} perms</td>
-                      <td style="padding:0.4rem;">
-                        ${r.name === 'superadmin' ? '<span style="font-size:0.72rem;color:var(--text-muted);">System</span>' : '<button class="btn btn-sm btn-outline" onclick="editRole(${r.id})" style="font-size:0.72rem;">Edit</button>'}
+                      <td style="padding:0.4rem;" onclick="event.stopPropagation();">
+                        <button class="btn btn-sm btn-outline" onclick="editRolePermsInMatrix(' + r.id + ')" style="font-size:0.72rem;color:var(--accent-blue);" title="Edit this role's permissions in the matrix">⚙ Perms</button>
+                        ${r.name === 'superadmin' ? '<span style="font-size:0.72rem;color:var(--text-muted);margin-left:0.2rem;">System</span>' : '<button class="btn btn-sm btn-outline" onclick="editRole(' + r.id + ')" style="font-size:0.72rem;">Edit</button>'}
                         ${!r.is_system ? '<button class="btn btn-sm btn-outline" onclick="deleteRole(' + r.id + ')" style="font-size:0.72rem;color:var(--accent-red);margin-left:0.2rem;">Delete</button>' : ''}
                       </td>
                     </tr>
-                  `).join('')}
+                    <tr id="rolePermsRow-${r.id}" style="display:${expanded ? '' : 'none'};">
+                      <td colspan="4" style="padding:0.3rem 0.4rem 0.6rem 1.6rem;background:var(--bg-elevated);">
+                        ${r.description ? '<div style="font-size:0.72rem;color:var(--text-muted);margin-bottom:0.3rem;">' + esc(r.description) + '</div>' : ''}
+                        ${rolePerms.length ? rolePerms.map(p => '<span class="admin-role-perm-chip" style="display:inline-block;background:var(--bg-surface-hover);color:var(--accent-purple);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.72rem;margin:0.1rem 0.2rem 0.1rem 0;">' + esc(p.codename) + '</span>').join('') : '<span style="font-size:0.75rem;color:var(--text-muted);">No permissions</span>'}
+                      </td>
+                    </tr>
+                  `; }).join('')}
                 </tbody>
               </table>
             </div>
-
-            <h3 style="color:var(--accent-blue);margin:1rem 0 0.5rem;">Available Permissions (${perms.length})</h3>
-            <div style="max-height:200px;overflow-y:auto;background:var(--bg-elevated);border-radius:6px;padding:0.5rem;font-size:0.78rem;">
-              ${perms.map(p => '<div style="padding:0.15rem 0;"><strong style="color:var(--accent-purple);">' + esc(p.codename) + '</strong>' + (p.description ? ' <span style="color:var(--text-muted);">— ' + esc(p.description) + '</span>' : '') + '</div>').join('')}
-            </div>
           </div>
-        </div>
 
         <!-- Role Visibility Matrix -->
         <div id="adminVisibilityMatrix" style="margin-top:1.5rem;padding:1rem;background:var(--bg-elevated);border-radius:10px;border:1px solid var(--border-default);">
@@ -299,6 +308,50 @@ window._adminAssignHospitals = function(id, btn) {
                 <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">Visible tab content panels:</div>
                 <div id="simTabContent" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
             </div>
+        </div>
+        </div> <!-- /adminRolesSubPanel -->
+
+        <!-- Permissions Sub-Tab -->
+        <div id="adminPermsSubPanel" style="display:none;">
+        <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">Permissions</h2>
+        <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">The single place to edit what each role grants — toggle a permission per role below. To grant a permission to one specific user instead, use the Users tab.</p>
+
+          <!-- Role x Permission Matrix -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+            <h3 style="color:var(--accent-blue);margin:0;">🧩 Role × Permission Matrix</h3>
+            <div style="display:flex;gap:0.5rem;align-items:center;">
+              <span id="permMatrixDirty" style="display:none;font-size:0.75rem;color:var(--accent-orange);">● Unsaved changes</span>
+              <button class="btn btn-sm" id="permMatrixSaveBtn" onclick="permMatrixSaveAll()" style="display:none;">💾 Save Changes</button>
+            </div>
+          </div>
+          <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.5rem;">Check a box to grant the permission to that role. The superadmin role always has every permission.</p>
+          <div style="overflow:auto;max-height:480px;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-surface);">
+            <table style="border-collapse:collapse;font-size:0.75rem;min-width:100%;">
+              <thead>
+                <tr style="border-bottom:2px solid var(--border-default);">
+                  <th style="position:sticky;left:0;top:0;background:var(--bg-elevated);z-index:2;text-align:left;padding:0.4rem 0.6rem;min-width:180px;">Permission</th>
+                  ${roles.map(r => '<th id="permCol-' + r.id + '" title="' + esc(r.name) + '" style="padding:0.4rem 0.5rem;text-align:center;min-width:64px;background:var(--bg-elevated);transition:outline 0.2s;">' + esc(r.name.length > 10 ? r.name.slice(0,9) + '…' : r.name) + (r.is_system ? ' ★' : '') + '</th>').join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${perms.map(p => `
+                  <tr style="border-bottom:1px solid var(--border-default);">
+                    <td style="position:sticky;left:0;background:var(--bg-surface);z-index:1;padding:0.3rem 0.6rem;">
+                      <strong style="color:var(--accent-purple);">${esc(p.codename)}</strong>
+                      ${p.description ? '<div style="font-size:0.7rem;color:var(--text-muted);">' + esc(p.description) + '</div>' : ''}
+                    </td>
+                    ${roles.map(r => {
+                      var isSuper = r.is_system && r.name === 'superadmin';
+                      var checked = isSuper || (r.permission_ids || []).indexOf(p.id) !== -1;
+                      return isSuper
+                        ? '<td style="padding:0.3rem 0.5rem;text-align:center;" title="superadmin always has every permission">✓</td>'
+                        : '<td style="padding:0.3rem 0.5rem;text-align:center;"><input type="checkbox" class="perm-matrix-cb" data-role="' + r.id + '" data-perm="' + p.id + '"' + (checked ? ' checked' : '') + ' onchange="permMatrixMarkDirty()" style="width:16px;height:16px;cursor:pointer;"></td>';
+                    }).join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <!-- Create/Edit User Modal -->
@@ -341,8 +394,6 @@ window._adminAssignHospitals = function(id, btn) {
             </div>
           </div>
         </div>
-      </div>
-
         <!-- Role Editor Modal -->
         <div id="adminRoleModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.4);z-index:9999;align-items:center;justify-content:center;">
           <div style="background:var(--bg-surface);border-radius:10px;padding:1.5rem;width:480px;max-width:94%;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2);border:1px solid var(--border-default);">
@@ -373,7 +424,8 @@ window._adminAssignHospitals = function(id, btn) {
             </div>
           </div>
 
-        </div> <!-- /adminUsersPanel -->
+        </div>
+      </div> <!-- /adminUsersPanel -->
 
         <!-- Database Tab -->
         <div id="adminDatabasePanel" style="display:none;">
@@ -387,6 +439,37 @@ window._adminAssignHospitals = function(id, btn) {
               <button class="btn btn-sm" onclick="adminPreviewDb()" id="adminBtnPreviewDb">Preview Tables</button>
               <button class="btn btn-sm" onclick="adminExportDb()" id="adminBtnExportDb" style="background:#22c55e;color:white;">Export Full Database (JSON)</button>
               <span id="adminDbExportStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+            </div>
+
+            <!-- Quality Score Repair -->
+            <div style="margin-top:1.2rem;padding:0.8rem;background:var(--bg-surface-hover);border-radius:8px;border:1px solid var(--border-default);">
+              <h4 style="font-size:0.88rem;color:var(--text-primary);margin:0 0 0.3rem;">🔧 Quality Score Repair</h4>
+              <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 0.6rem;">Recomputes every stored Quality Score from its components (validation rule, completeness, consistency, outlier) using the current weights, fixing rows whose stored score diverges. Run “Check” first — nothing is written by the check.</p>
+              <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                <button class="btn btn-sm btn-outline" onclick="adminCheckScoreRepair()" id="adminBtnRepairCheck">🔍 Check</button>
+                <button class="btn btn-sm" onclick="adminRunScoreRepair()" id="adminBtnRepairRun" style="display:none;background:var(--accent-orange);color:white;">🔧 Repair ${window._scoreRepairCount !== undefined ? window._scoreRepairCount : ''} Rows</button>
+                <span id="adminRepairStatus" style="font-size:0.78rem;color:var(--text-muted);"></span>
+              </div>
+              <div id="adminRepairPreview" style="display:none;margin-top:0.6rem;max-height:200px;overflow-y:auto;background:var(--bg-surface);border-radius:6px;padding:0.5rem;font-size:0.75rem;"></div>
+              <div style="margin-top:0.8rem;padding-top:0.7rem;border-top:1px dashed var(--border-default);">
+                <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.78rem;color:var(--text-secondary);cursor:pointer;">
+                  <input type="checkbox" id="adminRepairDeepToggle" onchange="adminOnDeepToggle()">
+                  <strong>${esc(__('Deep mode'))}</strong> — ${esc(__('also recompute the components themselves from raw indicator values'))}
+                </label>
+                <p id="adminRepairDeepDesc" style="display:none;font-size:0.72rem;color:var(--text-muted);margin:0.3rem 0 0.5rem 1.4rem;">
+                  ${esc(__('Reruns the full analysis engine per hospital/month (the same pipeline as data upload): validation rules, completeness, consistency and outliers are all rebuilt from source data. Slower; runs in the background with progress below.'))}
+                </p>
+                <div id="adminRepairDeepRow" style="display:none;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-left:1.4rem;">
+                  <button class="btn btn-sm btn-outline" onclick="adminDeepCheckScoreRepair()" id="adminBtnDeepCheck">🔍 Deep Check</button>
+                  <button class="btn btn-sm" onclick="adminDeepRunScoreRepair()" id="adminBtnDeepRepair" style="display:none;background:var(--accent-orange);color:white;">🏗️ Rebuild ${window._deepTargetCount !== undefined ? window._deepTargetCount : ''} Hospital/Months</button>
+                  <span id="adminDeepStatus" style="font-size:0.78rem;color:var(--text-muted);"></span>
+                </div>
+                <div id="adminDeepProgressWrap" style="display:none;margin:0.5rem 0 0 1.4rem;">
+                  <div style="height:6px;background:var(--bg-surface);border-radius:3px;overflow:hidden;">
+                    <div id="adminDeepProgressBar" style="height:100%;width:0%;background:var(--accent-orange);transition:width 0.3s;"></div>
+                  </div>
+                </div>
+              </div>
             </div>
             <div id="adminDbPreviewContainer" style="margin-top:1rem;display:none;">
               <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
@@ -1024,6 +1107,79 @@ window._adminAssignHospitals = function(id, btn) {
     loadAdminPanel();
   };
 
+  // -- Role x Permission matrix (Permissions tab) --
+  window._permMatrixDirty = false;
+  window.permMatrixMarkDirty = function() {
+    window._permMatrixDirty = true;
+    var dirty = document.getElementById('permMatrixDirty');
+    var saveBtn = document.getElementById('permMatrixSaveBtn');
+    if (dirty) dirty.style.display = '';
+    if (saveBtn) saveBtn.style.display = '';
+  };
+  window.permMatrixClearDirty = function() {
+    window._permMatrixDirty = false;
+    var dirty = document.getElementById('permMatrixDirty');
+    var saveBtn = document.getElementById('permMatrixSaveBtn');
+    if (dirty) dirty.style.display = 'none';
+    if (saveBtn) saveBtn.style.display = 'none';
+  };
+
+  // -- Cross-tab navigation: edit a role's permissions in the matrix --
+  window.editRolePermsInMatrix = function(roleId) {
+    window.switchAdminTab('permissions');
+    var col = document.getElementById('permCol-' + roleId);
+    var tableWrap = col ? col.closest('div') : null;
+    if (col && tableWrap) {
+      tableWrap.scrollLeft = 0;
+      col.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      col.style.outline = '2px solid var(--accent-blue)';
+      setTimeout(function() { col.style.outline = ''; }, 2000);
+    }
+  };
+
+  window.permMatrixSaveAll = async function() {
+    var changed = {};
+    document.querySelectorAll('.perm-matrix-cb').forEach(function(cb) {
+      var roleId = parseInt(cb.getAttribute('data-role'), 10);
+      if (!changed[roleId]) changed[roleId] = { has: [], hasnt: [] };
+      if (cb.checked) changed[roleId].has.push(parseInt(cb.getAttribute('data-perm'), 10));
+      else changed[roleId].hasnt.push(true);
+    });
+    var anyError = null;
+    for (var roleIdStr in changed) {
+      var roleId = parseInt(roleIdStr, 10);
+      var cbs = document.querySelectorAll('.perm-matrix-cb[data-role="' + roleId + '"]');
+      var permIds = Array.from(cbs).filter(function(c){ return c.checked; }).map(function(c){ return parseInt(c.getAttribute('data-perm'), 10); });
+      var resp = await api('/admin/roles/' + roleId, { method: 'PUT', body: JSON.stringify({ permission_ids: permIds }) });
+      if (!resp || resp._error || resp._forbidden || resp.detail) {
+        anyError = (resp && resp.detail) || 'Failed to save role permissions';
+        break;
+      }
+    }
+    if (anyError) {
+      toastError(anyError);
+      return;
+    }
+    toastSuccess('Role permissions saved');
+    window.permMatrixClearDirty();
+    loadAdminPanel();
+  };
+
+  // -- Expandable role permission codenames (Roles tab) --
+  window._expandedRoleIds = window._expandedRoleIds || [];
+  window.toggleRolePerms = function(roleId) {
+    var row = document.getElementById('rolePermsRow-' + roleId);
+    var caret = document.getElementById('roleCaret-' + roleId);
+    if (!row) return;
+    var show = row.style.display === 'none';
+    row.style.display = show ? '' : 'none';
+    if (caret) caret.textContent = show ? '▾' : '▸';
+    var ids = window._expandedRoleIds;
+    var idx = ids.indexOf(roleId);
+    if (show && idx === -1) ids.push(roleId);
+    if (!show && idx !== -1) ids.splice(idx, 1);
+  };
+
   window.deactivateUser = async function(userId) {
     if (!await window.confirmDestructive({ title: __('Deactivate User'), message: __('Deactivate this user? They will not be able to log in.'), okLabel: __('Deactivate') })) return;
     await api('/admin/users/' + userId, { method: 'DELETE' });
@@ -1044,7 +1200,14 @@ window._adminAssignHospitals = function(id, btn) {
     var l=document.getElementById("adminLogsPanel");
     var s=document.getElementById("adminSessionsPanel");
     var m=document.getElementById("adminMenuLayoutPanel");
-    if(u)u.style.display=tab==="users"?"block":"none";
+    var isUsersFamily = (tab==="users"||tab==="roles"||tab==="permissions");
+    if(u)u.style.display=isUsersFamily?"block":"none";
+    var us=document.getElementById("adminUsersSubPanel");
+    var rs=document.getElementById("adminRolesSubPanel");
+    var psn=document.getElementById("adminPermsSubPanel");
+    if(us)us.style.display=tab==="users"?"block":"none";
+    if(rs)rs.style.display=tab==="roles"?"block":"none";
+    if(psn)psn.style.display=tab==="permissions"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
     if(c)c.style.display=tab==="control"?"block":"none";
     if(l)l.style.display=tab==="logs"?"block":"none";
@@ -1575,6 +1738,140 @@ window._adminAssignHospitals = function(id, btn) {
     }).catch(function(e) {
       if (st) { st.textContent = "✗ Error: " + e.message; st.style.color = "var(--accent-red)"; }
     });
+  };
+
+  // -- Quality Score Repair (Database tab) --
+  window.adminCheckScoreRepair = async function() {
+    var statusEl = document.getElementById('adminRepairStatus');
+    var previewEl = document.getElementById('adminRepairPreview');
+    var runBtn = document.getElementById('adminBtnRepairRun');
+    if (statusEl) statusEl.textContent = 'Checking...';
+    if (previewEl) previewEl.style.display = 'none';
+    if (runBtn) runBtn.style.display = 'none';
+    var data = await api('/admin/quality-scores/repair-preview');
+    if (!data || data._error || data._forbidden || data.detail) {
+      if (statusEl) statusEl.textContent = 'Failed: ' + ((data && (data.detail || data._error)) || 'no response');
+      return;
+    }
+    var n = data.mismatch_count || 0;
+    window._scoreRepairCount = n;
+    if (statusEl) statusEl.textContent = n === 0
+      ? __('All ${n} rows consistent').replace('${n}', data.total_rows)
+      : n + ' of ' + data.total_rows + ' rows inconsistent';
+    if (previewEl && n > 0) {
+      var rows = (data.mismatches || []).slice(0, 50).map(function(m) {
+        return '<div style="padding:0.15rem 0;border-bottom:1px solid var(--border-default);">'
+          + '<strong>' + esc(String(m.hospital_id)) + '</strong> / ' + esc(m.month)
+          + ' — stored <span style="color:var(--accent-red);">' + m.stored_score + '</span>'
+          + ' → expected <span style="color:var(--accent-green);">' + m.expected_score + '</span></div>';
+      }).join('');
+      previewEl.innerHTML = rows + (data.truncated ? '<div style="color:var(--text-muted);">…more not shown</div>' : '');
+      previewEl.style.display = 'block';
+    }
+    if (runBtn && n > 0) {
+      runBtn.textContent = '🔧 Repair ' + n + ' Rows';
+      runBtn.style.display = '';
+    }
+  };
+
+  window.adminRunScoreRepair = async function() {
+    if (!await window.confirmDestructive({
+      title: __('Repair Quality Scores'),
+      message: __('Recompute and overwrite the stored scores for all inconsistent rows?'),
+      details: __('Component values are kept; only the final score is rewritten using the current weights.'),
+      okLabel: __('Repair')
+    })) return;
+    var statusEl = document.getElementById('adminRepairStatus');
+    var runBtn = document.getElementById('adminBtnRepairRun');
+    if (statusEl) statusEl.textContent = 'Repairing...';
+    var data = await api('/admin/quality-scores/repair', { method: 'POST' });
+    if (!data || data._error || data._forbidden || data.detail) {
+      if (statusEl) statusEl.textContent = 'Failed: ' + ((data && (data.detail || data._error)) || 'no response');
+      return;
+    }
+    if (statusEl) statusEl.textContent = __('Repaired ${n} rows; ${ok} already consistent').replace('${n}', data.repaired).replace('${ok}', data.already_consistent);
+    if (runBtn) runBtn.style.display = 'none';
+    var previewEl = document.getElementById('adminRepairPreview');
+    if (previewEl) previewEl.style.display = 'none';
+    if (typeof toastSuccess === 'function') toastSuccess(__('Repaired') + ' ' + data.repaired + ' ' + __('rows'));
+  };
+
+  // -- Deep repair (recompute components from raw indicator values) --
+  window.adminOnDeepToggle = function() {
+    var on = document.getElementById('adminRepairDeepToggle').checked;
+    document.getElementById('adminRepairDeepDesc').style.display = on ? 'block' : 'none';
+    var row = document.getElementById('adminRepairDeepRow');
+    row.style.display = on ? 'flex' : 'none';
+    if (on) window.adminDeepCheckScoreRepair();
+  };
+
+  window.adminDeepCheckScoreRepair = async function() {
+    var statusEl = document.getElementById('adminDeepStatus');
+    var runBtn = document.getElementById('adminBtnDeepRepair');
+    if (statusEl) statusEl.textContent = __('Checking...');
+    if (runBtn) runBtn.style.display = 'none';
+    var data = await api('/admin/quality-scores/repair-preview?deep=true');
+    if (!data || data._error || data._forbidden || data.detail) {
+      if (statusEl) statusEl.textContent = __('Failed: ') + ((data && (data.detail || data._error)) || 'no response');
+      return;
+    }
+    var n = data.target_count || 0;
+    window._deepTargetCount = n;
+    if (statusEl) statusEl.textContent = n === 0
+      ? __('No hospital/month pairs have raw data to rebuild')
+      : __('${n} hospital/month pairs would be rebuilt from raw data').replace('${n}', n);
+    if (runBtn && n > 0) {
+      runBtn.textContent = '🏗️ Rebuild ' + n + ' Hospital/Months';
+      runBtn.style.display = '';
+    }
+  };
+
+  window._deepRepairPollTimer = null;
+  window.adminDeepRunScoreRepair = async function() {
+    if (!await window.confirmDestructive({
+      title: __('Deep Quality Score Repair'),
+      message: __('Rebuild all quality components from raw indicator values?'),
+      details: __('Every hospital/month with raw data is re-analyzed with the engine pipeline: validation results, anomalies and quality scores are regenerated. This overwrites stored components and scores.'),
+      okLabel: __('Rebuild')
+    })) return;
+    var statusEl = document.getElementById('adminDeepStatus');
+    var runBtn = document.getElementById('adminBtnDeepRepair');
+    if (statusEl) statusEl.textContent = __('Starting deep repair...');
+    if (runBtn) runBtn.disabled = true;
+    var data = await api('/admin/quality-scores/repair?deep=true', { method: 'POST' });
+    if (!data || data._error || data._forbidden || data.detail) {
+      if (statusEl) statusEl.textContent = __('Failed: ') + ((data && (data.detail || data._error)) || 'no response');
+      if (runBtn) runBtn.disabled = false;
+      return;
+    }
+    var taskId = data.task_id;
+    if (statusEl) statusEl.textContent = __('Deep repair running for ${n} pairs...').replace('${n}', data.target_count);
+    var wrap = document.getElementById('adminDeepProgressWrap');
+    var bar = document.getElementById('adminDeepProgressBar');
+    if (wrap) wrap.style.display = 'block';
+    if (bar) bar.style.width = '0%';
+    if (window._deepRepairPollTimer) clearInterval(window._deepRepairPollTimer);
+    window._deepRepairPollTimer = setInterval(async function() {
+      var t = await api('/tasks/' + taskId);
+      if (!t) return;
+      if (bar) bar.style.width = (t.progress || 0) + '%';
+      if (t.status === 'done') {
+        clearInterval(window._deepRepairPollTimer);
+        window._deepRepairPollTimer = null;
+        var r = t.result || {};
+        if (statusEl) statusEl.textContent = __('Rebuilt ${n} hospital/months') + (r.failed ? ' — ' + r.failed + ' ' + __('failed') : '');
+        if (runBtn) { runBtn.disabled = false; runBtn.style.display = 'none'; }
+        if (wrap) wrap.style.display = 'none';
+        if (typeof toastSuccess === 'function') toastSuccess(__('Deep repair finished')); 
+        if (typeof loadAdminPanel === 'function') loadAdminPanel();
+      } else if (t.status === 'error') {
+        clearInterval(window._deepRepairPollTimer);
+        window._deepRepairPollTimer = null;
+        if (statusEl) statusEl.textContent = __('Failed: ') + (t.error || 'unknown');
+        if (runBtn) runBtn.disabled = false;
+        if (wrap) wrap.style.display = 'none';
+      }
+    }, 1500);
   };
 
   // Close button for DB preview

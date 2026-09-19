@@ -63,18 +63,25 @@ def get_calculation_steps(db: Session, hospital_id: int, month: str) -> dict:
     ).first()
     quality_score_steps = None
     if qs:
-        rc_w = round((qs.rule_compliance or 0) * 0.35, 4)
-        comp_w = round((qs.completeness or 0) * 0.25, 4)
-        cons_w = round((qs.consistency or 0) * 0.25, 4)
-        op_inv = 1 - (qs.outlier_penalty or 0)
-        op_w = round(op_inv * 0.15, 4)
+        from app.config_utils import get_config_dict
+        _qcfg = get_config_dict(db, "quality")
+        w_rc = float(_qcfg.get("quality_rule_compliance", 0.35))
+        w_cp = float(_qcfg.get("quality_completeness", 0.25))
+        w_co = float(_qcfg.get("quality_consistency", 0.25))
+        w_op = float(_qcfg.get("quality_outlier_penalty", 0.15))
+        rc_w = round((qs.rule_compliance or 0) * w_rc, 4)
+        comp_w = round((qs.completeness or 0) * w_cp, 4)
+        cons_w = round((qs.consistency or 0) * w_co, 4)
+        # outlier_penalty is stored on the same 0-100 scale as the other components
+        op_inv = 100.0 - (qs.outlier_penalty or 0)
+        op_w = round(op_inv * w_op, 4)
         quality_score_steps = {
             "final_score": qs.score,
             "components": [
-                {"name": "Validation rule", "weight": 0.35, "value": qs.rule_compliance, "weighted": rc_w, "formula": "passed_rules / total_rules"},
-                {"name": "Completeness", "weight": 0.25, "value": qs.completeness, "weighted": comp_w, "formula": "filled_indicators / active_indicators"},
-                {"name": "Consistency", "weight": 0.25, "value": qs.consistency, "weighted": cons_w, "formula": "1.0 - (weighted_fail / total_weight)"},
-                {"name": "Outlier Penalty (inverted)", "weight": 0.15, "value": op_inv, "weighted": op_w, "formula": "1 - min(1.0, (outliers / total) * multiplier)"},
+                {"name": "Validation rule", "weight": w_rc, "value": qs.rule_compliance, "weighted": rc_w, "formula": "passed_rules / total_rules"},
+                {"name": "Completeness", "weight": w_cp, "value": qs.completeness, "weighted": comp_w, "formula": "filled_indicators / active_indicators"},
+                {"name": "Consistency", "weight": w_co, "value": qs.consistency, "weighted": cons_w, "formula": "1.0 - (weighted_fail / total_weight)"},
+                {"name": "Outlier Penalty (inverted)", "weight": w_op, "value": op_inv, "weighted": op_w, "formula": "100 - min(100, (outliers / total) * multiplier * 100)"},
             ],
         }
 

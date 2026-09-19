@@ -102,19 +102,26 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
 
     qs_breakdown = None
     if qs:
-        rc_w = round((qs.rule_compliance or 0) * 0.35, 4)
-        comp_w = round((qs.completeness or 0) * 0.25, 4)
-        cons_w = round((qs.consistency or 0) * 0.25, 4)
-        op_inv = 1 - (qs.outlier_penalty or 0)
-        op_w = round(op_inv * 0.15, 4)
+        from app.config_utils import get_config_dict
+        _qcfg = get_config_dict(db, "quality")
+        w_rc = float(_qcfg.get("quality_rule_compliance", 0.35))
+        w_cp = float(_qcfg.get("quality_completeness", 0.25))
+        w_co = float(_qcfg.get("quality_consistency", 0.25))
+        w_op = float(_qcfg.get("quality_outlier_penalty", 0.15))
+        rc_w = round((qs.rule_compliance or 0) * w_rc, 4)
+        comp_w = round((qs.completeness or 0) * w_cp, 4)
+        cons_w = round((qs.consistency or 0) * w_co, 4)
+        # outlier_penalty is stored on the same 0-100 scale as the other components
+        op_inv = 100.0 - (qs.outlier_penalty or 0)
+        op_w = round(op_inv * w_op, 4)
         total_weighted = rc_w + comp_w + cons_w + op_w
         qs_breakdown = {
             "score": qs.score,
             "components": [
-                {"name": "Validation rule", "raw": qs.rule_compliance, "weight": 0.35, "weighted": rc_w, "contribution_pct": round(rc_w / total_weighted * 100, 1) if total_weighted else 0},
-                {"name": "Completeness", "raw": qs.completeness, "weight": 0.25, "weighted": comp_w, "contribution_pct": round(comp_w / total_weighted * 100, 1) if total_weighted else 0},
-                {"name": "Consistency", "raw": qs.consistency, "weight": 0.25, "weighted": cons_w, "contribution_pct": round(cons_w / total_weighted * 100, 1) if total_weighted else 0},
-                {"name": "Outlier (inverted)", "raw": op_inv, "weight": 0.15, "weighted": op_w, "contribution_pct": round(op_w / total_weighted * 100, 1) if total_weighted else 0},
+                {"name": "Validation rule", "raw": qs.rule_compliance, "weight": w_rc, "weighted": rc_w, "contribution_pct": round(rc_w / total_weighted * 100, 1) if total_weighted else 0},
+                {"name": "Completeness", "raw": qs.completeness, "weight": w_cp, "weighted": comp_w, "contribution_pct": round(comp_w / total_weighted * 100, 1) if total_weighted else 0},
+                {"name": "Consistency", "raw": qs.consistency, "weight": w_co, "weighted": cons_w, "contribution_pct": round(cons_w / total_weighted * 100, 1) if total_weighted else 0},
+                {"name": "Outlier (inverted)", "raw": op_inv, "weight": w_op, "weighted": op_w, "contribution_pct": round(op_w / total_weighted * 100, 1) if total_weighted else 0},
             ],
         }
 

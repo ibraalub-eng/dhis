@@ -1,16 +1,26 @@
-"""Admin endpoints: user CRUD, role CRUD, permission list."""
+"""Admin endpoints: user CRUD, role CRUD, permission list, score repair."""
+import threading
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import get_db, SessionLocal
 from app.core.deps import get_current_user, require_permission
 from app.core.security import hash_password
 from app.models import User, Role, Permission, Hospital
+from app.tasks import create_task, run_task
 
 router = APIRouter(prefix="/admin", tags=["Admin"], dependencies=[Depends(require_permission("system.manage_users"))])
+
+
+class _AppState:
+    """Process-wide flags (module singleton; survives per-request deps)."""
+    deep_repair_running = False
+
+
+app_state = _AppState()
 
 
 # --- Schemas ---
@@ -285,6 +295,243 @@ _TAB_DEFS = {
     "settings": ("⚙️ Settings", "settings.read"),
     "admin": ("👤 Admin", "system.manage_users"),
 }
+
+
+# --- Quality Score Repair ---
+
+def _quality_weights(db: Session) -> dict:
+    from app.config_utils import get_config_dict
+    cfg = get_config_dict(db, "quality")
+    return {
+        "rule_compliance": float(cfg.get("quality_rule_compliance", 0.35)),
+        "completeness": float(cfg.get("quality_completeness", 0.25)),
+        "consistency": float(cfg.get("quality_consistency", 0.25)),
+        "outlier_inverted": float(cfg.get("quality_outlier_penalty", 0.15)),
+    }
+
+
+def _expected_score(w: dict, rc, cp, co, op) -> float:
+    op_inv = 100.0 - float(op or 0)
+    expected = round(float(rc or 0) * w["rule_compliance"] + float(cp or 0) * w["completeness"]
+                     + float(co or 0) * w["consistency"] + op_inv * w["outlier_inverted"], 1)
+    return max(0, min(100, expected))
+
+
+# The engine stores components rounded to 0.1 and rounds the final score from
+# the UNROUNDED components, so the formula applied to stored components can
+# legitimately differ from the stored score by up to 0.1 (0.05 per component
+# weighting + 0.05 final rounding). Anything beyond that is a real mismatch.
+SHALLOW_TOLERANCE = 0.15
+
+
+def _is_no_data_sentinel(s) -> bool:
+    """True for placeholder rows the engine writes for hospital/months with
+    no analyzable data (pipeline.py: everything zeroed + sentinel issue text).
+    Such rows have no meaningful formula result and must be left alone."""
+    comps = (s.rule_compliance, s.completeness, s.consistency, s.outlier_penalty)
+    if any(float(c or 0) != 0.0 for c in comps):
+        return False
+    if float(s.score or 0) != 0.0:
+        return False
+    return "no data" in (s.issues or "").lower()
+
+
+def _shallow_check(w: dict, rows):
+    """Shared shallow-mode logic: return (mismatches, sentinel_count) where
+    mismatches is a list of (row, expected_score) tuples. Used by both the
+    preview and the repair so they can never disagree."""
+    mismatches, sentinels = [], 0
+    for s in rows:
+        if _is_no_data_sentinel(s):
+            sentinels += 1
+            continue
+        expected = _expected_score(w, s.rule_compliance, s.completeness, s.consistency, s.outlier_penalty)
+        if abs(expected - float(s.score or 0)) > SHALLOW_TOLERANCE:
+            mismatches.append((s, expected))
+    return mismatches, sentinels
+
+
+def _deep_targets(db: Session) -> list:
+    """(hospital_id, month) pairs from QualityScore that still have *enabled*
+    raw indicator values — the pairs deep mode will recompute from source
+    data. Uses the engine's own enabled-values logic so a pair the pipeline
+    would treat as "no data" (all values disabled/null) is not targeted; deep
+    repair never deletes the sentinel rows written for those."""
+    from app.models import QualityScore
+    from app.engine.pipeline import get_enabled_values_for_hospital_month
+    pairs = db.query(QualityScore.hospital_id, QualityScore.month).distinct().all()
+    return [(h, m) for (h, m) in pairs if get_enabled_values_for_hospital_month(db, h, m)]
+
+
+def _run_deep_recompute(task_id: str, targets: list):
+    """Background worker: recompute every target (hospital, month) through the
+    canonical engine pipeline (same as upload/reanalyze-all). Uses its own DB
+    session; writes nothing for months that were skipped."""
+    from app.engine.pipeline import recompute_hospital_months
+    from app.tasks import set_progress, set_status
+    bg_db = SessionLocal()
+    recomputed, failed, skipped = 0, 0, 0
+    try:
+        total = max(len(targets), 1)
+        # Group by hospital so each hospital recompute covers all its months
+        by_hospital = {}
+        for h, m in targets:
+            by_hospital.setdefault(h, []).append(m)
+        done = 0
+        for h_id, months in sorted(by_hospital.items()):
+            try:
+                n = recompute_hospital_months(bg_db, h_id, sorted(months), force=True)
+                if n is None:
+                    n = 0
+                recomputed += n
+                failed += len(months) - n
+            except Exception:
+                bg_db.rollback()
+                failed += len(months)
+            done += len(months)
+            set_progress(task_id, int(done / total * 100))
+        set_status(task_id, "done")
+    except Exception as e:  # run_task also guards, but keep the session safe
+        try:
+            bg_db.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        bg_db.close()
+    return {"recomputed": recomputed, "failed": failed, "skipped": skipped}
+
+
+@router.get("/quality-scores/repair-preview")
+def repair_quality_scores_preview(
+    deep: bool = False,  # query param: list deep-mode recompute targets instead of formula mismatches
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("system.manage_data")),
+):
+    """Dry-run. shallow (default): find stored QualityScore rows whose
+    components do not sum to the stored final score under the engine formula
+    (weights from the quality config). deep: list the (hospital, month) pairs
+    that deep repair would recompute from raw indicator values — read-only,
+    nothing is written either way."""
+    from app.models import QualityScore
+
+    rows = db.query(QualityScore).all()
+    if deep:
+        targets = _deep_targets(db)
+        return {
+            "mode": "deep",
+            "total_rows": len(rows),
+            "target_count": len(targets),
+            "targets": [
+                {"hospital_id": h, "month": m,
+                 "stored_score": next((float(s.score or 0) for s in rows if s.hospital_id == h and s.month == m), None)}
+                for h, m in targets[:200]
+            ],
+            "truncated": len(targets) > 200,
+            "note": "Deep repair reruns the full engine pipeline per hospital/month; exact post-values are only known after it runs.",
+        }
+
+    w = _quality_weights(db)
+    mismatches, sentinels = _shallow_check(w, rows)
+    return {
+        "mode": "shallow",
+        "total_rows": len(rows),
+        "sentinel_rows_skipped": sentinels,
+        "mismatch_count": len(mismatches),
+        "weights": w,
+        "mismatches": [
+            {"id": s.id, "hospital_id": s.hospital_id, "month": s.month,
+             "stored_score": s.score, "expected_score": expected}
+            for (s, expected) in mismatches[:200]
+        ],
+        "truncated": len(mismatches) > 200,
+    }
+
+    rows = db.query(QualityScore).all()
+    mismatches = []
+    for s in rows:
+        rc = float(s.rule_compliance or 0)
+        cp = float(s.completeness or 0)
+        co = float(s.consistency or 0)
+        op_inv = 100.0 - float(s.outlier_penalty or 0)
+        expected = round(rc * w_rc + cp * w_cp + co * w_co + op_inv * w_op, 1)
+        expected = max(0, min(100, expected))
+        if abs(expected - float(s.score or 0)) > 0.05:
+            mismatches.append({
+                "id": s.id, "hospital_id": s.hospital_id, "month": s.month,
+                "stored_score": s.score, "expected_score": expected,
+            })
+    return {
+        "total_rows": len(rows),
+        "mismatch_count": len(mismatches),
+        "weights": {"rule_compliance": w_rc, "completeness": w_cp,
+                     "consistency": w_co, "outlier_inverted": w_op},
+        "mismatches": mismatches[:200],
+        "truncated": len(mismatches) > 200,
+    }
+
+
+@router.post("/quality-scores/repair")
+def repair_quality_scores(
+    background_tasks: BackgroundTasks = None,
+    deep: bool = False,  # query param: recompute all components from raw indicator values via the engine pipeline (background task)
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("system.manage_data")),
+):
+    """Repair QualityScore rows.
+
+    shallow (default): recompute the final score from the STORED components
+    using the engine formula and overwrite divergent scores. Component values
+    are kept.
+
+    deep: rerun the full engine pipeline (recompute_hospital_months, the same
+    path as upload/reanalyze-all) for every hospital/month that still has raw
+    indicator values — recomputing rule compliance, completeness, consistency,
+    and outliers from source data. Runs as a background task; poll
+    /tasks/{task_id}. Pairs without raw values are skipped (never deleted)."""
+    from app.models import QualityScore
+
+    rows = db.query(QualityScore).all()
+
+    if deep:
+        if getattr(app_state, "deep_repair_running", False):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                detail="A deep repair is already running")
+        targets = _deep_targets(db)
+        app_state.deep_repair_running = True
+        task_id = create_task("Deep Quality Score Repair", lambda: None)
+
+        def _run(tid):
+            try:
+                return _run_deep_recompute(tid, targets)
+            finally:
+                app_state.deep_repair_running = False
+
+        if background_tasks is not None:
+            background_tasks.add_task(run_task, task_id, _run, task_id)
+        else:
+            threading.Thread(target=run_task, args=(task_id, _run, task_id), daemon=True).start()
+        return {
+            "mode": "deep",
+            "task_id": task_id,
+            "target_count": len(targets),
+            "message": f"Deep repair started for {len(targets)} hospital/month pairs. Use /tasks/{task_id} to check status.",
+        }
+
+    w = _quality_weights(db)
+    mismatches, _sentinels = _shallow_check(w, rows)
+    repaired = 0
+    for s, expected in mismatches:
+        s.score = expected
+        repaired += 1
+    if repaired:
+        db.commit()
+    return {
+        "mode": "shallow",
+        "total_rows": len(rows),
+        "repaired": repaired,
+        "already_consistent": len(rows) - repaired,
+    }
 
 
 @router.get("/visibility-matrix")

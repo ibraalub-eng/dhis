@@ -102,3 +102,60 @@ def test_admin_user_edit_fills_direct_permissions():
     """editUser must check the user's assigned direct permissions."""
     js = _read("admin.js")
     assert "data.direct_permissions" in js
+
+
+def test_admin_users_roles_permissions_are_separate_tabs():
+    """Users, Roles, and Permissions must be separate admin tab buttons
+    backed by distinct sub-panels (no longer one combined Users & Roles tab)."""
+    js = _read("admin.js")
+    assert "switchAdminTab('roles')" in js
+    assert "switchAdminTab('permissions')" in js
+    for panel in ["adminUsersSubPanel", "adminRolesSubPanel", "adminPermsSubPanel"]:
+        assert f'id="{panel}"' in js, f"Missing sub-panel {panel}"
+    # switchAdminTab must toggle the three sub-panels
+    assert 'document.getElementById("adminUsersSubPanel")' in js
+    assert 'document.getElementById("adminRolesSubPanel")' in js
+    assert 'document.getElementById("adminPermsSubPanel")' in js
+
+
+def test_admin_roles_tab_expandable_permission_codenames():
+    """Roles tab rows must be expandable to reveal the role's permission
+    codenames, resolved from /admin/roles permission_ids + the permission list,
+    with state kept across re-renders."""
+    js = _read("admin.js")
+    assert "toggleRolePerms(" in js
+    assert "window.toggleRolePerms" in js
+    assert "rolePermsRow-" in js
+    assert "roleCaret-" in js
+    assert "_expandedRoleIds" in js
+    assert "admin-role-perm-chip" in js
+
+
+def test_admin_role_permission_matrix():
+    """Permissions tab must render a role x permission checkbox matrix that
+    saves changed roles straight to PUT /admin/roles/{id}."""
+    js = _read("admin.js")
+    assert "perm-matrix-cb" in js
+    assert "permMatrixMarkDirty" in js
+    assert "permMatrixSaveAll" in js
+    assert "permMatrixDirty" in js
+    # Saves per role via the existing role update endpoint
+    assert "'/admin/roles/' + roleId" in js
+    assert "permission_ids: permIds" in js
+
+
+def test_admin_permissions_tab_has_no_duplicate_permissions_list():
+    """The Permissions tab must NOT render a second standalone list of all
+    permission codenames — the matrix rows already show each codename once."""
+    js = _read("admin.js")
+    assert "Available Permissions (${perms.length})" not in js
+    # Matrix rows must still show codename + description
+    assert "perm-matrix-cb" in js
+
+
+def test_admin_roles_tab_links_to_permission_matrix():
+    """Roles tab rows must offer a jump into the matrix for editing that
+    role's permissions (single edit surface)."""
+    js = _read("admin.js")
+    assert "editRolePermsInMatrix" in js
+    assert "permCol-" in js

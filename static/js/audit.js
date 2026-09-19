@@ -215,7 +215,8 @@ function renderQualityScore(qs) {
             const pct = totalW ? Math.round((c.weighted || 0) / totalW * 100) : 0;
             html += '<div style="display:flex;justify-content:space-between;font-size:0.72rem;color:var(--text-secondary);padding:0.1rem 0;border-top:1px solid var(--border-default);">';
             html += '<span><span style="display:inline-block;width:0.45rem;height:0.45rem;border-radius:2px;background:' + _QS_COLORS[i % _QS_COLORS.length] + ';vertical-align:middle;margin-inline-end:0.25rem;"></span>' + esc(c.name) + '</span>';
-            html += '<span>' + (c.value != null ? Number(c.value).toFixed(3) : '--') + ' × ' + c.weight + ' = <strong>' + (c.weighted != null ? Number(c.weighted).toFixed(4) : '--') + '</strong> <span style="color:var(--text-muted);">(' + pct + '%)</span></span>';
+            // c.value is 0-100 (percent), c.weight is 0-1, c.weighted is the point contribution to the final score
+            html += '<span>' + (c.value != null ? Number(c.value).toFixed(1) + '%' : '--') + ' × ' + c.weight + ' = <strong>' + (c.weighted != null ? Number(c.weighted).toFixed(2) : '--') + '</strong> <span style="color:var(--text-muted);">→ ' + pct + '% ' + __('of final') + '</span></span>';
             html += '</div>';
         });
     }
