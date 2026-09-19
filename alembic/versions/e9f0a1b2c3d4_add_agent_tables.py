@@ -21,7 +21,7 @@ def upgrade():
         sa.Column('title', sa.String(length=200), nullable=False),
         sa.Column('lang', sa.String(length=10), nullable=False),
         sa.Column('created_at', sa.DateTime(), nullable=True),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id']),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_conversations_id', 'conversations', ['id'])
@@ -37,7 +37,7 @@ def upgrade():
         sa.Column('tool_steps', sa.JSON(), nullable=True),
         sa.Column('token_usage', sa.JSON(), nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=True),
-        sa.ForeignKeyConstraint(['conversation_id'], ['conversations.id']),
+        sa.ForeignKeyConstraint(['conversation_id'], ['conversations.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_messages_id', 'messages', ['id'])

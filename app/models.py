@@ -459,7 +459,7 @@ class MenuItem(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     title = Column(String(200), nullable=False, default="")
     lang = Column(String(10), nullable=False, default="en")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -468,7 +468,7 @@ class Conversation(Base):
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True, index=True)
-    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True)
     message_type = Column(String(10), nullable=False)   # user | assistant | tool | system
     role = Column(String(10), nullable=False, default="user")
     content = Column(Text, nullable=False)
