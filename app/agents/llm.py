@@ -5,10 +5,13 @@ agent_provider_roles) and MUST NOT disturb the existing single-shot ai_provider
 path. Local (Ollama) is an OpenAI-compatible endpoint with no API key.
 """
 import json
+import logging
 import socket
 from dataclasses import dataclass
 
 from app.config_utils import get_ai_config, AGENT_PROVIDERS
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -164,3 +167,41 @@ def _chat_httpx(resolved, system, user, api_key, max_output_tokens, timeout):
     return ChatResult(content, resolved.provider, resolved.model,
                       usage.get("prompt_tokens", len(system) // 4),
                       usage.get("completion_tokens", len(content or "") // 4))
+
+
+def _chat_gemini(resolved, system, user, max_output_tokens, timeout=30.0):
+    api_key = _lookup_api_key() if resolved.needs_key else ""
+    if resolved.needs_key and not api_key:
+        logger.warning("Gemini provider selected but no ai_api_key found")
+        return None
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        resp = client.models.generate_content(
+            model=resolved.model,
+            contents=user,
+            config={
+                "system_instruction": system,
+                "temperature": 0.2,
+                "max_output_tokens": max_output_tokens,
+            },
+        )
+    except Exception as e:
+        logger.error(f"Gemini API call failed: {e}")
+        return None
+    text = resp.text
+    if not text:
+        return None
+    usage = getattr(resp, "usage_metadata", None)
+    if usage is not None:
+        prompt_tokens = getattr(usage, "prompt_token_count", None)
+        completion_tokens = getattr(usage, "candidates_token_count", None)
+        if prompt_tokens is None:
+            prompt_tokens = len(system) // 4
+        if completion_tokens is None:
+            completion_tokens = len(text) // 4
+    else:
+        prompt_tokens = len(system) // 4
+        completion_tokens = len(text) // 4
+    return ChatResult(text, resolved.provider, resolved.model,
+                      prompt_tokens, completion_tokens)

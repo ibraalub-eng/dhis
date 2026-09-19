@@ -1,6 +1,7 @@
 """Provider shim tests — no real network. httpx and genai are monkeypatched."""
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine
@@ -27,6 +28,16 @@ def _set(db, **kv):
     for k, v in kv.items():
         db.add(SystemSetting(key=k, value=str(v)))
     db.commit()
+
+
+def _patch_genai(monkeypatch, fake_client_cls):
+    """Install a fake google.genai in sys.modules so the real one is never imported."""
+    fake_genai = ModuleType("genai")
+    fake_genai.Client = fake_client_cls
+    fake_google = ModuleType("google")
+    fake_google.genai = fake_genai
+    monkeypatch.setitem(sys.modules, "google", fake_google)
+    monkeypatch.setitem(sys.modules, "google.genai", fake_genai)
 
 
 def test_resolve_role_map_wins(db_session, monkeypatch):
@@ -100,3 +111,50 @@ def test_llm_chat_openai_compatible(monkeypatch):
     assert out.prompt_tokens == 12 and out.completion_tokens == 4
     assert captured["url"] == "http://x/v1/chat/completions"
     assert captured["payload"]["messages"][0]["content"] == "sys"
+
+
+def test_llm_chat_gemini_returns_chat_result(monkeypatch):
+    monkeypatch.setattr("app.agents.llm._lookup_api_key", lambda: "test-key")
+
+    class FakeUsage:
+        prompt_token_count = 11
+        candidates_token_count = 7
+
+    class FakeResp:
+        text = "hello"
+        usage_metadata = FakeUsage()
+
+    class FakeModels:
+        def generate_content(self, model, contents, config):
+            return FakeResp()
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.models = FakeModels()
+
+    _patch_genai(monkeypatch, FakeClient)
+    rp = ResolvedProvider(provider="gemini", model="gemini-3.5-flash-lite",
+                          base_url="", needs_key=True)
+    out = llm_chat(rp, system="sys", user="hi", max_output_tokens=100)
+    assert out.text == "hello"
+    assert out.provider == "gemini"
+    assert out.prompt_tokens == 11
+    assert out.completion_tokens == 7
+
+
+def test_llm_chat_gemini_returns_none_on_error(monkeypatch):
+    monkeypatch.setattr("app.agents.llm._lookup_api_key", lambda: "test-key")
+
+    class BoomModels:
+        def generate_content(self, model, contents, config):
+            raise RuntimeError("boom")
+
+    class BoomClient:
+        def __init__(self, **kwargs):
+            self.models = BoomModels()
+
+    _patch_genai(monkeypatch, BoomClient)
+    rp = ResolvedProvider(provider="gemini", model="gemini-3.5-flash-lite",
+                          base_url="", needs_key=True)
+    out = llm_chat(rp, system="sys", user="hi", max_output_tokens=100)
+    assert out is None
