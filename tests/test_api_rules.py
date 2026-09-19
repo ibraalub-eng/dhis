@@ -1,9 +1,11 @@
 """Tests for rules API endpoints (api.rules)."""
 import json
+
 import pytest
 from fastapi.testclient import TestClient
-from app.main import app
+
 from app.database import get_db
+from app.main import app
 from app.models import Rule
 
 
@@ -368,3 +370,126 @@ class TestRuleTestDryRun:
             assert data["scope"] == "all"
             assert "hospitals" in data
             assert "passed" in data and "failed" in data
+
+
+class TestRuleHistory:
+    def test_create_records_history(self, client, db_session):
+        from app.models import RuleHistory
+        before = db_session.query(RuleHistory).count()
+        resp = client.post("/rules/", json={
+            "code": "TESTHIST1", "name": "History Test Rule",
+            "rule_type": "LOGIC", "severity": "LOW", "category": "TEST",
+            "expression_type": "ge", "params": json.dumps({"parent": "2", "children": ["3"]}),
+            "description": "",
+        })
+        assert resp.status_code == 200, resp.text
+        rows = db_session.query(RuleHistory).filter(RuleHistory.rule_code == "TESTHIST1").all()
+        assert len(rows) == before + 1
+        assert rows[-1].action == "created"
+
+    def test_update_records_changed_fields(self, client, db_session):
+        resp = client.post("/rules/", json={
+            "code": "TESTHIST2", "name": "Hist2",
+            "rule_type": "LOGIC", "severity": "LOW", "category": "TEST",
+            "expression_type": "ge", "params": "{}", "description": "",
+        })
+        rule_id = resp.json()["id"]
+        resp = client.put(f"/rules/{rule_id}", json={"severity": "HIGH", "name": "Hist2-renamed"})
+        assert resp.status_code == 200
+        from app.models import RuleHistory
+        rows = db_session.query(RuleHistory).filter(
+            RuleHistory.rule_code == "TESTHIST2", RuleHistory.action == "updated"
+        ).all()
+        assert len(rows) == 1
+        changed = json.loads(rows[0].changed_fields)
+        assert set(changed) == {"severity", "name"}
+
+    def test_save_enabled_records_enable_disable(self, client, db_session):
+        from app.models import RuleHistory
+        rule = db_session.query(Rule).filter(Rule.enabled.is_(True)).first()
+        resp = client.put("/rules/save-enabled", json={"items": [{"id": rule.id, "enabled": False}]})
+        assert resp.status_code == 200
+        rows = db_session.query(RuleHistory).filter(
+            RuleHistory.rule_code == rule.code, RuleHistory.action == "disabled"
+        ).all()
+        assert len(rows) >= 1
+
+    def test_delete_preserves_history(self, client, db_session):
+        from app.models import RuleHistory
+        resp = client.post("/rules/", json={
+            "code": "TESTHIST3", "name": "Hist3",
+            "rule_type": "LOGIC", "severity": "LOW", "category": "TEST",
+            "expression_type": "ge", "params": "{}", "description": "",
+        })
+        rule_id = resp.json()["id"]
+        resp = client.delete(f"/rules/{rule_id}")
+        assert resp.status_code == 200
+        # The rule row is gone...
+        assert db_session.query(Rule).filter(Rule.code == "TESTHIST3").first() is None
+        # ...but the audit trail survives (rule_id NULL, code retained)
+        rows = db_session.query(RuleHistory).filter(RuleHistory.rule_code == "TESTHIST3").all()
+        assert [r.action for r in rows] == ["created", "deleted"]
+        assert rows[-1].rule_id is None
+        snap = json.loads(rows[-1].snapshot)
+        assert snap["code"] == "TESTHIST3"
+
+    def test_history_endpoint_newest_first(self, client, db_session):
+        resp = client.post("/rules/", json={
+            "code": "TESTHIST4", "name": "Hist4",
+            "rule_type": "LOGIC", "severity": "LOW", "category": "TEST",
+            "expression_type": "ge", "params": "{}", "description": "",
+        })
+        rule_id = resp.json()["id"]
+        client.put(f"/rules/{rule_id}", json={"name": "Hist4-b"})
+        client.put(f"/rules/{rule_id}", json={"name": "Hist4-c"})
+        resp = client.get("/rules/history/TESTHIST4")
+        assert resp.status_code == 200
+        data = resp.json()
+        actions = [e["action"] for e in data["entries"]]
+        assert actions[0] == "updated"  # newest first
+        assert "created" in actions
+
+
+class TestRulesExportImport:
+    def test_export_returns_catalog(self, client):
+        resp = client.get("/rules/export")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["version"] == 1
+        assert data["count"] == len(data["rules"])
+        assert data["count"] > 0
+        for r in data["rules"]:
+            assert {"code", "name", "expression_type", "params", "enabled"} <= set(r.keys())
+
+    def test_import_roundtrip(self, client, db_session):
+        resp = client.get("/rules/export")
+        payload = resp.json()
+        # Mutate one rule so the import exercises the update path
+        payload["rules"][0]["name"] = payload["rules"][0]["name"] + " X"
+        resp = client.post("/rules/import", json=payload)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["updated"] >= 1
+        assert data["created"] == 0
+
+    def test_import_creates_new_rule(self, client, db_session):
+        payload = {"rules": [{
+            "code": "TESTIMP1", "name": "Imported Rule", "rule_type": "LOGIC",
+            "severity": "LOW", "category": "TEST", "expression_type": "ge",
+            "params": {"parent": "2", "children": ["3"]}, "description": "", "enabled": False,
+        }]}
+        resp = client.post("/rules/import", json=payload)
+        assert resp.status_code == 200
+        assert resp.json()["created"] == 1
+        rule = db_session.query(Rule).filter(Rule.code == "TESTIMP1").first()
+        assert rule is not None
+        assert rule.enabled is False
+
+    def test_import_accepts_bare_list(self, client):
+        resp = client.post("/rules/import", json=[{"code": "TESTIMP2", "name": "Bare"}])
+        assert resp.status_code == 200
+        assert resp.json()["created"] == 1
+
+    def test_import_rejects_bad_body(self, client):
+        resp = client.post("/rules/import", json={"nope": True})
+        assert resp.status_code == 400

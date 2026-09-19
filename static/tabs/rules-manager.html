@@ -6,6 +6,9 @@
                         <div style="display:flex;align-items:center;gap:0.4rem;">
                             <span id="rulesManagerCount" class="count-badge" style="font-size:0.72rem;"></span>
                             <button class="btn btn-sm" onclick="openRuleModal(null)" style="font-size:0.72rem;padding:0.2rem 0.5rem;">+ Add Rule</button>
+                            <button class="btn btn-sm btn-outline" onclick="exportRulesJson()" style="font-size:0.72rem;padding:0.2rem 0.5rem;" data-i18n="Export">Export</button>
+                            <button class="btn btn-sm btn-outline" onclick="document.getElementById('rulesImportFile').click()" style="font-size:0.72rem;padding:0.2rem 0.5rem;" data-i18n="Import">Import</button>
+                            <input type="file" id="rulesImportFile" accept=".json,application/json" style="display:none;" onchange="importRulesJson(this)">
                             <button class="btn btn-sm btn-outline" id="rulesSaveBtn" onclick="saveRulesManager()" style="font-size:0.72rem;padding:0.2rem 0.5rem;display:none;">Save</button>
                             <button class="btn btn-sm btn-outline" onclick="_forceRulesImpactRefresh = true; loadRulesManager();" style="font-size:0.72rem;padding:0.2rem 0.5rem;" data-i18n="Refresh">Refresh</button>
                         </div>
@@ -79,8 +82,8 @@
                 </div>
                 <div class="card" id="rulesExprHelp" style="margin-top:1rem;">
                     <h2 onclick="toggleExprHelp()" style="cursor:pointer;user-select:none;">
-                        &#x25B6; Expression Types Reference
-                        <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:0.5rem;">Click to expand</span>
+                        &#x25B6; <span data-i18n="Expression Types Reference">Expression Types Reference</span>
+                        <span style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:0.5rem;" data-i18n="Click to expand">Click to expand</span>
                     </h2>
                     <div id="exprHelpContent" style="display:none;margin-top:0.8rem;font-size:0.82rem;line-height:1.6;">
                         <table style="font-size:0.82rem;">
@@ -112,4 +115,15 @@
                     </div>
                 </div>
             </div>
+
+<!-- Rule details drawer — opened by clicking a rule row. Not inside the tab
+     container so the transform on .tab-content can't clip its fixed overlay. -->
+<div id="ruleDrawerOverlay" class="rule-drawer-overlay" onclick="closeRuleDrawer()"></div>
+<aside id="ruleDrawer" class="rule-drawer" dir="ltr" aria-hidden="true">
+    <div class="rule-drawer-header">
+        <h2 id="ruleDrawerTitle">—</h2>
+        <button class="btn btn-sm btn-outline" onclick="closeRuleDrawer()" data-i18n="Close">Close</button>
+    </div>
+    <div class="rule-drawer-body" id="ruleDrawerBody"></div>
+</aside>
 

@@ -4,7 +4,15 @@ import os
 from app.engine.root_cause import _month_offset, get_historical_data
 
 
-# --- Fix 1: month cutoff is relative to the report month, not today ---
+def _read_settings_pair():
+    """settings.js was split: rules/root-cause/dashboard helpers moved to
+    rules-manager.js. Structural checks read both files concatenated."""
+    parts = []
+    for name in ("rules-manager.js", "settings.js"):
+        p = os.path.join(os.path.dirname(__file__), "..", "static", "js", name)
+        parts.append(open(p, encoding="utf-8").read())
+    return "\\n".join(parts)
+
 
 def test_month_offset_relative_to_report_month():
     assert _month_offset("2026-06", 6) == "2026-01"
@@ -77,18 +85,14 @@ def test_peer_comparisons_are_per_indicator(db_session):
 # --- Fix 2: frontend enables history + peers and renders advanced sections ---
 
 def test_frontend_enables_history_and_peers():
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_settings_pair()
     assert "include_history=true" in content
     assert "compare_peers=true" in content
     assert "months_back=6" in content
 
 
 def test_frontend_renders_advanced_sections():
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_settings_pair()
     assert "rcSummaryArabic" in content
     assert "rcCausalChains" in content
     assert "rcCausalTree" in content
@@ -108,9 +112,7 @@ def test_frontend_renders_advanced_sections():
 
 def test_frontend_renders_history_sparklines():
     """الاتجاهات (trends): الشجرة السببية تعرض sparkline لكل عامل عبر الأشهر."""
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_settings_pair()
     assert "_rcSparkline" in content
     assert "n.history" in content
     assert "polyline" in content
@@ -238,9 +240,7 @@ def test_api_returns_chain_path(db_session):
 
 
 def test_frontend_renders_chain_path():
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_settings_pair()
     assert "chain_path" in content
     assert "chain_path_arabic" in content
     # Chain tooltip is translated through __(); the Arabic lives in i18n.js
@@ -394,9 +394,7 @@ def test_api_returns_priority_action_details(db_session):
 
 
 def test_frontend_renders_impact_effort_roi():
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_settings_pair()
     assert "priority_action_details" in content
     assert "det.impact" in content
     assert "det.effort" in content
@@ -500,9 +498,7 @@ def test_analyze_rule_failures_dynamic_structure(db_session):
 
 
 def test_frontend_renders_peer_governorates():
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_settings_pair()
     assert "peer_governorate_counts" in content
     assert "peer_types" in content
     assert "__('Peers')" in content
@@ -994,10 +990,10 @@ def test_frontend_peer_mode_dropdown_present():
     assert 'id="rcPeerMode"' in html
     for value in ("auto", "type", "governorate", "ownership", "all"):
         assert f'value="{value}"' in html
-    with open("static/js/settings.js", encoding="utf-8") as f:
+    with open("static/js/rules-manager.js", encoding="utf-8") as f:
         js = f.read()
-    # peer_mode is appended to root-cause API calls
-    assert js.count("peer_mode=' + encodeURIComponent") >= 1 or "+ _rcPeerQ()" in js
+        # peer_mode is appended to root-cause API calls
+        assert js.count("peer_mode=' + encodeURIComponent") >= 1 or "+ _rcPeerQ()" in js
     # UI state persistence for the selector
     with open("static/js/main.js", encoding="utf-8") as f:
         main = f.read()
@@ -1068,9 +1064,7 @@ def test_frontend_peer_table_follows_timeline_selection():
     """The Peer Hospitals table re-renders from the selected timeline
     indicator (peers_detail) and falls back to the group list."""
     import os
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, encoding="utf-8") as f:
-        js = f.read()
+    js = _read_settings_pair()
     assert "function _renderRcPeerHospitalsTable" in js
     # called from the chart draw so a dropdown change updates the table
     assert "_renderRcPeerHospitalsTable(ind)" in js

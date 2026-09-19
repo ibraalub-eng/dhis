@@ -212,7 +212,48 @@ import { confirmDestructive } from './confirm-modal.js';
 
         function _vbUpdateHidden() {
             document.getElementById('ruleEditParams').value = _vbBuildParams();
+            updateRuleExprPreview();
         }
+
+        // Live plain-language preview of the rule being built. Reads the same
+        // params the save path will send, so the sentence always matches what
+        // will actually be stored. Language-neutral symbol form with indicator
+        // code chips; missing values render as ellipses.
+        window.updateRuleExprPreview = function() {
+            const box = document.getElementById('ruleExprPreview');
+            const textEl = document.getElementById('ruleExprPreviewText');
+            if (!box || !textEl) return;
+            const expr = document.getElementById('ruleEditExpr').value;
+            let p = {};
+            try { p = JSON.parse(_vbBuildParams() || '{}'); } catch (e) { p = {}; }
+            const chips = function(list) { return (list || []).map(c => '<span class="rule-ref-chip">' + esc(c) + '</span>').join(' + ') || '<em>…</em>'; };
+            const chip = function(v) { return v ? '<span class="rule-ref-chip">' + esc(v) + '</span>' : '<em>…</em>'; };
+            const num = function(v) { return (v !== undefined && v !== null && v !== '') ? esc(v) : '<em>…</em>'; };
+            let cond = '';
+            switch (expr) {
+                case 'ge': cond = chip(p.parent) + ' ≥ ' + chips(p.children); break;
+                case 'gt': cond = chip(p.parent) + ' > ' + chips(p.children); break;
+                case 'ge_factor': cond = chip(p.parent) + ' × ' + num(p.factor) + ' ≥ ' + chips(p.children); break;
+                case 'eq': cond = chip(p.parent) + ' = ' + chips(p.children); break;
+                case 'le': cond = chip(p.child) + ' ≤ ' + chip(p.parent); break;
+                case 'lt': cond = chip(p.child) + ' < ' + chip(p.parent); break;
+                case 'le_sum': cond = chip(p.child) + ' ≥ ' + chips(p.children); break;
+                case 'benchmark_rate': cond = '(' + chip(p.num_code) + ' ÷ ' + chip(p.den_code) + ') × 100 ≤ ' + num(p.threshold) + '%'; break;
+                case 'benchmark_low_rate': cond = '(' + chip(p.num_code) + ' ÷ ' + chip(p.den_code) + ') × 100 ≥ ' + num(p.threshold) + '%'; break;
+                case 'cross_hospital_rate': cond = '|z(' + chip(p.num_code) + ' ÷ ' + chip(p.den_code) + ')| ≤ ' + num(p.z_threshold); break;
+                case 'month_over': cond = chip(p.code) + ' ≤ ' + num(p.factor) + ' × ' + __('previous month'); break;
+                case 'month_under': cond = chip(p.code) + ' ≥ ' + num(p.factor) + ' × ' + __('previous month'); break;
+                case 'neg_check': cond = chips(p.codes) + ' ≥ 0'; break;
+                case 'decimal_check': cond = chips(p.codes) + ' ∈ ℤ'; break;
+                case 'missing': cond = chip(p.code) + ' ' + __('has a value'); break;
+                case 'all_zero': cond = chips(p.codes) + ' ≠ 0 (' + __('at least one') + ')'; break;
+                case 'formula': cond = '<span class="rule-ref-chip" style="font-family:Consolas,monospace;">' + esc(p.formula || '…') + '</span> ' + esc(p.op || '=') + ' ' + chip(p.target); break;
+                default: cond = '';
+            }
+            if (!cond) { box.style.display = 'none'; return; }
+            textEl.innerHTML = cond;
+            box.style.display = 'block';
+        };
 
         // ── Render builders per category ───────────────────────────
 
@@ -487,6 +528,7 @@ import { confirmDestructive } from './confirm-modal.js';
                 panel.style.display = 'none';
             }
             buildVisualBuilder(expr);
+            updateRuleExprPreview();
         }
 
         function _vbLoadExistingParams(expr, paramsStr) {

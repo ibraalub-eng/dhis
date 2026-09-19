@@ -10,9 +10,14 @@ def _read_rules_js():
 
 
 def _read_settings_js():
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, encoding="utf-8") as f:
-        return f.read()
+    """The rules UI code lives in rules-manager.js (split out of settings.js);
+    structural checks below should see both files."""
+    parts = []
+    for name in ("rules-manager.js", "settings.js"):
+        path = os.path.join(os.path.dirname(__file__), "..", "static", "js", name)
+        with open(path, encoding="utf-8") as f:
+            parts.append(f.read())
+    return "\n".join(parts)
 
 
 def test_rules_js_imports_confirm_destructive():
@@ -93,7 +98,7 @@ def test_formula_op_arabic_labels_present():
 
 def test_formula_explanation_mentions_operators():
     """The expr explanation teaches users the op option exists."""
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "rules-manager.js")
     with open(path, encoding="utf-8") as f:
         settings = f.read()
     assert '"op":">"' in settings
@@ -382,3 +387,35 @@ def test_suggest_rule_name_i18n_keys_exist():
     i18n = _read_i18n_js()
     assert "'Suggested name:':" in i18n
     assert "'Use suggestion':" in i18n
+
+
+# ── App-owned search/filter state (beats browser form-restore) ──────
+
+def test_rules_filters_restore_from_local_storage():
+    """loadRulesManager must restore each filter's stored value (when the
+    dropdown actually has that option) before building the query, so a
+    browser's form-restored value can never silently narrow the list."""
+    js = _read_settings_js()
+    assert "_syncFilterState" in js
+    assert "localStorage.getItem(id)" in js
+    assert "localStorage.setItem(id, el.value)" in js
+    for fid in ("rulesCategoryFilter", "rulesTypeFilter", "rulesSeverityFilter", "rulesEnabledFilter"):
+        assert fid in js
+
+
+def test_rules_search_value_restored_over_browser_restore():
+    """After rules load, the app-owned search value must be written back into
+    the box — browser form-restore may have injected junk while loading."""
+    js = _read_settings_js()
+    assert "localStorage.getItem('rulesSearch')" in js
+    assert "searchBox.value !== savedSearch" in js
+
+
+def test_rules_search_persisted_on_every_render():
+    """Every render saves the current search text, and the explicit clear
+    path also clears the stored value."""
+    js = _read_settings_js()
+    assert "localStorage.setItem('rulesSearch'" in js
+    # clearRulesSearch must clear the stored value too, not just the input
+    clear_fn = js[js.index("window.clearRulesSearch"):]
+    assert "localStorage.setItem('rulesSearch', '')" in clear_fn

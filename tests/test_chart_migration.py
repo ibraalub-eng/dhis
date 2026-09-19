@@ -23,6 +23,16 @@ _TABS = os.path.join(_STATIC, "tabs")
 _VENDOR = os.path.join(_STATIC, "vendor")
 
 
+def _read_settings_pair():
+    """settings.js was split: rules/root-cause/dashboard helpers moved to
+    rules-manager.js. Structural checks read both files concatenated."""
+    parts = []
+    for name in ("rules-manager.js", "settings.js"):
+        p = os.path.join(os.path.dirname(__file__), "..", "static", "js", name)
+        parts.append(open(p, encoding="utf-8").read())
+    return "\\n".join(parts)
+
+
 def _read(rel_path):
     full = os.path.join(os.path.dirname(__file__), "..", rel_path)
     with open(full, "r", encoding="utf-8") as f:
@@ -114,25 +124,25 @@ class TestDrawRcTimelineChart:
     """Task 4: drawRcTimelineChart must use Chart.js, not Plotly."""
 
     def test_draw_function_uses_chart_js(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "new Chart(ctx," in content or "new Chart(" in content
 
     def test_no_plotly_in_draw_function(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         # Within the drawRcTimelineChart function scope, no Plotly calls
         assert "Plotly.newPlot" not in content
         assert "Plotly.react" not in content
 
     def test_uses_charts_primary_color(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "CHART_COLORS.primary" in content
 
     def test_uses_charts_secondary_color(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "CHART_COLORS.secondary" in content
 
     def test_two_datasets_defined(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         # Dataset labels are translated through __(); Arabic lives in i18n.js
         assert "__('Hospital')" in content  # hospital dataset label
         assert "__('Peer average')" in content  # peer mean label
@@ -141,39 +151,39 @@ class TestDrawRcTimelineChart:
         assert "متوسط النظير" in i18n
 
     def test_ci_band_plugin_registered(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "ciBandPlugin" in content
 
     def test_ci_band_data_passed_to_options(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "peer_upper" in content
         assert "peer_lower" in content
 
     def test_chart_is_responsive(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "responsive: true" in content
         assert "maintainAspectRatio: false" in content
 
     def test_legend_enabled(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "legend:" in content
         assert "position:" in content
 
     def test_tooltip_configured(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "tooltip:" in content
 
     def test_existing_chart_destroyed_before_rebuild(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "destroy()" in content
         assert "_rcTimelineChartInstance" in content
 
     def test_dashed_peer_line(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "borderDash" in content
 
     def test_interaction_mode(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "intersect: false" in content
         assert "mode: 'index'" in content
 
@@ -182,19 +192,19 @@ class TestRenderRcTimeline:
     """Task 5: renderRcTimeline and renderRcTimelineChart exports."""
 
     def test_render_rc_timeline_exported(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "export function renderRcTimeline()" in content
 
     def test_render_rc_timeline_chart_exported(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "export function renderRcTimelineChart()" in content
 
     def test_render_rc_timeline_populates_dropdown(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "rcTimelineIndicator" in content
 
     def test_handles_empty_data(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "__('Not enough time-series data')" in content
 
     def test_app_joins_and_exports(self):
@@ -207,15 +217,15 @@ class TestTextDescription:
     """Timeline text description should reference Chart.js concepts."""
 
     def test_text_mentions_hospital_line(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "__('Solid line: hospital value month by month. Dashed line: peer average. Shaded band: 95% confidence interval around the peer average.')" in content
 
     def test_text_mentions_peer_dashed(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "__('Peer average')" in content
 
     def test_text_mentions_ci_band(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         # The 95% CI band text is part of the translated legend sentence
         assert "95% confidence interval" in content
         i18n = _read("static/js/i18n.js")
@@ -342,7 +352,7 @@ class TestTimelineAPI:
 
     def test_timeline_no_plotly_references(self):
         """The frontend code should not reference Plotly for the timeline chart."""
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         # The drawRcTimelineChart function should not use Plotly
         assert "Plotly.newPlot" not in content
         assert "Plotly.react" not in content
@@ -395,19 +405,19 @@ class TestMonthlyTrendChart:
     Chart.js (not Plotly) with a dual-axis setup."""
 
     def test_monthly_trend_uses_chart_js(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "window._rcTrendChartInstance = new Chart(" in content
 
     def test_monthly_trend_uses_register_chart(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "registerChart(window._rcTrendChartInstance)" in content
 
     def test_monthly_trend_no_plotly(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "Plotly.newPlot" not in content
         assert "Plotly.react" not in content
 
     def test_monthly_trend_dual_axis(self):
-        content = _read("static/js/settings.js")
+        content = _read_settings_pair()
         assert "yAxisID: 'y1'" in content
         assert "position: 'right'" in content

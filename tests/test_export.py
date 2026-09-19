@@ -8,6 +8,17 @@ from app.main import app
 from app.database import get_db
 
 
+def _read_settings_pair():
+    import os  # helper-local import; the module body may not need os otherwise
+    """settings.js was split: rules/root-cause/dashboard helpers moved to
+    rules-manager.js. Structural checks read both files concatenated."""
+    parts = []
+    for name in ("rules-manager.js", "settings.js"):
+        p = os.path.join(os.path.dirname(__file__), "..", "static", "js", name)
+        parts.append(open(p, encoding="utf-8").read())
+    return "\\n".join(parts)
+
+
 @pytest.fixture
 def client(db_session):
     def override_get_db():
@@ -481,9 +492,7 @@ def test_smart_js_has_root_cause_button_handler():
 def test_settings_js_has_root_cause_context_helpers():
     """settings.js ينقل سياق المستشفى والشهر إلى تبويب السبب الجذري"""
     import os
-    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "settings.js")
-    with open(path, encoding="utf-8") as f:
-        content = f.read()
+    content = _read_settings_pair()
     assert "export function goRootCause" in content
     assert "export function applyRootCauseContext" in content
     assert "_rootCauseContext" in content

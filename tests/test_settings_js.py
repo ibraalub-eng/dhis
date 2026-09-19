@@ -2,6 +2,15 @@
 import os, re
 
 def _read(name="settings.js"):
+    """Settings UI code was split: rules/UX helpers moved to rules-manager.js.
+    Reading both keeps the structural checks passing against the new layout."""
+    if name == "settings.js":
+        combined = []
+        for js in ("rules-manager.js", "settings.js"):
+            path = os.path.join(os.path.dirname(__file__), "..", "static", "js", js)
+            with open(path, encoding="utf-8") as f:
+                combined.append(f.read())
+        return "\n".join(combined)
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", name)
     with open(path, encoding="utf-8") as f:
         return f.read()

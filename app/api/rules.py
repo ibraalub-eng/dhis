@@ -1,21 +1,23 @@
 import json
-import time
 import threading
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+import time
+from typing import List, Union
+
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models import Rule, Indicator, IndicatorValue, ValidationResult, Hospital
-from app.schemas import RuleOut, RuleCreate, RuleUpdate
+
 from app.core.deps import require_permission
-from app.engine.quality.rules import _get_rule_ref_codes_from_expr
-from app.engine.quality import ValidationContext, dispatch_rule
+from app.database import get_db
 from app.engine.pipeline import (
-    get_enabled_values_for_hospital_month,
     get_all_hospital_data_for_month,
-    get_historical_months,
     get_disabled_indicator_ids,
+    get_enabled_values_for_hospital_month,
+    get_historical_months,
 )
+from app.engine.quality import ValidationContext, dispatch_rule
+from app.engine.quality.rules import _get_rule_ref_codes_from_expr
+from app.models import Hospital, Indicator, IndicatorValue, Rule, RuleHistory, ValidationResult
+from app.schemas import RuleCreate, RuleOut, RuleUpdate
 
 router = APIRouter(prefix="/rules", tags=["rules"], dependencies=[Depends(require_permission("rules.read"))])
 
@@ -23,6 +25,41 @@ router = APIRouter(prefix="/rules", tags=["rules"], dependencies=[Depends(requir
 # ── Impact cache ─────────────────────────────────────────────────
 _impact_cache = {"data": None, "ts": 0, "lock": threading.Lock()}
 _IMPACT_TTL = 300  # 5 minutes
+
+
+def _rule_snapshot(rule: Rule) -> dict:
+    return {
+        "id": rule.id, "code": rule.code, "name": rule.name,
+        "rule_type": rule.rule_type, "severity": rule.severity,
+        "category": rule.category, "expression_type": rule.expression_type,
+        "params": rule.params, "description": rule.description,
+        "enabled": bool(rule.enabled),
+    }
+
+
+def _record_rule_history(
+    db: Session,
+    rule,
+    action: str,
+    changed_fields: list = None,
+    rule_id: int = None,
+    rule_code: str = None,
+    snapshot: dict = None,
+):
+    """Append an audit row for a rule change. Never raises: history must not
+    break the operation it records. For deletions pass rule_id=None (the row
+    is already gone by flush time) plus the captured rule_code/snapshot."""
+    try:
+        entry = RuleHistory(
+            rule_id=rule_id if rule_id is not None else (rule.id if rule is not None else None),
+            rule_code=rule_code or (rule.code if rule is not None else ""),
+            action=action,
+            snapshot=json.dumps(snapshot if snapshot is not None else (_rule_snapshot(rule) if rule is not None else {}), ensure_ascii=False),
+            changed_fields=json.dumps(changed_fields or []),
+        )
+        db.add(entry)
+    except Exception:
+        pass
 
 
 @router.get("/impact")
@@ -61,7 +98,6 @@ def rules_impact(
         ]
 
     hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).order_by(Hospital.id).all()
-    hospital_map = {h.id: h.name for h in hospitals}
     rules = db.query(Rule).order_by(Rule.code).all()
     ind_map = {i.code: i.name for i in db.query(Indicator).all()}
 
@@ -231,9 +267,9 @@ def test_rule(body: dict, db: Session = Depends(get_db)):
         try:
             result = dispatch_rule(rule_obj, ctx)
         except KeyError as e:
-            raise HTTPException(status_code=400, detail=f"Missing required param: {e}")
+            raise HTTPException(status_code=400, detail=f"Missing required param: {e}") from e
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Evaluation error: {e}")
+            raise HTTPException(status_code=400, detail=f"Evaluation error: {e}") from e
 
         if result is None:
             per_hospital.append({
@@ -435,10 +471,126 @@ def save_rules_enabled(body: dict, db: Session = Depends(get_db)):
     for item in items:
         rule = db.query(Rule).filter(Rule.id == item.get("id")).first()
         if rule:
-            rule.enabled = bool(item.get("enabled", True))
+            new_enabled = bool(item.get("enabled", True))
+            if rule.enabled != new_enabled:
+                rule.enabled = new_enabled
+                _record_rule_history(db, rule, "enabled" if new_enabled else "disabled", ["enabled"])
             count += 1
     db.commit()
     return {"message": f"Saved enabled state for {count} rule(s)"}
+
+
+@router.get("/export")
+def export_rules(db: Session = Depends(get_db)):
+    """Export the full rule catalog as JSON for backup/restore and
+    environment-to-environment copying."""
+    from datetime import datetime
+    rules = db.query(Rule).order_by(Rule.code).all()
+    return {
+        "version": 1,
+        "exported_at": datetime.utcnow().isoformat(),
+        "count": len(rules),
+        "rules": [
+            dict(_rule_snapshot(r), sort_order=r.sort_order)
+            for r in rules
+        ],
+    }
+
+
+@router.post("/import")
+def import_rules(body: Union[dict, List[dict]] = Body(...), db: Session = Depends(get_db)):
+    """Import rules from an export payload: {"rules": [...]} (a bare list is
+    also accepted). Existing codes are updated, new codes are created."""
+    items = body.get("rules") if isinstance(body, dict) else body
+    if not isinstance(items, list):
+        raise HTTPException(status_code=400, detail="Body must contain a 'rules' list")
+    created, updated, skipped = 0, 0, []
+    for item in items:
+        if not isinstance(item, dict):
+            skipped.append({"code": None, "reason": "not an object"})
+            continue
+        code = str(item.get("code") or "").strip()
+        if not code:
+            skipped.append({"code": None, "reason": "missing code"})
+            continue
+        params = item.get("params")
+        if isinstance(params, dict):
+            params = json.dumps(params, ensure_ascii=False)
+        fields = {
+            "name": item.get("name") or code,
+            "rule_type": item.get("rule_type") or "LOGIC",
+            "severity": item.get("severity") or "MEDIUM",
+            "category": item.get("category") or "UNCATEGORIZED",
+            "expression_type": item.get("expression_type") or "ge",
+            "params": params if isinstance(params, str) else (params or "{}"),
+            "description": item.get("description") or "",
+        }
+        existing = db.query(Rule).filter(Rule.code == code).first()
+        if existing:
+            changed = [k for k, v in fields.items() if getattr(existing, k, None) != v]
+            for k, v in fields.items():
+                setattr(existing, k, v)
+            if "enabled" in item:
+                new_enabled = bool(item["enabled"])
+                if existing.enabled != new_enabled:
+                    existing.enabled = new_enabled
+                    changed.append("enabled")
+            if changed:
+                _record_rule_history(db, existing, "updated", changed)
+            updated += 1
+        else:
+            new_rule = Rule(code=code, **fields)
+            if "enabled" in item:
+                new_rule.enabled = bool(item["enabled"])
+            db.add(new_rule)
+            db.flush()
+            _record_rule_history(db, new_rule, "created", [])
+            created += 1
+    db.commit()
+    return {
+        "message": f"Imported {len(items)} rule(s): {created} created, {updated} updated, {len(skipped)} skipped",
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+    }
+
+
+@router.get("/history/{rule_code}")
+def rule_history(
+    rule_code: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+):
+    """Audit trail for a rule (by code, so it survives rule deletion).
+    Returns newest-first entries with parsed snapshots and changed fields."""
+    limit = max(1, min(limit, 200))
+    rows = (
+        db.query(RuleHistory)
+        .filter(RuleHistory.rule_code == rule_code)
+        .order_by(RuleHistory.created_at.desc(), RuleHistory.id.desc())
+        .limit(limit)
+        .all()
+    )
+    out = []
+    for row in rows:
+        try:
+            snap = json.loads(row.snapshot) if row.snapshot else None
+        except Exception:
+            snap = None
+        try:
+            changed = json.loads(row.changed_fields) if row.changed_fields else []
+        except Exception:
+            changed = []
+        out.append({
+            "id": row.id,
+            "rule_id": row.rule_id,
+            "rule_code": row.rule_code,
+            "action": row.action,
+            "snapshot": snap,
+            "changed_fields": changed,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        })
+    return {"rule_code": rule_code, "entries": out, "total": len(out)}
 
 
 @router.get("/{rule_id}", response_model=RuleOut)
@@ -465,6 +617,8 @@ def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
         description=rule.description,
     )
     db.add(db_rule)
+    db.flush()
+    _record_rule_history(db, db_rule, "created", [])
     db.commit()
     db.refresh(db_rule)
     return db_rule
@@ -476,8 +630,11 @@ def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_db)):
     if not db_rule:
         raise HTTPException(status_code=404, detail="Rule not found")
     update_data = rule.model_dump(exclude_unset=True)
+    changed = [k for k, v in update_data.items() if getattr(db_rule, k, None) != v]
     for key, val in update_data.items():
         setattr(db_rule, key, val)
+    if changed:
+        _record_rule_history(db, db_rule, "updated", changed)
     db.commit()
     db.refresh(db_rule)
     return db_rule
@@ -488,9 +645,13 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     db_rule = db.query(Rule).filter(Rule.id == rule_id).first()
     if not db_rule:
         raise HTTPException(status_code=404, detail="Rule not found")
+    code = db_rule.code
+    snap = _rule_snapshot(db_rule)
     db.delete(db_rule)
+    db.flush()  # rule row gone; rule_id FK must be NULL on the audit entry
+    _record_rule_history(db, None, "deleted", [], rule_id=None, rule_code=code, snapshot=snap)
     db.commit()
-    return {"message": f"Rule {db_rule.code} deleted"}
+    return {"message": f"Rule {code} deleted"}
 
 
 @router.put("/reorder")
@@ -514,6 +675,7 @@ def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
     rule.enabled = not rule.enabled
+    _record_rule_history(db, rule, "enabled" if rule.enabled else "disabled", ["enabled"])
     db.commit()
     db.refresh(rule)
     return {

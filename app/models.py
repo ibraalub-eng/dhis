@@ -1,6 +1,21 @@
 from datetime import datetime
-from sqlalchemy import Table, Column, Integer, String, Float, Text, ForeignKey, DateTime, Boolean, UniqueConstraint, Index, JSON
+
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import relationship
+
 from app.database import Base
 
 
@@ -145,7 +160,6 @@ class IndicatorValue(Base):
 
 class Rule(Base):
     __tablename__ = "rules"
-
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(50), unique=True, nullable=False, index=True)
     name = Column(String(500), nullable=False)
@@ -159,6 +173,21 @@ class Rule(Base):
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow)
+
+
+class RuleHistory(Base):
+    """Audit trail for rule changes (create/update/enable-toggle/delete).
+    Rows outlive the rule itself: rule_id is SET NULL on rule deletion while
+    rule_code keeps the trail queryable afterwards."""
+    __tablename__ = "rule_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rule_id = Column(Integer, ForeignKey("rules.id", ondelete="SET NULL"), nullable=True, index=True)
+    rule_code = Column(String(50), nullable=False, index=True)
+    action = Column(String(20), nullable=False)  # created | updated | enabled | disabled | deleted
+    snapshot = Column(Text, nullable=True)       # full rule JSON after the change
+    changed_fields = Column(Text, nullable=True) # JSON list of changed field names
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class ValidationResult(Base):

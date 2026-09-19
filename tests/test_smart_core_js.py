@@ -401,7 +401,7 @@ def test_no_raw_api_fetches_outside_auth_layer():
     allowed = {
         "auth.js": None,  # whole file exempt: the auth/bootstrap layer
         "admin.js": ["var resp = await fetch(API_BASE + path, opts);"],
-        "main.js": ["fetch(src).then"],  # /static/ tab HTML only
+        "main.js": ["fetch(src).then", "fetch(bustSrc).then"],  # /static/ tab HTML only (bustSrc = cache-busted src)
     }
     offenders = []
     for fname in sorted(os.listdir(root)):
