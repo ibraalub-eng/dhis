@@ -9,6 +9,7 @@ from app.cache import cache
 from app.models import (
     Hospital, Indicator, IndicatorValue,
     QualityScore, ValidationResult, ConfidenceScore, AnomalyResult,
+    Governorate, HospitalType, FacilityOwnership, FacilityType,
 )
 from app.schemas import HospitalOut, IndicatorOut, HospitalCreate
 from app.engine.pipeline import (

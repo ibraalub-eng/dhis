@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
-from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult
+from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult, SystemSetting
 from sqlalchemy import func, text
 from app.engine.pipeline import get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
