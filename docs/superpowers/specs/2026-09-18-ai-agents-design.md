@@ -157,7 +157,7 @@ All providers implement the same interface, already satisfied by the existing
 
 | Setting | Values | Effect |
 |---|---|---|
-| `ai_provider` | `local` \| `gemini` \| `openai_compatible` \| `auto` (default `auto`) | global provider for agents **when a profile has no explicit mapping** |
+| `agents_provider` | `local` \| `gemini` \| `openai_compatible` \| `auto` (default `auto`) | global provider for agents **when a profile has no explicit mapping** — new key; the existing `ai_provider` key stays as the single-shot provider |
 | `agent_provider_roles` | JSON role→provider map, default `{}` (below) | per-profile ("type of work") provider assignment |
 | `local_runtime` | `ollama` (default) | local runtime type |
 | `local_model` | e.g. `qwen3:8b` (default) | model name for the local provider |
@@ -172,7 +172,7 @@ hybrid: `{"report_writer": "gemini", "qa": "local", "explainer": "local",
 **Per-run resolution order (per profile):**
 1. If `agent_provider_roles[profile]` is set **and** that provider is configured
    and reachable → use it for that run.
-2. Otherwise resolve the global `ai_provider`:
+2. Otherwise resolve the global `agents_provider`:
    - `local` → local provider if configured and reachable, else deterministic
      fallback (no cloud).
    - `gemini` → the Gemini provider.
@@ -367,7 +367,7 @@ Explicit permission semantics:
 | Config | Effect |
 |---|---|
 | `agents_enabled` (**default OFF**) | OFF → all `/ai/agents/*` disabled (UI hidden, API returns `{enabled:false}`), existing AI features untouched. |
-| `ai_provider` / `agent_provider_roles` / `local_runtime` / `local_model` / `local_url` | provider resolution + per-role routing for agents (Section 3); independent of the kill-switch. |
+| `agents_provider` / `agent_provider_roles` / `local_runtime` / `local_model` / `local_url` | provider resolution + per-role routing for agents (Section 3); independent of the kill-switch. |
 
 Hospital scope: every tool limited to `get_user_hospital_ids` (server-enforced,
 Section 4).
@@ -379,7 +379,7 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
 ### 10. Kill-switch
 
 - New keys added to `AI_CONFIG_KEYS` (`app/config_utils.py`): `agents_enabled`
-  (default `"false"`), `ai_provider`, `agent_provider_roles`, `local_runtime`,
+  (default `"false"`), `agents_provider`, `agent_provider_roles`, `local_runtime`,
   `local_model`, `local_url` — stored in SystemSetting, editable from System
   Control → Settings → AI via the existing config GET/PUT endpoints (with
   validation: `agent_provider_roles` must be a JSON object mapping only the four
@@ -411,10 +411,10 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
   protocol shape (tools/done only), parallel batching, early finish, step/
   tool-call/token/runtime budget enforcement, JSON-parse failure + 429 retry +
   deterministic fallback, single-flight dedup, history compression, **provider
-  resolution: `ai_provider` = local/gemini/openai_compatible/auto (auto picks
-  local when configured and reachable, else default cloud); unreachable local
-  falls back without erroring; `agent_provider_roles` per-profile routing —
-  mapped role wins, unmapped role falls back to global `ai_provider`, mapped
+  resolution: `agents_provider` = local/gemini/openai_compatible/auto (auto
+  picks local when configured and reachable, else default cloud); unreachable
+  local falls back without erroring; `agent_provider_roles` per-profile routing —
+  mapped role wins, unmapped role falls back to global `agents_provider`, mapped
   but unreachable provider degrades to global without erroring; invalid
   `agent_provider_roles` rejected by settings validation**.
 - `tests/test_agents_tools.py` — **mandatory security/isolation suite**:
@@ -429,7 +429,7 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
 - `tests/test_agents_api.py` — permissions (403s), status endpoint with
   `agents_enabled` off/on and provider field, superadmin bypass, admin runs
   audit (retention-aware), admin provider settings round-trip
-  (`ai_provider`, `agent_provider_roles` validation included), conversation/
+  (`agents_provider`, `agent_provider_roles` validation included), conversation/
   messages round-trip with `message_type`.
 - `tests/test_agents_js.py` — static checks: gating vars, explain blocks, digest
   button label, `agents_enabled` hiding, provider radio/labels in the AI config
@@ -442,7 +442,7 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
 - Edited: `app/models.py` (3 tables), `app/plugins/ai/cache.py` (entity key +
   version stamp), `app/plugins/ai/providers.py` (local/Ollama provider config
   reusing the OpenAI-compatible path), `app/config_utils.py` (`agents_enabled`,
-  `ai_provider`, `agent_provider_roles`, `local_runtime`, `local_model`,
+  `agents_provider`, `agent_provider_roles`, `local_runtime`, `local_model`,
   `local_url` keys), `app/api/config_api.py` (validation + System Control AI
   settings), upload/analysis re-run hooks (data_version stamp bump),
   `static/css/styles.css`, `static/js/i18n.js`, `static/js/admin.js` (AI Agents
