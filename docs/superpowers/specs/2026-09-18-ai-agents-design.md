@@ -5,7 +5,7 @@
 
 ## Status
 Approved design (brainstorming complete, user-confirmed scope; updated per review
-rounds 1 and 2 — provider abstraction added)
+rounds 1–3 — provider abstraction + admin-controlled per-role provider routing)
 
 ## Problem
 The app already ships single-shot LLM features (`app/plugins/ai/`): generated
@@ -30,18 +30,20 @@ and free of cost/blowups on a free-tier Gemini key.
    `agents_enabled` default **OFF**. When OFF, all existing AI behavior is unchanged.
 6. **Grounding policy**: agents state only tool-returned facts; no invented data,
    thresholds, trends, or causal claims.
-7. **Provider abstraction**: the runtime resolves its synthesis model from
-   configuration — local LLM (Ollama), Gemini, OpenAI-compatible, or Auto — with
-   all agent behavior provider-independent.
+7. **Provider abstraction + admin routing**: the runtime resolves its synthesis
+   model from configuration — local LLM (Ollama), Gemini, OpenAI-compatible, or
+   Auto — with all agent behavior provider-independent. As admin, control the
+   on/off kill-switch, which providers are used, and which **type of work
+   (agent profile)** runs on each provider when two are running.
 
 ## Non-goals
 - No DB writes by agents (read-only tools). No production scheduler/cron.
 - No streaming/websockets/SSE. No agent-framework dependency (no LangGraph etc.).
 - No schema/seed changes for permissions (reuses existing `ai.read`/`ai.write`).
 - No parallel tool execution beyond the 3-call per-step batch already designed.
-- **No per-profile provider routing table in v1** (e.g. Q&A→local,
-  reports→Gemini). "Auto" resolves one provider per run; route-splitting is a
-  documented extension.
+- No per-profile provider routing is hard-coded in the runtime: role→provider
+  assignment is an admin-setting (`agent_provider_roles`), with the global
+  `ai_provider` selection as the fallback for roles without an explicit mapping.
 - Existing single-shot AI features are **not** rewired by the provider selector
   (it applies to the agents layer only).
 
@@ -155,16 +157,35 @@ All providers implement the same interface, already satisfied by the existing
 
 | Setting | Values | Effect |
 |---|---|---|
-| `ai_provider` | `local` \| `gemini` \| `openai_compatible` \| `auto` (default `auto`) | provider the agents runtime uses |
+| `ai_provider` | `local` \| `gemini` \| `openai_compatible` \| `auto` (default `auto`) | global provider for agents **when a profile has no explicit mapping** |
+| `agent_provider_roles` | JSON role→provider map, default `{}` (below) | per-profile ("type of work") provider assignment |
 | `local_runtime` | `ollama` (default) | local runtime type |
 | `local_model` | e.g. `qwen3:8b` (default) | model name for the local provider |
 | `local_url` | `http://localhost:11434` (default) | local provider base URL |
 
-- `auto` (default): use the **local provider if configured and reachable**, else
-  the existing default cloud provider. Exactly one provider is resolved per run;
-  per-profile routing (Q&A→local, reports→Gemini) is a documented extension, not
-  v1.
-- The `agents_enabled` toggle is independent of provider selection.
+**Role→provider routing (`agent_provider_roles`):** the admin assigns each of
+the four agent profiles (Q&A, explainer, report_writer, triage) to a provider
+(`local` / `gemini` / `openai_compatible`), or leaves a profile unset. Example
+hybrid: `{"report_writer": "gemini", "qa": "local", "explainer": "local",
+"triage": "local"}`.
+
+**Per-run resolution order (per profile):**
+1. If `agent_provider_roles[profile]` is set **and** that provider is configured
+   and reachable → use it for that run.
+2. Otherwise resolve the global `ai_provider`:
+   - `local` → local provider if configured and reachable, else deterministic
+     fallback (no cloud).
+   - `gemini` → the Gemini provider.
+   - `openai_compatible` → the OpenAI-compatible path.
+   - `auto` (default) → local provider if configured and reachable, else the
+     existing default cloud provider.
+
+`auto` with a role map therefore means: "use the role map; unset roles → local
+if reachable, else default cloud." A mapped provider that is down degrades to
+step 2 (global) for that role, never to an error. Exactly one provider is
+resolved per (profile, run).
+
+The `agents_enabled` toggle is independent of provider selection.
 
 **Expectation setting for local models:** small models (8B–12B) are weaker at
 strict tool-call JSON and may consume more budget steps or reach the
@@ -178,7 +199,7 @@ malformed JSON.
 |---|---|
 | Private / on-prem install | HEALTH-ai → Ollama → Qwen3 8B (fully offline) |
 | Cloud install | HEALTH-ai → Gemini |
-| Mixed | any single provider per run via config |
+| Hybrid | admin routes roles via `agent_provider_roles`, e.g. Q&A/triage/explainer → local Qwen3, report_writer → Gemini |
 
 In every mode: the same four agents, tools, permissions, hospital scope,
 grounding, budgets, caching, and fallback — only the synthesis model changes.
@@ -326,7 +347,8 @@ current user, and enforce hospital scope. Structured responses carry
 - Admin-only (System Control, `system.manage_users`):
   - `GET /ai/agents/runs` — paginated audit (metadata columns above).
   - `GET/PUT /ai/agents/admin` — per-user daily caps, `agents_enabled` toggle,
-    provider + local model settings, retention period.
+    `ai_provider` + local model settings + **`agent_provider_roles`
+    (per-profile provider assignment)**, retention period.
 
 Daily cap: per-user daily counter (default 20 runs/day) stops a single account,
 with a clear message.
@@ -345,7 +367,7 @@ Explicit permission semantics:
 | Config | Effect |
 |---|---|
 | `agents_enabled` (**default OFF**) | OFF → all `/ai/agents/*` disabled (UI hidden, API returns `{enabled:false}`), existing AI features untouched. |
-| `ai_provider` / `local_runtime` / `local_model` / `local_url` | provider resolution for agents (Section 3); independent of the kill-switch. |
+| `ai_provider` / `agent_provider_roles` / `local_runtime` / `local_model` / `local_url` | provider resolution + per-role routing for agents (Section 3); independent of the kill-switch. |
 
 Hospital scope: every tool limited to `get_user_hospital_ids` (server-enforced,
 Section 4).
@@ -357,9 +379,11 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
 ### 10. Kill-switch
 
 - New keys added to `AI_CONFIG_KEYS` (`app/config_utils.py`): `agents_enabled`
-  (default `"false"`), plus `ai_provider`, `local_runtime`, `local_model`,
-  `local_url` — stored in SystemSetting, editable from System Control →
-  Settings → AI via the existing config GET/PUT endpoints (with validation).
+  (default `"false"`), `ai_provider`, `agent_provider_roles`, `local_runtime`,
+  `local_model`, `local_url` — stored in SystemSetting, editable from System
+  Control → Settings → AI via the existing config GET/PUT endpoints (with
+  validation: `agent_provider_roles` must be a JSON object mapping only the four
+  profile names to known provider values).
 - Runtime reads them via `reload_ai_config()`-style refresh; the agents router
   checks `agents_enabled` before any work. When OFF, **no LLM call is made**.
 
@@ -375,9 +399,10 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
 - System Control gains an **AI Agents admin view**: `agent_runs` audit table
   (showing data_version, model, language, cache_hit, fallback_used, duration,
   status), daily-cap fields, `agents_enabled` toggle, **AI provider radio
-  (Local / Gemini / OpenAI-compatible / Auto) with local fields (runtime, model,
-  URL)**, retention setting — admin-only, mirroring Users/Logs patterns in
-  `admin.js`.
+  (Local / Gemini / OpenAI-compatible / Auto), per-profile ("type of work")
+  provider dropdowns for the four agents (uses global selection when unset),
+  and local fields (runtime, model, URL)**, retention setting — admin-only,
+  mirroring Users/Logs patterns in `admin.js`.
 - i18n keys added for every new static string (EN + AR) per repo policy.
 
 ### 12. Tests (TDD — write failing tests first)
@@ -388,7 +413,10 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
   deterministic fallback, single-flight dedup, history compression, **provider
   resolution: `ai_provider` = local/gemini/openai_compatible/auto (auto picks
   local when configured and reachable, else default cloud); unreachable local
-  falls back without erroring**.
+  falls back without erroring; `agent_provider_roles` per-profile routing —
+  mapped role wins, unmapped role falls back to global `ai_provider`, mapped
+  but unreachable provider degrades to global without erroring; invalid
+  `agent_provider_roles` rejected by settings validation**.
 - `tests/test_agents_tools.py` — **mandatory security/isolation suite**:
   - User A (hospital A) requests hospital B → `ACCESS_DENIED`.
   - Invalid hospital ID / malformed month → rejected.
@@ -400,7 +428,8 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
   - Daily-cap enforcement.
 - `tests/test_agents_api.py` — permissions (403s), status endpoint with
   `agents_enabled` off/on and provider field, superadmin bypass, admin runs
-  audit (retention-aware), admin provider settings round-trip, conversation/
+  audit (retention-aware), admin provider settings round-trip
+  (`ai_provider`, `agent_provider_roles` validation included), conversation/
   messages round-trip with `message_type`.
 - `tests/test_agents_js.py` — static checks: gating vars, explain blocks, digest
   button label, `agents_enabled` hiding, provider radio/labels in the AI config
@@ -413,12 +442,13 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
 - Edited: `app/models.py` (3 tables), `app/plugins/ai/cache.py` (entity key +
   version stamp), `app/plugins/ai/providers.py` (local/Ollama provider config
   reusing the OpenAI-compatible path), `app/config_utils.py` (`agents_enabled`,
-  `ai_provider`, `local_runtime`, `local_model`, `local_url` keys),
-  `app/api/config_api.py` (validation + System Control AI settings),
-  upload/analysis re-run hooks (data_version stamp bump), `static/css/styles.css`,
-  `static/js/i18n.js`, `static/js/admin.js` (AI Agents admin view + provider
-  settings), existing report/anomaly UI (explain buttons), `app/main.py` route
-  registration if needed.
+  `ai_provider`, `agent_provider_roles`, `local_runtime`, `local_model`,
+  `local_url` keys), `app/api/config_api.py` (validation + System Control AI
+  settings), upload/analysis re-run hooks (data_version stamp bump),
+  `static/css/styles.css`, `static/js/i18n.js`, `static/js/admin.js` (AI Agents
+  admin view + provider settings incl. per-role dropdowns), existing
+  report/anomaly UI (explain buttons), `app/main.py` route registration if
+  needed.
 
 ## Verification
 - Full pytest suite green (currently 1237); `node --check` on new/modified JS.
@@ -427,4 +457,7 @@ seed — admins grant via the existing Role editor / Direct-Permission picker.
   FACTS block; quota exhausted (mock 429) → deterministic fallback, HTTP 200;
   restricted user cannot obtain another hospital's numbers via chat, cache, or
   malformed args; provider = `auto` with local reachable → runs against local
-  (Ollama), with local unreachable → cloud fallback, HTTP 200.
+  (Ollama), with local unreachable → cloud fallback, HTTP 200; hybrid
+  `agent_provider_roles` {report_writer→gemini, others→local} → report run
+  records `model/provider=gemini`, Q&A run records local, unmapped profile
+  follows global selection.
