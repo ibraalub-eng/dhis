@@ -175,6 +175,11 @@ def get_ai_settings(db: Session = Depends(get_db)):
 @router.put("/ai/settings")
 @safe_endpoint("Error saving AI settings")
 def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
+    from app.config_utils import validate_agents_config
+    try:
+        validate_agents_config(updates)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     for key, val in updates.items():
         if key not in AI_CONFIG_KEYS:
             continue
@@ -184,7 +189,7 @@ def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
         else:
             db.add(SystemSetting(key=key, value=str(val)))
     db.commit()
-    from app.plugins.ai import reload_ai_config
+    from app.plugins.ai.providers import reload_ai_config
     reload_ai_config()
     return {"status": "ok", "updated": len(updates)}
 
