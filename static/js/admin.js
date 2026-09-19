@@ -126,6 +126,27 @@ window._adminChangePassword = function(id, btn) {
 window._adminAssignHospitals = function(id, btn) {
     assignHospitals(id, btn.getAttribute('data-username'));
 };
+  // KPI strip hydration: populate the Online / Logs / Database cards as soon
+  // as the panel renders, instead of lazily on first visit to each sub-tab.
+  // Sub-tab loaders stay unchanged — visiting Logs/Sessions/Database still
+  // refreshes their panels (idempotently re-setting the same KPI values).
+  window._hydrateAdminKpis = async function() {
+    try {
+      var sessionsData = await api('/auth/sessions?limit=100');
+      var onlineIds = (sessionsData && !sessionsData._error && sessionsData.online) || [];
+      _adminKpi('adminKpiOnline', onlineIds.length);
+    } catch(e) { /* leave placeholder */ }
+    try {
+      var logsData = await api('/logs?level=WARNING&limit=200');
+      _adminKpi('adminKpiLogs', (logsData && !logsData._error) ? (logsData.entries || []).length : '—');
+    } catch(e) { /* leave placeholder */ }
+    try {
+      var dbData = await api("/config/database-status");
+      if (!dbData || dbData._error) { _adminKpi('adminKpiDb', '\u2717 ?'); }
+      else { _adminKpi('adminKpiDb', dbData.connected ? ('\u2713 ' + (dbData.engine || __('Connected'))) : '\u2717 ' + __('Not connected')); }
+    } catch(e) { /* leave placeholder */ }
+  };
+
   window.loadAdminPanel = async function() {
     var container = document.getElementById('tab-admin');
     if (!container) return;
@@ -634,6 +655,7 @@ window._adminAssignHospitals = function(id, btn) {
     `;
     // Reset flags since DOM was rebuilt
     window._adminDbLoaded = false;
+    _hydrateAdminKpis();
   } catch(e) {
     container.innerHTML = '<div style="padding:2rem;text-align:center;">' +
       '<h3 style="color:var(--accent-red);margin-bottom:0.5rem;">Error Loading System Control</h3>' +
@@ -1470,20 +1492,19 @@ window._adminAssignHospitals = function(id, btn) {
     }
   };
   window.exportLogsCSV = function() {
-    var container=document.getElementById('logsContainer');
-    if(!container)return;
-    var rows=container.querySelectorAll('div[style]');
-    if(!rows.length){return;}
+    var entries=window._logsEntries||[];
+    if(!entries.length){
+      if(typeof toastWarning==='function')toastWarning(__('No log entries to export'));
+      return;
+    }
+    function csvField(v){
+      // Quote every field; embedded double-quotes are doubled per RFC 4180,
+      // so commas/quotes/newlines inside messages cannot corrupt the file.
+      return '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+    }
     var csv='Time,Level,Logger,Message\n';
-    rows.forEach(function(row){
-      var spans=row.querySelectorAll('span');
-      if(spans.length>=4){
-        var time=spans[0].textContent.trim();
-        var level=spans[1].textContent.trim();
-        var logger=spans[2].textContent.trim();
-        var message=spans[3].textContent.trim().replace(/"/g,'""');
-        csv+='"'+time+'","'+level+'","'+logger+'","'+message+'"\n';
-      }
+    entries.forEach(function(e){
+      csv+=csvField(e.time)+','+csvField(e.level)+','+csvField(e.logger)+','+csvField(e.message)+'\n';
     });
     var blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
     var url=URL.createObjectURL(blob);

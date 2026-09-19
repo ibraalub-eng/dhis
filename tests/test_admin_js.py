@@ -159,3 +159,65 @@ def test_admin_roles_tab_links_to_permission_matrix():
     js = _read("admin.js")
     assert "editRolePermsInMatrix" in js
     assert "permCol-" in js
+
+
+# ── Task 3: KPI strip hydrated on panel load ──────────────────────
+
+def test_admin_kpi_hydration_on_panel_load():
+    """The KPI strip (Online / Logs / Database) must hydrate as soon as the
+    admin panel loads — not lazily on first visit to each sub-tab. The
+    hydration must be a named function that loadAdminPanel calls, and it
+    must fetch all three KPI sources."""
+    js = _read("admin.js")
+    assert "window._hydrateAdminKpis = " in js, "missing _hydrateAdminKpis"
+    # loadAdminPanel must invoke it after the panel fetches succeed
+    panel_idx = js.index("window.loadAdminPanel = async function")
+    hydrate_idx = js.index("window._hydrateAdminKpis = ")
+    assert re.search(r"_hydrateAdminKpis\(\)", js[panel_idx:panel_idx + 6000]) or \
+           js.find("_hydrateAdminKpis()", panel_idx) != -1, (
+        "loadAdminPanel must call _hydrateAdminKpis()"
+    )
+    # Hydration must cover all three KPI sources
+    fn = js[hydrate_idx:hydrate_idx + 2500]
+    assert "'/auth/sessions?limit=100'" in fn or '"/auth/sessions?limit=100"' in fn
+    assert "'/logs?level=WARNING&limit=200'" in fn or '"/logs?level=WARNING&limit=200"' in fn
+    assert 'api("/config/database-status")' in fn or "api('/config/database-status')" in fn
+
+
+def test_admin_kpi_hydration_does_not_disturb_subtab_loaders():
+    """Visiting Logs/Sessions/Database tabs must still refresh their panels
+    (idempotent), and the hydration path must set the KPIs via _adminKpi."""
+    js = _read("admin.js")
+    assert 'if(tab==="logs"){loadAdminLogs();_startLogsAutoRefresh();}' in js
+    assert 'if(tab==="sessions"){loadSessions();}' in js
+    assert 'if(tab==="database"){loadAdminDbStatus();' in js
+    hydrate_idx = js.index("window._hydrateAdminKpis = ")
+    fn = js[hydrate_idx:hydrate_idx + 2500]
+    assert fn.count("_adminKpi(") >= 3, "hydration must set all three KPI cards"
+
+
+# ── Task 4: logs CSV export reads the data, not the DOM ────────────
+
+def test_admin_logs_csv_export_is_data_driven():
+    """exportLogsCSV must serialize window._logsEntries directly — DOM
+    scraping silently breaks whenever the row layout changes."""
+    js = _read("admin.js")
+    start = js.index("window.exportLogsCSV = function")
+    fn = js[start:js.index("};", start) + 2]
+    assert "window._logsEntries" in fn, "export must read _logsEntries"
+    assert "querySelectorAll" not in fn, "export must not scrape the DOM"
+    # filename pattern preserved
+    assert "server-logs-" in fn
+    # empty case handled with a user-visible warning, not a silent no-op
+    assert "toastWarning" in fn or "toast" in fn.lower()
+
+
+def test_admin_logs_csv_escapes_csv_specials():
+    """CSV fields must be quoted so commas/quotes/newlines in log messages
+    cannot corrupt the file."""
+    js = _read("admin.js")
+    start = js.index("window.exportLogsCSV = function")
+    fn = js[start:js.index("};", start) + 2]
+    # every field goes through a quoting helper that doubles embedded quotes
+    assert 'replace(/"/g' in fn or 'csvEscape' in fn
+    assert 'Time,Level,Logger,Message' in fn

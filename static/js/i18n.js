@@ -944,6 +944,7 @@
             'revoked': 'تم إلغاؤها',
             'Connected': 'متصل',
             'Not connected': 'غير متصل',
+            'No log entries to export': 'لا توجد سجلات للتصدير',
             'Delete Role': 'حذف الدور',
             'Delete this role? Users with this role will lose its permissions.': 'حذف هذا الدور؟ سيفقد المستخدمون المرتبطون به صلاحياته.',
             'Deactivate User': 'تعطيل المستخدم',
