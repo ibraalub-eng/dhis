@@ -1,0 +1,20 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+  - repo: local
+    hooks:
+      - id: check-js
+        name: JS syntax check (static/js)
+        entry: node scripts/check-js.js
+        language: node
+        pass_filenames: false
+        types_or: [javascript]
+      - id: validate-imports
+        name: ES module import validation
+        entry: node scripts/validate-imports.js
+        language: node
+        pass_filenames: false
+        types_or: [javascript]

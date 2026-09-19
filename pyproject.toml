@@ -1,0 +1,32 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = [
+    ".venv",
+    "alembic/versions",   # generated migrations have their own style
+    "data",
+    "static",
+]
+
+[tool.ruff.lint]
+# Start pragmatic: correctness rules only, no style wars on a legacy codebase.
+select = [
+    "E",   # pycodestyle errors (subset fits line-length 120)
+    "F",   # pyflakes — real bugs (unused, undefined, f-string issues)
+    "W",   # warnings
+    "B",   # bugbear — common footguns
+    "I",   # import sorting (autofix)
+]
+ignore = [
+    "E501",  # line length handled by formatter tolerance; legacy code has long lines
+    "B008",  # FastAPI Depends() in defaults is idiomatic
+    "E402",  # app.main deliberately imports after load_dotenv(); whole file is noqa-annotated
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests keep the loose style of the existing suite
+"tests/*" = ["B011", "E741"]
+"scripts/*" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "scripts"]

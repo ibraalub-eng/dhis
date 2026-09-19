@@ -43,6 +43,19 @@ jobs:
       - name: Validate ES module imports
         run: node scripts/validate-imports.js
 
+  validate-agents:
+    name: Validate agent definitions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lint .agents frontmatter
+        run: python scripts/check_agents.py
+
   validate-python:
     name: Validate Python
     runs-on: ubuntu-latest
@@ -71,4 +84,53 @@ jobs:
             echo "FAILED: $ERRORS file(s) have syntax errors."
             exit 1
           fi
+
+  test-python:
+    name: Test Python (pytest)
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///test_ci.db
+      JWT_SECRET: ci-test-secret-not-for-production
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run full test suite
+        run: python -m pytest tests/ -q --no-header
+
+  migrations:
+    name: Migrations (upgrade/downgrade chain)
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: sqlite:///migrate_ci.db
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: upgrade head -> downgrade base -> upgrade head
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: Verify schema matches models
+        run: python -c "from app.database import Base; from app import models; print('models import OK,', len(Base.metadata.tables), 'tables')"
           echo "All Python files passed syntax validation."

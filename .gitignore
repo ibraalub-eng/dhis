@@ -29,6 +29,20 @@ data/models/*
 # Worktrees
 .worktrees/
 
+# Dev-server logs and preview artifacts
+uvicorn*.log
+*.err.log
+.freebuff/
+
+# Runtime caches
+data/cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node (tooling only — app is vanilla JS)
+node_modules/
+
 # OS
 Thumbs.db
 .DS_Store
