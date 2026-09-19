@@ -454,3 +454,73 @@ class MenuItem(Base):
     group = relationship("MenuGroup", back_populates="items")
 
     __table_args__ = (UniqueConstraint("group_id", "tab_key"),)
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(200), nullable=False, default="")
+    lang = Column(String(10), nullable=False, default="en")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class Message(Base):
+    __tablename__ = "messages"
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=False, index=True)
+    message_type = Column(String(10), nullable=False)   # user | assistant | tool | system
+    role = Column(String(10), nullable=False, default="user")
+    content = Column(Text, nullable=False)
+    tool_steps = Column(JSON, nullable=True)
+    token_usage = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (Index("ix_msg_conv_created", "conversation_id", "created_at"),)
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    agent = Column(String(30), nullable=False)
+    conversation_id = Column(Integer, ForeignKey("conversations.id"), nullable=True)
+    status = Column(String(20), nullable=False, default="completed")
+    duration_ms = Column(Integer, nullable=True)
+    steps = Column(Integer, nullable=False, default=0)
+    tool_calls = Column(JSON, nullable=True)
+    tokens = Column(JSON, nullable=True)
+    data_version = Column(String(40), nullable=True)
+    model = Column(String(100), nullable=True)
+    provider = Column(String(30), nullable=True)
+    language = Column(String(10), nullable=True)
+    cache_hit = Column(Boolean, nullable=False, default=False)
+    fallback_used = Column(Boolean, nullable=False, default=False)
+    hospital_scope_hash = Column(String(64), nullable=True)
+    permission_scope_hash = Column(String(64), nullable=True)
+    prompt_hash = Column(String(64), nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    __table_args__ = (
+        Index("ix_agent_runs_user_created", "user_id", "created_at"),
+        Index("ix_agent_runs_created", "created_at"),
+    )
+
+
+class AgentCache(Base):
+    __tablename__ = "agent_cache"
+    id = Column(Integer, primary_key=True, index=True)
+    cache_key = Column(String(200), nullable=False, unique=True, index=True)
+    result_json = Column(Text, nullable=False)
+    data_version = Column(String(40), nullable=True)
+    hospital_scope_hash = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=True)
+
+
+class AgentDataVersion(Base):
+    __tablename__ = "agent_data_versions"
+    id = Column(Integer, primary_key=True, index=True)
+    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=False, index=True)
+    month = Column(String(7), nullable=False)
+    version = Column(Integer, nullable=False, default=0)
+    __table_args__ = (UniqueConstraint("hospital_id", "month", name="uq_agent_dv_hosp_month"),)
