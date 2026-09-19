@@ -1,27 +1,64 @@
 from dotenv import load_dotenv
+
 load_dotenv()
 
-from contextlib import asynccontextmanager  # noqa: E402
-from fastapi import FastAPI  # noqa: E402
-from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.staticfiles import StaticFiles  # noqa: E402
-from fastapi.responses import HTMLResponse  # noqa: E402
-from alembic.config import Config  # noqa: E402
-from alembic import command  # noqa: E402
-from alembic.script import ScriptDirectory  # noqa: E402
-from app.database import init_db, SessionLocal, engine  # noqa: E402
-from app.models import AppConfig, FacilityOwnership, FacilityType, Governorate, HospitalType  # noqa: E402
-from app.monitoring import monitoring_middleware, setup_structured_logging, generate_latest, CONTENT_TYPE_LATEST, REGISTRY  # noqa: E402
-from app.api import upload, hospitals, reports, analysis, rules as rules_api, clinical, alerts, confidence, config_api, root_cause, dashboard, file_ops, indicator_config, tree_config, audit as audit_api, governorates as governorates_api, hospital_types as hospital_types_api, facility_ownerships as facility_ownerships_api, facility_types as facility_types_api, smart_analytics as smart_analytics_router, comparative as comparative_router, export as export_router, regional as regional_router, auth as auth_router, admin as admin_router, server_logs as server_logs_router, menu as menu_router  # noqa: E402
-from app.tasks import get_task  # noqa: E402
-from app.config import DATABASE_URL, UPLOAD_DIR, BASE_DIR, DATA_DIR  # noqa: E402
-from scripts.seed_indicators import seed_indicators  # noqa: E402
-from scripts.seed_rules import seed_rules  # noqa: E402
-from scripts.seed_hospital_metadata import seed_hospital_metadata  # noqa: E402
-from scripts.seed_menu import seed_menu  # noqa: E402
+import logging  # noqa: E402
 import os  # noqa: E402
 import re  # noqa: E402
-import logging  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+
+from alembic.config import Config  # noqa: E402
+from alembic.script import ScriptDirectory  # noqa: E402
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import HTMLResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
+
+from alembic import command  # noqa: E402
+from app.api import admin as admin_router
+from app.api import (  # noqa: E402
+    alerts,
+    analysis,
+    clinical,
+    confidence,
+    config_api,
+    dashboard,
+    file_ops,
+    hospitals,
+    indicator_config,
+    reports,
+    root_cause,
+    tree_config,
+    upload,
+)
+from app.api import audit as audit_api
+from app.api import auth as auth_router
+from app.api import comparative as comparative_router
+from app.api import export as export_router
+from app.api import facility_ownerships as facility_ownerships_api
+from app.api import facility_types as facility_types_api
+from app.api import governorates as governorates_api
+from app.api import hospital_types as hospital_types_api
+from app.api import menu as menu_router
+from app.api import regional as regional_router
+from app.api import rules as rules_api
+from app.api import server_logs as server_logs_router
+from app.api import smart_analytics as smart_analytics_router
+from app.config import BASE_DIR, DATABASE_URL, UPLOAD_DIR  # noqa: E402
+from app.database import SessionLocal, engine, init_db  # noqa: E402
+from app.models import AppConfig, FacilityOwnership, FacilityType, Governorate, HospitalType  # noqa: E402
+from app.monitoring import (  # noqa: E402
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    generate_latest,
+    monitoring_middleware,
+    setup_structured_logging,
+)
+from app.tasks import get_task  # noqa: E402
+from scripts.seed_hospital_metadata import seed_hospital_metadata  # noqa: E402
+from scripts.seed_indicators import seed_indicators  # noqa: E402
+from scripts.seed_menu import seed_menu  # noqa: E402
+from scripts.seed_rules import seed_rules  # noqa: E402
 
 setup_structured_logging(logging.INFO)
 
@@ -164,6 +201,44 @@ def run_alembic_upgrade():
 
 _startup_done = False
 
+# Schema-sync state, surfaced via /health: None = unknown, True/False after check.
+schema_in_sync = None
+
+
+def _check_migration_sync():
+    """Compare the DB's applied alembic revision to the code's head revision.
+    Model/migration drift has caused production 500s (UndefinedColumn); make
+    that state visible at startup and in /health instead of discovered via
+    broken endpoints. Non-fatal by design."""
+    global schema_in_sync
+    try:
+        alembic_cfg = Config(os.path.join(BASE_DIR, "alembic.ini"))
+        alembic_cfg.set_main_option("sqlalchemy.url", DATABASE_URL)
+        script = ScriptDirectory.from_config(alembic_cfg)
+        head_rev = script.get_current_head()
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            try:
+                row = conn.execute(text("SELECT version_num FROM alembic_version")).fetchone()
+            except Exception:
+                row = None
+        applied = row[0] if row else None
+        if applied == head_rev:
+            schema_in_sync = True
+            print(f"[startup] Schema in sync (revision {head_rev})")
+        else:
+            schema_in_sync = False
+            msg = (
+                f"[startup] *** SCHEMA DRIFT *** database revision {applied} != code head {head_rev}. "
+                "Run 'alembic upgrade head' on this database. Endpoints touching "
+                "newer columns may 500 until then."
+            )
+            print(msg)
+            logging.getLogger("uvicorn.error").warning(msg)
+    except Exception as e:
+        schema_in_sync = None
+        print(f"[startup] Migration-sync check skipped: {e}")
+
 
 def _db_already_initialized(session):
     """Check if migrations + seeding have already run (idempotent startup).
@@ -176,7 +251,8 @@ def _db_already_initialized(session):
     initialized, otherwise pending migrations are never retried and code that
     references the new tables 500s (e.g. /dashboard/overview).
     """
-    from sqlalchemy import inspect as sa_inspect, text
+    from sqlalchemy import inspect as sa_inspect
+    from sqlalchemy import text
     try:
         inspector = sa_inspect(session.get_bind())
         tables = inspector.get_table_names()
@@ -214,8 +290,8 @@ def _ensure_all_tables():
     tables that are missing, so this safely heals such drift at every boot.
     """
     try:
-        from app.database import Base as _Base
         from app import models  # noqa: F401  register every model in metadata
+        from app.database import Base as _Base
         _Base.metadata.create_all(engine, checkfirst=True)
         print("[startup] Missing model tables ensured (create_all checkfirst).")
     except Exception as e:
@@ -240,8 +316,10 @@ def _ensure_required_columns(engine=None):
         alembic will never revisit because the DB is stamped at head.
     """
     try:
-        from sqlalchemy import inspect as sa_inspect, text
+        from sqlalchemy import inspect as sa_inspect
+        from sqlalchemy import text
         from sqlalchemy.schema import CreateColumn
+
         from app.database import Base as _Base
         if engine is None:
             from app.database import engine as _db_engine
@@ -339,7 +417,7 @@ def _ensure_permission_rows(session, codenames):
     from app.models import Permission
     for codename in codenames:
         if session.query(Permission.id).filter(Permission.codename == codename).first() is None:
-            session.add(Permission(codename=codename, description=f"Auto-granted permission"))
+            session.add(Permission(codename=codename, description="Auto-granted permission"))
     session.commit()
 
 
@@ -372,7 +450,7 @@ CANONICAL_PERMISSION_CODENAMES = [
 def _ensure_admin_user(session):
     """Seed default admin user if users table is empty."""
     try:
-        from app.models import User, Role
+        from app.models import Role, User
         _ensure_permission_rows(session, CANONICAL_PERMISSION_CODENAMES)
 
         admin = session.query(User).filter(User.username == "admin").first()
@@ -494,8 +572,8 @@ def _ensure_admin_user(session):
 @asynccontextmanager
 def _deactivate_hospitals_without_data(session):
     """Mark hospitals as inactive if they have no indicator values loaded."""
+
     from app.models import Hospital, IndicatorValue
-    from sqlalchemy import func
 
     # Get hospital IDs that have at least one indicator value
     hospitals_with_data = set(
@@ -529,6 +607,7 @@ async def lifespan(app: FastAPI):
         return
     init_db()
     _log_db_info()
+    _check_migration_sync()
     _ensure_all_tables()
     # Heal missing columns too (create_all only creates missing tables; a DB
     # stamped at head with an older column shape would otherwise 500 endpoints
@@ -677,7 +756,7 @@ def health():
             db.execute(_sa_func.now())
         finally:
             db.close()
-        return {"status": "ok", "database": "ok", "version": "0.1.0"}
+        return {"status": "ok", "database": "ok", "version": "0.1.0", "schema_in_sync": schema_in_sync}
     except Exception as exc:  # pragma: no cover - defensive for readiness
         return JSONResponse(
             status_code=503,
