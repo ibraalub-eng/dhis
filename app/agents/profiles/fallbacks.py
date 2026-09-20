@@ -10,7 +10,8 @@ MAX_ANOMALIES = 20
 MAX_HOSPITALS = 20
 QUALITY_THRESHOLD = 60.0
 
-_GRADE = lambda s: "good" if (s or 0) >= 80 else ("moderate" if (s or 0) >= 60 else "poor")
+def _GRADE(s):
+    return "good" if (s or 0) >= 80 else ("moderate" if (s or 0) >= 60 else "poor")
 
 _AR = {
     "quality": "جودة البيانات",

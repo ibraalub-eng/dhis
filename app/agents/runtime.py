@@ -5,10 +5,16 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
-from app.agents.llm import resolve_agent_provider, llm_chat
-from app.agents.tools import execute_tool, ToolContext
-from app.agents.cache import (get_agent_cache, set_agent_cache,
-                              build_agent_cache_key, current_data_version)
+from app.agents.cache import (
+    build_agent_cache_key,
+    current_data_version,
+    get_agent_cache,
+    set_agent_cache,
+)
+from app.agents.llm import llm_chat, resolve_agent_provider
+from app.agents.tools import ToolContext, execute_tool
+
+MAX_NON_PROGRESS_RETRIES = 2
 
 
 def _h(value):
@@ -24,7 +30,7 @@ def _strip_and_parse(text):
     try:
         return json.loads(t)
     except ValueError:
-        raise ValueError("not JSON")
+        raise ValueError("not JSON") from None
 
 
 def _parse_step(text):
@@ -98,11 +104,15 @@ def run_agent(*, profile, user, db, month, lang="en", entity="", question="",
                                hospital_scope_hash=hospital_scope_hash,
                                permission_scope_hash=permission_scope_hash, prompt_hash=prompt_hash)
 
-    resolved = resolve_agent_provider(profile, db)
+    try:
+        resolved = resolve_agent_provider(profile, db)
+    except Exception:
+        resolved = None
     caller = llm_caller or llm_chat
     executor = tool_executor or execute_tool
     calls_made = 0
     steps = 0
+    retries = 0
     tool_log = []
     tokens = {"in": 0, "out": 0}
     system = P["system_prompt"]
@@ -126,59 +136,76 @@ def run_agent(*, profile, user, db, month, lang="en", entity="", question="",
 
     def _budget_ok():
         return (steps < P["max_steps"] and calls_made < P["max_tool_calls"]
+                and tokens["in"] < P["max_input_tokens"]
+                and retries < MAX_NON_PROGRESS_RETRIES
                 and time.time() - start < P["max_runtime_s"])
 
-    while _budget_ok():
-        user_content = "\n".join(transcript_parts) if transcript_parts else "_"
-        try:
-            result = caller(resolved, system, user_content,
-                            max_output_tokens=P["max_output_tokens"],
-                            timeout=30.0)
-        except Exception:
-            result = None
-        if result is None or not result.text:
-            break
-        tokens["in"] += getattr(result, "prompt_tokens", 0) or 0
-        tokens["out"] += getattr(result, "completion_tokens", 0) or 0
-        try:
-            step = _parse_step(result.text)
-        except ValueError:
-            transcript_parts.append("The response was not valid JSON. Reply with only a JSON object.")
-            continue
-        if step["done"]:
-            answer = step["answer"]
-            final = step
-            break
-        batch = [t for t in step["tools"][:3]
-                 if t["name"] in P["allowed_tools"]]
-        rejected = [t for t in step["tools"][:3]
-                    if t["name"] not in P["allowed_tools"]]
-        if rejected:
-            # spec §12: an unauthorized tool is rejected with a validation
-            # observation BEFORE any execution
-            obs = [{"tool": t["name"], "result": {"ok": False,
-                   "error": f"validation: tool {t['name']} is not allowed for profile {profile}"}}
-                   for t in rejected]
+    if resolved is not None:
+        while _budget_ok():
+            user_content = "\n".join(transcript_parts) if transcript_parts else "_"
+            try:
+                result = caller(resolved, system, user_content,
+                                max_output_tokens=P["max_output_tokens"],
+                                timeout=30.0)
+            except Exception:
+                result = None
+            if result is None or not result.text:
+                break
+            tokens["in"] += getattr(result, "prompt_tokens", 0) or 0
+            tokens["out"] += getattr(result, "completion_tokens", 0) or 0
+            try:
+                step = _parse_step(result.text)
+            except ValueError:
+                retries += 1
+                if retries >= MAX_NON_PROGRESS_RETRIES:
+                    break
+                transcript_parts.append("The response was not valid JSON. Reply with only a JSON object.")
+                continue
+            if step["done"]:
+                answer = step["answer"]
+                final = step
+                break
+            batch = [t for t in step["tools"][:3]
+                     if t["name"] in P["allowed_tools"]]
+            rejected = [t for t in step["tools"][:3]
+                        if t["name"] not in P["allowed_tools"]]
+            if rejected:
+                # spec §12: an unauthorized tool is rejected with a validation
+                # observation BEFORE any execution
+                retries += 1
+                if retries >= MAX_NON_PROGRESS_RETRIES:
+                    break
+                obs = [{"tool": t["name"], "result": {"ok": False,
+                       "error": f"validation: tool {t['name']} is not allowed for profile {profile}"}}
+                       for t in rejected]
+                transcript_parts.append("Tool observations: " + json.dumps(obs, ensure_ascii=False)[:4000])
+                continue
+            if not batch and not rejected:
+                retries += 1
+                if retries >= MAX_NON_PROGRESS_RETRIES:
+                    break
+                transcript_parts.append("No tools specified. Respond with {\"done\": true, ...} to finish.")
+                continue
+            room = P["max_tool_calls"] - calls_made
+            if room <= 0:
+                break
+            batch = batch[:room]
+            obs = []
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                futures = {t["name"]: pool.submit(executor, t["name"], t["args"], ctx) for t in batch}
+                for t in batch:
+                    calls_made += 1
+                    tool_log.append(t)
+                    try:
+                        r = futures[t["name"]].result()
+                    except Exception as e:
+                        r = {"ok": False, "error": f"tool error: {e}"}
+                    obs.append({"tool": t["name"], "result": r})
+            retries = 0
+            steps += 1
             transcript_parts.append("Tool observations: " + json.dumps(obs, ensure_ascii=False)[:4000])
-            continue
-        if not batch and not rejected:
-            transcript_parts.append("No tools specified. Respond with {\"done\": true, ...} to finish.")
-            continue
-        obs = []
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            futures = {t["name"]: pool.submit(executor, t["name"], t["args"], ctx) for t in batch}
-            for t in batch:
-                calls_made += 1
-                tool_log.append(t)
-                try:
-                    r = futures[t["name"]].result()
-                except Exception as e:
-                    r = {"ok": False, "error": f"tool error: {e}"}
-                obs.append({"tool": t["name"], "result": r})
-        steps += 1
-        transcript_parts.append("Tool observations: " + json.dumps(obs, ensure_ascii=False)[:4000])
-        if calls_made >= P["max_tool_calls"]:
-            break
+            if calls_made >= P["max_tool_calls"]:
+                break
 
     if not final:
         # degrade deterministically
@@ -197,16 +224,19 @@ def run_agent(*, profile, user, db, month, lang="en", entity="", question="",
         agent_facts = []
         status = "completed"
 
-    try:
-        set_agent_cache(db, key, {"answer": answer, "facts": agent_facts, "sources": [],
-                                  "provider": resolved.provider, "model": resolved.model},
-                        data_version=data_version, hospital_scope_hash=hospital_scope_hash)
-    except Exception:
-        pass
+    provider_name = resolved.provider if resolved is not None else ""
+    model_name = resolved.model if resolved is not None else ""
+    if status == "completed":
+        try:
+            set_agent_cache(db, key, {"answer": answer, "facts": agent_facts, "sources": [],
+                                      "provider": provider_name, "model": model_name},
+                            data_version=data_version, hospital_scope_hash=hospital_scope_hash)
+        except Exception:
+            pass
 
     return AgentResult(agent=profile, answer=answer, facts=agent_facts, sources=[],
                        status=status, steps=steps, tool_calls=tool_log, tokens=tokens,
-                       provider=resolved.provider, model=resolved.model, language=lang,
+                       provider=provider_name, model=model_name, language=lang,
                        fallback_used=fallback_used, cache_hit=False,
                        duration_ms=int((time.time() - start) * 1000),
                        data_version=data_version, hospital_scope_hash=hospital_scope_hash,

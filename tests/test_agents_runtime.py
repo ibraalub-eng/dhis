@@ -4,9 +4,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.agents.runtime import run_agent
 from app.database import Base
 from app.models import Hospital
-from app.agents.runtime import run_agent, AgentResult
 
 
 class FakeSuperUser:
