@@ -977,6 +977,14 @@
             'missing': 'ناقص',
             'no data': 'لا توجد بيانات',
             'passed': 'نجح',
+
+            // AI Agents
+            'AI Assistant': 'المساعد الذكي',
+            'Direct AI explain': 'شرح مباشر بالذكاء الاصطناعي',
+            'Generate Triage Digest': 'توليد ملخص المعاينة اليومي',
+            'Generate report': 'توليد التقرير',
+            'Facts': 'الحقائق',
+            'Contributors': 'العوامل المساهمة',
         };
 
         export function __(text) {

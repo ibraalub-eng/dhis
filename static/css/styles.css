@@ -1642,3 +1642,7 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   display: inline-block; background: var(--bg-input); border: 1px solid var(--border-default);
   border-radius: 6px; padding: 0.15rem 0.45rem; margin: 0 0.2rem 0.2rem 0; font-size: 0.74rem;
 }
+
+.agent-facts, .agent-analysis, .agent-contributors, .agent-actions { margin: 8px 0; }
+.agent-facts h4, .agent-analysis h4, .agent-contributors h4, .agent-actions h4 { margin: 6px 0; }
+.agent-facts ul, .agent-analysis ul, .agent-contributors ul, .agent-actions ul { padding-left: 18px; }
