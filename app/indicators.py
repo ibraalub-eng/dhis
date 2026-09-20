@@ -12,6 +12,14 @@ def _natural_sort_key(code: str):
     return result
 
 
+# Tree entries that are display labels rather than data indicators (e.g. "0"
+# = "Main elements complete ratio", a facility/month completeness header).
+# They are seeded like real indicators so the tree renders, but engines must
+# never treat them as data: no rule-detail resolution, no completeness
+# counting, no audit rows, no upload template or data-entry options.
+SYNTHETIC_INDICATOR_CODES = {"0"}
+
+
 INDICATOR_TREE = {
     "indicator_group": "SRMNH Inpatient Indicators",
     "code": "SRMNH_25",

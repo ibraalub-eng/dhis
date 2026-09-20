@@ -11,7 +11,7 @@ from app.database import get_db
 from app.utils.excel_parser import process_excel_upload, parse_excel, normalize_data
 from app.engine.pipeline import run_full_analysis, recompute_hospital_months
 from app.schemas import UploadResponse, AutoReportResponse
-from app.indicators import INDICATOR_FLAT_LIST
+from app.indicators import INDICATOR_FLAT_LIST, SYNTHETIC_INDICATOR_CODES
 from app.models import IndicatorValue, Indicator, Hospital
 from app.cache import cache
 from app.engine.comparative.report_cache import invalidate_report_cache
@@ -118,7 +118,7 @@ def _precompute_smart_bg(db_session, months: list):
 @router.get("/template")
 def download_template():
     import openpyxl
-    top_inds = [ind for ind in INDICATOR_FLAT_LIST if ind["level"] == 0]
+    top_inds = [ind for ind in INDICATOR_FLAT_LIST if ind["level"] == 0 and ind["code"] not in SYNTHETIC_INDICATOR_CODES]
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "SRMNH Data Template"
@@ -228,7 +228,7 @@ def preview_excel(file: UploadFile = File(...), db: Session = Depends(get_db), u
 @router.get("/data-entry/options")
 def data_entry_options(db: Session = Depends(get_db)):
     hospitals = db.query(Hospital).order_by(Hospital.name).all()
-    top_indicators = [ind for ind in INDICATOR_FLAT_LIST if ind["level"] == 0]
+    top_indicators = [ind for ind in INDICATOR_FLAT_LIST if ind["level"] == 0 and ind["code"] not in SYNTHETIC_INDICATOR_CODES]
     return {
         "hospitals": [{"id": h.id, "name": h.name} for h in hospitals],
         "indicators": [{"code": ind["code"], "name": ind["name"]} for ind in top_indicators],

@@ -15,7 +15,7 @@ from app.models import (
 from sqlalchemy.orm import Session
 import json
 
-from app.indicators import PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME
+from app.indicators import PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME, SYNTHETIC_INDICATOR_CODES
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,24 @@ logger = logging.getLogger(__name__)
 USE_DB_RULES = True
 
 KEY_INDICATOR_CODES = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "16", "17", "18", "26"]
+
+
+def _build_code_resolver(code_to_name: Dict[str, str]):
+    """Build a function that prettifies rule details by replacing indicator
+    codes with their names.
+
+    A code only matches as a standalone token: not preceded by a digit or a
+    dot (so the fraction of "12.0" can never match code "0", and "2" inside
+    "12" cannot match code "2"), and not followed by a dot or digit.
+    Returns None when there are no codes to resolve.
+    """
+    codes_sorted = sorted(code_to_name.keys(), key=len, reverse=True)
+    if not codes_sorted:
+        return None
+    code_pattern = r'(?<![\d.])(' + '|'.join(re.escape(c) for c in codes_sorted) + r')(?![.\d])'
+    def _resolve_codes(text):
+        return re.sub(code_pattern, lambda m: code_to_name[m.group(1)], text)
+    return _resolve_codes
 
 
 def _build_ml_config(flat: dict) -> dict:
@@ -293,14 +311,17 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
     else:
         rule_results = run_all_rules(ctx)
 
-    # Build indicator code-to-name mapping from DB
+    # Build indicator code-to-name mapping from DB — synthetic tree labels
+    # (e.g. "0" = "Main elements complete ratio") are excluded: they are not
+    # data indicators, and letting the resolver see them corrupts plain
+    # numbers in rule details ("=12.0" became "=12.Main elements complete ratio").
     all_indicators = session.query(Indicator.code, Indicator.name).all()
-    code_to_name = {ind.code: ind.name for ind in all_indicators}
-    codes_sorted = sorted(code_to_name.keys(), key=len, reverse=True)
-    if codes_sorted:
-        code_pattern = r'(?<!\d)(' + '|'.join(re.escape(c) for c in codes_sorted) + r')(?![.\d])'
-        def _resolve_codes(text):
-            return re.sub(code_pattern, lambda m: code_to_name[m.group(1)], text)
+    code_to_name = {
+        ind.code: ind.name for ind in all_indicators
+        if ind.code not in SYNTHETIC_INDICATOR_CODES
+    }
+    _resolve_codes = _build_code_resolver(code_to_name)
+    if _resolve_codes:
         for r in rule_results:
             if r.details:
                 r.details = _resolve_codes(r.details)

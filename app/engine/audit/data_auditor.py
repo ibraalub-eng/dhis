@@ -2,6 +2,8 @@ import json
 from sqlalchemy.orm import Session
 from app.models import Hospital, IndicatorValue, Indicator, ValidationResult, QualityScore, AnomalyResult, HospitalIndicatorConfig, ConfidenceScore
 from app.engine.quality import ValidationContext, get_covered_child_codes
+from app.engine.pipeline import get_effective_manual_disabled_ids
+from app.indicators import SYNTHETIC_INDICATOR_CODES
 
 
 def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
@@ -14,6 +16,16 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
         IndicatorValue.hospital_id == hospital_id,
         IndicatorValue.month == month,
     ).all()
+
+    # Indicators turned off in the tree config (and synthetic label entries
+    # like "0" = "Main elements complete ratio", which is not a data
+    # indicator) must not appear here or in the present/covered/missing
+    # counts — disabling them must have no effect on the audit.
+    disabled_ids = set(get_effective_manual_disabled_ids(db, hospital_id, month))
+    visible_indicators = [
+        ind for ind in all_indicators
+        if ind.id not in disabled_ids and ind.code not in SYNTHETIC_INDICATOR_CODES
+    ]
 
     values_map = {}
     code_by_id = {ind.id: ind.code for ind in all_indicators}
@@ -28,7 +40,7 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
     missing_count = 0
     present_count = 0
     covered_count = 0
-    for ind in all_indicators:
+    for ind in visible_indicators:
         code = ind.code
         val_row = next((v for v in values_q if v.indicator_id == ind.id), None)
         is_present = val_row is not None and val_row.value is not None
@@ -129,7 +141,7 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
         "hospital": hospital.name,
         "month": month,
         "completeness": {
-            "total": len(all_indicators),
+            "total": len(visible_indicators),
             "present": present_count,
             "covered": covered_count,
             "missing": missing_count,
