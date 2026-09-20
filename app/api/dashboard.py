@@ -7,9 +7,23 @@ from app.database import get_db
 
 logger = logging.getLogger(__name__)
 from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult, SystemSetting
-from sqlalchemy import func, text
+from sqlalchemy import func, text, and_
 from app.engine.pipeline import get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
+
+
+# ── Shared helper: "actually analyzed" gate ──
+# A QualityScore/ConfidenceScore row can exist for a month that was never
+# analyzed (persisted as zeros so empty months stay visible). Those ghost rows
+# must never drag down dashboard aggregates — every averaging query in this
+# module excludes them with this correlated EXISTS (the (hospital, month) has
+# indicator values, which only real analysis runs produce).
+def _analyzed_exists(db, model):
+    from app.models import IndicatorValue as _IV
+    return db.query(_IV.id).filter(
+        _IV.hospital_id == model.hospital_id,
+        _IV.month == model.month,
+    ).exists()
 
 
 # ── Shared helper: recalculate completeness (batch-optimized) ──
@@ -161,7 +175,11 @@ def dashboard_overview(
     # NOTE: Query.distinct(col1, col2) emits PostgreSQL-only DISTINCT ON which is
     # silently ignored on SQLite (inflating the count with duplicate rows). Use a
     # portable subquery on the (hospital_id, month) pair instead.
-    reports_q = db.query(QualityScore.hospital_id, QualityScore.month).distinct()
+    # Count reports only for enabled months, and only months that were
+    # actually analyzed (ghost rows excluded — see _analyzed_exists).
+    reports_q = db.query(QualityScore.hospital_id, QualityScore.month).distinct().filter(
+        _analyzed_exists(db, QualityScore)
+    )
     if user_hosp_ids is not None:
         reports_q = reports_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -176,7 +194,9 @@ def dashboard_overview(
         reports_q = reports_q.filter(QualityScore.month.in_(enabled_months))
     total_reports = reports_q.count()
 
-    q = db.query(func.avg(QualityScore.score))
+    q = db.query(func.avg(QualityScore.score)).filter(
+        _analyzed_exists(db, QualityScore)
+    )
     if hospital_id:
         q = q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -205,6 +225,8 @@ def dashboard_overview(
     trend_q = db.query(
         QualityScore.month,
         func.avg(QualityScore.score).label("score"),
+    ).filter(
+        _analyzed_exists(db, QualityScore)
     )
     if hospital_id:
         trend_q = trend_q.filter(QualityScore.hospital_id == hospital_id)
@@ -229,7 +251,10 @@ def dashboard_overview(
         func.coalesce(func.avg(QualityScore.score), 0).label("avg_score"),
         func.count(QualityScore.id).label("report_count"),
     ).outerjoin(
-        QualityScore, QualityScore.hospital_id == Hospital.id
+        QualityScore, and_(
+            QualityScore.hospital_id == Hospital.id,
+            _analyzed_exists(db, QualityScore),
+        )
     ).filter(
         Hospital.is_active.is_(True)
     )
@@ -347,7 +372,9 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
     if year is not None and not re.match(r"^\d{4}$", str(year)):
         return {"error": "Invalid year format"}
-    base = db.query(QualityScore)
+    base = db.query(QualityScore).filter(
+        _analyzed_exists(db, QualityScore)
+    )
     if hospital_id:
         base = base.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -377,7 +404,9 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     avg_completeness = round(sum(_kpi_cp) / len(_kpi_cp), 1) if _kpi_cp else 0
 
     # confidence: use weighted overall_confidence (not just count of HIGH records)
-    conf_q = db.query(func.avg(ConfidenceScore.overall_confidence).label("avg_conf"))
+    conf_q = db.query(func.avg(ConfidenceScore.overall_confidence).label("avg_conf")).filter(
+        _analyzed_exists(db, ConfidenceScore)
+    )
     if hospital_id:
         conf_q = conf_q.filter(ConfidenceScore.hospital_id == hospital_id)
     if month_from:
@@ -418,7 +447,10 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
 
     rows = []
     for h in hospitals:
-        q = db.query(QualityScore).filter(QualityScore.hospital_id == h.id)
+        q = db.query(QualityScore).filter(
+            QualityScore.hospital_id == h.id,
+            _analyzed_exists(db, QualityScore),
+        )
         if month_from:
             q = q.filter(QualityScore.month >= month_from)
         if month_to:
@@ -504,7 +536,8 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Hospital not found")
 
     scores = db.query(QualityScore).filter(
-        QualityScore.hospital_id == hospital_id
+        QualityScore.hospital_id == hospital_id,
+        _analyzed_exists(db, QualityScore),
     ).order_by(QualityScore.month.asc()).all()
 
     quality_trend = [{"month": s.month, "score": round(s.score, 1)} for s in scores]
@@ -717,17 +750,19 @@ def component_diagnostics(
     from app.models import Indicator, IndicatorValue, HospitalIndicatorConfig
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
-    base = db.query(QualityScore)
+    base = db.query(QualityScore).filter(
+        _analyzed_exists(db, QualityScore)
+    )
     if hospital_id:
         base = base.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
         base = base.filter(QualityScore.month >= month_from)
     if month_to:
         base = base.filter(QualityScore.month <= month_to)
+    elif year:
+        base = base.filter(QualityScore.month.like(f"{year}-%"))
     elif enabled_months:
         base = base.filter(QualityScore.month.in_(enabled_months))
-    if year:
-        base = base.filter(QualityScore.month.like(f"{year}-%"))
 
     scores = base.order_by(QualityScore.month.asc()).all()
     if not scores:

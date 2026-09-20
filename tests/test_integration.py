@@ -82,14 +82,18 @@ class TestUploadFlow:
         silently ignores, so duplicate rows for the same hospital+month were
         counted multiple times.
         """
-        from app.models import Hospital, QualityScore
+        from app.models import Hospital, QualityScore, IndicatorValue, Indicator
         from app.cache import cache
 
         h = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
         # Two duplicate rows for the same (hospital, month) + one unique month
         db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=70.0))
         db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=75.0))
         db_session.add(QualityScore(hospital_id=h.id, month="2027-02", score=80.0))
+        # make both months actually analyzed (ghost rows are excluded)
+        db_session.add(IndicatorValue(hospital_id=h.id, month="2027-01", indicator_id=ind.id, value=1))
+        db_session.add(IndicatorValue(hospital_id=h.id, month="2027-02", indicator_id=ind.id, value=1))
         db_session.commit()
         cache.invalidate("analysis:months")
 
@@ -102,14 +106,18 @@ class TestUploadFlow:
     def test_dashboard_overview_year_filter_applies_to_all_sections(self, client, db_session):
         """Regression: ?year= only filtered the trend chart; summary cards,
         alerts, confidence and comparison showed all-time data."""
-        from app.models import QualityScore, ValidationResult, ConfidenceScore
+        from app.models import QualityScore, ValidationResult, ConfidenceScore, IndicatorValue, Indicator
         from app.cache import cache
 
         h = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
         db_session.add(QualityScore(hospital_id=h.id, month="2026-06", score=50.0,
                                     rule_compliance=60.0, consistency=70.0))
         db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=90.0,
                                     rule_compliance=95.0, consistency=85.0))
+        # make both months actually analyzed (ghost rows are excluded)
+        db_session.add(IndicatorValue(hospital_id=h.id, month="2026-06", indicator_id=ind.id, value=1))
+        db_session.add(IndicatorValue(hospital_id=h.id, month="2027-01", indicator_id=ind.id, value=1))
         db_session.add(ValidationResult(hospital_id=h.id, month="2026-06",
                                         rule_code="R1", rule_description="d", status="FAIL", severity="HIGH"))
         db_session.add(ConfidenceScore(hospital_id=h.id, month="2026-06",
@@ -139,14 +147,18 @@ class TestUploadFlow:
 
     def test_dashboard_kpi_honors_year(self, client, db_session):
         """Regression: /dashboard/kpi ignored ?year= silently."""
-        from app.models import QualityScore
+        from app.models import QualityScore, IndicatorValue, Indicator
         from app.cache import cache
 
         h = db_session.query(Hospital).first()
+        ind = db_session.query(Indicator).first()
         db_session.add(QualityScore(hospital_id=h.id, month="2026-06", score=50.0,
                                     rule_compliance=60.0, consistency=70.0))
         db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=90.0,
                                     rule_compliance=95.0, consistency=85.0))
+        # make both months actually analyzed (ghost rows are excluded)
+        db_session.add(IndicatorValue(hospital_id=h.id, month="2026-06", indicator_id=ind.id, value=1))
+        db_session.add(IndicatorValue(hospital_id=h.id, month="2027-01", indicator_id=ind.id, value=1))
         db_session.commit()
         cache.invalidate("analysis:months")
 
