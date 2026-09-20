@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from alembic import command  # noqa: E402
 from app.api import admin as admin_router
+from app.api import agents as agents_router
 from app.api import (  # noqa: E402
     alerts,
     analysis,
@@ -625,7 +626,8 @@ async def lifespan(app: FastAPI):
                     print("[startup] Migrations complete.")
                 except Exception as e:
                     print(f"[startup] Migration error (non-fatal): {e}")
-                    import traceback; traceback.print_exc()
+                    import traceback
+                    traceback.print_exc()
                 # Fresh session after DDL changes
                 session.close()
                 session = SessionLocal()
@@ -641,7 +643,8 @@ async def lifespan(app: FastAPI):
                     print("[startup] Migrations and seeding complete.")
                 except Exception as e:
                     print(f"[startup] Reference data error (non-fatal): {e}")
-                    import traceback; traceback.print_exc()
+                    import traceback
+                    traceback.print_exc()
 
             # Always ensure auth tables exist (migration may have partially failed)
             # Create a fresh session in case DDL changes were made
@@ -737,6 +740,7 @@ app.include_router(auth_router.router)
 app.include_router(admin_router.router)
 app.include_router(server_logs_router.router)
 app.include_router(menu_router.router)
+app.include_router(agents_router.router)
 
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from sqlalchemy import func as _sa_func  # noqa: E402
