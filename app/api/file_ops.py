@@ -333,6 +333,11 @@ async def update_saved_file(
         invalidate_report_cache(db)
     except Exception as e:
         logger.warning("Report cache invalidation failed: %s", e)
+    try:
+        from app.agents.cache import bump_data_version
+        bump_data_version(db, [], None)  # no-op defensive bump: no month/hospital context here
+    except Exception:
+        pass
     for prefix in ("smart_overview_", "smart_anomalies_", "smart_clusters_", "smart_correlations_", "smart_residuals_"):
         try:
             _cache.invalidate(prefix)

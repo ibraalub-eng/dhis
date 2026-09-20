@@ -420,6 +420,11 @@ def _invalidate_analysis_caches(db: Session) -> None:
         invalidate_report_cache(db)
     except Exception as e:
         logger.warning("Report cache invalidation failed: %s", e)
+    try:
+        from app.agents.cache import bump_data_version
+        bump_data_version(db, [], None)  # no-op defensive bump: no month/hospital context here
+    except Exception:
+        pass
     for prefix in (
         "smart_overview_", "smart_anomalies_", "smart_clusters_",
         "smart_correlations_", "smart_residuals_",
@@ -741,6 +746,11 @@ def reanalyze_hospital(
         raise HTTPException(status_code=404, detail="Hospital not found")
     try:
         report = run_full_analysis(db, hospital_id, month, force=force)
+        try:
+            from app.agents.cache import bump_data_version
+            bump_data_version(db, [hospital_id], [month])
+        except Exception:
+            pass
         # Clear cache so fresh data is served
         cache.invalidate()
         return report

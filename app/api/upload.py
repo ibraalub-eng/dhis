@@ -396,6 +396,11 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
                 reports.append(report)
             except Exception as e:
                 logger.warning(f"Could not analyze {hosp['name']} / {month}: {e}")
+        try:
+            from app.agents.cache import bump_data_version
+            bump_data_version(db, [hosp["id"]], months)
+        except Exception:
+            pass
 
     # Pre-compute smart analytics in background
     _precompute_smart_bg(db, months)
