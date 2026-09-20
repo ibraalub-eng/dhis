@@ -22,11 +22,17 @@
 
   function postJSON(path, body) {
     return authFetch(apiPath(path), { method: 'POST', body: JSON.stringify(body) })
-      .then(function (r) { return r.json(); });
+      .then(function (r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+        return r.json();
+      });
   }
 
   function status() {
-    return authFetch(apiPath(STATUS_PATH)).then(function (r) { return r.json(); });
+    return authFetch(apiPath(STATUS_PATH)).then(function (r) {
+      if (!r.ok) { throw new Error('HTTP ' + r.status); }
+      return r.json();
+    });
   }
 
   function userLang() {
@@ -97,6 +103,16 @@
     }
   }
 
+  function renderError(err, el) {
+    if (!el) { return; }
+    var msg = (err && err.message) ? err.message : __('Request failed');
+    el.innerHTML = '';
+    var p = document.createElement('p');
+    p.className = 'agent-error';
+    p.textContent = msg;
+    el.appendChild(p);
+  }
+
   function explain(opts, targetEl) {
     opts = opts || {};
     return postJSON('/ai/agents/explain', {
@@ -125,10 +141,11 @@
   }
 
   function outputOf(panel) {
-    var out = panel.querySelector('[data-agent-output]');
+    var out = panel.querySelector('.agent-output, [data-agent-output]');
     if (!out) {
       out = document.createElement('div');
       out.className = 'agent-output';
+      out.setAttribute('data-agent-output', '');
       panel.appendChild(out);
     }
     return out;
@@ -145,7 +162,7 @@
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'agent-chat-send';
-    btn.textContent = 'Send';
+    btn.textContent = __('Send');
     var out = document.createElement('div');
     out.className = 'agent-chat-output';
     panel.appendChild(title);
@@ -162,7 +179,13 @@
         p.className = 'agent-chat-answer';
         p.textContent = data.answer;
         out.appendChild(p);
-      }).catch(function () {});
+      }).catch(function (err) {
+        var msg = (err && err.message) ? err.message : __('Request failed');
+        var pe = document.createElement('p');
+        pe.className = 'agent-error';
+        pe.textContent = msg;
+        out.appendChild(pe);
+      });
     }
     btn.addEventListener('click', send);
     input.addEventListener('keydown', function (e) {
@@ -184,12 +207,13 @@
         month: panel.getAttribute('data-month') || currentMonth(),
         hospital_id: panel.getAttribute('data-hospital-id'),
         entity: panel.getAttribute('data-entity') || ''
-      }, out).catch(function () {});
+      }, out).catch(function (err) { renderError(err, out); });
     });
   }
 
   function mountDigest(panel) {
     if (!panel || panel.querySelector('.agent-digest-run')) { return; }
+    if (!panel.hasAttribute('data-agent-perm')) { panel.setAttribute('data-agent-perm', 'ai.write'); }
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'agent-digest-run';
@@ -199,12 +223,13 @@
     btn.addEventListener('click', function () {
       if (out) { out.innerHTML = ''; }
       triggerDigest({ month: panel.getAttribute('data-month') || currentMonth() }, out)
-        .catch(function () {});
+        .catch(function (err) { renderError(err, out); });
     });
   }
 
   function mountReport(panel) {
     if (!panel || panel.querySelector('.agent-report-run')) { return; }
+    if (!panel.hasAttribute('data-agent-perm')) { panel.setAttribute('data-agent-perm', 'ai.write'); }
     var btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'agent-report-run';
@@ -216,7 +241,7 @@
       triggerReport({
         month: panel.getAttribute('data-month') || currentMonth(),
         hospital_id: panel.getAttribute('data-hospital-id')
-      }, out).catch(function () {});
+      }, out).catch(function (err) { renderError(err, out); });
     });
   }
 
@@ -226,9 +251,13 @@
       btn.setAttribute('data-agent-bound', '1');
       var action = btn.hasAttribute('data-agent-explain') ? 'explain'
         : btn.hasAttribute('data-agent-digest') ? 'digest' : 'report';
+      if (!btn.hasAttribute('data-agent-perm')) {
+        btn.setAttribute('data-agent-perm', action === 'explain' ? 'ai.read' : 'ai.write');
+      }
       btn.addEventListener('click', function () {
         var outSel = btn.getAttribute('data-output');
-        var out = outSel ? document.querySelector(outSel) : btn.parentElement;
+        var out = outSel ? document.querySelector(outSel) : outputOf(btn.parentElement);
+        if (out) { out.innerHTML = ''; }
         var opts = {
           month: btn.getAttribute('data-month') || currentMonth(),
           hospital_id: btn.getAttribute('data-hospital-id'),
@@ -237,7 +266,7 @@
         var p = action === 'explain' ? explain(opts, out)
           : action === 'digest' ? triggerDigest(opts, out)
           : triggerReport(opts, out);
-        p.catch(function () {});
+        p.catch(function (err) { renderError(err, out); });
       });
     });
   }
@@ -257,7 +286,7 @@
     if (!report) { report = document.querySelector('[data-agent-panel="report"]'); }
     mountReport(report);
     bindAgentButtons();
-    return status().then(function (s) { togglePanels(s); return s; });
+    return status().catch(function () { return null; }).then(function (s) { togglePanels(s); return s; });
   }
 
   window.AgentUI = {
@@ -268,7 +297,6 @@
     apiPath: apiPath,
     explain: explain,
     triggerDigest: triggerDigest,
-    triggerReport: triggerReport,
-    _status: status
+    triggerReport: triggerReport
   };
 })();

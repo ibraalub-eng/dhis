@@ -983,6 +983,8 @@
             'Direct AI explain': 'شرح مباشر بالذكاء الاصطناعي',
             'Generate Triage Digest': 'توليد ملخص المعاينة اليومي',
             'Generate report': 'توليد التقرير',
+            'Send': 'إرسال',
+            'Request failed': 'فشل الطلب',
             'Facts': 'الحقائق',
             'Contributors': 'العوامل المساهمة',
         };
