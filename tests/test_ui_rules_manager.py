@@ -450,19 +450,46 @@ def test_rules_search_input_is_search_type():
     assert '<input id="rulesSearchInput" type="search"' in html
 
 
-def test_rules_search_cleared_on_first_tab_open():
-    """main.js must wipe the search box and its stored value when the Rules
-    Manager screen is first opened. Otherwise a stale persisted value (e.g. a
-    username that autofill injected on an earlier visit and a render then
-    saved) is re-applied by the post-load restore in loadRulesManager."""
+def test_rules_search_reset_on_every_tab_activation():
+    """main.js must reset the rules search every time the Rules Manager screen
+    is activated — not only on first init. Browser autofill injects the login
+    username when the input enters the DOM, which beats any once-per-session
+    clear; clearing on each activation (skipping re-clicks of the active tab)
+    leaves no window for it to stick."""
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "main.js")
     with open(path, encoding="utf-8") as f:
         js = f.read()
-    branch = js[js.index("name === 'rules-manager'"):]
-    assert "rulesSearchInput" in branch
-    assert "_rulesSearchBox.value = ''" in branch
-    assert "localStorage.setItem('rulesSearch', '')" in branch
-    assert "_tryInit('loadRulesManager'" in branch
+    assert "function _resetRulesSearchState" in js
+    helper = js[js.index("function _resetRulesSearchState"):]
+    assert "rulesSearchInput" in helper
+    assert "localStorage.setItem('rulesSearch', '')" in helper
+    assert "_rulesSearchAppState = ''" in helper
+    assert "_rulesSearchTouched = false" in helper
+    hook = js.index("name === 'rules-manager' && activeId !== 'tab-rules-manager'")
+    guard = js.index("if (_tabInited.has(name)) return;")
+    assert hook < guard  # runs on every activation, before the once-only init guard
+
+
+def test_rules_search_rejects_login_username_junk():
+    """Chrome ignores autocomplete="off" and can autofill the saved username
+    into the search box (even with type="search"), including AFTER load when
+    the input enters the DOM. The app must scrub credential-like values: not
+    filter them, not persist them, and re-check shortly after load."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "rules-manager.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "function _rulesSearchIsLoginJunk" in js
+    assert "getUserInfo" in js  # junk detection compares against the logged-in user
+    # user-input path: autofill fires input events too — the handler must scrub
+    oninput = js[js.index("window.onRulesSearch"):]
+    assert "_rulesSearchIsLoginJunk" in oninput[:600]
+    # render path: persist the app-owned state, never the raw box content
+    render = js[js.index("function renderRulesManager"):]  # first = the real one
+    assert "window._rulesSearchAppState" in render[:2500]
+    assert "_rulesSearchIsLoginJunk" in render[:2500]
+    # restore path: scrub legacy persisted junk, then re-check after autofill can land
+    restore = js[js.index("_rulesSearchAppState = savedSearch"):]  # noqa: duplicate-source-comment
+    assert "setTimeout" in restore[:900]
 
 
 def test_rules_search_native_cancel_button_hidden():

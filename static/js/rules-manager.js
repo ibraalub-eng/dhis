@@ -19,6 +19,28 @@ import { confirmDestructive, confirmWarning } from './confirm-modal.js';
         let _rulesDirty = false;
         let _forceRulesImpactRefresh = false;
 
+        // ── Search-box anti-autofill guard ──────────────
+        // Chrome & co. ignore autocomplete="off" and autofill the saved login
+        // username into text-like inputs — the rules search box kept receiving
+        // it (type="search" is not reliably excluded in all builds). Since
+        // nobody searches rule codes by typing their own username, any value
+        // matching the current user's credentials is browser junk: it is
+        // reverted on render, dropped from the input event, never persisted.
+        function _rulesLoginCandidates() {
+            try {
+                const u = (typeof window.getUserInfo === 'function') ? window.getUserInfo() : null;
+                if (!u) return [];
+                return [u.username, u.full_name, u.email].filter(Boolean);
+            } catch (e) { return []; }
+        }
+        function _rulesSearchIsLoginJunk(v) {
+            return !!v && _rulesLoginCandidates().indexOf(v) !== -1;
+        }
+        // App-owned search value + whether the user actually typed since the
+        // last restore/reset. window props so main.js can reset them.
+        window._rulesSearchAppState = '';
+        window._rulesSearchTouched = false;
+
         function _updateRulesImpactHeader(latestMonth) {
             const hdr = document.querySelector('#rulesTable thead th[data-impact-col]');
             if (hdr) {
@@ -2772,12 +2794,28 @@ function loadHospitalsSettings() {
                 _forceRulesImpactRefresh = false;
                 document.getElementById('rulesLoading').classList.add('hidden');
                 // Restore the app-owned search value over anything the browser
-                // form-restored into the box while loading.
+                // form-restored into the box while loading. Legacy junk (a
+                // username an older build persisted) is scrubbed here too.
                 const searchBox = document.getElementById('rulesSearchInput');
                 if (searchBox) {
                     let savedSearch = '';
                     try { savedSearch = localStorage.getItem('rulesSearch') || ''; } catch (e) {}
+                    if (_rulesSearchIsLoginJunk(savedSearch)) savedSearch = '';
+                    window._rulesSearchAppState = savedSearch;
+                    window._rulesSearchTouched = false; // restored, not typed
                     if (searchBox.value !== savedSearch) searchBox.value = savedSearch;
+                    // Autofill can land AFTER this restore (browsers run their
+                    // autofill scan when the input enters the DOM — it beats any
+                    // synchronous clear). Re-check a few times so the junk never
+                    // survives the first seconds on screen.
+                    [600, 2000].forEach(function(delay) {
+                        setTimeout(function() {
+                            const sb = document.getElementById('rulesSearchInput');
+                            if (sb && _rulesSearchIsLoginJunk(sb.value)) {
+                                sb.value = window._rulesSearchAppState || '';
+                            }
+                        }, delay);
+                    });
                 }
                 if (!Array.isArray(data)) throw new Error('Unexpected response from /rules');
                 rulesManagerData = data;
@@ -2820,9 +2858,22 @@ function loadHospitalsSettings() {
 
         function renderRulesManager() {
             document.getElementById('rulesManagerCount').textContent = rulesManagerData.length + ' ' + __('rule(s)');
-            // Persist the search box on every render (load, keystroke, clear) so
-            // the app — not browser form-restore — owns what the box contains.
-            try { localStorage.setItem('rulesSearch', (document.getElementById('rulesSearchInput') || {}).value || ''); } catch (e) {}
+            // App-owned search state: a value that appears in the box without
+            // user input is browser autofill (e.g. the login username) — revert
+            // it instead of filtering or persisting it. Persist only the
+            // app-owned value so junk can never enshrine itself in storage.
+            const _rsBox = document.getElementById('rulesSearchInput');
+            if (_rsBox) {
+                const _rsVal = _rsBox.value || '';
+                if (_rsVal !== window._rulesSearchAppState) {
+                    if (!window._rulesSearchTouched || _rulesSearchIsLoginJunk(_rsVal)) {
+                        _rsBox.value = window._rulesSearchAppState; // revert autofill junk
+                    } else {
+                        window._rulesSearchAppState = _rsVal; // user-edited without an input event (e.g. context-menu paste)
+                    }
+                }
+            }
+            try { localStorage.setItem('rulesSearch', window._rulesSearchAppState || ''); } catch (e) {}
             const filtered = document.getElementById('rulesTbody');
             if (!filtered) return;
             if (!rulesManagerData.length) {
@@ -2967,13 +3018,27 @@ function loadHospitalsSettings() {
             }
         };
 
-        // Search box oninput
-        window.onRulesSearch = function() { renderRulesManager(); };
+        // Search box oninput — fired by typing AND by browser autofill (which
+        // dispatches input events). Credential-like values are autofill junk:
+        // drop them instead of filtering/persisting the username.
+        window.onRulesSearch = function() {
+            const box = document.getElementById('rulesSearchInput');
+            const v = box ? (box.value || '') : '';
+            if (_rulesSearchIsLoginJunk(v)) {
+                if (box) box.value = window._rulesSearchAppState || '';
+                return;
+            }
+            window._rulesSearchTouched = true;
+            window._rulesSearchAppState = v;
+            renderRulesManager();
+        };
 
         // One-click clear of the search box (used by the no-match row link)
         window.clearRulesSearch = function() {
             const searchBox = document.getElementById('rulesSearchInput');
             if (searchBox) searchBox.value = '';
+            window._rulesSearchAppState = '';
+            window._rulesSearchTouched = false;
             try { localStorage.setItem('rulesSearch', ''); } catch (e) {}
             renderRulesManager();
         };
