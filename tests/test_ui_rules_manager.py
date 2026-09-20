@@ -223,18 +223,37 @@ def test_rules_html_has_category_filter():
     with open(path, encoding="utf-8") as f:
         html = f.read()
     assert 'id="rulesCategoryFilter"' in html
-    assert 'onchange="loadRulesManager()"' in html
+    assert html.count('onchange="onRulesFilterChange()"') == 4
     for cat in ("BASIC_LOGIC", "CLINICAL_CONSISTENCY", "CLINICAL_LOGIC",
                 "PLAUSIBILITY", "STATISTICAL_BENCHMARK", "TREND_DATA_QUALITY"):
         assert cat in html, f"missing category option {cat}"
 
 
-def test_load_rules_manager_sends_category_filter():
-    """loadRulesManager must pass the selected category to the API, which
-    already supports the category query param (server-side filter)."""
+def test_rules_filters_apply_client_side():
+    """Dropdown filters must apply instantly client-side in renderRulesManager
+    against the loaded rule list — no server round-trip per change."""
     js = _read_settings_js()
-    assert "rulesCategoryFilter" in js
-    assert "'category=' + encodeURIComponent(catFilter)" in js
+    assert "window.onRulesFilterChange = function()" in js
+    fn_start = js.index("window.onRulesFilterChange = function()")
+    fn_src = js[fn_start:fn_start + 320]
+    assert "_persistRulesFilterState()" in fn_src
+    assert "renderRulesManager()" in fn_src
+    assert "loadRulesManager" not in fn_src
+    # the four dropdown filters narrow the visible rows at render time
+    assert "visible.filter(r => (r.category || '') === catF)" in js
+    assert "visible.filter(r => (r.rule_type || '') === typeF)" in js
+    assert "visible.filter(r => (r.severity || '') === sevF)" in js
+    assert "visible.filter(r => String(r.enabled) === enF)" in js
+
+
+def test_rules_dropdowns_never_refetch_on_change():
+    """No filter dropdown may call loadRulesManager() — that was the old
+    server-round-trip behavior. They all use the instant client-side handler."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "rules-manager.html")
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    assert 'onchange="loadRulesManager()"' not in html
 
 
 # ── Sortable columns (Code / Severity / Affected Hospitals) ─────────
@@ -392,15 +411,37 @@ def test_suggest_rule_name_i18n_keys_exist():
 # ── App-owned search/filter state (beats browser form-restore) ──────
 
 def test_rules_filters_restore_from_local_storage():
-    """loadRulesManager must restore each filter's stored value (when the
-    dropdown actually has that option) before building the query, so a
-    browser's form-restored value can never silently narrow the list."""
+    """loadRulesManager restores each filter's stored value (when the
+    dropdown actually has that option) ONCE per page load, so a browser's
+    form-restored value can never silently narrow the list."""
     js = _read_settings_js()
-    assert "_syncFilterState" in js
+    assert "if (!window._rulesFiltersRestored)" in js
     assert "localStorage.getItem(id)" in js
     assert "localStorage.setItem(id, el.value)" in js
     for fid in ("rulesCategoryFilter", "rulesTypeFilter", "rulesSeverityFilter", "rulesEnabledFilter"):
         assert fid in js
+
+
+def test_rules_filters_restore_does_not_revert_user_selection():
+    """Regression: the stored filter values used to be re-restored on EVERY
+    loadRulesManager() call, overwriting the user's fresh selection before
+    the query was built — the filters could never change. The restore must
+    be one-shot, and the current DOM value must be persisted afterwards."""
+    js = _read_settings_js()
+    fn_start = js.index("export function loadRulesManager()")
+    fn_src = js[fn_start:fn_start + 2800]
+    # the every-call restore function is gone
+    assert "_syncFilterState" not in fn_src
+    # restore is guarded to run once
+    guard_pos = fn_src.index("if (!window._rulesFiltersRestored)")
+    assert "window._rulesFiltersRestored = true" in fn_src
+    # the current DOM value is persisted on every load via the shared helper
+    assert "_persistRulesFilterState()" in fn_src
+    assert guard_pos < fn_src.index("_persistRulesFilterState()")
+    # the loader no longer builds server-side filter query params
+    assert "'category='" not in fn_src
+    assert "'rule_type='" not in fn_src
+    assert "'severity='" not in fn_src
 
 
 def test_rules_search_value_restored_over_browser_restore():

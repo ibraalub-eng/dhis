@@ -758,20 +758,12 @@ def component_diagnostics(
             "score": round(sum(b["sc"]) / len(b["sc"]), 1),
         })
 
-    # Targets
+    # Targets — the same values the KPI cards use (85/90/85/90). NOTE: the
+    # quality_* AppConfig keys are score WEIGHTS (0.35/0.25/...), not target
+    # percentages; multiplying them by 100 here produced bogus "35% target"
+    # labels and "On Target" badges in the drilldown that contradicted the
+    # KPI card above it.
     targets = {"rule_compliance": 85, "completeness": 90, "consistency": 85, "outlier_score": 90}
-    try:
-        from app.models import AppConfig
-        cfg = db.query(AppConfig).all()
-        cfg_map = {c.key: c.value for c in cfg}
-        if "quality_rule_compliance" in cfg_map:
-            targets["rule_compliance"] = round(float(cfg_map.get("quality_rule_compliance", 0.35)) * 100)
-        if "quality_completeness" in cfg_map:
-            targets["completeness"] = round(float(cfg_map.get("quality_completeness", 0.25)) * 100)
-        if "quality_consistency" in cfg_map:
-            targets["consistency"] = round(float(cfg_map.get("quality_consistency", 0.25)) * 100)
-    except Exception:
-        pass
 
     def _direction(vals):
         if len(vals) < 2:
@@ -1093,6 +1085,15 @@ def component_diagnostics(
     try:
         all_hosp = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
         hosp_names = {h.id: h.name for h in all_hosp}
+        # (hospital_id, month) pairs that actually have data — a QualityScore
+        # row can exist for a never-analyzed month (persisted as zeros so empty
+        # months stay visible in reports). Such ghost months have no indicator
+        # values, so that's the reliable signal; without this gate they leak
+        # into the affected-hospitals lists as avg-0.0 phantom entries.
+        from app.models import IndicatorValue as _IVP
+        analyzed_pairs = set(db.query(_IVP.hospital_id, _IVP.month).filter(
+            _IVP.hospital_id.in_(all_hosp_ids), _IVP.month.in_(all_months),
+        ).distinct().all())
 
         # ── Completeness ──
         _cp_cause_hosp = {}
@@ -1100,6 +1101,10 @@ def component_diagnostics(
             _cp_cause_hosp[cause["cause"]] = []
         for s in scores:
             hid = s.hospital_id
+            if hid not in hosp_names:
+                continue
+            if (hid, s.month) not in analyzed_pairs:
+                continue
             idx = scores.index(s)
             cp_val = cp_vals[idx]
             if cp_val >= targets["completeness"]:
@@ -1197,8 +1202,13 @@ def component_diagnostics(
         # Build per-hospital rule failure data (always show even if on target)
         _rc_hosp_entries = []  # flat list of (hospital_id, month, val, hosp_name, failed_rules)
         for s in scores:
+            # Skip inactive/unknown hospitals — ghost QualityScore rows from
+            # removed hospitals must never appear as "#63 avg 0.0" in the
+            # affected list.
+            if s.hospital_id not in hosp_names:
+                continue
             val = round(float(s.rule_compliance or 0), 1)
-            hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
+            hosp_name = hosp_names[s.hospital_id]
             failed_rules = _rule_results_map.get((s.hospital_id, s.month), [])
             if failed_rules:  # only include hospitals that actually have rule failures
                 _rc_hosp_entries.append({
@@ -1210,16 +1220,16 @@ def component_diagnostics(
         _rc_cause_hosp = {}
         for cause in rc_causes:
             _rc_cause_hosp[cause["cause"]] = []
+        # Assign every hospital-month with actual rule failures to each cause
+        # bucket — a hospital can pass overall yet still have failing rules,
+        # and the affected list exists precisely to show them. (Gating these
+        # entries on the aggregate compliance value emptied the list: rows
+        # with low compliance are mostly never-analyzed months with no FAIL
+        # rows, while real failing hospitals sit above the target.)
         for entry in _rc_hosp_entries:
-            val = entry["value"]
-            if val < targets["rule_compliance"] - 15:
-                cause_label = next((c["cause"] for c in rc_causes if c["severity"] == "critical"), rc_causes[0]["cause"] if rc_causes else None)
-            elif val < targets["rule_compliance"]:
-                cause_label = next((c["cause"] for c in rc_causes if c["severity"] == "warning"), rc_causes[0]["cause"] if rc_causes else None)
-            else:
-                cause_label = next((c["cause"] for c in rc_causes if c["severity"] == "ok"), None)
-            if cause_label and cause_label in _rc_cause_hosp:
-                _rc_cause_hosp[cause_label].append(entry)
+            for cause in rc_causes:
+                if cause["cause"] in _rc_cause_hosp:
+                    _rc_cause_hosp[cause["cause"]].append(entry)
         # Aggregate per hospital across months
         for cause_key in _rc_cause_hosp:
             rows = _rc_cause_hosp[cause_key]
@@ -1262,7 +1272,11 @@ def component_diagnostics(
             val = round(float(s.consistency or 0), 1)
             if val >= targets["consistency"]:
                 continue
-            hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
+            if s.hospital_id not in hosp_names:
+                continue
+            if (s.hospital_id, s.month) not in analyzed_pairs:
+                continue
+            hosp_name = hosp_names[s.hospital_id]
             for cause in co_causes:
                 if cause["severity"] in ("critical", "warning"):
                     _co_cause_hosp[cause["cause"]].append({
@@ -1299,7 +1313,11 @@ def component_diagnostics(
             val = round(max(0, 100 - (s.outlier_penalty or 0)), 1)
             if val >= targets["outlier_score"]:
                 continue
-            hosp_name = hosp_names.get(s.hospital_id, f"#{s.hospital_id}")
+            if s.hospital_id not in hosp_names:
+                continue
+            if (s.hospital_id, s.month) not in analyzed_pairs:
+                continue
+            hosp_name = hosp_names[s.hospital_id]
             for cause in op_causes:
                 if cause["severity"] in ("critical", "warning"):
                     _op_cause_hosp[cause["cause"]].append({

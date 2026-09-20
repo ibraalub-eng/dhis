@@ -836,3 +836,101 @@ def test_save_default_tree_config_invalidates_smart_caches(client, db_session):
     assert resp.status_code == 200
     for k in keys:
         assert cache.get(k) is None, f"smart cache {k} still present after default tree save"
+
+# ── Validation-rule drilldown: affected hospitals must actually show ──
+
+def _mk_rule(db_session, code, severity="HIGH", description="desc"):
+    from app.models import Rule
+    r = db_session.query(Rule).filter(Rule.code == code).first()
+    if not r:
+        r = Rule(code=code, name=code, rule_type="LOGIC", severity=severity,
+                 category="BASIC_LOGIC", expression_type="missing", params="{}", description=description,
+                 enabled=True)
+        db_session.add(r)
+    return r
+
+
+def _mk_fail(db_session, hospital_id, month, code, severity="HIGH"):
+    from app.models import ValidationResult
+    db_session.add(ValidationResult(
+        hospital_id=hospital_id, month=month, rule_code=code,
+        rule_description="d", status="FAIL", severity=severity,
+    ))
+
+
+def test_drilldown_lists_hospitals_with_failed_rules(db_session, client):
+    """Regression: the Validation-rule drilldown's affected list was always
+    empty. Entries were bucketed into severity bands that had no matching
+    cause (compliance 20-35 with only a critical cause), silently dropping
+    every hospital. Any hospital with actual failed rules must appear."""
+    from app.models import QualityScore
+
+    month = "2027-07"
+    _mk_rule(db_session, "R900", "HIGH", "test rule")
+    _insert_indicator_value(db_session, 1, month, "2", 10)
+    # High aggregate compliance but real failures in this month.
+    db_session.add(QualityScore(hospital_id=1, month=month, score=95.0, rule_compliance=96.0))
+    _mk_fail(db_session, 1, month, "R900")
+    db_session.commit()
+
+    resp = client.get("/dashboard/component-diagnostics", params={"metric": "rule_compliance", "month_from": month, "month_to": month})
+    assert resp.status_code == 200
+    comp = resp.json()["components"][0]
+    affected = []
+    for cause in comp["causes"]:
+        affected.extend(cause["affected_hospitals"])
+    match = [h for h in affected if h["hospital_id"] == 1]
+    assert match, f"hospital with failed rules missing from affected list: {affected}"
+    assert any(fr["code"] == "R900" for fr in match[0]["failed_rules"])
+
+
+def test_drilldown_excludes_ghost_months_and_inactive_hospitals(db_session, client):
+    """Zero-value QualityScore rows for never-analyzed months (no indicator
+    values) and rows of inactive hospitals must never appear in any
+    affected-hospitals list as avg-0.0 phantoms."""
+    from app.models import QualityScore, Hospital
+
+    month = "2027-08"
+    # Ghost month: score row, no indicator values.
+    db_session.add(QualityScore(hospital_id=1, month=month, score=0.0, completeness=0.0))
+    # Inactive hospital with a terrible score.
+    db_session.add(QualityScore(hospital_id=63, month=month, score=0.0, completeness=0.0))
+    db_session.commit()
+
+    resp = client.get("/dashboard/component-diagnostics", params={"metric": "completeness", "month_from": month, "month_to": month})
+    assert resp.status_code == 200
+    data = resp.json()
+
+    inactive_ids = {h.id for h in db_session.query(Hospital).filter(Hospital.is_active.is_(False)).all()}
+    for comp in data.get("components", []):
+        for cause in comp.get("causes", []):
+            for h in cause.get("affected_hospitals", []):
+                assert h["hospital_id"] not in inactive_ids, (
+                    f"inactive hospital #{h['hospital_id']} leaked into affected list"
+                )
+                pair = (h["hospital_id"], month)
+                if h["hospital_id"] == 1:
+                    assert month not in h.get("problem_months", []), (
+                        f"ghost month {month} leaked into affected list: {h}"
+                    )
+
+
+def test_drilldown_targets_match_kpi_cards(db_session, client):
+    """The drilldown's per-component target must equal the KPI card target
+    (85/90/85/90). It used to multiply the score WEIGHTS (0.35/0.25/...)
+    by 100, showing '35% target' and a bogus 'On Target' badge."""
+    from app.models import QualityScore
+    month = "2027-07"
+    _insert_indicator_value(db_session, 1, month, "2", 10)
+    db_session.add(QualityScore(hospital_id=1, month=month, score=50.0))
+    db_session.commit()
+    kpi_resp = client.get("/dashboard/kpi", params={"month_from": month, "month_to": month})
+    drill_resp = client.get("/dashboard/component-diagnostics", params={"month_from": month, "month_to": month})
+    assert kpi_resp.status_code == 200 and drill_resp.status_code == 200
+    kpi_targets = {k["id"]: k["target"] for k in kpi_resp.json()["kpis"]}
+    comps = drill_resp.json()["components"]
+    assert comps, "drilldown returned no components for the test range"
+    for comp in comps:
+        assert comp["target"] == kpi_targets[comp["key"]], (
+            f"drilldown target for {comp['key']} ({comp['target']}) != KPI card target ({kpi_targets[comp['key']]})"
+        )

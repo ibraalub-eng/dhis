@@ -1537,16 +1537,28 @@ function loadHospitalsSettings() {
 
             const hid = document.getElementById('dashHospital').value;
             const yr = document.getElementById('dashYear').value;
+            // Honor the dashboard's From/To month filter — the KPI cards above
+            // send month_from/month_to (window._dashboardDateRange), and the
+            // backend gives the range precedence over year. Omitting it here
+            // made every drilldown show unfiltered (all-months) data even
+            // when the cards showed the filtered value.
+            const dr = window._dashboardDateRange;
             let kpiUrl = '/dashboard/kpi?';
             if (hid) kpiUrl += 'hospital_id=' + hid + '&';
+            if (dr && dr.from) kpiUrl += 'month_from=' + dr.from + '&';
+            if (dr && dr.to) kpiUrl += 'month_to=' + dr.to + '&';
             if (yr) kpiUrl += 'year=' + yr;
 
             let overviewUrl = '/dashboard/overview?';
             if (hid) overviewUrl += 'hospital_id=' + hid + '&';
+            if (dr && dr.from) overviewUrl += 'month_from=' + dr.from + '&';
+            if (dr && dr.to) overviewUrl += 'month_to=' + dr.to + '&';
             if (yr) overviewUrl += 'year=' + yr;
 
             let diagUrl = '/dashboard/component-diagnostics?';
             if (hid) diagUrl += 'hospital_id=' + hid + '&';
+            if (dr && dr.from) diagUrl += 'month_from=' + dr.from + '&';
+            if (dr && dr.to) diagUrl += 'month_to=' + dr.to + '&';
             if (yr) diagUrl += 'year=' + yr + '&';
             if (metric && metric !== 'quality_score' && metric !== 'conf_high' && metric !== 'report_coverage') diagUrl += 'metric=' + metric;
 
@@ -1761,6 +1773,19 @@ function loadHospitalsSettings() {
                                         html += '</div>'; // hospital card
                                     });
                                     html += '</div></div>';
+                                } else {
+                                    // Zero affected hospitals for this cause — say why,
+                                    // so an empty list doesn't look like a broken one.
+                                    var _anMonths = (c.monthly || []).map(function(m) { return m.month; });
+                                    html += '<div class="_cause-zero" style="margin-top:0.5rem;">';
+                                    html += '<span style="display:inline-flex;align-items:center;gap:4px;background:var(--severity-success-bg, rgba(46,125,50,0.1));color:var(--accent-green);border:1px solid var(--accent-green);padding:2px 8px;border-radius:10px;font-size:0.65rem;font-weight:700;cursor:pointer;" onclick="var n=this.closest(\'._cause-zero\').querySelector(\'._zero-note\');var isHidden=n.classList.toggle(\'hidden\');this.querySelector(\'._zero-chev\').textContent=isHidden?\'\u25b8\':\'\u25be\';">\u2705 ' + __('No hospitals affected') + ' <span class="_zero-chev" style="font-size:0.6rem;">\u25be</span></span>';
+                                    html += '<div class="_zero-note hidden" style="margin-top:0.4rem;padding:0.5rem 0.6rem;border:1px dashed var(--border-default);border-radius:6px;font-size:0.7rem;color:var(--text-secondary);background:var(--bg-elevated);">';
+                                    html += '<div>' + __('No hospital-month in this range falls under this cause — nothing to fix here.') + '</div>';
+                                    if (_anMonths.length) {
+                                        html += '<div style="margin-top:0.3rem;color:var(--text-muted);">' + __('Months analyzed') + ': ' + _anMonths.join(', ') + '</div>';
+                                    }
+                                    html += '</div>';
+                                    html += '</div>';
                                 }
                             });
                         }
@@ -2751,34 +2776,46 @@ function loadHospitalsSettings() {
             ensureAiModelForProvider(provider);
         }
 
+        // ── Rules Manager filters (instant, client-side) ───────────────
+        const _RULES_FILTER_IDS = ['rulesCategoryFilter', 'rulesTypeFilter', 'rulesSeverityFilter', 'rulesEnabledFilter'];
+
+        function _persistRulesFilterState() {
+            try {
+                _RULES_FILTER_IDS.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) localStorage.setItem(id, el.value);
+                });
+            } catch (e) { /* storage unavailable */ }
+        }
+
         export function loadRulesManager() {
             if (!document.getElementById('rulesTbody')) return; // التبويب لم يُحمَّل بعد
-            // App-owned UI state: restore filters and search from localStorage
-            // BEFORE building the query. Chrome re-fills inputs from form data
-            // on reload (autocomplete="off" does not stop it), so the stored
-            // app value — not the browser-restored junk — must win.
-            const _syncFilterState = function() {
+            // App-owned UI state: on the FIRST load of the session, restore
+            // each filter's stored value so Chrome's form-restore cannot
+            // silently narrow the list (autocomplete="off" does not stop it).
+            // On later calls (dropdown onchange fires loadRulesManager()) the
+            // DOM already holds the user's fresh selection — re-restoring the
+            // stored value here would revert the user's pick before the query
+            // is built, which made the filters appear dead.
+            if (!window._rulesFiltersRestored) {
+                window._rulesFiltersRestored = true;
                 try {
-                    ['rulesCategoryFilter', 'rulesTypeFilter', 'rulesSeverityFilter', 'rulesEnabledFilter'].forEach(id => {
+                    _RULES_FILTER_IDS.forEach(id => {
                         const el = document.getElementById(id);
                         if (!el) return;
                         const saved = localStorage.getItem(id) || '';
                         const hasOption = Array.prototype.some.call(el.options, o => o.value === saved);
                         if (hasOption) el.value = saved;
-                        localStorage.setItem(id, el.value);
                     });
                 } catch (e) { /* storage unavailable — defaults apply */ }
-            };
-            _syncFilterState();
-            const typeFilter = document.getElementById('rulesTypeFilter').value;
-            const sevFilter = document.getElementById('rulesSeverityFilter').value;
-            const enabledFilter = document.getElementById('rulesEnabledFilter').value;
-            const catFilter = document.getElementById('rulesCategoryFilter') ? document.getElementById('rulesCategoryFilter').value : '';
-            let url = API() + '/rules/?';
-            if (catFilter) url += 'category=' + encodeURIComponent(catFilter) + '&';
-            if (typeFilter) url += 'rule_type=' + encodeURIComponent(typeFilter) + '&';
-            if (sevFilter) url += 'severity=' + encodeURIComponent(sevFilter) + '&';
-            if (enabledFilter) url += 'enabled=' + enabledFilter + '&';
+            }
+            // Persist whatever the dropdowns currently hold (user selection or
+            // the once-restored app value) so the state is durable.
+            _persistRulesFilterState();
+            // Filters and search apply instantly CLIENT-SIDE in
+            // renderRulesManager — this loader always fetches the FULL rule
+            // list, so dropdown changes never need a server round-trip.
+            const url = API() + '/rules/';
             const tbody = document.getElementById('rulesTbody');
             document.getElementById('rulesLoading').classList.remove('hidden');
             tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:1.5rem;color:var(--text-muted);">Loading rules...</td></tr>';
@@ -2895,6 +2932,15 @@ function loadHospitalsSettings() {
                     (r.expression_type || '').toLowerCase().includes(q)
                 );
             }
+            // Dropdown filters apply instantly client-side — no refetch.
+            const catF = document.getElementById('rulesCategoryFilter') ? document.getElementById('rulesCategoryFilter').value : '';
+            const typeF = document.getElementById('rulesTypeFilter') ? document.getElementById('rulesTypeFilter').value : '';
+            const sevF = document.getElementById('rulesSeverityFilter') ? document.getElementById('rulesSeverityFilter').value : '';
+            const enF = document.getElementById('rulesEnabledFilter') ? document.getElementById('rulesEnabledFilter').value : '';
+            if (catF) visible = visible.filter(r => (r.category || '') === catF);
+            if (typeF) visible = visible.filter(r => (r.rule_type || '') === typeF);
+            if (sevF) visible = visible.filter(r => (r.severity || '') === sevF);
+            if (enF) visible = visible.filter(r => String(r.enabled) === enF);
 
             // Flat list sorted by rule code — categories live in the
             // Category filter dropdown, not as table sections.
@@ -2976,10 +3022,12 @@ function loadHospitalsSettings() {
             const bulkOff = document.getElementById('rulesBulkDisableBtn');
             if (bulkOn) bulkOn.style.display = visible.length ? '' : 'none';
             if (bulkOff) bulkOff.style.display = visible.length ? '' : 'none';
-            // Search matched nothing: say so and offer a one-click clear, so an
-            // autofilled search never looks like the table is stuck.
-            if (!visible.length && q) {
-                filtered.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:1.5rem;">No rules match "' + esc(q) + '". <a href="#" onclick="clearRulesSearch();return false;" style="color:var(--accent-blue);">Clear search</a></td></tr>';
+            // Nothing matched: say so. Distinguish search misses (offer the
+            // one-click clear) from filter misses (the dropdowns themselves).
+            if (!visible.length) {
+                filtered.innerHTML = q
+                    ? '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:1.5rem;">No rules match "' + esc(q) + '". <a href="#" onclick="clearRulesSearch();return false;" style="color:var(--accent-blue);">Clear search</a></td></tr>'
+                    : '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:1.5rem;">No rules match the current filters.</td></tr>';
             }
 
             // Wire toggle clicks
@@ -3040,6 +3088,14 @@ function loadHospitalsSettings() {
             window._rulesSearchAppState = '';
             window._rulesSearchTouched = false;
             try { localStorage.setItem('rulesSearch', ''); } catch (e) {}
+            renderRulesManager();
+        };
+
+        // Dropdown change: persist the selection and re-render instantly —
+        // deliberately NOT loadRulesManager(), which would refetch from the
+        // server. Filtering happens client-side against the loaded list.
+        window.onRulesFilterChange = function() {
+            _persistRulesFilterState();
             renderRulesManager();
         };
 

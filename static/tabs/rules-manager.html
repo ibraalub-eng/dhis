@@ -17,7 +17,7 @@
                         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
                             <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
                                 <label style="font-size:0.75rem;color:var(--text-secondary);" data-i18n="Category:">Category:</label>
-                                <select id="rulesCategoryFilter" onchange="loadRulesManager()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
+                                <select id="rulesCategoryFilter" onchange="onRulesFilterChange()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
                                     <option value="" data-i18n="All">All</option>
                                     <option value="BASIC_LOGIC">BASIC_LOGIC</option>
                                     <option value="CLINICAL_CONSISTENCY">CLINICAL_CONSISTENCY</option>
@@ -27,7 +27,7 @@
                                     <option value="TREND_DATA_QUALITY">TREND_DATA_QUALITY</option>
                                 </select>
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Type:</label>
-                                <select id="rulesTypeFilter" onchange="loadRulesManager()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
+                                <select id="rulesTypeFilter" onchange="onRulesFilterChange()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
                                     <option value="">All</option>
                                     <option value="LOGIC">Logic</option>
                                     <option value="CLINICAL">Clinical</option>
@@ -35,7 +35,7 @@
                                     <option value="DATA_QUALITY">Data Quality</option>
                                 </select>
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Severity:</label>
-                                <select id="rulesSeverityFilter" onchange="loadRulesManager()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
+                                <select id="rulesSeverityFilter" onchange="onRulesFilterChange()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
                                     <option value="">All</option>
                                     <option value="CRITICAL">Critical</option>
                                     <option value="HIGH">High</option>
@@ -43,7 +43,7 @@
                                     <option value="LOW">Low</option>
                                 </select>
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Status:</label>
-                                <select id="rulesEnabledFilter" onchange="loadRulesManager()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
+                                <select id="rulesEnabledFilter" onchange="onRulesFilterChange()" style="font-size:0.75rem;padding:0.2rem 0.4rem;">
                                     <option value="">All</option>
                                     <option value="true">Enabled</option>
                                     <option value="false">Disabled</option>
