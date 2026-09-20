@@ -517,16 +517,20 @@ def list_rule_failures(
 
 @router.get("/months")
 def list_months_with_data(db: Session = Depends(get_db)):
+    """Months that actually have data.
+
+    Derived from IndicatorValue only — the tables where analysis results are
+    persisted (QualityScore, ValidationResult, ConfidenceScore, AnomalyResult)
+    are deliberately NOT unioned in. Those accumulate zero-score rows for
+    months that were never analyzed (ghost rows), which used to leak into
+    every month/year dropdown as months that have no data at all.
+    """
     cache_key = "analysis:months"
     cached = cache.get(cache_key)
     if cached:
         return cached
-    tables = [QualityScore, ValidationResult, ConfidenceScore, AnomalyResult]
-    all_months: set = set()
-    for tbl in tables:
-        rows = db.query(tbl.month).distinct().all()
-        all_months.update(r[0] for r in rows)
-    result = sorted(all_months)
+    rows = db.query(IndicatorValue.month).distinct().all()
+    result = sorted(r[0] for r in rows)
     cache.set(cache_key, result)
     return result
 
