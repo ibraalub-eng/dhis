@@ -98,10 +98,10 @@ def _conversation(db, user, conversation_id):
 def chat(body: dict, user=Depends(require_permission("ai.read")), db: Session = Depends(get_db)):
     if not _agent_enabled(db):
         return {"enabled": False}
-    _check_daily_cap(db, user)
-    message = (body.get("message") or "").strip()
-    if not message:
+    message = body.get("message")
+    if not isinstance(message, str) or not message.strip():
         raise HTTPException(status_code=422, detail="message is required")
+    _check_daily_cap(db, user)
     conv = None
     if body.get("conversation_id"):
         conv = _conversation(db, user, body["conversation_id"])
@@ -115,7 +115,8 @@ def chat(body: dict, user=Depends(require_permission("ai.read")), db: Session = 
              for m in db.query(Message).filter(Message.conversation_id == conv.id,
                                                Message.message_type.in_(("user", "assistant")))
              .order_by(Message.id).all()[:-1]]  # exclude the message just stored
-    result, _ = _run_and_persist(db, user, "qa", _month_for_user(db, user), "en", "", message,
+    result, _ = _run_and_persist(db, user, "qa", _month_for_user(db, user),
+                                 body.get("lang") or conv.lang or "en", "", message,
                                  history=prior or None)
     db.add(Message(conversation_id=conv.id, message_type="assistant", role="assistant",
                    content=result.answer, token_usage=result.tokens))
@@ -232,7 +233,10 @@ def admin_put(body: dict, user=Depends(require_permission("system.manage_users")
     # admin-only numeric settings (persisted as SystemSetting, read by admin_get)
     for k in _AGENT_ADMIN_KEYS:
         if k in body and body[k] is not None:
-            v = int(body[k])
+            try:
+                v = int(body[k])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail=f"{k} must be an integer") from None
             if k == "agent_cap" and not 1 <= v <= 1000:
                 raise HTTPException(status_code=422, detail="agent_cap must be 1..1000")
             if k == "agent_retention_days" and not 1 <= v <= 3650:
