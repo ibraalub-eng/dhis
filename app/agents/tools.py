@@ -1,5 +1,4 @@
 """Read-only agent tool registry. Scope enforcement is server-side."""
-import hashlib
 import json
 import re
 import statistics
@@ -13,11 +12,11 @@ MAX_ROWS = 20
 MAX_CHARS = 4000
 MAX_HOSPITALS = 20
 MAX_INDICATORS = 10
-DERIVED_ALWAYS = {"cs_rate"}  # computed from indicators 2 + 5 in _load_hospital_data
+DERIVED = {"cs_rate": ("2", "5")}  # derived from stored codes in _load_hospital_data
 
 
-def _scope_hash(hids):
-    return hashlib.sha256(",".join(str(h) for h in sorted(hids)).encode()).hexdigest()
+class _InvalidArg(ValueError):
+    pass
 
 
 def _valid_month(month):
@@ -44,7 +43,10 @@ class ToolContext:
                 [h.id for h in db.query(Hospital).filter(Hospital.is_active).all()]
 
     def allowed_hospital_ids(self, requested):
-        wanted = [int(i) for i in (requested or [])]
+        try:
+            wanted = [int(i) for i in (requested or [])]
+        except (TypeError, ValueError):
+            raise _InvalidArg("hospital_ids must be a list of integers")
         allowed = [i for i in wanted if i in self.authorized_ids]
         denied = [i for i in wanted if i not in self.authorized_ids]
         return allowed, denied
@@ -120,6 +122,41 @@ class ToolContext:
                 "count": len(vals)}
 
 
+def _is_known_code(db, code):
+    from app.models import Indicator
+    return db.query(Indicator).filter(Indicator.code == code).first() is not None
+
+
+def _derived_history(db, hid, code, months=6):
+    from app.models import Indicator, IndicatorValue
+    src_codes = DERIVED[code]
+    inds = db.query(Indicator).filter(Indicator.code.in_(src_codes)).all()
+    id_to_code = {ind.id: ind.code for ind in inds}
+    if not all(c in id_to_code.values() for c in src_codes):
+        return []
+    month_rows = db.query(IndicatorValue.month).filter(
+        IndicatorValue.hospital_id == hid,
+        IndicatorValue.indicator_id.in_(id_to_code),
+    ).distinct().order_by(IndicatorValue.month.desc()).limit(months).all()
+    month_list = [m[0] for m in month_rows]
+    rows = db.query(IndicatorValue).filter(
+        IndicatorValue.hospital_id == hid,
+        IndicatorValue.indicator_id.in_(id_to_code),
+        IndicatorValue.month.in_(month_list),
+    ).all()
+    by_month = {}
+    for r in rows:
+        by_month.setdefault(r.month, {})[id_to_code[r.indicator_id]] = r.value
+    out = []
+    for m in month_list:
+        pair = by_month.get(m, {})
+        total = pair.get(src_codes[0])
+        cs = pair.get(src_codes[1])
+        if total is not None and cs is not None and total > 0:
+            out.append({"month": m, "value": round(cs / total * 100, 2)})
+    return out
+
+
 def _cap(rows, max_rows=MAX_ROWS, max_chars=MAX_CHARS):
     out = (rows or [])[:max_rows]
     text = json.dumps(out, ensure_ascii=False)
@@ -154,7 +191,7 @@ def _get_indicator_values(ctx, args):
 
 def _get_quality_score(ctx, args):
     allowed, denied = ctx.allowed_hospital_ids(args.get("hospital_ids"))
-    if denied:
+    if denied and not allowed:
         return {"ok": False, "error": "ACCESS_DENIED"}
     rows = []
     for hid in allowed[:MAX_HOSPITALS]:
@@ -171,7 +208,7 @@ def _get_quality_score(ctx, args):
 
 def _get_rule_results(ctx, args):
     allowed, denied = ctx.allowed_hospital_ids(args.get("hospital_ids"))
-    if denied:
+    if denied and not allowed:
         return {"ok": False, "error": "ACCESS_DENIED"}
     status = args.get("status")
     rows = []
@@ -187,7 +224,7 @@ def _get_rule_results(ctx, args):
 
 def _get_anomalies(ctx, args):
     allowed, denied = ctx.allowed_hospital_ids(args.get("hospital_ids"))
-    if denied:
+    if denied and not allowed:
         return {"ok": False, "error": "ACCESS_DENIED"}
     rows = []
     for hid in allowed[:MAX_HOSPITALS]:
@@ -201,7 +238,7 @@ def _get_anomalies(ctx, args):
 
 def _get_clinical_profile(ctx, args):
     allowed, denied = ctx.allowed_hospital_ids(args.get("hospital_ids"))
-    if denied:
+    if denied and not allowed:
         return {"ok": False, "error": "ACCESS_DENIED"}
     rows = []
     for hid in allowed[:MAX_HOSPITALS]:
@@ -218,7 +255,7 @@ def _get_clinical_profile(ctx, args):
 
 def _get_peer_comparison(ctx, args):
     allowed, denied = ctx.allowed_hospital_ids(args.get("hospital_ids"))
-    if denied:
+    if denied and not allowed:
         return {"ok": False, "error": "ACCESS_DENIED"}
     indicators = (args.get("indicators") or ["cs_rate"])[:MAX_INDICATORS]
     rows = []
@@ -230,7 +267,7 @@ def _get_peer_comparison(ctx, args):
 
 def _get_historical_trends(ctx, args):
     allowed, denied = ctx.allowed_hospital_ids(args.get("hospital_ids"))
-    if denied:
+    if denied and not allowed:
         return {"ok": False, "error": "ACCESS_DENIED"}
     if not allowed:
         return {"ok": True, "data": []}
@@ -238,16 +275,21 @@ def _get_historical_trends(ctx, args):
     rows = []
     for hid in allowed[:1]:
         for code in indicators:
-            hist = ctx.indicator_history(hid, code)
+            if code in DERIVED:
+                hist = _derived_history(ctx.db, hid, code)
+            elif not _is_known_code(ctx.db, code):
+                return {"ok": False, "error": f"validation: unknown indicator {code}"}
+            else:
+                hist = ctx.indicator_history(hid, code)
             rows.append({"hospital_id": hid, "indicator": code, "history": hist})
     return {"ok": True, "data": _cap(rows)}
 
 
 def _query_month_aggregates(ctx, args):
     allowed, denied = ctx.allowed_hospital_ids(args.get("hospital_ids"))
-    if denied:
+    if denied and not allowed:
         return {"ok": False, "error": "ACCESS_DENIED"}
-    indicators = (args.get("indicators") or [])
+    indicators = (args.get("indicators") or [])[:MAX_INDICATORS]
     include = allowed if allowed else ctx.authorized_ids
     data = ctx.hospital_data()
     agg = {}
@@ -319,4 +361,9 @@ def execute_tool(name, args, ctx):
     month = args.get("month")
     if month is not None and not _valid_month(month):
         return {"ok": False, "error": "validation: month must be YYYY-MM"}
-    return _TOOL_FUNCS[name](ctx, args)
+    try:
+        return _TOOL_FUNCS[name](ctx, args)
+    except _InvalidArg as e:
+        return {"ok": False, "error": f"validation: {e}"}
+    except Exception:
+        return {"ok": False, "error": "internal: tool execution failed"}

@@ -101,6 +101,55 @@ def test_unknown_tool_rejected(ctx):
     assert res["ok"] is False
 
 
+def test_malformed_hospital_ids_validation(ctx):
+    from app.agents.tools import execute_tool
+
+    for bad in (3, ["abc"], [1, None]):
+        res = execute_tool("get_indicator_values",
+                           {"hospital_ids": bad, "month": "2026-08"}, ctx)
+        assert res["ok"] is False
+        assert res["error"].startswith("validation")
+
+
+def test_historical_trends_derived_cs_rate(ctx):
+    from app.agents.tools import execute_tool
+    from app.models import Indicator, IndicatorValue
+
+    h1 = ctx.db.query(Hospital).filter(Hospital.name == "Alpha").one()
+    ind2 = Indicator(code="2", name="Total deliveries")
+    ind5 = Indicator(code="5", name="C-section deliveries")
+    ctx.db.add_all([ind2, ind5])
+    ctx.db.flush()
+    ctx.db.add_all([
+        IndicatorValue(hospital_id=h1.id, indicator_id=ind2.id, month="2026-07", value=100.0),
+        IndicatorValue(hospital_id=h1.id, indicator_id=ind5.id, month="2026-07", value=25.0),
+        IndicatorValue(hospital_id=h1.id, indicator_id=ind2.id, month="2026-08", value=200.0),
+        IndicatorValue(hospital_id=h1.id, indicator_id=ind5.id, month="2026-08", value=60.0),
+    ])
+    ctx.db.commit()
+
+    res = execute_tool("get_historical_trends",
+                       {"hospital_ids": [1], "month": "2026-08", "indicators": ["cs_rate"]}, ctx)
+    assert res["ok"] is True
+    months = {h["month"]: h["value"] for h in res["data"][0]["history"]}
+    assert months["2026-08"] == 30.0
+    assert months["2026-07"] == 25.0
+
+    res = execute_tool("get_historical_trends", {"hospital_ids": [1], "month": "2026-08"}, ctx)
+    assert res["ok"] is True
+    months = {h["month"]: h["value"] for h in res["data"][0]["history"]}
+    assert months["2026-08"] == 30.0
+
+
+def test_historical_trends_unknown_indicator(ctx):
+    from app.agents.tools import execute_tool
+
+    res = execute_tool("get_historical_trends",
+                       {"hospital_ids": [1], "month": "2026-08", "indicators": ["nope"]}, ctx)
+    assert res["ok"] is False
+    assert res["error"].startswith("validation")
+
+
 def test_superadmin_sees_all(db_session):
     from app.agents.tools import ToolContext, execute_tool
 
