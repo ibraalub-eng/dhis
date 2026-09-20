@@ -2903,9 +2903,14 @@ function loadHospitalsSettings() {
                 }
             });
             filtered.innerHTML = html;
-            // Row click opens the details drawer (toggle cell stops propagation)
+            // Row click opens the details drawer. Toggle cell stops propagation,
+            // and clicks on the action buttons (Edit/Del/Test/History) are ignored
+            // here: they open their own dialogs, and letting the click bubble to
+            // the row opened the drawer BEHIND the dialog — the "Edit opens two
+            // modals plus a side menu" confusion.
             filtered.querySelectorAll('.rule-row').forEach(row => {
-                row.addEventListener('click', function() {
+                row.addEventListener('click', function(e) {
+                    if (e.target.closest('button')) return;
                     window.openRuleDrawer(parseInt(this.dataset.id, 10));
                 });
             });
@@ -3118,12 +3123,31 @@ function loadHospitalsSettings() {
         window._drawerEditRule = function(id) { closeRuleDrawer(); openRuleModal(id); };
         window._drawerTestRule = function(id) { closeRuleDrawer(); _testRuleById(id); };
 
-        // ESC closes the drawer (bound once)
-        if (!window._ruleDrawerEscBound) {
+        window.closeRuleTestModal = function() {
+            const modal = document.getElementById('ruleTestModal');
+            if (modal) modal.classList.remove('show');
+        };
+
+        // ESC closes the topmost open rules dialog only — one press per layer
+        // (edit modal → test modal → drawer). Bound once, in bubble phase:
+        // rules.js closes the edit modal in the capture phase first, so ESC
+        // never closes the drawer underneath an open edit modal anymore.
+        if (!window._rulesDialogsEscBound) {
             document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') window.closeRuleDrawer();
+                if (e.key !== 'Escape') return;
+                const testModal = document.getElementById('ruleTestModal');
+                if (testModal && testModal.classList.contains('show')) {
+                    e.preventDefault();
+                    window.closeRuleTestModal();
+                    return;
+                }
+                const drawer = document.getElementById('ruleDrawer');
+                if (drawer && drawer.classList.contains('open')) {
+                    e.preventDefault();
+                    window.closeRuleDrawer();
+                }
             });
-            window._ruleDrawerEscBound = true;
+            window._rulesDialogsEscBound = true;
         }
 
         // Column sorting (Code / Severity / Affected Hospitals). Re-renders
@@ -3236,7 +3260,7 @@ function loadHospitalsSettings() {
             const title = document.getElementById('ruleTestModalTitle');
             if (!modal || !body || !title) return;
             if (!modal.dataset.bound) {
-                modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('show'); });
+                modal.addEventListener('click', function(e) { if (e.target === modal) window.closeRuleTestModal(); });
                 modal.dataset.bound = '1';
             }
             title.textContent = __('Rule Test') + ' — ' + esc(r.code);
@@ -3400,11 +3424,6 @@ function loadHospitalsSettings() {
             input.value = ''; // allow re-selecting the same file
         };
 
-        window.closeRuleTestModal = function() {
-            const modal = document.getElementById('ruleTestModal');
-            if (modal) modal.classList.remove('show');
-        };
-
         // ── Rule change history (audit trail) ─────────────────────
         const _HISTORY_ACTION_COLORS = {
             created: 'var(--accent-green)', updated: 'var(--accent-blue)',
@@ -3420,7 +3439,7 @@ function loadHospitalsSettings() {
             const title = document.getElementById('ruleTestModalTitle');
             if (!modal || !body || !title) return;
             if (!modal.dataset.bound) {
-                modal.addEventListener('click', function(e) { if (e.target === modal) modal.classList.remove('show'); });
+                modal.addEventListener('click', function(e) { if (e.target === modal) window.closeRuleTestModal(); });
                 modal.dataset.bound = '1';
             }
             title.textContent = __('History') + ' — ' + esc(rule.code);

@@ -568,6 +568,7 @@
             'No expression selected': 'لم يتم اختيار تعبير',
             'New Rule': 'قاعدة جديدة',
             'Edit Rule': 'تعديل القاعدة',
+            'Tip: click a row to see its full details — expression, parameters, and affected hospitals.': 'تلميح: انقر على أي صف لعرض تفاصيله الكاملة — التعبير، المعاملات، والمستشفيات المتأثرة.',
             'Rule Type': 'نوع القاعدة',
             'Expression Type': 'نوع التعبير',
             'Params (JSON)': 'المعاملات (JSON)',

@@ -419,3 +419,114 @@ def test_rules_search_persisted_on_every_render():
     # clearRulesSearch must clear the stored value too, not just the input
     clear_fn = js[js.index("window.clearRulesSearch"):]
     assert "localStorage.setItem('rulesSearch', '')" in clear_fn
+
+
+# ── Row click vs action buttons (drawer double-open) ────────────────
+
+def test_rule_row_drawer_click_ignores_action_buttons():
+    """Edit/Del/Test/History sit inside tr.rule-row, whose click listener opens
+    the details drawer. Without a button guard, clicking Edit bubbles to the
+    row: the edit modal AND the drawer (plus its overlay) both opened, which
+    looked like two modals and a side menu appearing at once."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "rules-manager.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    row_handler = js[js.index("querySelectorAll('.rule-row')"):
+                     js.index("querySelectorAll('.rule-toggle-cell')")]
+    assert "addEventListener('click'" in row_handler
+    assert "e.target.closest('button')" in row_handler
+    assert "openRuleDrawer" in row_handler
+
+
+# ── Search box starts empty on first open (no autofill junk) ────────
+
+def test_rules_search_input_is_search_type():
+    """A plain type="text" input is a username-autofill target for Chrome
+    (which ignores autocomplete="off"); type="search" inputs are excluded
+    from those heuristics, so saved credentials can never land in the box."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "rules-manager.html")
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    assert '<input id="rulesSearchInput" type="search"' in html
+
+
+def test_rules_search_cleared_on_first_tab_open():
+    """main.js must wipe the search box and its stored value when the Rules
+    Manager screen is first opened. Otherwise a stale persisted value (e.g. a
+    username that autofill injected on an earlier visit and a render then
+    saved) is re-applied by the post-load restore in loadRulesManager."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "main.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    branch = js[js.index("name === 'rules-manager'"):]
+    assert "rulesSearchInput" in branch
+    assert "_rulesSearchBox.value = ''" in branch
+    assert "localStorage.setItem('rulesSearch', '')" in branch
+    assert "_tryInit('loadRulesManager'" in branch
+
+
+def test_rules_search_native_cancel_button_hidden():
+    """type="search" makes WebKit show a native clear ✕ inside the box; the
+    input already has its own clear button (#rulesSearchClear), so the native
+    one must be hidden to avoid two confusing ✕ buttons."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "css", "styles.css")
+    with open(path, encoding="utf-8") as f:
+        css = f.read()
+    assert "#rulesSearchInput::-webkit-search-cancel-button" in css
+
+
+# ── Dialog keyboard/dismiss polish ─────────────────────────────────
+
+def test_rule_edit_modal_esc_bound_in_capture_phase():
+    """ESC must close the edit modal, and it must do so in the CAPTURE phase:
+    the rules dialogs' bubble-phase handler (rules-manager.js) would otherwise
+    close the drawer UNDERNEATH the open modal — backwards. Capture runs
+    first, giving one-press-per-layer stacking."""
+    js = _read_rules_js()
+    assert "_ruleEditModalEscBound" in js
+    assert "'keydown', function(e) {" in js
+    assert "e.key !== 'Escape'" in js
+    assert "ruleEditModal" in js
+    assert "closeRuleModal()" in js
+    assert "}, true);" in js  # capture-phase registration
+
+
+def test_rules_dialogs_esc_handler_closes_topmost_only():
+    """The shared ESC dispatcher must close the test modal before the drawer
+    (topmost first) and ignore keys when neither is open. The old handler
+    closed the drawer unconditionally on every ESC, even with a modal above."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "rules-manager.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "_rulesDialogsEscBound" in js
+    assert "_ruleDrawerEscBound" not in js  # old unconditional handler replaced
+    esc_block = js[js.index("_rulesDialogsEscBound"):]
+    test_check = esc_block.index("ruleTestModal")
+    drawer_check = esc_block.index("ruleDrawer")
+    assert test_check < drawer_check  # test modal checked first (topmost)
+    assert "closeRuleTestModal()" in esc_block
+    assert "closeRuleDrawer()" in esc_block
+
+
+def test_rule_test_modal_backdrop_uses_named_close():
+    """Test modal and History view share #ruleTestModal; both backdrop-click
+    bindings must go through closeRuleTestModal() so ESC and backdrop use one
+    close path."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "rules-manager.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "window.closeRuleTestModal = function()" in js
+    assert "if (e.target === modal) window.closeRuleTestModal();" in js
+    assert "modal.classList.remove('show'); });" not in js  # no inline bypass left
+
+
+def test_rules_table_hint_about_row_details():
+    """The table footer tells users that clicking a row opens the details
+    drawer — the drawer is invisible until you discover the row click."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "rules-manager.html")
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    assert "Tip: click a row to see its full details" in html
+    # Arabic translation present per i18n policy
+    i18n = _read_i18n_js()
+    assert "تلميح: انقر على أي صف" in i18n

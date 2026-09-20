@@ -8,6 +8,27 @@ import { confirmDestructive } from './confirm-modal.js';
         let _indicatorsCache = [];
         let _vbState = {};
 
+        // ── Edit-modal keyboard polish ─────────────────────────────
+        // ESC closes the edit modal when it is open — bound in the CAPTURE
+        // phase so it runs before the rules dialogs' bubble-phase ESC handler
+        // (rules-manager.js). That gives proper one-press-per-layer stacking:
+        // with the drawer open underneath, ESC closes the modal first and a
+        // second press closes the drawer — never both at once, and never the
+        // drawer while the modal on top of it stays open. The confirm dialog
+        // (confirm-modal.js) owns ESC whenever it is visible, so hands off.
+        if (!window._ruleEditModalEscBound) {
+            document.addEventListener('keydown', function(e) {
+                if (e.key !== 'Escape') return;
+                const modal = document.getElementById('ruleEditModal');
+                if (!modal || !modal.classList.contains('show')) return;
+                if (document.getElementById('confirm-modal-overlay')?.classList.contains('cm-visible')) return;
+                e.preventDefault();
+                e.stopPropagation();
+                closeRuleModal();
+            }, true);
+            window._ruleEditModalEscBound = true;
+        }
+
         // ── Indicator loading ──────────────────────────────────────
         export async function loadIndicators() {
             if (_indicatorsCache.length > 0) return _indicatorsCache;

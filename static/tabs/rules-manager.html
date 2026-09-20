@@ -57,7 +57,7 @@
                             </div>
                         </div>
                         <div style="margin-bottom:0.5rem;display:flex;align-items:center;gap:0.35rem;">
-                            <input id="rulesSearchInput" type="text" name="rules-search" autocomplete="off" placeholder="Search code, name, description, category..." oninput="onRulesSearch()" style="font-size:0.75rem;padding:0.25rem 0.5rem;width:100%;box-sizing:border-box;">
+                            <input id="rulesSearchInput" type="search" name="rules-search" autocomplete="off" placeholder="Search code, name, description, category..." oninput="onRulesSearch()" style="font-size:0.75rem;padding:0.25rem 0.5rem;width:100%;box-sizing:border-box;">
                             <button id="rulesSearchClear" type="button" onclick="clearRulesSearch()" title="Clear search" aria-label="Clear search" style="flex:0 0 auto;background:none;border:1px solid var(--border-default);border-radius:4px;color:var(--text-muted);cursor:pointer;font-size:0.7rem;line-height:1;padding:0.28rem 0.5rem;">✕</button>
                         </div>
                         <div id="rulesTableContainer" style="max-height:500px;overflow-y:auto;font-size:0.82rem;">
@@ -78,6 +78,8 @@
                     </div>
                     <div style="margin-top:0.8rem;font-size:0.75rem;color:var(--text-muted);border-top:1px solid var(--border-default);padding-top:0.5rem;">
                         <span>Rules are sorted by code. Disabled rules are skipped during analysis.</span>
+                        <span style="margin:0 0.55rem;opacity:0.5;">·</span>
+                        <span data-i18n="Tip: click a row to see its full details — expression, parameters, and affected hospitals.">Tip: click a row to see its full details — expression, parameters, and affected hospitals.</span>
                     </div>
                 </div>
                 <div class="card" id="rulesExprHelp" style="margin-top:1rem;">

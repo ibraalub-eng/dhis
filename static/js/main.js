@@ -139,7 +139,17 @@
             if (name === 'analysis') _tryInit('initAnalysis', 10);
             if (name === 'clinical') _tryInit('initClinical', 10);
             if (name === 'indicator-tree') _tryInit('initIndicatorTree', 10);
-            if (name === 'rules-manager') _tryInit('loadRulesManager', 10);
+            if (name === 'rules-manager') {
+                // First open of the Rules Manager screen: the search box must
+                // start empty. Clear both the input and the stored value — a
+                // value the browser autofilled (e.g. the username) may have
+                // been persisted earlier, and the post-load restore in
+                // loadRulesManager would otherwise put it right back.
+                var _rulesSearchBox = document.getElementById('rulesSearchInput');
+                if (_rulesSearchBox) _rulesSearchBox.value = '';
+                try { localStorage.setItem('rulesSearch', ''); } catch (e) {}
+                _tryInit('loadRulesManager', 10);
+            }
             if (name === 'audit') _tryInit('initAudit', 10);
             if (name === 'smart-analytics') _tryInit('initSmartAnalytics', 10);
             if (name === 'admin') _tryInit('loadAdminPanel', 10);
