@@ -19,6 +19,13 @@ import { confirmDestructive, confirmWarning } from './confirm-modal.js';
         let _rulesDirty = false;
         let _forceRulesImpactRefresh = false;
 
+        // Called by other modules (rules.js edit modal) after a rule is
+        // saved/deleted so the next loadRulesManager() recomputes the impact
+        // map (referenced indicators, affected hospitals) instead of reading
+        // the server's 5-minute memo.
+        export function forceRulesImpactRefresh() { _forceRulesImpactRefresh = true; }
+        window.forceRulesImpactRefresh = forceRulesImpactRefresh;
+
         // ── Search-box anti-autofill guard ──────────────
         // Chrome & co. ignore autocomplete="off" and autofill the saved login
         // username into text-like inputs — the rules search box kept receiving

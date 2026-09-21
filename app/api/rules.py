@@ -27,6 +27,27 @@ _impact_cache = {"data": None, "ts": 0, "lock": threading.Lock()}
 _IMPACT_TTL = 300  # 5 minutes
 
 
+def _invalidate_impact_cache() -> None:
+    """Drop the /rules/impact memo (and dependent engine caches).
+
+    Called after every rule mutation — create/update/delete/enable/import —
+    so the details drawer, impact column and rule test results reflect the
+    new definition immediately instead of for up to _IMPACT_TTL seconds."""
+    with _impact_cache["lock"]:
+        _impact_cache["data"] = None
+        _impact_cache["ts"] = 0
+    try:
+        from app.cache import cache
+        for prefix in ("smart_overview_", "smart_drilldown_", "smart_trend_",
+                       "smart_anomalies_", "smart_clusters_",
+                       "smart_correlations_", "smart_residuals_",
+                       "smart_stratified_", "smart_geo_", "smart_timeline",
+                       "validation_results_", "rule_evaluation_"):
+            cache.invalidate(prefix)
+    except Exception:
+        pass
+
+
 def _rule_snapshot(rule: Rule) -> dict:
     return {
         "id": rule.id, "code": rule.code, "name": rule.name,
@@ -478,20 +499,7 @@ def save_rules_enabled(body: dict, db: Session = Depends(get_db)):
             count += 1
     db.commit()
     # Invalidate caches that depend on rule enabled states
-    from app.cache import cache
-    cache.invalidate("smart_overview_")
-    cache.invalidate("smart_drilldown_")
-    cache.invalidate("smart_trend_")
-    cache.invalidate("smart_anomalies_")
-    cache.invalidate("smart_clusters_")
-    cache.invalidate("smart_correlations_")
-    cache.invalidate("smart_residuals_")
-    cache.invalidate("smart_stratified_")
-    cache.invalidate("smart_geo_")
-    cache.invalidate("smart_timeline")
-    cache.invalidate("analysis:months")
-    cache.invalidate("validation_results_")
-    cache.invalidate("rule_evaluation_")
+    _invalidate_impact_cache()
     return {"message": f"Saved enabled state for {count} rule(s)"}
 
 
@@ -636,6 +644,7 @@ def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
     _record_rule_history(db, db_rule, "created", [])
     db.commit()
     db.refresh(db_rule)
+    _invalidate_impact_cache()
     return db_rule
 
 
@@ -652,6 +661,8 @@ def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_db)):
         _record_rule_history(db, db_rule, "updated", changed)
     db.commit()
     db.refresh(db_rule)
+    if changed:
+        _invalidate_impact_cache()
     return db_rule
 
 
@@ -666,6 +677,7 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     db.flush()  # rule row gone; rule_id FK must be NULL on the audit entry
     _record_rule_history(db, None, "deleted", [], rule_id=None, rule_code=code, snapshot=snap)
     db.commit()
+    _invalidate_impact_cache()
     return {"message": f"Rule {code} deleted"}
 
 

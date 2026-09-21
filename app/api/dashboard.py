@@ -1020,9 +1020,12 @@ def component_diagnostics(
                     for iid in covered_ids:
                         ind_hospital_count[iid] += 1
                 # Only show indicators that SOME hospitals have but others don't
-                # (not universally disabled)
+                # (not universally disabled, and not disabled by default for this month)
                 partially_missing = {}
+                default_disabled_this_month = default_disabled_map.get(month, set())
                 for mid in all_ind_ids:
+                    if mid in default_disabled_this_month:
+                        continue
                     count = ind_hospital_count.get(mid, 0)
                     if 0 < count < len(hosp_ids):
                         partially_missing[mid] = len(hosp_ids) - count
@@ -1280,20 +1283,51 @@ def component_diagnostics(
                     "value": val, "month": s.month,
                     "failed_rules": failed_rules[:10],
                 })
-        # Group entries into cause buckets
+        # Ensure "Rule validation failures" cause exists if any hospital has failed rules
+        # (even if aggregate compliance is above target — the affected list exists
+        # to show hospitals with actual rule failures regardless of overall score)
+        if _rc_hosp_entries and not any(c["cause"] == "Rule validation failures" for c in rc_causes):
+            rc_causes.append({
+                "cause": "Rule validation failures",
+                "detail": f"Hospitals with rule failures detected",
+                "severity": "warning",
+                "impact_pct": 0,
+                "first_month": _rc_hosp_entries[0]["month"],
+            })
+        # Group entries into cause buckets — each cause gets its own hospitals
+        # (not all hospitals with failed rules to all causes, which caused duplicates)
         _rc_cause_hosp = {}
         for cause in rc_causes:
             _rc_cause_hosp[cause["cause"]] = []
-        # Assign every hospital-month with actual rule failures to each cause
-        # bucket — a hospital can pass overall yet still have failing rules,
-        # and the affected list exists precisely to show them. (Gating these
-        # entries on the aggregate compliance value emptied the list: rows
-        # with low compliance are mostly never-analyzed months with no FAIL
-        # rows, while real failing hospitals sit above the target.)
+
+        # Build trend direction per hospital for "Declining trend" cause
+        _rc_trend_by_hosp = {}
+        for s in scores:
+            if s.hospital_id not in hosp_names:
+                continue
+            if (s.hospital_id, s.month) not in analyzed_pairs:
+                continue
+            hkey = s.hospital_id
+            if hkey not in _rc_trend_by_hosp:
+                _rc_trend_by_hosp[hkey] = []
+            _rc_trend_by_hosp[hkey].append((s.month, float(s.rule_compliance or 0)))
+        _rc_declining_hosps = set()
+        for hkey, vals in _rc_trend_by_hosp.items():
+            if len(vals) >= 2:
+                vals_sorted = sorted(vals, key=lambda x: x[0])
+                rc_vals_only = [v for _, v in vals_sorted]
+                if _direction(rc_vals_only) == "declining":
+                    _rc_declining_hosps.add(hkey)
+
         for entry in _rc_hosp_entries:
-            for cause in rc_causes:
-                if cause["cause"] in _rc_cause_hosp:
-                    _rc_cause_hosp[cause["cause"]].append(entry)
+            hkey = entry["hospital_id"]
+            # "Rule validation failures" cause: hospitals with actual failed rules
+            if "Rule validation failures" in _rc_cause_hosp:
+                _rc_cause_hosp["Rule validation failures"].append(entry)
+            # "Declining trend" cause: hospitals with declining trend
+            if "Declining trend" in _rc_cause_hosp and hkey in _rc_declining_hosps:
+                _rc_cause_hosp["Declining trend"].append(entry)
+            # "All rules passing" cause: no affected hospitals (empty by design)
         # Aggregate per hospital across months
         for cause_key in _rc_cause_hosp:
             rows = _rc_cause_hosp[cause_key]

@@ -946,6 +946,10 @@ import { confirmDestructive } from './confirm-modal.js';
                 }
                 if (!res.ok) throw new Error(await res.text());
                 closeRuleModal();
+                // The impact map (referenced indicators, affected hospitals)
+                // is memoized server-side for 5 minutes — force a recompute
+                // so the drawer/table show the new definition immediately.
+                if (typeof window.forceRulesImpactRefresh === 'function') window.forceRulesImpactRefresh();
                 loadRulesManager();
             } catch(e) {
                 toastError('Save failed: ' + e.message);
@@ -957,6 +961,7 @@ import { confirmDestructive } from './confirm-modal.js';
             try {
                 const res = await authFetch(API() + '/rules/' + ruleId, { method: 'DELETE' });
                 if (!res.ok) throw new Error(await res.text());
+                if (typeof window.forceRulesImpactRefresh === 'function') window.forceRulesImpactRefresh();
                 loadRulesManager();
             } catch(e) {
                 toastError('Delete failed: ' + e.message);
