@@ -1717,14 +1717,17 @@ function loadHospitalsSettings() {
                                             : null;
                                         if (missList && !missList.length) missList = null;
                                         var missTotal = (h.missing_count != null) ? h.missing_count : (missList ? missList.length : ((Array.isArray(h.missing_indicators) && h.missing_indicators.length) ? h.missing_indicators.length : 0));
-                                        html += '<div style="border:1px solid var(--border-default);border-radius:6px;overflow:hidden;">';
+                                        // flex-shrink:0 — without it, cards inside this max-height flex
+                                        // column compress below their content height and overlap.
+                                        html += '<div style="border:1px solid var(--border-default);border-radius:6px;overflow:hidden;flex-shrink:0;">';
 
                                         // Hospital header (click to expand/collapse)
                                         html += '<div class="_hosp-head" style="display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.6rem;background:var(--bg-surface-hover);cursor:pointer;transition:background 0.15s;" onclick="var b=this.parentElement.querySelector(\'._hosp-body\');var c=this.querySelector(\'._hosp-chev\');var isHidden=b.classList.toggle(\'hidden\');c.textContent=isHidden?\'\u25b8\':\'\u25be\';">';
                                         html += '<span style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;">' + (idx + 1) + '</span>';
-                                        // Name gets up to 2 lines instead of truncating to nothing on
-                                        // narrow screens — a 74px ellipsis-only sliver reads as broken.
-                                        html += '<div style="flex:1 1 110px;min-width:0;font-size:0.75rem;font-weight:600;color:var(--text-primary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;word-break:break-word;" title="' + esc(hName) + '">' + esc(hName) + '</div>';
+                                        // Name always wraps fully — clamping long hospital names to
+                                        // 2 lines cut them off mid-path ("مستشفيات/…") and read as
+                                        // broken. All words stay visible; the row simply grows.
+                                        html += '<div style="flex:1 1 110px;min-width:0;font-size:0.75rem;font-weight:600;color:var(--text-primary);line-height:1.35;word-break:break-word;" title="' + esc(hName) + '">' + esc(hName) + '</div>';
                                         if (missTotal > 0) {
                                             html += '<span style="flex-shrink:0;background:rgba(198,40,40,0.15);color:var(--accent-red);padding:1px 7px;border-radius:10px;font-size:0.65rem;font-weight:700;" title="' + __('Missing Indicators') + '">' + missTotal + '</span>';
                                         }
