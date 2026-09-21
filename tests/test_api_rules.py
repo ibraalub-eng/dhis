@@ -493,3 +493,59 @@ class TestRulesExportImport:
     def test_import_rejects_bad_body(self, client):
         resp = client.post("/rules/import", json={"nope": True})
         assert resp.status_code == 400
+
+
+class TestImpactCacheInvalidation:
+    """Editing a rule must immediately refresh /rules/impact — the drawer's
+    'Referenced indicators' and 'Affected hospitals' read from that map, and
+    it used to stay stale for up to 5 minutes after a save."""
+
+    def _seed_impact_data(self, db_session):
+        """/rules/impact only memoizes when a latest data month exists — seed
+        one hospital-month of indicator values so the cache is exercised."""
+        from app.models import IndicatorValue, Hospital
+        hosp = db_session.query(Hospital).first()
+        ind = db_session.query(Rule).first()  # noqa: F841 (rules seeded too)
+        from app.models import Indicator
+        indicator = db_session.query(Indicator).first()
+        db_session.add(IndicatorValue(hospital_id=hosp.id, month="2027-01",
+                                      indicator_id=indicator.id, value=10))
+        db_session.commit()
+        from app.cache import cache
+        cache.invalidate("analysis:months")
+
+    def test_update_rule_refreshes_impact(self, client, db_session):
+        from app.api import rules as rules_api
+
+        self._seed_impact_data(db_session)
+        rule = db_session.query(Rule).first()
+        # Warm the cache by calling impact directly through the endpoint
+        first = client.get("/rules/impact").json()
+        assert rules_api._impact_cache["data"] is not None
+        before = next(x for x in first if x["code"] == rule.code)
+
+        # Change the rule's params (children) — a real edit
+        import json as _json
+        params = _json.loads(rule.params or "{}")
+        params["children"] = (params.get("children") or [])[:1] or ["3"]
+        resp = client.put(f"/rules/{rule.id}", json={"params": _json.dumps(params)})
+        assert resp.status_code == 200
+
+        # The memo must have been dropped, and the new impact reflects the edit
+        assert rules_api._impact_cache["data"] is None
+        second = client.get("/rules/impact").json()
+        after = next(x for x in second if x["code"] == rule.code)
+        assert after["ref_codes"] != before["ref_codes"], (
+            "impact ref_codes unchanged after rule edit — impact cache was not invalidated"
+        )
+
+    def test_delete_rule_invalidates_impact_cache(self, client, db_session):
+        from app.api import rules as rules_api
+
+        self._seed_impact_data(db_session)
+        client.get("/rules/impact")
+        assert rules_api._impact_cache["data"] is not None
+        rule = db_session.query(Rule).first()
+        resp = client.delete(f"/rules/{rule.id}")
+        assert resp.status_code == 200
+        assert rules_api._impact_cache["data"] is None

@@ -570,6 +570,7 @@ def import_rules(body: Union[dict, List[dict]] = Body(...), db: Session = Depend
             _record_rule_history(db, new_rule, "created", [])
             created += 1
     db.commit()
+    _invalidate_impact_cache()
     return {
         "message": f"Imported {len(items)} rule(s): {created} created, {updated} updated, {len(skipped)} skipped",
         "created": created,
