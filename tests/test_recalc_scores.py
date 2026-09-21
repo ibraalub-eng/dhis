@@ -657,6 +657,42 @@ def test_save_default_tree_config_triggers_full_reanalysis(client, db_session):
     )
 
 
+def test_all_months_save_never_persists_all_month_row(client, db_session):
+    """REGRESSION (production bug): saving the tree config with the 'All Months'
+    selector used to call run_full_analysis(month='__all__'), which persisted a
+    score-0 QualityScore row with month='__all__' — that row then appeared as an
+    '__all__' report card and an '__all__' tick in the Quality Score Trend.
+
+    The save must re-analyze every *concrete* month instead, and the pipeline
+    itself must refuse any non YYYY-MM month."""
+    from app.models import Hospital, Indicator, IndicatorValue, QualityScore
+
+    ind = db_session.query(Indicator).first()
+    assert ind is not None, "no indicators seeded"
+    hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+    _insert_indicator_value(db_session, hosp.id, "2027-01", ind.code, 10)
+    _insert_indicator_value(db_session, hosp.id, "2027-02", ind.code, 20)
+    db_session.commit()
+
+    resp = client.post(
+        "/hospitals/save-default-tree-config?month=__all__",
+        json={"items": [{"indicator_id": ind.id, "is_enabled": True}]},
+    )
+    assert resp.status_code == 200
+
+    all_months = {m for (m,) in db_session.query(QualityScore.month).distinct().all()}
+    assert "__all__" not in all_months, (
+        "QualityScore persisted with month='__all__' — the synthetic "
+        "All-Months selector leaked into the persistence layer"
+    )
+
+    # The pipeline guard also rejects the literal directly
+    from app.engine.pipeline import run_full_analysis
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        run_full_analysis(db_session, hosp.id, "__all__", force=True)
+
+
 def test_confidence_excludes_disabled_indicators(client, db_session):
     """Disabled indicators must not appear as CRITICAL 'DATA MISSING' in confidence."""
     from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig

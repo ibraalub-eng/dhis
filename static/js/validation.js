@@ -37,7 +37,7 @@
             const ph = '<option value="">Select month</option>';
             sel.innerHTML = ph;
             apiGet('/analysis/months').then(months => {
-                sel.innerHTML = ph + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                sel.innerHTML = ph + months.filter(m => /^\d{4}-\d{2}$/.test(String(m))).map(m => '<option value="' + m + '">' + m + '</option>').join('');
                 if (callback) callback();
             }).catch(() => {});
         }
@@ -594,7 +594,7 @@
             const ph = '<option value="">Select month</option>';
             sel.innerHTML = ph;
             apiGet('/analysis/months').then(months => {
-                sel.innerHTML = ph + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                sel.innerHTML = ph + months.filter(m => /^\d{4}-\d{2}$/.test(String(m))).map(m => '<option value="' + m + '">' + m + '</option>').join('');
                 if (callback) callback();
             });
         }

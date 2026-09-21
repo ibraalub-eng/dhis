@@ -85,7 +85,8 @@ import { toastSuccess, toastError, toastWarning } from './toast.js';
                     hsel.innerHTML = phH + treeDefaultOption() + list.map(h => '<option value="' + h.id + '">' + h.name + '</option>').join('');
                 }).catch(() => {}),
                 apiGet('/analysis/months').then(months => {
-                    msel.innerHTML = phM + treeAllMonthsOption() + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                    const valid = (months || []).filter(m => /^\d{4}-\d{2}$/.test(String(m)));
+                    msel.innerHTML = phM + treeAllMonthsOption() + valid.map(m => '<option value="' + m + '">' + m + '</option>').join('');
                 }).catch(() => {}),
             ]).then(() => {
                 _treeInitialized = true;
@@ -296,7 +297,7 @@ const btn = document.getElementById('treeSaveBtn');
             if (!msel) { loadIndicatorTree(); return; }
             const previous = msel.value;
             apiGet('/analysis/months').then(function(months) {
-                const list = months || [];
+                const list = (months || []).filter(function(m) { return /^\d{4}-\d{2}$/.test(String(m)); });
                 msel.innerHTML = '<option value="">' + __('Select Month') + '</option>' + treeAllMonthsOption() +
                     list.map(function(m) { return '<option value="' + m + '">' + m + '</option>'; }).join('');
                 if (previous && list.indexOf(previous) !== -1) {

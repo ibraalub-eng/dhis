@@ -92,7 +92,7 @@ export function initAudit() {
             hSel.innerHTML = '<option value="">' + __('Select hospital') + '</option>' + list.map(h => '<option value="' + h.id + '">' + esc(h.name) + '</option>').join('');
         }).catch(() => {}),
         apiGet('/analysis/months').then(d => {
-            const months = d.months || d || [];
+            const months = (d.months || d || []).filter(m => /^\d{4}-\d{2}$/.test(String(m)));
             mSel.innerHTML = '<option value="">' + __('Select month') + '</option>' + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
         }).catch(() => {}),
     ]);

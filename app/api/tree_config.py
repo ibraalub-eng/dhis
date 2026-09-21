@@ -77,10 +77,17 @@ def save_tree_config(
     _smart_cache.invalidate(f"smart_trend_{hospital_id}")
     _smart_cache.invalidate(f"smart_overview_{month}")
     from app.engine.pipeline import run_full_analysis
-    try:
-        run_full_analysis(db, hospital_id, month, force=True)
-    except Exception:
-        pass
+    if month == "__all__":
+        # Re-analyze every month this hospital actually has data for
+        _months = sorted({m for (m,) in db.query(IndicatorValue.month).filter(
+            IndicatorValue.hospital_id == hospital_id).distinct().all()})
+    else:
+        _months = [month]
+    for _m in _months:
+        try:
+            run_full_analysis(db, hospital_id, _m, force=True)
+        except Exception:
+            pass
     return {"message": f"Saved {count} config entries for {hospital.name} / {month}"}
 
 
@@ -135,11 +142,13 @@ def save_default_tree_config(
     from app.engine.pipeline import run_full_analysis
     from app.models import Hospital as _Hosp
     _all_hids = [h.id for h in db.query(_Hosp.id).filter(_Hosp.is_active == True).all()]
+    _analysis_months = [month] if month != "__all__" else months
     for _hid in _all_hids:
-        try:
-            run_full_analysis(db, _hid, month, force=True)
-        except Exception:
-            pass
+        for _m in _analysis_months:
+            try:
+                run_full_analysis(db, _hid, _m, force=True)
+            except Exception:
+                pass
     return {"message": f"Saved {count} default config entries for {month}"}
 
 

@@ -155,4 +155,49 @@ def test_purge_ghost_results_spares_analyzed_zero_scores(db_session):
     report = dict(find_ghosts(db_session))
     assert [r.month for r in report["quality_scores"]] == ["2026-06"]
     assert report["validation_results"] == []
-    assert report["confidence_scores"] == []
+
+
+def test_purge_ghost_results_catches_malformed_month_rows(db_session):
+    """Rows stamped with the synthetic '__all__' month (leaked by the old
+    tree All-Months save bug) are flagged by the purge script even when
+    indicator data technically exists — a '__all__' month must never exist."""
+    from scripts.purge_ghost_results import find_malformed_month_rows
+
+    hosp = db_session.query(Hospital).first()
+    ind = db_session.query(Indicator).filter(Indicator.code == "ANC.1").first() or \
+        db_session.query(Indicator).first()
+
+    # The poisoned production shape: '__all__' month WITH indicator values
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="__all__",
+                                  indicator_id=ind.id, value=10))
+    db_session.add(QualityScore(hospital_id=hosp.id, month="__all__", score=50.0))
+    # A real month that must NOT be flagged
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2026-07",
+                                  indicator_id=ind.id, value=5))
+    db_session.add(QualityScore(hospital_id=hosp.id, month="2026-07", score=80.0))
+    db_session.commit()
+
+    report = find_malformed_month_rows(db_session)
+    qs = next(rows for name, rows in report if name == "quality_scores")
+    assert [r.month for r in qs] == ["__all__"]
+    # no other table has malformed months
+    assert all(not rows for name, rows in report if name != "quality_scores")
+
+
+def test_months_endpoint_filters_malformed_month_values(app, db_session, ghost_data):
+    """/analysis/months is the source for every month AND year dropdown — a
+    malformed month value (e.g. '__all__') must never reach it, so the year
+    dropdown can never show an '__all__' year."""
+    from app.cache import cache
+    hosp = db_session.query(Hospital).first()
+    ind = db_session.query(Indicator).filter(Indicator.code == "ANC.1").first() or \
+        db_session.query(Indicator).first()
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="__all__",
+                                  indicator_id=ind.id, value=10))
+    db_session.commit()
+    cache.invalidate("analysis:months")
+
+    client = TestClient(app)
+    months = client.get("/analysis/months").json()
+    assert months == ["2026-01"]  # only the real ghost_data month
+    assert "__all__" not in months

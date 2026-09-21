@@ -530,7 +530,11 @@ def list_months_with_data(db: Session = Depends(get_db)):
     if cached:
         return cached
     rows = db.query(IndicatorValue.month).distinct().all()
-    result = sorted(r[0] for r in rows)
+    # Defense in depth: only real YYYY-MM months pass. The synthetic '__all__'
+    # selector (and any other malformed value) must never reach a dropdown —
+    # a poisoned row used to surface as an '__all__' month and '__all__' year.
+    import re as _re
+    result = sorted({r[0] for r in rows if r[0] and _re.match(r"^\d{4}-\d{2}$", str(r[0]))})
     cache.set(cache_key, result)
     return result
 

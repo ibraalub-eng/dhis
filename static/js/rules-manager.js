@@ -2472,7 +2472,7 @@ function loadHospitalsSettings() {
             });
             // قائمة السنوات مشتقة من الأشهر المتاحة (نقطة /dashboard/yoy أُزيلت)
             apiGet('/analysis/months').then(months => {
-                const list = months.months || months || [];
+                const list = (months.months || months || []).filter(m => /^\d{4}-\d{2}$/.test(String(m)));
                 const years = [...new Set(list.map(m => String(m).slice(0, 4)))].sort();
                 const ysel = document.getElementById('dashYear');
                 if (!ysel) return;

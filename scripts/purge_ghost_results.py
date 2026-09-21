@@ -63,6 +63,23 @@ def find_ghosts(db):
     return report
 
 
+def find_malformed_month_rows(db):
+    """Rows carrying a synthetic/invalid month stamp (e.g. '__all__').
+
+    These are created by bugs (the tree All-Months save used to pass the
+    literal '__all__' into the analysis pipeline) and must never exist —
+    they surface as '__all__' entries in reports, trends and dropdowns
+    regardless of whether indicator data exists for that 'month'."""
+    import re
+    report = []
+    for name, model in RESULT_TABLES:
+        rows = db.query(model).all()
+        bad = [r for r in rows if not re.match(r"^\d{4}-\d{2}$", str(r.month))]
+        if bad:
+            report.append((name, bad))
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description="Delete ghost zero-score result rows.")
     parser.add_argument("--execute", action="store_true",
@@ -72,7 +89,8 @@ def main():
     db = SessionLocal()
     try:
         report = find_ghosts(db)
-        total = sum(len(rows) for _, rows in report)
+        malformed = find_malformed_month_rows(db)
+        total = sum(len(rows) for _, rows in report) + sum(len(rows) for _, rows in malformed)
 
         pairs = analyzed_pairs(db)
         print(f"Analyzed (hospital, month) pairs with real data: {len(pairs)}")
@@ -94,15 +112,20 @@ def main():
             print(f"  hospital_ids: {hosp_ids}")
             print(f"  months:       {months}")
 
+        for name, bad in malformed:
+            months = sorted({str(r.month) for r in bad})
+            print(f"{name}: {len(bad)} row(s) with malformed month stamp")
+            print(f"  months: {months}")
+
         if not args.execute:
             print("\nDRY RUN — no rows deleted. Re-run with --execute to apply.")
             return
 
-        for _, ghosts in report:
+        for _, ghosts in report + malformed:
             for row in ghosts:
                 db.delete(row)
         db.commit()
-        print(f"\nDeleted {total} ghost row(s).")
+        print(f"\nDeleted {total} ghost/malformed row(s).")
 
         # Invalidate the shared file cache so month dropdowns, dashboards and
         # rankings reflect the purge without a restart.

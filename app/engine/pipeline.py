@@ -428,11 +428,20 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
     """Run full analysis for a hospital/month, guaranteeing a QualityScore row is
     persisted so the report always appears in /reports/ and /analysis/months.
 
+    ``month`` must be a concrete YYYY-MM. The synthetic '__all__' selector
+    (Indicator Tree → All Months) must never reach the persistence layer —
+    saving a config with All Months previously persisted a score row with
+    month='__all__', which then leaked into reports, trends and dropdowns.
+
     If analysis reports that no data was found, a score-0 QualityScore is still
     saved (so detected-but-empty months stay visible). If any analysis step
     raises, a minimal quality report is persisted with the error recorded in the
     issues list, instead of the month silently disappearing.
     """
+    if month == "__all__" or not re.match(r"^\d{4}-\d{2}$", str(month)):
+        raise ValueError(
+            f"Invalid month for analysis: {month!r} — expected YYYY-MM (the '__all__' selector must be expanded to concrete months by the caller)"
+        )
     try:
         result = _compute_full_analysis(session, hospital_id, month, force=force)
         # Empty/missing-data path returns early without persisting — persist it

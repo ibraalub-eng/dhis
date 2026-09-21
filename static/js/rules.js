@@ -738,7 +738,7 @@ import { confirmDestructive } from './confirm-modal.js';
             }
             if (msel.options.length <= 1) {
                 apiGet('/analysis/months').then(months => {
-                    msel.innerHTML = '<option value="">Select month</option>' + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
+                    msel.innerHTML = '<option value="">Select month</option>' + months.filter(m => /^\d{4}-\d{2}$/.test(String(m))).map(m => '<option value="' + m + '">' + m + '</option>').join('');
                 }).catch(() => {});
             }
             if (rsel) rsel.innerHTML = '';
