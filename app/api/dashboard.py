@@ -1227,10 +1227,13 @@ def component_diagnostics(
                     "hospital_name": ha["hospital_name"],
                     "avg_value": round(sum(ha["values"]) / len(ha["values"]), 1),
                     "missing_indicators": sorted(list(ha["missing_indicators"]))[:10],
+                    # Cap the per-indicator breakdown at 10 rows so the UI badge
+                    # stays readable; missing_count carries the true total.
+                    "missing_count": len(ha["missing_by_indicator"]),
                     "missing_by_indicator": [
                         {"indicator": k, "months": sorted(v)}
                         for k, v in sorted(ha["missing_by_indicator"].items())
-                    ],
+                    ][:10],
                     "problem_months": sorted(set(ha["problem_months"])),
                 })
             result_list.sort(key=lambda x: x["avg_value"])

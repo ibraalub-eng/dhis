@@ -50,7 +50,7 @@ def test_zero_affected_causes_get_explanatory_collapsible_note():
     affected' badge plus a collapsible note listing the months analyzed, so an
     empty list reads as 'nothing to fix' instead of a broken render."""
     js = _read_js()
-    drill = _fn_src(js, "window.openKPIDrilldown = function", 26000)
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 32000)
     assert "No hospitals affected" in drill
     assert "_zero-note" in drill
     # collapsible: the note starts hidden and the badge carries its toggle chevron
@@ -68,4 +68,36 @@ def test_zero_affected_note_is_translated():
     i18n = (Path(__file__).resolve().parent.parent / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
     for key in ("No hospitals affected", "Months analyzed",
                 "No hospital-month in this range falls under this cause \u2014 nothing to fix here."):
+        assert f"'{key}'" in i18n, f"missing i18n entry: {key}"
+
+
+def test_affected_hospital_card_is_compact_and_highlighted():
+    """Affected-hospital cards inside a drilldown cause must not crowd or
+    duplicate information: score appears once (header), long month lists
+    collapse to a first→last (N months) summary, >6 failed-rule chips hide
+    behind a '+N more' toggle, and the header row has a hover highlight."""
+    js = _read_js()
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 40000)
+    # hover highlight class on the card header
+    assert '_hosp-head' in drill
+    # months summary collapses long lists (first → last + count) and is LTR-safe
+    assert "' → '" in drill or "\u2192" in drill
+    assert 'dir="ltr"' in drill
+    # failed rules: capped inline list with a +N more expander
+    assert "Failed rules" in drill
+    assert "fr.slice(0, 6)" in drill
+    assert "+' + (fr.length - 6) + '" in drill
+    # no duplicated score render inside the expanded body (header owns the %);
+    # rows are defensively normalized (avgNum/hName/failedRules) so odd payload
+    # shapes can never break a card into an invisible stub.
+    expanded = _fn_src(drill, "Hospital body (hidden until expanded)", 4000)
+    assert expanded.count("avgNum") == 1
+    assert "Array.isArray(h.failed_rules)" in drill
+    assert "typeof rawH === 'string'" in drill
+
+
+def test_affected_card_strings_are_translated():
+    """New drilldown card strings must exist in i18n.js."""
+    i18n = (Path(__file__).resolve().parent.parent / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
+    for key in ("Failed rules", "more", "show less", "months"):
         assert f"'{key}'" in i18n, f"missing i18n entry: {key}"

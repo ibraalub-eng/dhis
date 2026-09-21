@@ -1646,3 +1646,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   display: inline-block; background: var(--bg-input); border: 1px solid var(--border-default);
   border-radius: 6px; padding: 0.15rem 0.45rem; margin: 0 0.2rem 0.2rem 0; font-size: 0.74rem;
 }
+
+/* Drilldown affected-hospitals cards: hover highlight on the header row */
+._hosp-head:hover { background: var(--bg-surface-hover) !important; filter: brightness(1.12); }
