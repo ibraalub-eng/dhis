@@ -1735,6 +1735,10 @@ function loadHospitalsSettings() {
                                         // Hospital body (hidden until expanded)
                                         html += '<div class="_hosp-body hidden" style="padding:0.55rem 0.6rem;border-top:1px solid var(--border-default);">';
 
+                                        // Full hospital name first — the header clamps long names to
+                                        // 2 lines, and the title tooltip is useless on touch screens.
+                                        html += '<div style="font-size:0.72rem;font-weight:600;color:var(--text-primary);word-break:break-word;margin-bottom:0.45rem;line-height:1.4;">' + esc(hName) + '</div>';
+
                                         // Progress / months summary (score shown once here, not repeated in the header)
                                         html += '<div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.4rem;">';
                                         html += '<div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;overflow:hidden;">';
