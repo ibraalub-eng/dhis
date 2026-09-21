@@ -3387,6 +3387,7 @@ function loadHospitalsSettings() {
                     .then(r => r.json())
                     .then(data => {
                         toastSuccess((enable ? __('Enabled') : __('Disabled')) + ' ' + targets.length + ' ' + __('rule(s)') + ' (' + __('saved') + ')');
+                        forceRulesImpactRefresh();
                         loadRulesManager();
                     })
                     .catch(e => {
@@ -3427,9 +3428,9 @@ function loadHospitalsSettings() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ items: items }),
             })
-                .then(r => r.json())
-                .then(data => {
+                .then(r => r.json())                .then(data => {
                     toastSuccess(__('Category') + ' "' + cat + '" ' + (enable ? __('enabled') : __('disabled')) + ' (' + count + ' ' + __('rule(s)') + ' ' + __('saved') + ')');
+                    forceRulesImpactRefresh();
                     loadRulesManager();
                 })
                 .catch(e => {
@@ -3604,6 +3605,7 @@ function loadHospitalsSettings() {
                     .then(({ ok, d }) => {
                         if (!ok) { toastError(__('Import failed') + ': ' + (d.detail || 'HTTP error')); return; }
                         toastSuccess(d.message || __('Import') + ' OK');
+                        forceRulesImpactRefresh();
                         loadRulesManager();
                     })
                     .catch(e => toastError(__('Import failed') + ': ' + e.message));
@@ -3690,6 +3692,7 @@ function loadHospitalsSettings() {
                     _updateRulesSaveButton();
                     toastSuccess(data.message || 'Rules saved');
                     btn.disabled = false;
+                    forceRulesImpactRefresh();
                     loadRulesManager();
                 })
                 .catch(e => {
