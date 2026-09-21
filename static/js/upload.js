@@ -431,36 +431,41 @@
             let filtered = allQualityReports;
             if (month !== 'all') filtered = filtered.filter(r => r.month === month);
             if (hospital !== 'all') filtered = filtered.filter(r => r.hospital === hospital);
+            // Disabled reports (months with no analyzed data / month switched
+            // off in settings) are not shown as cards — they'd render as
+            // confusing "Analysis disabled" tiles. They are counted and noted
+            // below the grid instead.
+            const disabled = filtered.filter(r => r.is_enabled === false);
+            filtered = filtered.filter(r => r.is_enabled !== false);
             const grid = document.getElementById('reportsGrid');
             grid.innerHTML = '';
+            const disabledNote = document.getElementById('qualityDisabledNote');
+            if (disabledNote) {
+                disabledNote.remove();
+            }
             document.getElementById('qualityCount').textContent = filtered.length + ' report' + (filtered.length !== 1 ? 's' : '');
-            if (!filtered.length) { grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">No reports match the selected filters.</p>'; return; }
+            if (!filtered.length && !disabled.length) { grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">No reports match the selected filters.</p>'; return; }
             filtered.forEach(r => {
-                const enabled = r.is_enabled !== false;
-                if (enabled) {
-                    const score = r.data_quality_score;
-                    const scoreColor = score >= 80 ? '#2e7d32' : score >= 50 ? '#e65100' : '#c62828';
-                    const barColor = score >= 80 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336';
-                    const issueCount = r.issues ? r.issues.length : 0;
-                    const outlierCount = r.outliers ? r.outliers.length : 0;
-                    const card = document.createElement('div');
-                    card.className = 'report-card ' + (score >= 80 ? 'good' : score >= 50 ? 'medium' : 'poor');
-                    card.setAttribute('data-hospital', r.hospital);
-                    card.setAttribute('data-month', r.month);
-                    card.innerHTML = '<h3>' + r.hospital + '</h3><div class="month">' + r.month + '</div><div class="score" style="color:' + scoreColor + '">' + score + '</div><div class="progress-bar"><div class="progress-bar-fill" style="width:' + score + '%;background:' + barColor + '"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:var(--text-secondary);">' + issueCount + ' issues &bull; ' + outlierCount + ' outliers</div>';
-                    card.addEventListener('click', function() { showDetail(r.hospital, r.month); });
-                    grid.appendChild(card);
-                } else {
-                    const card = document.createElement('div');
-                    card.className = 'report-card disabled';
-                    card.setAttribute('data-hospital', r.hospital);
-                    card.setAttribute('data-month', r.month);
-                    card.innerHTML = '<h3 style="color:var(--text-muted);">' + r.hospital + '</h3><div class="month" style="color:var(--text-secondary);">' + r.month + '</div><div class="score" style="color:var(--text-muted);">-</div><div class="progress-bar" style="background:var(--border-default);"><div class="progress-bar-fill" style="width:0%;background:var(--text-muted);"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:var(--text-secondary);">Analysis disabled</div>';
-                    card.style.opacity = '0.6';
-                    card.style.cursor = 'default';
-                    grid.appendChild(card);
-                }
+                const score = r.data_quality_score;
+                const scoreColor = score >= 80 ? '#2e7d32' : score >= 50 ? '#e65100' : '#c62828';
+                const barColor = score >= 80 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336';
+                const issueCount = r.issues ? r.issues.length : 0;
+                const outlierCount = r.outliers ? r.outliers.length : 0;
+                const card = document.createElement('div');
+                card.className = 'report-card ' + (score >= 80 ? 'good' : score >= 50 ? 'medium' : 'poor');
+                card.setAttribute('data-hospital', r.hospital);
+                card.setAttribute('data-month', r.month);
+                card.innerHTML = '<h3>' + r.hospital + '</h3><div class="month">' + r.month + '</div><div class="score" style="color:' + scoreColor + '">' + score + '</div><div class="progress-bar"><div class="progress-bar-fill" style="width:' + score + '%;background:' + barColor + '"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:var(--text-secondary);">' + issueCount + ' issues &bull; ' + outlierCount + ' outliers</div>';
+                card.addEventListener('click', function() { showDetail(r.hospital, r.month); });
+                grid.appendChild(card);
             });
+            if (disabled.length) {
+                const note = document.createElement('div');
+                note.id = 'qualityDisabledNote';
+                note.style.cssText = 'grid-column:1/-1;margin-top:0.4rem;font-size:0.78rem;color:var(--text-muted);text-align:center;';
+                note.textContent = disabled.length + ' ' + __('disabled report(s) not shown');
+                grid.appendChild(note);
+            }
         }
 
         let currentValidation = [];

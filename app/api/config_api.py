@@ -139,6 +139,17 @@ def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db
     else:
         db.add(SystemSetting(key=key, value=val))
     db.commit()
+    # is_enabled on /reports (and everything derived from enabled_months)
+    # is computed per request but served from a 24h file cache — without this
+    # invalidation the toggle took up to a day to show up in Quality Reports.
+    try:
+        from app.cache import cache as _cache
+        # cache.make_key() prefixes keys with 'v2|' — the invalidation prefix
+        # must include it or the file cache entries never match.
+        _cache.invalidate("v2|reports:")
+        _cache.invalidate("v2|analysis:")
+    except Exception:
+        logger.exception("Failed to invalidate caches after month toggle")
     return {"status": "ok", "month": month, "hospital_id": hospital_id, "enabled": enabled}
 
 

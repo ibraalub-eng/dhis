@@ -54,6 +54,8 @@
             'All Hospitals': 'كل المستشفيات',
             'All Months': 'كل الأشهر',
             'All Years': 'كل السنوات',
+            'disabled report(s) not shown': 'تقرير معطّل (غير معروض)',
+            'Analysis disabled': 'التحليل معطّل',
             'All Indicators': 'كل المؤشرات',
             'All': 'الكل',
             'Latest': 'الأحدث',
