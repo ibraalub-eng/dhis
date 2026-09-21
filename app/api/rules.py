@@ -477,6 +477,21 @@ def save_rules_enabled(body: dict, db: Session = Depends(get_db)):
                 _record_rule_history(db, rule, "enabled" if new_enabled else "disabled", ["enabled"])
             count += 1
     db.commit()
+    # Invalidate caches that depend on rule enabled states
+    from app.cache import cache
+    cache.invalidate("smart_overview_")
+    cache.invalidate("smart_drilldown_")
+    cache.invalidate("smart_trend_")
+    cache.invalidate("smart_anomalies_")
+    cache.invalidate("smart_clusters_")
+    cache.invalidate("smart_correlations_")
+    cache.invalidate("smart_residuals_")
+    cache.invalidate("smart_stratified_")
+    cache.invalidate("smart_geo_")
+    cache.invalidate("smart_timeline")
+    cache.invalidate("analysis:months")
+    cache.invalidate("validation_results_")
+    cache.invalidate("rule_evaluation_")
     return {"message": f"Saved enabled state for {count} rule(s)"}
 
 
