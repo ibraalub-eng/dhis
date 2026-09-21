@@ -2291,7 +2291,15 @@ function loadHospitalsSettings() {
             if (dr && dr.to) url += 'month_to=' + dr.to + '&';
             if (yr) url += 'year=' + yr;
 
-            apiGet(url).then(data => {
+            // Quality Score Trend is intentionally filter-immune: it fetches its
+            // own param-less endpoint so the chart + sparkline always show every
+            // analyzed month even when the KPI cards are narrowed by a range.
+            const trendUrl = '/dashboard/trend';
+
+            Promise.all([
+                apiGet(url),
+                apiGet(trendUrl).catch(e => { console.warn('Quality Score Trend failed to load:', e); return { quality_trend: [] }; }),
+            ]).then(([data, trendData]) => {
                 document.getElementById('dashHospitals').textContent = data.total_hospitals;
                 document.getElementById('dashReports').textContent = data.total_reports;
                 document.getElementById('dashAvgScore').textContent = data.avg_quality_score;
@@ -2301,15 +2309,16 @@ function loadHospitalsSettings() {
                 renderKpiCards(hid);
 
                 // Trend line chart
+                const trendPoints = trendData.quality_trend || [];
                 if (trendChartInstance) trendChartInstance.destroy();
                 const trendCtx = document.getElementById('trendChart').getContext('2d');
                 trendChartInstance = new Chart(trendCtx, {
                     type: 'line',
                     data: {
-                        labels: data.quality_trend.map(d => d.month),
+                        labels: trendPoints.map(d => d.month),
                         datasets: [{
                             label: __('Quality Score'),
-                            data: data.quality_trend.map(d => d.score),
+                            data: trendPoints.map(d => d.score),
                             borderColor: getCSSVar('--accent-teal') || '#14b8a6',
                             backgroundColor: (getCSSVar('--accent-teal') || '#14b8a6') + '1a',
                             fill: true,
@@ -2382,8 +2391,8 @@ function loadHospitalsSettings() {
                 });
             if (window.registerChart) window.registerChart(radarChartInstance);
 
-                if (data.quality_trend && data.quality_trend.length) {
-                    const vals = data.quality_trend.map(d => d.score);
+                if (trendPoints && trendPoints.length) {
+                    const vals = trendPoints.map(d => d.score);
                     renderSparkline('sparkAvgScore', vals, getCSSVar('--accent-teal') || '#14b8a6');
                 }
 

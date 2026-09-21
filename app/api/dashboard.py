@@ -366,6 +366,35 @@ def dashboard_overview(
     }
 
 
+@router.get("/trend")
+def dashboard_trend(db: Session = Depends(get_db)):
+    """Quality Score Trend for every analyzed month across all hospitals.
+
+    Intentionally immune to the dashboard's filters (hospital, year, From/To
+    date range): the Quality Score Trend widget stays fully historical so it
+    remains comparable while the KPI cards and drilldown modals above it are
+    narrowed to a selected range. Ghost (never-analyzed) months are excluded as
+    everywhere else. Query params like month_from/month_to reach no handler here
+    and are dropped.
+    """
+    from app.api.analysis import get_enabled_months
+    enabled_months = get_enabled_months(db)
+    trend_q = db.query(
+        QualityScore.month,
+        func.avg(QualityScore.score).label("score"),
+    ).filter(
+        _analyzed_exists(db, QualityScore)
+    )
+    if enabled_months:
+        trend_q = trend_q.filter(QualityScore.month.in_(enabled_months))
+    trend_rows = trend_q.group_by(QualityScore.month).order_by(QualityScore.month.asc()).all()
+    return {
+        "quality_trend": [
+            {"month": t[0], "score": round(float(t[1]), 1)} for t in trend_rows
+        ]
+    }
+
+
 @router.get("/kpi")
 def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
     from app.api.analysis import get_enabled_months
