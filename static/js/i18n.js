@@ -975,7 +975,7 @@
             'Live preview — sample signals': 'معاينة حية — إشارات تجريبية',
             'Loading details...': 'جاري تحميل التفاصيل...',
             'Missing Indicators': 'المؤشرات الناقصة',
-            'Missing in Month(s)': 'الموجود في الشهر (الأشهر)',
+            'Missing in Month(s)': 'ناقص في الشهر (الأشهر)',
             'No AI recommendations available.': 'لا توجد توصيات ذكاء اصطناعي متاحة بعد.',
             'No details available.': 'لا توجد تفاصيل متاحة.',
             'Outlier (1-penalty)': 'القيمة الشاذة (1-العقوبة)',

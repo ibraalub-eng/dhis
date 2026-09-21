@@ -1639,7 +1639,7 @@ function loadHospitalsSettings() {
                         html += '<span style="font-weight:600;font-size:0.85rem;">' + esc(__(c.name)) + '</span>';
                         html += '<span style="font-size:0.75rem;color:' + dirColor + ';">' + dirIcon + '</span>';
                         html += '</div>';
-                        html += '<div style="display:flex;align-items:center;gap:0.8rem;">';
+                        html += '<div style="display:flex;align-items:center;gap:0.5rem 0.8rem;flex-wrap:wrap;">';
                         html += '<span style="font-weight:700;color:' + col + ';font-size:0.95rem;">' + c.avg + '%</span>';
                         html += '<span style="font-size:0.7rem;color:var(--text-muted);">/ ' + c.target + '%</span>';
                         html += statusLabel;
@@ -1651,10 +1651,10 @@ function loadHospitalsSettings() {
                         html += '<div style="height:4px;background:var(--border-default);border-radius:2px;margin:0.3rem 0;">';
                         html += '<div style="width:' + Math.min(c.avg, 100) + '%;height:4px;background:' + col + ';border-radius:2px;transition:width 0.4s;"></div>';
                         html += '</div>';
-                        html += '<div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-muted);margin-bottom:0.2rem;">';
+                        html += '<div style="display:flex;justify-content:space-between;gap:0.3rem 1rem;flex-wrap:wrap;font-size:0.65rem;color:var(--text-muted);margin-bottom:0.2rem;">';
                         html += '<span>' + __('Actual') + ': ' + c.avg + '%</span>';
                         html += '<span>' + __('Target') + ': ' + c.target + '%</span>';
-                        html += '<span>' + __('Worst') + ': ' + c.worst_month + ' (' + c.min + '%)</span>';
+                        html += '<span>' + __('Worst') + ': <span dir="ltr">' + c.worst_month + '</span> (' + c.min + '%)</span>';
                         html += '<span>' + __('Range') + ': ' + c.range + '%</span>';
                         html += '</div></div>';
 
@@ -1668,9 +1668,9 @@ function loadHospitalsSettings() {
                                 var sevColor = cause.severity === 'critical' ? 'var(--accent-red)' : cause.severity === 'warning' ? 'var(--accent-orange)' : cause.severity === 'ok' ? 'var(--accent-green)' : 'var(--text-muted)';
                                 var sevBg = cause.severity === 'critical' ? 'rgba(198,40,40,0.08)' : cause.severity === 'warning' ? 'rgba(230,81,0,0.08)' : 'rgba(46,125,50,0.08)';
                                 var sevIcon = cause.severity === 'critical' ? '\u274c' : cause.severity === 'warning' ? '\u26a0\ufe0f' : cause.severity === 'ok' ? '\u2705' : '\u2139\ufe0f';
-                                html += '<div style="display:flex;align-items:flex-start;gap:6px;padding:0.4rem 0.5rem;border-radius:6px;margin-bottom:0.3rem;background:' + sevBg + ';">';
+                                html += '<div style="display:flex;align-items:flex-start;gap:6px;padding:0.4rem 0.5rem;border-radius:6px;margin-bottom:0.3rem;background:' + sevBg + ';flex-wrap:wrap;">';
                                 html += '<span style="font-size:0.75rem;flex-shrink:0;margin-top:1px;">' + sevIcon + '</span>';
-                                html += '<div style="flex:1;">';
+                                html += '<div style="flex:1;min-width:120px;">';
                                 html += '<div style="font-size:0.78rem;font-weight:600;color:' + sevColor + ';">' + esc(__(cause.cause)) + '</div>';
                                 html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:1px;" dir="auto">' + esc(cause.detail) + '</div>';
                                 html += '</div>';
@@ -1709,14 +1709,22 @@ function loadHospitalsSettings() {
                                         var problemMonths = Array.isArray(h.problem_months) ? h.problem_months : [];
                                         var failedRules = Array.isArray(h.failed_rules) ? h.failed_rules : [];
                                         var hCol = avgNum >= 80 ? 'var(--accent-green)' : avgNum >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                                        var missList = (Array.isArray(h.missing_by_indicator) && h.missing_by_indicator.length) ? h.missing_by_indicator : null;
+                                        var missRaw = Array.isArray(h.missing_by_indicator) ? h.missing_by_indicator : [];
+                                        // Drop malformed entries (null/blank indicator names) so no
+                                        // empty rows render in the missing-indicators table.
+                                        var missList = missRaw.length
+                                            ? missRaw.filter(function(m) { return m && typeof m === 'object' && m.indicator != null && String(m.indicator).trim() !== ''; })
+                                            : null;
+                                        if (missList && !missList.length) missList = null;
                                         var missTotal = (h.missing_count != null) ? h.missing_count : (missList ? missList.length : ((Array.isArray(h.missing_indicators) && h.missing_indicators.length) ? h.missing_indicators.length : 0));
                                         html += '<div style="border:1px solid var(--border-default);border-radius:6px;overflow:hidden;">';
 
                                         // Hospital header (click to expand/collapse)
                                         html += '<div class="_hosp-head" style="display:flex;align-items:center;gap:0.5rem;padding:0.45rem 0.6rem;background:var(--bg-surface-hover);cursor:pointer;transition:background 0.15s;" onclick="var b=this.parentElement.querySelector(\'._hosp-body\');var c=this.querySelector(\'._hosp-chev\');var isHidden=b.classList.toggle(\'hidden\');c.textContent=isHidden?\'\u25b8\':\'\u25be\';">';
                                         html += '<span style="flex-shrink:0;width:20px;height:20px;border-radius:50%;background:' + hCol + ';color:#fff;font-size:0.6rem;font-weight:700;display:flex;align-items:center;justify-content:center;">' + (idx + 1) + '</span>';
-                                        html += '<div style="flex:1;min-width:0;font-size:0.75rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + esc(hName) + '">' + esc(hName) + '</div>';
+                                        // Name gets up to 2 lines instead of truncating to nothing on
+                                        // narrow screens — a 74px ellipsis-only sliver reads as broken.
+                                        html += '<div style="flex:1 1 110px;min-width:0;font-size:0.75rem;font-weight:600;color:var(--text-primary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;word-break:break-word;" title="' + esc(hName) + '">' + esc(hName) + '</div>';
                                         if (missTotal > 0) {
                                             html += '<span style="flex-shrink:0;background:rgba(198,40,40,0.15);color:var(--accent-red);padding:1px 7px;border-radius:10px;font-size:0.65rem;font-weight:700;" title="' + __('Missing Indicators') + '">' + missTotal + '</span>';
                                         }
@@ -1779,11 +1787,15 @@ function loadHospitalsSettings() {
                                             html += '<th style="text-align:left;padding:0.25rem 0.4rem;">' + __('Missing in Month(s)') + '</th>';
                                             html += '</tr></thead><tbody>';
                                             missList.forEach(function(m) {
-                                                var months = m.months || [];
+                                                var months = (Array.isArray(m.months) ? m.months : []).filter(function(mo) { return mo != null && String(mo).trim() !== ''; });
                                                 html += '<tr style="border-bottom:1px solid var(--border-default);">';
                                                 html += '<td style="padding:0.25rem 0.4rem;font-weight:500;">' + esc(m.indicator) + '</td>';
                                                 html += '<td style="padding:0.25rem 0.4rem;">';
-                                                if (months.length) {
+                                                if (months.length > 4) {
+                                                    // Production ranges can span 100+ months — a chip per
+                                                    // month would bury the row. Compact range instead.
+                                                    html += '<span dir="ltr" style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.62rem;font-weight:600;">' + esc(months[0]) + ' \u2192 ' + esc(months[months.length - 1]) + ' (' + months.length + ')</span>';
+                                                } else if (months.length) {
                                                     html += '<div style="display:flex;flex-wrap:wrap;gap:3px;">';
                                                     months.forEach(function(mo) {
                                                         html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.62rem;font-weight:600;">' + esc(mo) + '</span>';
@@ -1799,9 +1811,10 @@ function loadHospitalsSettings() {
                                                 html += '<tr style="border-bottom:none;"><td colspan="2" style="padding:0.3rem 0.4rem;color:var(--text-muted);font-size:0.65rem;">+ ' + (missTotal - missList.length) + ' ' + __('more missing indicators') + '</td></tr>';
                                             }
                                             html += '</tbody></table></div>';
-                                        } else if (h.missing_indicators && h.missing_indicators.length) {
+                                        } else if (Array.isArray(h.missing_indicators) && h.missing_indicators.length) {
                                             html += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
                                             h.missing_indicators.forEach(function(mi) {
+                                                if (mi == null || String(mi).trim() === '') return;
                                                 html += '<span style="display:inline-block;background:rgba(198,40,40,0.12);color:var(--accent-red);padding:1px 6px;border-radius:4px;font-size:0.6rem;">' + esc(mi) + '</span>';
                                             });
                                             html += '</div>';
