@@ -596,7 +596,14 @@ def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
         codes = [params.get("parent")]
         codes.extend(params.get("children", []))
         return [c for c in codes if c]
-    if expr in ("le", "le_sum", "lt"):
+    if expr == "le_sum":
+        # child >= sum(children): both the child and every summed child are
+        # referenced — parity with RULE_REF_CODES entries and the confidence
+        # engine's _extract_codes_from_params.
+        codes = [params.get("child")]
+        codes.extend(params.get("children", []))
+        return [c for c in codes if c]
+    if expr in ("le", "lt"):
         return [params.get("child"), params.get("parent")] if params.get("parent") else [params.get("child")]
     if expr in ("benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"):
         return [params.get("num_code"), params.get("den_code")]

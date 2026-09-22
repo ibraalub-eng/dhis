@@ -313,3 +313,26 @@ def test_disabled_codes_suppress_seeded_rules():
     import json as _json
     codes = _get_rule_ref_codes_from_expr(rule.expression_type, _json.loads(rule.params))
     assert set(codes) == set(RULE_REF_CODES["R070"])
+
+
+def test_le_sum_ref_codes_include_children():
+    """le_sum refs must be child + every summed child. The extractor used to
+    return only the child, so the drawer's Children chips (10.a.1.1,
+    10.a.1.2) had no indicator names — only bare codes."""
+    from app.engine.quality.rules import _get_rule_ref_codes_from_expr
+    codes = _get_rule_ref_codes_from_expr(
+        "le_sum", {"child": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    assert codes == ["10.a.1", "10.a.1.1", "10.a.1.2"]
+
+
+def test_le_sum_seeded_rule_refs_match_registry():
+    """The RULE_REF_CODES registry lists child + children for le_sum rules
+    (e.g. R024 = [10.a.1, 10.a.1.1, 10.a.1.2]); the extractor must now agree
+    for any le_sum-shaped rule, not just the ge/eq family."""
+    from app.engine.quality.definitions import RULE_REF_CODES
+    from app.engine.quality.rules import _get_rule_ref_codes_from_expr
+    # R024's registry entry documents the le_sum shape: child + children
+    assert set(RULE_REF_CODES["R024"]) == {"10.a.1", "10.a.1.1", "10.a.1.2"}
+    codes = _get_rule_ref_codes_from_expr(
+        "le_sum", {"child": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    assert set(codes) == set(RULE_REF_CODES["R024"])
