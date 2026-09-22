@@ -3294,14 +3294,26 @@ function loadHospitalsSettings() {
             return [];
         }
 
+        // Clickable indicator chip: opens the Indicator Tree tab and reveals
+        // the node for this code. Used by the drawer's Parameters and
+        // Referenced indicators sections so users can inspect the exact
+        // indicator a rule references.
+        function _ruleChip(code, name) {
+            if (!code) return '<em>…</em>';
+            const jump = __('Open in Indicator Tree');
+            const call = "window._openIndicatorInTree('" + esc(code) + "')";
+            return '<span class="rule-ref-chip rule-ref-chip-link" role="button" tabindex="0" ' +
+                'title="' + esc((name && name !== code ? name + ' · ' : '') + jump) + '" ' +
+                'onclick="' + call + '" ' +
+                'onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();' + call + '}">' +
+                esc(code) + (name && name !== code ? ' — ' + esc(name) : '') + '</span>';
+        }
+
         // Labelled param rows for the drawer's Parameters section: every
         // indicator-shaped value renders as "code — indicator name" straight
         // from the impact map's params/ref_names (server-resolved names).
         function _drawerParamRows(expr, params, refNames) {
-            const codeName = function(c) {
-                const n = refNames[c];
-                return '<span class="rule-ref-chip" title="' + esc(n || c) + '">' + esc(c) + (n && n !== c ? ' — ' + esc(n) : '') + '</span>';
-            };
+            const codeName = function(c) { return _ruleChip(c, refNames[c]); };
             const childrenList = function(list) {
                 return (list || []).map(c => codeName(c)).join(' ') || '<em>' + __('None') + '</em>';
             };
@@ -3340,6 +3352,70 @@ function loadHospitalsSettings() {
             return '<dl class="rule-drawer-meta" style="margin-bottom:0;">' + rows.join('') + '</dl>';
         }
 
+        // Jump from a drawer chip to the Indicator Tree: switch to the tree
+        // tab, make sure a hospital/month is picked (defaults + last-used UI
+        // state), (re)load the tree, then expand the ancestors of the target
+        // code, scroll it into view and flash-highlight it.
+        window._openIndicatorInTree = function(code) {
+            if (!code) return;
+            closeRuleDrawer();
+            window.switchTab('indicator-tree');
+            const hsel = document.getElementById('treeHospitalSelect');
+            const msel = document.getElementById('treeMonthSelect');
+            if (!hsel || !msel) {
+                // Tab fragment still loading: retry after it initializes
+                // (_initTab loads the fragment, then applyLang runs).
+                setTimeout(function() { window._openIndicatorInTree(code); }, 400);
+                return;
+            }
+            if (!hsel.value) hsel.value = '__default__';
+            if (!msel.value) msel.value = '__all__';
+            // Re-selecting the same value never fires 'change', so always call
+            // the loader directly (it re-fetches and re-renders).
+            if (typeof window.loadIndicatorTree === 'function' &&
+                window.loadIndicatorTree.toString().indexOf('Module not loaded') === -1) {
+                window.loadIndicatorTree();
+                window._revealIndicatorInTree(code);
+            } else {
+                setTimeout(function() { window._openIndicatorInTree(code); }, 400);
+            }
+        };
+
+        // Expand the ancestors of `code` inside the rendered tree, scroll the
+        // node into view and flash it. Retries briefly while the tree fetch
+        // renders, then gives up quietly (node may be filtered/disabled out).
+        window._revealIndicatorInTree = function(code, attempt) {
+            attempt = attempt || 0;
+            const el = document.getElementById('treeContainer');
+            if (!el || !el.querySelector('.tree-details, .tree-leaf')) {
+                if (attempt < 15) setTimeout(function() { window._revealIndicatorInTree(code, attempt + 1); }, 300);
+                return;
+            }
+            // Branch nodes are <details data-code>; leaves are matched on
+            // their code span (leaves carry no data-code).
+            let node = el.querySelector('details.tree-details[data-code="' + code + '"]');
+            if (!node) {
+                node = Array.from(el.querySelectorAll('.tree-leaf')).find(l =>
+                    (l.querySelector('.tree-code') || {}).textContent === code);
+            }
+            if (!node) {
+                if (attempt < 15) setTimeout(function() { window._revealIndicatorInTree(code, attempt + 1); }, 300);
+                return;
+            }
+            if (node.tagName === 'DETAILS') node.open = true;
+            // Open every ancestor branch so the node is actually visible.
+            let anc = node.parentElement ? node.parentElement.closest('details.tree-details') : null;
+            while (anc) {
+                anc.open = true;
+                anc = anc.parentElement ? anc.parentElement.closest('details.tree-details') : null;
+            }
+            node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            node.classList.remove('tree-flash');
+            void node.offsetWidth; // restart the CSS animation
+            node.classList.add('tree-flash');
+            setTimeout(function() { node.classList.remove('tree-flash'); }, 2600);
+        };
+
         window.openRuleDrawer = function(ruleId) {
             const rule = rulesManagerData.find(x => x.id == ruleId);
             if (!rule) return;
@@ -3371,7 +3447,7 @@ function loadHospitalsSettings() {
                 ? imp.ref_codes
                 : _drawerRefCodes(rule.expression_type, params);
             const refChips = refCodes.length
-                ? refCodes.map(c => '<span class="rule-ref-chip" title="' + esc(refNames[c] || c) + '">' + esc(c) + (refNames[c] && refNames[c] !== c ? ' — ' + esc(refNames[c]) : '') + '</span>').join(' ')
+                ? refCodes.map(c => _ruleChip(c, refNames[c])).join(' ')
                 : '<em style="color:var(--text-muted);">' + __('None') + '</em>';
 
             const paramHtml = _drawerParamRows(rule.expression_type, params, refNames);

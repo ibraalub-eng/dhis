@@ -622,8 +622,54 @@ def test_drawer_param_rows_render_code_and_indicator_name():
     from the impact map's ref_names, not bare codes."""
     js = _read_rules_manager_js()
     assert "function _drawerParamRows(expr, params, refNames)" in js
-    assert "const n = refNames[c];" in js
+    assert "const codeName = function(c) { return _ruleChip(c, refNames[c]); };" in js
     assert "(list || []).map(c => codeName(c)).join(' ') || '<em>' + __('None') + '</em>'" in js
+
+
+def test_drawer_chips_open_indicator_tree():
+    """Referenced-indicator chips are clickable: the shared chip helper emits
+    a link-role chip that calls _openIndicatorInTree, which switches to the
+    tree tab, loads it, then reveals + flash-highlights the node."""
+    js = _read_rules_manager_js()
+    assert "function _ruleChip(code, name)" in js
+    assert "window._openIndicatorInTree" in js
+    assert "window._revealIndicatorInTree" in js
+    assert "window.switchTab('indicator-tree')" in js
+    assert "window.loadIndicatorTree()" in js
+    # Both chip call sites go through the shared helper.
+    assert "refCodes.map(c => _ruleChip(c, refNames[c])).join(' ')" in js
+    assert "const codeName = function(c) { return _ruleChip(c, refNames[c]); };" in js
+
+
+def test_drawer_tree_jump_reveals_node():
+    """The reveal step expands the matching branch/leaf, opens its ancestors
+    (details elements), scrolls it into view and flash-highlights it."""
+    js = _read_rules_manager_js()
+    reveal = js[js.index("window._revealIndicatorInTree = function"):]
+    assert "details.tree-details[data-code=" in reveal
+    assert ".tree-leaf" in reveal
+    assert "scrollIntoView" in reveal
+    assert "classList.add('tree-flash')" in reveal
+    # Ancestor expansion walks up via closest('details.tree-details').
+    assert "closest('details.tree-details')" in reveal
+
+
+def test_tree_flash_and_chip_styles_exist():
+    """The chip hover/focus and the tree node flash animation ship in CSS."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "css", "styles.css")
+    with open(path, encoding="utf-8") as f:
+        css = f.read()
+    assert ".rule-ref-chip-link:hover" in css
+    assert "@keyframes tree-flash-kf" in css
+    assert "details.tree-flash > summary" in css
+
+
+def test_open_in_tree_label_translated():
+    """The chip tooltip label has an Arabic translation."""
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js")
+    with open(path, encoding="utf-8") as f:
+        i18n = f.read()
+    assert "'Open in Indicator Tree':" in i18n
 
 
 def test_drawer_param_rows_cover_le_sum():

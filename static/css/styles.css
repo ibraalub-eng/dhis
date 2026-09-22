@@ -1646,6 +1646,13 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   display: inline-block; background: var(--bg-input); border: 1px solid var(--border-default);
   border-radius: 6px; padding: 0.15rem 0.45rem; margin: 0 0.2rem 0.2rem 0; font-size: 0.74rem;
 }
+/* Clickable indicator chip (rule drawer): opens the node in the Indicator Tree */
+.rule-ref-chip-link { cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
+.rule-ref-chip-link:hover { background: var(--accent-blue)22; border-color: var(--accent-blue); color: var(--accent-blue); }
+.rule-ref-chip-link:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+/* Flash highlight for a node revealed via a drawer chip jump */
+@keyframes tree-flash-kf { 0% { background: rgba(59,130,246,0.35); } 70% { background: rgba(59,130,246,0.18); } 100% { background: transparent; } }
+details.tree-flash > summary, .tree-leaf.tree-flash { animation: tree-flash-kf 2.6s ease-out; border-radius: 6px; }
 
 /* Drilldown affected-hospitals cards: hover highlight on the header row */
 ._hosp-head:hover { background: var(--bg-surface-hover) !important; filter: brightness(1.12); }

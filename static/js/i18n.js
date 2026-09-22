@@ -1001,6 +1001,7 @@
             'at least one': 'على الأقل واحد',
             'Parameters': 'المُعاملات',
             'Raw params': 'المعاملات الخام',
+            'Open in Indicator Tree': 'فتح في شجرة المؤشرات',
             'Referenced indicators': 'المؤشرات المرجعية',
             'All hospitals': 'جميع المستشفيات',
             'Latest month': 'آخر شهر',
