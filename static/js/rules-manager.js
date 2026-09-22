@@ -1516,6 +1516,30 @@ function loadHospitalsSettings() {
         }
 
         let _kpiDrilldownChart = null;
+        let _kpiDrilldownRedraw = null; // re-renders the chart after a tab switch
+        // ── Drilldown modal tabs ──────────────────────────────
+        // Every quality component gets its own tab in the drilldown modal, so
+        // users can see the FULL details per component (root causes, affected
+        // hospitals, failed rules, complete missing-indicator lists) instead of
+        // a truncation placeholder row.
+        window._kpiDrilldownSwitchTab = function(name) {
+            var body = document.getElementById('modalBody');
+            if (!body) return;
+            window._kpiDrilldownActiveTab = name;
+            var panes = body.querySelectorAll('[data-tabpane]');
+            for (var i = 0; i < panes.length; i++) {
+                var p = panes[i];
+                var match = p.getAttribute('data-tabpane') === name;
+                if (match) p.hidden = false; else p.hidden = true;
+                // Lazily fill overview panes that were placeholders at render time
+                if (match && typeof p._fillOverview === 'function') { p._fillOverview(); p._fillOverview = null; }
+            }
+            var btns = body.querySelectorAll('._dd-tab');
+            for (var j = 0; j < btns.length; j++) {
+                if (btns[j].getAttribute('data-tab') === name) btns[j].classList.add('active'); else btns[j].classList.remove('active');
+            }
+            if (name === 'overview' && typeof _kpiDrilldownRedraw === 'function') _kpiDrilldownRedraw();
+        };
         window.openKPIDrilldown = function(metric) {
             if (metric === 'report_coverage') return; // no drilldown for report count
             const modal = document.getElementById('detailModal');
@@ -1588,6 +1612,18 @@ function loadHospitalsSettings() {
                 var components = (diag && diag.components) || [];
                 var compTrend = (diag && (diag.hosp_trend && diag.hosp_trend.length ? diag.hosp_trend : diag.trend)) || [];
 
+                // ── Tab layout ─────────────────────────────────────
+                // The modal is one long page: every quality component renders its
+                // own tab (Overview + Validation rule / Completeness / Consistency /
+                // Outlier Score). Previously all components were stacked in collapsible
+                // cards and missing indicators were truncated with "+ N more" —
+                // tabs give each component room to show the FULL details.
+                window._kpiDrilldownActiveTab = 'overview';
+                var compTabs = components.map(function(c) { return String(c.key); });
+                if (compTabs.indexOf(metric) !== -1) window._kpiDrilldownActiveTab = metric;
+                var _compMeta = {};
+                components.forEach(function(c) { _compMeta[String(c.key)] = c; });
+
                 var html = '';
 
                 // KPI value + target
@@ -1604,23 +1640,33 @@ function loadHospitalsSettings() {
                     html += '</div>';
                 }
 
-                // Chart: signal factors for conf_high, component trend for others
+                // Chart card + Component Breakdown live in the OVERVIEW tab only.
+                // Non-overview tabs are empty shells filled on first switch
+                // (and the chart re-renders when its tab becomes visible again,
+                // so canvas measuring inside a hidden tab never breaks).
                 if (metric === 'conf_high') {
-                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Confidence Signal Factors') + '</h3>' +
+                    html += '<div data-tabpane="overview">' +
+                        '<div class="card" style="margin-top:1rem;"><h3>' + __('Confidence Signal Factors') + '</h3>' +
                         '<div style="position:relative;height:220px;max-height:220px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div>' +
-                        '</div>';
+                        '</div></div>';
                 } else if (compTrend.length) {
-                    html += '<div class="card" style="margin-top:1rem;"><h3>' + label + ' ' + __('Trend') + '</h3>' +
+                    html += '<div data-tabpane="overview">' +
+                        '<div class="card" style="margin-top:1rem;"><h3>' + label + ' ' + __('Trend') + '</h3>' +
                         '<div style="position:relative;height:220px;max-height:220px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div>' +
-                        '</div>';
+                        '</div></div>';
                 } else if (trend.length) {
-                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Quality Trend') + '</h3>' +
-                        '<div style="position:relative;height:200px;max-height:200px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div></div>';
+                    html += '<div data-tabpane="overview">' +
+                        '<div class="card" style="margin-top:1rem;"><h3>' + __('Quality Trend') + '</h3>' +
+                        '<div style="position:relative;height:200px;max-height:200px;overflow:hidden;"><canvas id="kpiDrilldownChart"></canvas></div></div></div>';
                 }
 
-                // Enhanced Component Breakdown (with diagnostics)
+                // Enhanced Component Breakdown (with diagnostics) — OVERVIEW tab:
+                // one compact card per component (header + score + status chip);
+                // click a card to jump straight to that component's tab. The
+                // per-component tabs hold the FULL diagnosis: root causes, impacted
+                // hospitals, failed rules, and the complete missing-indicators table.
                 if (components.length) {
-                    html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Component Breakdown') + '</h3>';
+                    html += '<div data-tabpane="overview"><div class="card" style="margin-top:1rem;"><h3>' + __('Component Breakdown') + '</h3>';
                     components.forEach(function(c) {
                         var col = c.avg >= 80 ? 'var(--accent-green)' : c.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
                         var dirIcon = c.direction === 'improving' ? '\u2191' : c.direction === 'declining' ? '\u2193' : '\u2192';
@@ -1633,8 +1679,8 @@ function loadHospitalsSettings() {
                         // Main card
                         html += '<div style="border:1px solid var(--border-default);border-radius:8px;margin-bottom:0.8rem;overflow:hidden;">';
 
-                        // Header row
-                        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.8rem;background:var(--bg-elevated);cursor:pointer;" onclick="this.parentElement.querySelector(\'._diag-body\').classList.toggle(\'hidden\')">';
+                        // Header row (click → component tab)
+                        html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:0.6rem 0.8rem;background:var(--bg-elevated);cursor:pointer;" onclick="window._kpiDrilldownSwitchTab(\'' + c.key + '\')">';
                         html += '<div style="display:flex;align-items:center;gap:0.5rem;">';
                         html += '<span style="font-weight:600;font-size:0.85rem;">' + esc(__(c.name)) + '</span>';
                         html += '<span style="font-size:0.75rem;color:' + dirColor + ';">' + dirIcon + '</span>';
@@ -1643,7 +1689,7 @@ function loadHospitalsSettings() {
                         html += '<span style="font-weight:700;color:' + col + ';font-size:0.95rem;">' + c.avg + '%</span>';
                         html += '<span style="font-size:0.7rem;color:var(--text-muted);">/ ' + c.target + '%</span>';
                         html += statusLabel;
-                        html += '<span style="font-size:0.7rem;color:var(--text-muted);">\u25bc</span>';
+                        html += '<span style="font-size:0.65rem;color:var(--accent-blue);font-weight:600;white-space:nowrap;">' + __('View details') + ' \u203a</span>';
                         html += '</div></div>';
 
                         // Progress bar
@@ -1658,8 +1704,34 @@ function loadHospitalsSettings() {
                         html += '<span>' + __('Range') + ': ' + c.range + '%</span>';
                         html += '</div></div>';
 
-                        // Diagnosis body (collapsible)
-                        html += '<div class="_diag-body" style="padding:0.5rem 0.8rem 0.8rem;border-top:1px solid var(--border-default);">';
+                        html += '</div>'; // overview component card
+                    });
+                    html += '</div></div>'; // end Component Breakdown card + overview pane
+
+                    // ── Per-component detail tabs ──────────────────
+                    // Each quality component gets its own tab containing the FULL
+                    // diagnosis: root causes, affected hospitals, failed rules, and
+                    // the complete missing-indicators table (no truncation).
+                    components.forEach(function(c) {
+                        html += '<div data-tabpane="' + c.key + '"' + (window._kpiDrilldownActiveTab === c.key ? '' : ' hidden') + '>';
+                        html += '<div class="card" style="margin-top:1rem;"><h3>' + esc(__(c.name)) + '</h3>';
+
+                        // Score summary header
+                        html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem 1rem;flex-wrap:wrap;padding:0.3rem 0 0.7rem;">';
+                        html += '<div style="display:flex;align-items:center;gap:0.5rem;">';
+                        html += '<span style="font-weight:700;font-size:1.05rem;">' + esc(__(c.name)) + '</span>';
+                        html += '<span style="font-weight:800;font-size:1rem;"><span dir="ltr">' + c.avg + '%</span></span>';
+                        html += '<span style="font-size:0.72rem;color:var(--text-muted);">/ ' + c.target + '% ' + __('target') + '</span>';
+                        html += '</div>';
+                        html += '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;font-size:0.65rem;">';
+                        var _dirT = c.direction === 'improving' ? '\u2191 ' + __('Improving') : c.direction === 'declining' ? '\u2193 ' + __('Declining') : '\u2192 ' + __('Stable');
+                        html += '<span style="background:var(--bg-surface-hover);border:1px solid var(--border-default);border-radius:10px;padding:1px 8px;color:var(--text-secondary);"><span dir="ltr">' + _dirT + '</span></span>';
+                        html += '<span style="background:var(--bg-surface-hover);border:1px solid var(--border-default);border-radius:10px;padding:1px 8px;color:var(--text-secondary);">' + __('Worst') + ': <span dir="ltr">' + c.worst_month + '</span></span>';
+                        html += '<span style="background:var(--bg-surface-hover);border:1px solid var(--border-default);border-radius:10px;padding:1px 8px;color:var(--text-secondary);">' + __('Range') + ': ' + c.range + '%</span>';
+                        html += '</div></div>';
+
+                        // Diagnosis body
+                        html += '<div class="_diag-body" style="padding:0.5rem 0 0.8rem;border-top:1px solid var(--border-default);">';
 
                         // Causes table
                         if (c.causes && c.causes.length) {
@@ -1814,9 +1886,8 @@ function loadHospitalsSettings() {
                                                 html += '</td>';
                                                 html += '</tr>';
                                             });
-                                            if (missTotal > missList.length) {
-                                                html += '<tr style="border-bottom:none;"><td colspan="2" style="padding:0.3rem 0.4rem;color:var(--text-muted);font-size:0.65rem;">+ ' + (missTotal - missList.length) + ' ' + __('more missing indicators') + '</td></tr>';
-                                            }
+                                            // No truncation placeholder row:
+                                            // the full list always renders here.
                                             html += '</tbody></table></div>';
                                         } else if (Array.isArray(h.missing_indicators) && h.missing_indicators.length) {
                                             html += '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
@@ -1850,13 +1921,13 @@ function loadHospitalsSettings() {
 
                         html += '</div>'; // _diag-body
                         html += '</div>'; // card
+                        html += '</div>'; // end component tabpane
                     });
-                    html += '</div>';
                 } else {
                     // Fallback: old radar-based table
                     var componentKeys = Object.keys(radar);
                     if (componentKeys.length) {
-                        html += '<div class="card" style="margin-top:1rem;"><h3>' + __('Component Breakdown') + '</h3>';
+                        html += '<div data-tabpane="overview"><div class="card" style="margin-top:1rem;"><h3>' + __('Component Breakdown') + '</h3>';
                         html += '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">';
                         html += '<thead><tr><th style="text-align:left;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);">' + __('Component') + '</th>';
                         html += '<th style="text-align:right;padding:0.4rem 0.6rem;border-bottom:2px solid var(--border-default);">' + __('Score') + '</th>';
@@ -1868,16 +1939,16 @@ function loadHospitalsSettings() {
                             html += '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);text-align:right;font-weight:700;color:' + col2 + ';">' + val + '%</td>';
                             html += '<td style="padding:0.4rem 0.6rem;border-bottom:1px solid var(--border-default);"><div style="height:6px;background:var(--border-default);border-radius:3px;"><div style="width:' + val + '%;height:6px;background:' + col2 + ';border-radius:3px;"></div></div></td></tr>';
                         });
-                        html += '</tbody></table></div>';
+                        html += '</tbody></table></div></div>';
                     }
                 }
 
-                                // ── High Confidence Detail (5 Signal Factors) ──
+                                // ── High Confidence Detail (5 Signal Factors) — overview pane ──
                 if (metric === 'conf_high' && confDetail && confDetail.indicators) {
                     try {
                     console.log('[conf] DETAIL SECTION ENTERED, indicators:', confDetail.indicators.length);
                     var sd = confDetail;
-                    html += '<div class="card" style="margin-top:1rem;max-height:600px;overflow-y:auto;"><h3>' + __('Confidence Factors') + '</h3>';
+                    html += '<div data-tabpane="overview"><div class="card" style="margin-top:1rem;max-height:600px;overflow-y:auto;"><h3>' + __('Confidence Factors') + '</h3>';
                     html += '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.8rem;">' + esc(sd.summary || '') + '</div>';
 
                     var _sigData = [
@@ -1984,17 +2055,42 @@ function loadHospitalsSettings() {
                         });
                         html += '</div>';
                     }
-                    html += '</div>';
+                    html += '</div></div>';
                     } catch(e) { console.error('[conf] detail error:', e); }
                 }
 
                 bodyEl.innerHTML = html || '<p style="color:var(--text-muted);padding:1rem;">' + __('No details available.') + '</p>';
 
-                // Render chart
+                // ── Drilldown tab bar (Overview + one tab per quality component) ──
+                // Injected after render so it sticks to the modal top while the
+                // long body scrolls underneath. Empty panes are filled lazily on
+                // first switch, and switching back to overview re-renders the
+                // Chart.js canvas (hidden tabs measure as 0-width).
+                var _tabsRoot = document.createElement('div');
+                _tabsRoot.className = '_dd-tabs';
+                var _tabBtns = '<button class="_dd-tab' + (window._kpiDrilldownActiveTab === 'overview' ? ' active' : '') + '" data-tab="overview">' + __('Overview') + '</button>';
+                components.forEach(function(c) {
+                    var cc = _compMeta[String(c.key)];
+                    var _tcol = cc && cc.avg >= 80 ? 'var(--accent-green)' : cc && cc.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                    _tabBtns += '<button class="_dd-tab' + (window._kpiDrilldownActiveTab === c.key ? ' active' : '') + '" data-tab="' + c.key + '">' + esc(__(c.name)) + (cc ? ' <span>' + cc.avg + '%</span>' : '') + '</button>';
+                });
+                _tabsRoot.innerHTML = _tabBtns;
+                _tabsRoot.addEventListener('click', function(ev) {
+                    var btn = ev.target.closest('._dd-tab');
+                    if (btn) window._kpiDrilldownSwitchTab(btn.getAttribute('data-tab'));
+                });
+                bodyEl.insertBefore(_tabsRoot, bodyEl.firstChild);
+                window._kpiDrilldownSwitchTab(window._kpiDrilldownActiveTab);
+
+                // Render chart (only when its container is visible — a canvas inside
+                // a hidden tab pane measures 0×0 and Chart.js renders a broken
+                // 0-height chart). Tab switches back to overview re-run this via
+                // _kpiDrilldownRedraw.
+                _kpiDrilldownRedraw = function() {
                 var chartCtx = document.getElementById('kpiDrilldownChart');
                 if (chartCtx) {
                     if (_kpiDrilldownChart) { _kpiDrilldownChart.destroy(); _kpiDrilldownChart = null; }
-                    if (metric === 'conf_high' && confDetail && confDetail.indicators) {
+                    if (metric === 'conf_high' && confDetail && confDetail.indicators && typeof _sigData !== 'undefined') {
                         // Reuse _sigData from the detail section (weighted, auto-disable aware)
                         var _barLabels = _sigData.map(function(s) { return s.name; });
                         var _barWeights = _sigData.map(function(s) { return s.weight; });
@@ -2071,6 +2167,9 @@ function loadHospitalsSettings() {
                     }
                     if (_kpiDrilldownChart && window.registerChart) window.registerChart(_kpiDrilldownChart);
                 }
+                };
+                if (window._kpiDrilldownActiveTab === 'overview') _kpiDrilldownRedraw();
+
             }).catch(function() {
                 bodyEl.innerHTML = '<p style="color:var(--accent-red);padding:1.5rem;">' + __('Failed to load details.') + '</p>';
             });

@@ -11,6 +11,7 @@ showed unfiltered all-months data.
 from pathlib import Path
 
 JS_PATH = Path(__file__).resolve().parent.parent / "static" / "js" / "rules-manager.js"
+PY_DASHBOARD_PATH = Path(__file__).resolve().parent.parent / "app" / "api" / "dashboard.py"
 
 
 def _read_js():
@@ -45,12 +46,40 @@ def test_kpi_cards_and_drilldown_read_the_same_filter_state():
     assert "window._dashboardDateRange" in drill
 
 
+def test_drilldown_modal_has_component_tabs():
+    """The drilldown modal must render a tab bar (Overview + one tab per quality
+    component) instead of stacking every component's diagnostics in one long
+    collapsible page."""
+    js = _read_js()
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 52000)
+    # tab bar is injected at the top of the modal body, sticky via CSS
+    assert "_dd-tabs" in drill
+    assert "_dd-tab" in drill
+    assert 'data-tabpane="overview"' in drill
+    # a pane per component keyed by the component key
+    assert 'data-tabpane="' in drill and "+ c.key +" in drill
+    # switcher toggles panes and highlights the active tab
+    assert "window._kpiDrilldownSwitchTab" in drill
+    # switching back to overview re-renders the Chart.js canvas
+    assert "_kpiDrilldownRedraw" in drill
+    # overview component cards jump to the component's tab (onclick is
+    # attribute-escaped in the generated markup, hence the \' in the source)
+    assert "window._kpiDrilldownSwitchTab(\\'" in drill
+
+
+def test_drilldown_tab_strings_are_translated():
+    """New tab strings must have Arabic translations in i18n.js."""
+    i18n = (Path(__file__).resolve().parent.parent / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
+    for key in ("Overview", "View details", "Improving", "Declining", "Stable"):
+        assert f"'{key}'" in i18n, f"missing i18n entry: {key}"
+
+
 def test_zero_affected_causes_get_explanatory_collapsible_note():
     """A cause with zero affected hospitals must render a green 'No hospitals
     affected' badge plus a collapsible note listing the months analyzed, so an
     empty list reads as 'nothing to fix' instead of a broken render."""
     js = _read_js()
-    drill = _fn_src(js, "window.openKPIDrilldown = function", 32000)
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 44000)
     assert "No hospitals affected" in drill
     assert "_zero-note" in drill
     # collapsible: the note starts hidden and the badge carries its toggle chevron
@@ -77,7 +106,7 @@ def test_affected_hospital_card_is_compact_and_highlighted():
     collapse to a first→last (N months) summary, >6 failed-rule chips hide
     behind a '+N more' toggle, and the header row has a hover highlight."""
     js = _read_js()
-    drill = _fn_src(js, "window.openKPIDrilldown = function", 40000)
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 52000)
     # hover highlight class on the card header
     assert '_hosp-head' in drill
     # months summary collapses long lists (first → last + count) and is LTR-safe
@@ -101,3 +130,16 @@ def test_affected_card_strings_are_translated():
     i18n = (Path(__file__).resolve().parent.parent / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
     for key in ("Failed rules", "more", "show less", "months"):
         assert f"'{key}'" in i18n, f"missing i18n entry: {key}"
+
+
+def test_missing_indicators_are_never_truncated_with_more_row():
+    """The affected-hospitals table must render the FULL missing-indicator list:
+    the '+ N more missing indicators' placeholder row is gone from the UI and the
+    backend no longer caps the payload at 10 rows."""
+    js = _read_js()
+    assert "more missing indicators" not in js, (
+        "drilldown must render all missing indicators, not a '+ N more' row"
+    )
+    py = PY_DASHBOARD_PATH.read_text(encoding="utf-8")
+    assert 'missing_indicators": sorted(list(ha["missing_indicators"]))[:10]' not in py
+    assert 'for k, v in sorted(ha["missing_by_indicator"].items())\n                    ][:10]' not in py

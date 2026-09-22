@@ -1033,7 +1033,10 @@ def component_diagnostics(
                     month_cp_vals = [cp_vals[i] for i in range(n) if scores[i].month == month]
                     month_avg = sum(month_cp_vals) / len(month_cp_vals) if month_cp_vals else 0
                     sorted_missing = sorted(partially_missing.items(), key=lambda x: -x[1])
-                    missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid, cnt in sorted_missing[:10]]
+                    # Keep the FULL list for the affected-hospital drilldown
+                    # (per-component tabs now render every missing indicator);
+                    # only the cause "detail" line still samples the first 5.
+                    missing_names = [all_ind_names_map.get(mid, f"Indicator #{mid}") for mid, cnt in sorted_missing]
                     cp_missing_details.append({
                         "month": month,
                         "value": round(month_avg, 1),
@@ -1226,14 +1229,17 @@ def component_diagnostics(
                     "hospital_id": ha["hospital_id"],
                     "hospital_name": ha["hospital_name"],
                     "avg_value": round(sum(ha["values"]) / len(ha["values"]), 1),
-                    "missing_indicators": sorted(list(ha["missing_indicators"]))[:10],
-                    # Cap the per-indicator breakdown at 10 rows so the UI badge
-                    # stays readable; missing_count carries the true total.
+                    # No cap here — the drilldown now shows the COMPLETE list of
+                    # missing indicators per hospital (per-component tabs), so
+                    # truncating at 10 forced the UI to render a useless
+                    # "+ N more missing indicators" placeholder instead of the
+                    # data the user asked for.
+                    "missing_indicators": sorted(ha["missing_indicators"]),
                     "missing_count": len(ha["missing_by_indicator"]),
                     "missing_by_indicator": [
                         {"indicator": k, "months": sorted(v)}
                         for k, v in sorted(ha["missing_by_indicator"].items())
-                    ][:10],
+                    ],
                     "problem_months": sorted(set(ha["problem_months"])),
                 })
             result_list.sort(key=lambda x: x["avg_value"])
