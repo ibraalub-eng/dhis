@@ -26,3 +26,8 @@ test_reports.json
 # Local OS / editor files
 *.ps1
 *.log
+
+# Local virtualenv & node tooling (huge, never needed in the image)
+.venv/
+venv/
+node_modules/

@@ -65,6 +65,9 @@ docker run -d --name dhis-pg -e POSTGRES_DB=health_ai \
   -p 5432:5432 postgres:16
 ```
 
+> Using the Docker Compose stack (Option 4.1)? Skip this — it starts its own
+> PostgreSQL with credentials from `.env` and pre-wires `DATABASE_URL`.
+
 ### 3.3 Configure `.env`
 
 ```bash
@@ -114,7 +117,37 @@ Open **http://127.0.0.1:8000** → log in with `admin` / your `ADMIN_PASSWORD`.
 
 ## 4. Option B — Docker (any host)
 
-The included `Dockerfile` runs migrations + seeding on boot via the app lifespan.
+### 4.1 One command (recommended): Docker Compose
+
+`docker-compose.yml` starts **PostgreSQL 16 + the app together**, gated by a DB
+healthcheck; the app's lifespan runs migrations + seeding on first boot.
+
+```bash
+docker compose up -d --build
+```
+
+Then open **http://localhost:8080** and log in as `admin` (password from
+`ADMIN_PASSWORD`, default `admin123`). Check readiness with
+`docker compose ps` (both services `healthy`) and logs with
+`docker compose logs -f app`.
+
+Customize via the existing `.env` (compose reads it automatically) —
+`ADMIN_PASSWORD`, `JWT_SECRET`, `POSTGRES_USER`, `POSTGRES_PASSWORD`,
+`POSTGRES_DB`, `APP_PORT`, `TAG`. AI recommendations enable with
+`AI_RECOMMENDATIONS_ENABLED=true` + `AI_API_KEY`.
+
+Notes:
+
+- Postgres data persists in the `pgdata` named volume across restarts; the
+  database is reachable on the host at `127.0.0.1:5433` for debugging only —
+  the app uses the internal network.
+- Wipe everything (including data): `docker compose down -v`.
+- Stop/start without rebuilding: `docker compose stop` / `docker compose start`.
+
+### 4.2 Manual `docker run` (existing external DB)
+
+The included `Dockerfile` also runs standalone when you already have a
+PostgreSQL server:
 
 ```bash
 docker build -t dhis-app .
@@ -127,8 +160,6 @@ docker run -d --name dhis -p 8080:8080 \
 ```
 
 Run on `http://HOST:8080` (the container respects `$PORT`; it defaults to 8080).
-For a one-box setup, put `dhis-pg` and `dhis` on the same Docker network and use
-`postgresql://health_ai:...@dhis-pg:5432/health_ai` as the URL.
 
 **Cloud deploys** — the repo ships with everything wired:
 
@@ -150,7 +181,7 @@ For a one-box setup, put `dhis-pg` and `dhis` on the same Docker network and use
 
 | Symptom | Cause / fix |
 |---|---|
-| App shows a "setup instructions" page | `DATABASE_URL` missing or unreachable — check `.env` and that Postgres is running |
+| App shows a "setup instructions" page | `DATABASE_URL` missing or unreachable — check `.env` and that Postgres is running; with compose, `docker compose ps` should show `db` healthy |
 | `pip install` fails on psycopg2 | Install `libpq-dev` (Debian/Ubuntu) or `postgresql-devel` (RHEL) — or use `psycopg2-binary` (already in requirements.txt) |
 | xgboost import error on Linux bare metal | `sudo apt-get install libgomp1` |
 | Port already in use | Start with another `--port` (dev) or `-p` mapping (Docker) |

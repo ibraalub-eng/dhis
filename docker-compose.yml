@@ -1,0 +1,63 @@
+# ── HEALTH-ai — one-command local/VM stack ──────────────────────────
+# Starts PostgreSQL 16 + the app (built from ./Dockerfile) together.
+#
+#   docker compose up -d --build
+#   → app on http://localhost:8080  (login: admin / $ADMIN_PASSWORD, default admin123)
+#
+# First boot runs Alembic migrations + seeds automatically (app lifespan).
+# Data survives restarts via the named volumes; `docker compose down -v` wipes it.
+#
+# Customize without editing this file — compose reads .env automatically:
+#   ADMIN_PASSWORD, JWT_SECRET, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB,
+#   APP_PORT, TAG (image tag)
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-health_ai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+      POSTGRES_DB: ${POSTGRES_DB:-health_ai}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Exposed to the host only for psql/GUI debugging; the app talks over the
+    # internal network. Comment out to bind nothing.
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-health_ai} -d ${POSTGRES_DB:-health_ai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      # Keep the build context small (respect .dockerignore: .env never ships).
+      dockerfile: Dockerfile
+    image: dhis-app:${TAG:-local}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # inside the compose network the DB host is the service name
+      DATABASE_URL: postgresql://${POSTGRES_USER:-health_ai}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/${POSTGRES_DB:-health_ai}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-please-32-chars-min}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      # AI recommendations stay off unless a key is provided
+      AI_RECOMMENDATIONS_ENABLED: ${AI_RECOMMENDATIONS_ENABLED:-false}
+      AI_API_KEY: ${AI_API_KEY:-}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  pgdata:
