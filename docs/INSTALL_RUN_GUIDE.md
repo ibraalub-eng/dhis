@@ -164,8 +164,73 @@ Run on `http://HOST:8080` (the container respects `$PORT`; it defaults to 8080).
 **Cloud deploys** — the repo ships with everything wired:
 
 - `render.yaml` — Render.com blueprint (injects `DATABASE_URL`, `JWT_SECRET`).
-- `cloudbuild.yaml` + `deploy-cloudrun.sh` — Google Cloud Run.
+- `cloudbuild.yaml` + `deploy-cloudrun.sh` — Google Cloud Run with Cloud SQL (paid DB).
+- `deploy-cloudrun-supabase.sh` — Google Cloud Run + **free Supabase Postgres** (see §4.3).
 - Production process: `gunicorn` with `uvicorn.workers.UvicornWorker`, 120s timeout.
+
+### 4.3 Free cloud deploy: Cloud Run + Supabase Postgres ($0/month)
+
+Cloud Run's always-free tier hosts the app for nothing, but **Cloud SQL has no
+free tier** (~$8–10/month for the smallest instance). Pairing Cloud Run with a
+free external Postgres instead keeps the whole stack at **$0/month**.
+
+**Prerequisites (once):**
+
+1. `gcloud` CLI installed → `gcloud auth login` →
+   `gcloud config set project YOUR_PROJECT_ID` (billing enabled).
+2. A **free** project at [supabase.com](https://supabase.com) (no card required;
+   500 MB Postgres, plenty for months of hospital data).
+
+**Get the right Supabase URL** — Dashboard → **Connect** → **Session pooler**:
+
+```
+postgresql+psycopg2://postgres.<project-ref>:<PASSWORD>@aws-0-<region>.pooler.supabase.com:5432/postgres
+```
+
+> **Two gotchas that break Cloud Run deploys**
+>
+> - **Use the pooler host, not the direct connection.**
+>   `db.<project-ref>.supabase.co:5432` resolves to **IPv6 only**, and Cloud Run
+>   is IPv4 → "connection refused" forever. The Supavisor pooler
+>   (`aws-0-<region>.pooler.supabase.com`) always has IPv4.
+> - **Use session mode (port 5432), not transaction mode (6543).**
+>   Transaction pooling breaks SQLAlchemy prepared statements and Alembic
+>   migrations. The deploy script rejects both mistakes for you.
+>
+> The password is the `postgres` user's password (Settings → Database), **not**
+> the anon/API key.
+
+**Deploy:**
+
+```bash
+SUPABASE_DB_URL="postgresql+psycopg2://postgres.<ref>:<PW>@aws-0-<region>.pooler.supabase.com:5432/postgres" \
+ADMIN_PASSWORD="your-strong-admin-password" \
+PROJECT_ID="YOUR_PROJECT_ID" \
+bash deploy-cloudrun-supabase.sh
+```
+
+The script validates the URL shape, builds the image, stores all three secrets
+in Secret Manager (`database-url`, `jwt-secret` — auto-generated, and
+`admin-password`), deploys, and smoke-checks `GET /health`. First boot runs
+Alembic migrations + seeding against Supabase automatically; then log in as
+`admin` / your `ADMIN_PASSWORD`.
+
+**Ongoing deploys:** `cloudbuild.yaml` reads the same `database-url` secret, so
+CI/CD works unchanged after this first deploy.
+
+**Free-tier notes:**
+
+- Cloud Run always-free: 2M requests, 180K vCPU-s, 360K GiB-s per month
+  (`--min-instances 0` → you pay CPU only while requests run).
+- Supabase free: 500 MB, projects **pause after ~1 week of inactivity** —
+  log in or hit the app periodically, or the DB sleeps.
+- Backups are a paid Supabase feature — export (e.g. `pg_dump` via the pooler)
+  periodically if the data matters.
+- Artifact Registry image storage past 0.5 GB bills pennies; old image versions
+  accumulate — add a cleanup policy or delete stale digests occasionally.
+
+**Migrating local data up:** existing SQLite data is **not** auto-migrated —
+start fresh and re-upload Excel files, or dump/reload into Supabase first.
 
 ---
 
@@ -187,4 +252,6 @@ Run on `http://HOST:8080` (the container respects `$PORT`; it defaults to 8080).
 | Port already in use | Start with another `--port` (dev) or `-p` mapping (Docker) |
 | Login fails on a fresh DB | Admin seeds only when the users table is empty; check startup logs for `[startup] Admin user setup error`, then restart |
 | 401 loops after restart | `JWT_SECRET` changed between runs — set it fixed in `.env` |
+| Cloud Run `/health` → 503, logs show connection refused | Supabase: using the **direct** `db.<ref>.supabase.co` host (IPv6-only) or transaction mode **6543** — redeploy with the session-pooler URL (port 5432), see §4.3 |
+| Supabase DB unreachable after ~1 week idle | Free projects pause on inactivity — restore from the Supabase dashboard, then keep the app in use (or ping `/health` on a schedule) |
 | Stale JS after upgrade | Hard refresh (Ctrl+F5); the SPA caches tab fragments aggressively |
