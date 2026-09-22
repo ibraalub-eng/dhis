@@ -153,3 +153,17 @@ def test_admin_put_settings_validation(client, db_session, monkeypatch):
     hdr = _user(db_session, "boss", ["system.manage_users"])
     r = client.put("/ai/agents/admin", headers=hdr, json={"agent_provider_roles": '{"qa": "bad"}'})
     assert r.status_code == 422
+
+
+def test_prune_removes_old_runs(db_session):
+    from datetime import datetime, timedelta
+    from app.models import AgentRun
+    from app.api.agents import prune_agent_runs
+    db_session.add(AgentRun(user_id=1, agent="qa", status="completed",
+                            created_at=datetime.utcnow() - timedelta(days=200)))
+    db_session.add(AgentRun(user_id=1, agent="qa", status="completed",
+                            created_at=datetime.utcnow()))
+    db_session.commit()
+    deleted = prune_agent_runs(db_session, retention_days=90)
+    assert deleted == 1
+    assert db_session.query(AgentRun).count() == 1

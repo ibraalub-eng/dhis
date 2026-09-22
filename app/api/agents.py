@@ -1,4 +1,5 @@
 """AI agents API — kill-switch, permissions, hospital scope, daily caps."""
+import time
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,6 +15,7 @@ from app.models import AgentRun, Conversation, Hospital, IndicatorValue, Message
 router = APIRouter(prefix="/ai/agents", tags=["agents"])
 
 AGENT_DAILY_CAP = 20
+_last_prune = 0.0
 _AGENT_SETTING_KEYS = ("agents_enabled", "agents_provider", "agent_provider_roles",
                        "local_runtime", "local_model", "local_url")
 _AGENT_ADMIN_KEYS = ("agent_cap", "agent_retention_days")
@@ -31,6 +33,14 @@ def require_ai_write(
     sub-dependency raises 403 independently; the user the caller sees is the
     ai.write one (same user object)."""
     return user
+
+
+def prune_agent_runs(db: Session, retention_days: int = 90) -> int:
+    from datetime import timedelta as _td
+    cutoff = datetime.utcnow() - _td(days=retention_days)
+    deleted = db.query(AgentRun).filter(AgentRun.created_at < cutoff).delete(synchronize_session=False)
+    db.commit()
+    return deleted
 
 
 def _check_daily_cap(db, user):
@@ -196,6 +206,19 @@ def status(user=Depends(get_current_user), db: Session = Depends(get_db)):
 @router.get("/runs")
 def runs(page: int = 1, per_page: int = 20,
          user=Depends(require_permission("system.manage_users")), db: Session = Depends(get_db)):
+    global _last_prune
+    now = time.time()
+    if now - _last_prune >= 3600:
+        try:
+            from app.models import SystemSetting as _SS
+            row = db.query(_SS).filter(_SS.key == "agent_retention_days").first()
+            ret = int(row.value) if row else 90
+            if ret < 1:
+                ret = 90
+        except (AttributeError, TypeError, ValueError):
+            ret = 90
+        prune_agent_runs(db, retention_days=ret)
+        _last_prune = now
     q = db.query(AgentRun).order_by(AgentRun.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
     total = db.query(AgentRun).count()
     return {"total": total, "page": page, "per_page": per_page,
@@ -254,4 +277,9 @@ def admin_put(body: dict, user=Depends(require_permission("system.manage_users")
         else:
             db.add(SystemSetting(key=k, value=str(v)))
     db.commit()
+    if "agent_retention_days" in body:
+        try:
+            prune_agent_runs(db, retention_days=int(body["agent_retention_days"]))
+        except (TypeError, ValueError):
+            pass
     return {"status": "ok"}
