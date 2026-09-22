@@ -598,3 +598,63 @@ def test_rules_table_hint_about_row_details():
     # Arabic translation present per i18n policy
     i18n = _read_i18n_js()
     assert "تلميح: انقر على أي صف" in i18n
+
+
+# ── Drawer: parameters from the impact map (server-resolved names) ──
+
+def _read_rules_manager_js():
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "rules-manager.js")
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
+def test_drawer_params_prefer_impact_map_params():
+    """openRuleDrawer must prefer imp.params (parsed server-side, always in
+    sync with the latest edit) over the local rule.params JSON blob."""
+    js = _read_rules_manager_js()
+    assert "imp.params && typeof imp.params === 'object'" in js
+    drawer = js[js.index("window.openRuleDrawer = function"):]
+    assert "JSON.parse(rule.params" in drawer  # fallback still exists
+
+
+def test_drawer_param_rows_render_code_and_indicator_name():
+    """Indicator-shaped parameter values render as 'code — name' chips built
+    from the impact map's ref_names, not bare codes."""
+    js = _read_rules_manager_js()
+    assert "function _drawerParamRows(expr, params, refNames)" in js
+    assert "const n = refNames[c];" in js
+    assert "(list || []).map(c => codeName(c)).join(' ') || '<em>' + __('None') + '</em>'" in js
+
+
+def test_drawer_param_rows_cover_le_sum():
+    """le_sum was previously swallowed by the le/lt branch (wrong labels and
+    no children row) — it needs its own Child + Children parameter rows, and
+    its referenced codes must include the children list like the backend's
+    ref-code extractor does."""
+    js = _read_rules_manager_js()
+    rows = js[js.index("function _drawerParamRows"):]
+    rows = rows[:rows.index("return '<dl class=")]  # end of the branch chain
+    assert rows.count('expr === "le_sum"') == 1  # own branch, not merged with le/lt
+    assert 'row("Children", childrenList(params.children))' in rows.split('expr === "le_sum"')[1][:200]
+    refs = js[js.index("function _drawerRefCodes"):]
+    refs = refs[:refs.index("if (expr === \"formula\"")]
+    assert refs.count('"le_sum"') == 1
+    assert '[params.child].concat(params.children' in refs
+
+
+def test_drawer_ref_codes_prefer_impact_map():
+    """'Referenced indicators' reads imp.ref_codes first (server parity with
+    the analysis engine) and only falls back to the local expression mirror
+    when the impact entry is missing or empty."""
+    js = _read_rules_manager_js()
+    drawer = js[js.index("window.openRuleDrawer = function"):]
+    assert "(imp.ref_codes && imp.ref_codes.length)" in drawer
+    assert "_drawerRefCodes(rule.expression_type, params)" in drawer
+
+
+def test_drawer_new_labels_translated():
+    """Formula/Denominator labels used by _drawerParamRows have Arabic
+    translations (i18n policy: every drawer string is translated)."""
+    i18n = _read_i18n_js()
+    assert "'Formula': 'الصيغة'" in i18n
+    assert "'Denominator': 'المقام'" in i18n

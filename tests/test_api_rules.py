@@ -262,6 +262,20 @@ class TestRuleImpact:
                 assert "id" in h and "name" in h and "details" in h
             assert "month" in r
 
+    def test_impact_includes_params_for_drawer(self, client, db_session):
+        """The rules drawer renders Parameters straight from the impact map —
+        every entry must carry the rule's parsed params dict."""
+        resp = client.get("/rules/impact")
+        assert resp.status_code == 200
+        for r in resp.json():
+            assert "params" in r, "impact entry missing params — drawer falls back to stale local JSON"
+            assert isinstance(r["params"], dict)
+        # Cross-check against the DB: parsed params must match the stored blob
+        by_code = {r["code"]: r["params"] for r in resp.json()}
+        for rule in db_session.query(Rule).all():
+            expected = json.loads(rule.params) if isinstance(rule.params, str) else (rule.params or {})
+            assert by_code.get(rule.code) == expected
+
     def test_impact_nonempty(self, client):
         resp = client.get("/rules/impact")
         assert resp.status_code == 200

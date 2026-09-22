@@ -3266,13 +3266,17 @@ function loadHospitalsSettings() {
         };
 
         // ── Rule details drawer ───────────────────────────────────
-        // Mirror of the backend's _get_rule_ref_codes_from_expr so the drawer
-        // can show referenced indicators even without an impact entry.
+        // Fallback mirror of the backend's _get_rule_ref_codes_from_expr so
+        // the drawer can show referenced indicators even without an impact
+        // entry. Preference order elsewhere: impact map → fallback mirror.
         function _drawerRefCodes(expr, params) {
             if (["ge", "eq", "gt", "ge_factor"].indexOf(expr) !== -1) {
                 return [params.parent].concat(params.children || []).filter(Boolean);
             }
-            if (["le", "le_sum", "lt"].indexOf(expr) !== -1) {
+            if (expr === "le_sum") {
+                return [params.child].concat(params.children || []).filter(Boolean);
+            }
+            if (["le", "lt"].indexOf(expr) !== -1) {
                 return (params.parent ? [params.child, params.parent] : [params.child]).filter(Boolean);
             }
             if (["benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"].indexOf(expr) !== -1) {
@@ -3290,12 +3294,16 @@ function loadHospitalsSettings() {
             return [];
         }
 
-        // Human-readable param rows per expression type (names mirror the
-        // Expression Types Reference table).
-        function _drawerParamRows(expr, params) {
-            const codeName = function(c) { return esc(c); };
+        // Labelled param rows for the drawer's Parameters section: every
+        // indicator-shaped value renders as "code — indicator name" straight
+        // from the impact map's params/ref_names (server-resolved names).
+        function _drawerParamRows(expr, params, refNames) {
+            const codeName = function(c) {
+                const n = refNames[c];
+                return '<span class="rule-ref-chip" title="' + esc(n || c) + '">' + esc(c) + (n && n !== c ? ' — ' + esc(n) : '') + '</span>';
+            };
             const childrenList = function(list) {
-                return (list || []).map(c => '<span class="rule-ref-chip">' + esc(c) + '</span>').join(' ') || '<em>' + __('None') + '</em>';
+                return (list || []).map(c => codeName(c)).join(' ') || '<em>' + __('None') + '</em>';
             };
             const rows = [];
             const row = function(label, valueHtml) {
@@ -3306,10 +3314,10 @@ function loadHospitalsSettings() {
             } else if (expr === "ge_factor") {
                 row("Parent", codeName(params.parent)); row("Children", childrenList(params.children));
                 row("Factor", esc(params.factor));
-            } else if (["le", "lt"].indexOf(expr) !== -1) {
-                row("Child", codeName(params.child)); row("Parent", codeName(params.parent));
             } else if (expr === "le_sum") {
                 row("Child", codeName(params.child)); row("Children", childrenList(params.children));
+            } else if (["le", "lt"].indexOf(expr) !== -1) {
+                row("Child", codeName(params.child)); row("Parent", codeName(params.parent));
             } else if (["benchmark_rate", "benchmark_low_rate"].indexOf(expr) !== -1) {
                 row("Numerator", codeName(params.num_code)); row("Denominator", codeName(params.den_code));
                 row("Threshold", esc(params.threshold) + '%');
@@ -3341,23 +3349,32 @@ function loadHospitalsSettings() {
             const bodyEl = document.getElementById('ruleDrawerBody');
             if (!drawer || !overlay || !titleEl || !bodyEl) return;
 
-            let params = {};
-            try { params = JSON.parse(rule.params || '{}'); } catch (e) { params = {}; }
             const imp = _rulesImpactMap[rule.code] || {};
+            // Prefer the impact map's params (parsed + validated server-side);
+            // fall back to parsing the local rule row when no impact entry
+            // exists yet (e.g. before the first /rules/impact load).
+            let params = (imp.params && typeof imp.params === 'object' && !Array.isArray(imp.params))
+                ? imp.params : {};
+            if (!Object.keys(params).length) {
+                try { params = JSON.parse(rule.params || '{}'); } catch (e) { params = {}; }
+            }
             const typeColors = { LOGIC: 'var(--accent-blue)', CLINICAL: 'var(--accent-purple)', BENCHMARK: 'var(--accent-orange)', DATA_QUALITY: 'var(--accent-red)' };
             const tc = typeColors[rule.rule_type] || '#666';
             const sevClass = { CRITICAL: 'badge-critical', HIGH: 'badge-high', MEDIUM: 'badge-medium', LOW: 'badge-low' };
 
-            // Referenced indicator names: prefer the server-computed impact map
-            // (code → name parity with the analysis engine), fall back to codes.
+            // Referenced indicators: prefer the server-computed impact map
+            // (code → name parity with the analysis engine); fall back to the
+            // local expression mirror when no impact entry exists yet.
             const refNames = {};
             (imp.ref_codes || []).forEach((c, i) => { refNames[c] = (imp.ref_names || [])[i] || c; });
-            const refCodes = _drawerRefCodes(rule.expression_type, params);
+            const refCodes = (imp.ref_codes && imp.ref_codes.length)
+                ? imp.ref_codes
+                : _drawerRefCodes(rule.expression_type, params);
             const refChips = refCodes.length
                 ? refCodes.map(c => '<span class="rule-ref-chip" title="' + esc(refNames[c] || c) + '">' + esc(c) + (refNames[c] && refNames[c] !== c ? ' — ' + esc(refNames[c]) : '') + '</span>').join(' ')
                 : '<em style="color:var(--text-muted);">' + __('None') + '</em>';
 
-            const paramHtml = _drawerParamRows(rule.expression_type, params);
+            const paramHtml = _drawerParamRows(rule.expression_type, params, refNames);
             let rawJson = '';
             try { rawJson = JSON.stringify(JSON.parse(rule.params || '{}'), null, 2); } catch (e) { rawJson = rule.params || '{}'; }
 

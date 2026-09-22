@@ -48,6 +48,20 @@ def _invalidate_impact_cache() -> None:
         pass
 
 
+def _safe_params(raw) -> dict:
+    """Parse a rule's params JSON defensively — a malformed params blob must
+    never take down the impact response."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
 def _rule_snapshot(rule: Rule) -> dict:
     return {
         "id": rule.id, "code": rule.code, "name": rule.name,
@@ -112,6 +126,7 @@ def rules_impact(
                 "id": r.id, "code": r.code, "name": r.name,
                 "expression_type": r.expression_type,
                 "rule_type": r.rule_type, "category": r.category,
+                "params": _safe_params(r.params),
                 "ref_codes": [], "ref_names": [],
                 "failure_count": 0, "hospitals_affected": [], "month": None,
             }
@@ -150,11 +165,7 @@ def rules_impact(
     # ── evaluate each rule ──────────────────────────────────────
     result = []
     for r in rules:
-        params = {}
-        try:
-            params = json.loads(r.params) if isinstance(r.params, str) else (r.params or {})
-        except Exception:
-            params = {}
+        params = _safe_params(r.params)
         ref_codes = _get_rule_ref_codes_from_expr(r.expression_type, params)
         affected = []
         fail_count = 0
@@ -187,6 +198,7 @@ def rules_impact(
             "expression_type": r.expression_type,
             "rule_type": r.rule_type,
             "category": r.category,
+            "params": params,
             "ref_codes": ref_codes,
             "ref_names": [ind_map.get(c, c) for c in ref_codes],
             "failure_count": fail_count,
