@@ -7,6 +7,7 @@ BASE = Path(__file__).resolve().parent.parent
 AGENTS_JS = BASE / "static" / "js" / "agents.js"
 I18N_JS = BASE / "static" / "js" / "i18n.js"
 ADMIN_JS = BASE / "static" / "js" / "admin.js"
+RULES_JS = BASE / "static" / "js" / "rules-manager.js"
 
 
 def test_agents_js_exists():
@@ -45,3 +46,10 @@ def test_admin_view_has_role_provider_selects():
     src = ADMIN_JS.read_text(encoding="utf-8")
     for role in ("qa", "explainer", "report_writer", "triage"):
         assert role + "_role" in src or "agent_role_" + role in src
+
+
+def test_ai_settings_form_carries_agent_keys():
+    src = RULES_JS.read_text(encoding="utf-8")
+    assert "agents_enabled" in src
+    assert "agents_provider" in src
+    assert "agent_provider_roles" in src

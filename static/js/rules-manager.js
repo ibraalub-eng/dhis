@@ -2677,6 +2677,12 @@ function loadHospitalsSettings() {
                 document.getElementById('ai_api_url').value = cfg.ai_api_url || '';
                 document.getElementById('ai_max_recommendations').value = cfg.ai_max_recommendations || 8;
                 document.getElementById('ai_timeout').value = cfg.ai_timeout || 30;
+                document.getElementById('ai_agents_enabled').value = cfg.agents_enabled || 'false';
+                document.getElementById('ai_agents_provider').value = cfg.agents_provider || 'auto';
+                document.getElementById('ai_agent_provider_roles').value = cfg.agent_provider_roles || '{}';
+                document.getElementById('ai_agent_local_runtime').value = cfg.local_runtime || 'ollama';
+                document.getElementById('ai_agent_local_model').value = cfg.local_model || 'qwen3:8b';
+                document.getElementById('ai_agent_local_url').value = cfg.local_url || 'http://localhost:11434';
                 onAiProviderChange();
             }).catch(() => {});
         }
@@ -2690,6 +2696,12 @@ function loadHospitalsSettings() {
                 ai_api_url: document.getElementById('ai_api_url').value,
                 ai_max_recommendations: document.getElementById('ai_max_recommendations').value,
                 ai_timeout: document.getElementById('ai_timeout').value,
+                agents_enabled: document.getElementById('ai_agents_enabled').value,
+                agents_provider: document.getElementById('ai_agents_provider').value,
+                agent_provider_roles: document.getElementById('ai_agent_provider_roles').value,
+                local_runtime: document.getElementById('ai_agent_local_runtime').value,
+                local_model: document.getElementById('ai_agent_local_model').value,
+                local_url: document.getElementById('ai_agent_local_url').value,
             };
             const status = document.getElementById('aiSaveStatus');
             status.textContent = 'Saving...';

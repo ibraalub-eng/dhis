@@ -934,6 +934,41 @@
                                     <input type="number" id="ai_timeout" min="5" max="120" value="30" style="width:80px;">
                                 </div>
                             </div>
+                            <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Enable AI Agents (Autonomous Surfaces)</label>
+                                <select id="ai_agents_enabled" style="width:120px;">
+                                    <option value="true">Enabled</option>
+                                    <option value="false">Disabled</option>
+                                </select>
+                                <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;">When enabled, autonomous agents can produce draft analyses, digests, and reports.</div>
+                            </div>
+                            <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Agents Provider</label>
+                                <select id="ai_agents_provider" style="width:220px;">
+                                    <option value="auto">Auto</option>
+                                    <option value="local">Local</option>
+                                    <option value="gemini">Gemini</option>
+                                    <option value="openai_compatible">OpenAI-compatible</option>
+                                </select>
+                                <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;">Provider used for agent tasks. Auto selects local or remote based on availability.</div>
+                            </div>
+                            <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Agent Provider Roles</label>
+                                <input type="text" id="ai_agent_provider_roles" placeholder='{"qa":"local"}' style="width:100%;max-width:500px;">
+                                <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;">JSON mapping agent roles to a specific provider, e.g. {"qa":"local"}. Leave {} for auto on all roles.</div>
+                            </div>
+                            <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Local Runtime</label>
+                                <input type="text" id="ai_agent_local_runtime" placeholder="ollama" style="width:100%;max-width:500px;">
+                            </div>
+                            <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Local Model</label>
+                                <input type="text" id="ai_agent_local_model" placeholder="qwen3:8b" style="width:100%;max-width:500px;">
+                            </div>
+                            <div style="background:var(--bg-elevated);padding:0.8rem;border-radius:6px;">
+                                <label style="font-size:0.82rem;font-weight:600;display:block;margin-bottom:0.3rem;">Local URL</label>
+                                <input type="text" id="ai_agent_local_url" placeholder="http://localhost:11434" style="width:100%;max-width:500px;">
+                            </div>
                             <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;padding-top:0.5rem;">
                                 <button class="btn" onclick="saveAiSettings()" style="background:#d32f2f;color:white;">Save AI Settings</button>
                                 <button class="btn btn-outline" onclick="loadAiSettings()">Reload</button>
