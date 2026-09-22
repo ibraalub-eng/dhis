@@ -1646,3 +1646,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .agent-facts, .agent-analysis, .agent-contributors, .agent-actions { margin: 8px 0; }
 .agent-facts h4, .agent-analysis h4, .agent-contributors h4, .agent-actions h4 { margin: 6px 0; }
 .agent-facts ul, .agent-analysis ul, .agent-contributors ul, .agent-actions ul { padding-left: 18px; }
+
+/* ── AI Agents admin panel ─────────────────────────────── */
+.agent-section { margin-top: 1rem; padding-top: 0.8rem; border-top: 1px solid var(--border-default); }
+.agent-settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.6rem; }
+.agent-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; }
+.agent-field input, .agent-field select {
+  padding: 0.3rem 0.5rem; border: 1px solid var(--border-default);
+  border-radius: 6px; font-size: 0.8rem; background: var(--bg-surface); color: var(--text-primary);
+}

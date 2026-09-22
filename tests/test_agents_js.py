@@ -6,6 +6,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parent.parent
 AGENTS_JS = BASE / "static" / "js" / "agents.js"
 I18N_JS = BASE / "static" / "js" / "i18n.js"
+ADMIN_JS = BASE / "static" / "js" / "admin.js"
 
 
 def test_agents_js_exists():
@@ -31,3 +32,16 @@ def test_digest_button_label_uses_i18n():
     assert keys, "agents.js must use __() for every literal"
     for k in keys:
         assert k in ijs, f"missing i18n key: {k}"
+
+
+def test_admin_view_registered():
+    src = ADMIN_JS.read_text(encoding="utf-8")
+    assert "loadAgentsAdmin" in src
+    assert "/ai/agents/runs" in src
+    assert "/ai/agents/admin" in src
+
+
+def test_admin_view_has_role_provider_selects():
+    src = ADMIN_JS.read_text(encoding="utf-8")
+    for role in ("qa", "explainer", "report_writer", "triage"):
+        assert role + "_role" in src or "agent_role_" + role in src

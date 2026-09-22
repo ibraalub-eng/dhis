@@ -175,6 +175,7 @@ window._adminAssignHospitals = function(id, btn) {
           <button class="admin-tab-btn active" onclick="switchAdminTab('users')" id="atab-users" style="padding:0.5rem 1.2rem;border:none;background:var(--accent-purple);color:white;border-radius:6px 6px 0 0;font-size:0.85rem;font-weight:600;cursor:pointer;margin-bottom:-2px;">👥 Users &amp; Roles</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('database')" id="atab-database" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🗄️ Database</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('control')" id="atab-control" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🎛️ Analysis Control</button>
+          <button class="admin-tab-btn" onclick="switchAdminTab('agents')" id="atab-agents" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🤖 ${__('AI Agents')}</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('logs')" id="atab-logs" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">📋 Logs</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('sessions')" id="atab-sessions" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🟢 Sessions</button>
           <button class="admin-tab-btn" onclick="switchAdminTab('menu')" id="atab-menu" style="padding:0.5rem 1.2rem;border:none;background:var(--bg-surface-hover);color:var(--text-secondary);border-radius:6px 6px 0 0;font-size:0.85rem;cursor:pointer;margin-bottom:-2px;">🧭 Menu Layout</button>
@@ -546,6 +547,118 @@ window._adminAssignHospitals = function(id, btn) {
             <button class="btn btn-sm btn-outline" onclick="addMenuGroup()">➕ Add Group</button>
           </div>
           <div id="menuLayoutList"></div>
+        </div>
+        <!-- AI Agents Panel -->
+        <div id="adminAgentsPanel" style="display:none;">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+            <h2 style="color:var(--accent-purple);margin:0;">🤖 ${__('AI Agents')}</h2>
+            <button class="btn btn-sm" onclick="window.AdminAgents.load()" style="background:var(--accent-blue);color:white;">↻ ${__('Refresh')}</button>
+          </div>
+          <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">${__('Configure AI agent routing, local runtime, and daily caps.')}</p>
+
+          <div style="background:var(--bg-elevated);padding:1rem;border-radius:10px;max-width:760px;border:1px solid var(--border-default);">
+            <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
+              <input type="checkbox" id="agents_enabled" style="margin-top:0.2rem;width:18px;height:18px;">
+              <div>
+                <strong>${__('Enable AI Agents')}</strong><br>
+                <span style="font-size:0.8rem;color:var(--text-secondary);">${__('Master switch for all AI agent surfaces.')}</span>
+              </div>
+            </label>
+
+            <div class="agent-section">
+              <strong style="font-size:0.85rem;">${__('Default provider')}</strong>
+              <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:0.4rem;">
+                <label style="font-size:0.82rem;display:flex;gap:0.3rem;align-items:center;"><input type="radio" name="agents_provider" value="auto"> ${__('Auto')}</label>
+                <label style="font-size:0.82rem;display:flex;gap:0.3rem;align-items:center;"><input type="radio" name="agents_provider" value="local"> ${__('Local')}</label>
+                <label style="font-size:0.82rem;display:flex;gap:0.3rem;align-items:center;"><input type="radio" name="agents_provider" value="gemini"> ${__('Gemini')}</label>
+                <label style="font-size:0.82rem;display:flex;gap:0.3rem;align-items:center;"><input type="radio" name="agents_provider" value="openai_compatible"> ${__('OpenAI compatible')}</label>
+              </div>
+            </div>
+
+            <div class="agent-section">
+              <strong style="font-size:0.85rem;">${__('Per-role provider')}</strong>
+              <div class="agent-settings-grid" style="margin-top:0.4rem;">
+                <label class="agent-field">${__('QA')}
+                  <select id="agent_role_qa">
+                    <option value="">${__('Default')}</option>
+                    <option value="local">${__('Local')}</option>
+                    <option value="gemini">${__('Gemini')}</option>
+                    <option value="openai_compatible">${__('OpenAI compatible')}</option>
+                  </select>
+                </label>
+                <label class="agent-field">${__('Explainer')}
+                  <select id="agent_role_explainer">
+                    <option value="">${__('Default')}</option>
+                    <option value="local">${__('Local')}</option>
+                    <option value="gemini">${__('Gemini')}</option>
+                    <option value="openai_compatible">${__('OpenAI compatible')}</option>
+                  </select>
+                </label>
+                <label class="agent-field">${__('Report writer')}
+                  <select id="agent_role_report_writer">
+                    <option value="">${__('Default')}</option>
+                    <option value="local">${__('Local')}</option>
+                    <option value="gemini">${__('Gemini')}</option>
+                    <option value="openai_compatible">${__('OpenAI compatible')}</option>
+                  </select>
+                </label>
+                <label class="agent-field">${__('Triage')}
+                  <select id="agent_role_triage">
+                    <option value="">${__('Default')}</option>
+                    <option value="local">${__('Local')}</option>
+                    <option value="gemini">${__('Gemini')}</option>
+                    <option value="openai_compatible">${__('OpenAI compatible')}</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+
+            <div class="agent-section">
+              <strong style="font-size:0.85rem;">${__('Local runtime')}</strong>
+              <div class="agent-settings-grid" style="margin-top:0.4rem;">
+                <label class="agent-field">${__('Runtime')}<input type="text" id="agent_local_runtime" placeholder="ollama" autocomplete="off"></label>
+                <label class="agent-field">${__('Model')}<input type="text" id="agent_local_model" placeholder="qwen2.5:7b" autocomplete="off"></label>
+                <label class="agent-field">${__('Base URL')}<input type="text" id="agent_local_url" placeholder="http://localhost:11434/v1" autocomplete="off"></label>
+              </div>
+            </div>
+
+            <div class="agent-section">
+              <strong style="font-size:0.85rem;">${__('Limits')}</strong>
+              <div class="agent-settings-grid" style="margin-top:0.4rem;">
+                <label class="agent-field">${__('Daily agent cap')}<input type="number" id="agent_cap" min="1" max="1000"></label>
+                <label class="agent-field">${__('Run retention (days)')}<input type="number" id="agent_retention_days" min="1" max="3650"></label>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:0.5rem;align-items:center;margin-top:1rem;padding-top:0.8rem;border-top:1px solid var(--border-default);">
+              <button class="btn btn-sm" id="agentSaveBtn" onclick="window.AdminAgents.save()" style="background:var(--accent-purple);color:white;">${__('Save')}</button>
+              <span id="agentSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+            </div>
+          </div>
+
+          <div style="margin-top:1.5rem;">
+            <h3 style="color:var(--accent-blue);margin:0 0 0.5rem;">${__('Agent run audit')}</h3>
+            <div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:0.78rem;">
+                <thead><tr style="background:var(--bg-elevated);">
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Time')}</th>
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('User')}</th>
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Agent')}</th>
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Status')}</th>
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Duration')}</th>
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Steps')}</th>
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Provider')}</th>
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Model')}</th>
+                  <th style="text-align:left;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Data version')}</th>
+                  <th style="text-align:center;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Cache')}</th>
+                  <th style="text-align:center;padding:0.4rem;border-bottom:2px solid var(--border-default);">${__('Fallback')}</th>
+                </tr></thead>
+                <tbody id="agentRunsBody">
+                  <tr><td colspan="11" style="text-align:center;padding:1.5rem;color:var(--text-muted);">${__('Loading...')}</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -1044,14 +1157,17 @@ window._adminAssignHospitals = function(id, btn) {
     var l=document.getElementById("adminLogsPanel");
     var s=document.getElementById("adminSessionsPanel");
     var m=document.getElementById("adminMenuLayoutPanel");
+    var a=document.getElementById("adminAgentsPanel");
     if(u)u.style.display=tab==="users"?"block":"none";
     if(d)d.style.display=tab==="database"?"block":"none";
     if(c)c.style.display=tab==="control"?"block":"none";
     if(l)l.style.display=tab==="logs"?"block":"none";
     if(s)s.style.display=tab==="sessions"?"block":"none";
     if(m)m.style.display=tab==="menu"?"block":"none";
+    if(a)a.style.display=tab==="agents"?"block":"none";
     if(tab==="database"){loadAdminDbStatus();window._adminDbLoaded=true;}
     if(tab==="control"){adminLoadControlSettings();}
+    if(tab==="agents"){loadAgentsAdmin();}
     if(tab==="logs"){loadAdminLogs();_startLogsAutoRefresh();}
     if(tab==="sessions"){loadSessions();}
     if(tab==="menu"){adminMenuLayoutPanel();}
@@ -1679,5 +1795,171 @@ window._adminAssignHospitals = function(id, btn) {
     if (document.getElementById('sessionsAutoRefresh') && document.getElementById('sessionsAutoRefresh').checked) {
       _sessionsInterval = setInterval(loadSessions, 10000);
     }
+  };
+
+  // -- AI Agents Panel ----------------------------------------
+  var _AGENT_ROLES = ['qa', 'explainer', 'report_writer', 'triage'];
+
+  function _agentStatusFailed(result) {
+    if (result && result._forbidden) return result.detail || __('Access denied');
+    if (result && result._error) return result.detail || __('Request failed');
+    if (result && result.detail) return (typeof result.detail === 'string' ? result.detail : __('Request failed'));
+    return null;
+  }
+
+  function _agentStatusBadge(status) {
+    var s = String(status || '');
+    var lower = s.toLowerCase();
+    if (lower === 'completed' || lower === 'success' || lower === 'ok') {
+      return '<span style="background:var(--severity-success-bg);color:var(--accent-green);padding:1px 8px;border-radius:8px;font-size:0.72rem;font-weight:600;">' + esc(s) + '</span>';
+    }
+    if (lower === 'failed' || lower === 'error') {
+      return '<span style="background:var(--severity-critical-bg);color:var(--accent-red);padding:1px 8px;border-radius:8px;font-size:0.72rem;font-weight:600;">' + esc(s) + '</span>';
+    }
+    return '<span style="background:var(--bg-elevated);color:var(--text-secondary);padding:1px 8px;border-radius:8px;font-size:0.72rem;">' + esc(s) + '</span>';
+  }
+
+  function renderAgentsRuns(runs) {
+    var tbody = document.getElementById('agentRunsBody');
+    if (!tbody) return;
+    if (!runs || !runs.length) {
+      tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:1.5rem;color:var(--text-muted);">' + __('No data') + '</td></tr>';
+      return;
+    }
+    var html = '';
+    runs.forEach(function(r) {
+      var time = r.created_at ? new Date(r.created_at).toLocaleString() : '\u2014';
+      var duration = (r.duration_ms === null || r.duration_ms === undefined) ? '\u2014' : esc(r.duration_ms) + ' ms';
+      var steps = (r.steps === null || r.steps === undefined) ? '\u2014' : esc(r.steps);
+      var cacheHit = r.cache_hit ? '\u2713' : '\u2014';
+      var fallback = r.fallback_used ? '\u2713' : '\u2014';
+      html += '<tr style="border-bottom:1px solid var(--border-default);">';
+      html += '<td style="padding:0.35rem 0.5rem;white-space:nowrap;">' + time + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;">' + esc(r.user_id) + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;font-weight:600;">' + esc(r.agent) + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;">' + _agentStatusBadge(r.status) + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;white-space:nowrap;">' + duration + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;">' + steps + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;">' + esc(r.provider) + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;">' + esc(r.model) + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;">' + esc(r.data_version) + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;text-align:center;">' + cacheHit + '</td>';
+      html += '<td style="padding:0.35rem 0.5rem;text-align:center;">' + fallback + '</td>';
+      html += '</tr>';
+    });
+    tbody.innerHTML = html;
+  }
+
+  function _agentSetField(id, value) {
+    var el = document.getElementById(id);
+    if (el && value !== null && value !== undefined) el.value = value;
+  }
+
+  function _populateAgentsSettings(settings) {
+    var enabledEl = document.getElementById('agents_enabled');
+    if (enabledEl) enabledEl.checked = String(settings.agents_enabled).toLowerCase() === 'true';
+    var provider = settings.agents_provider || 'auto';
+    document.querySelectorAll('input[name="agents_provider"]').forEach(function(r) { r.checked = r.value === provider; });
+    var roles = {};
+    try { roles = JSON.parse(settings.agent_provider_roles || '{}') || {}; } catch(e) { roles = {}; }
+    if (typeof roles !== 'object') roles = {};
+    _AGENT_ROLES.forEach(function(role) {
+      var sel = document.getElementById('agent_role_' + role);
+      if (sel) sel.value = roles[role] || '';
+    });
+    _agentSetField('agent_local_runtime', settings.local_runtime);
+    _agentSetField('agent_local_model', settings.local_model);
+    _agentSetField('agent_local_url', settings.local_url);
+    _agentSetField('agent_cap', settings.agent_cap);
+    _agentSetField('agent_retention_days', settings.agent_retention_days);
+  }
+
+  async function loadAgentsAdmin() {
+    var status = document.getElementById('agentSaveStatus');
+    var tbody = document.getElementById('agentRunsBody');
+    if (status) { status.textContent = __('Loading...'); status.style.color = 'var(--text-muted)'; }
+    try {
+      var settings = await api('/ai/agents/admin');
+      var err = _agentStatusFailed(settings);
+      if (err) {
+        if (status) { status.textContent = '✗ ' + err; status.style.color = 'var(--accent-red)'; }
+        if (typeof toastError === 'function') toastError(err);
+        return;
+      }
+      _populateAgentsSettings(settings);
+    } catch(e) {
+      if (status) { status.textContent = '✗ ' + __('Failed to load settings'); status.style.color = 'var(--accent-red)'; }
+      if (typeof toastError === 'function') toastError(__('Failed to load AI Agents settings') + ': ' + e.message);
+    }
+    try {
+      var data = await api('/ai/agents/runs?per_page=20');
+      var runErr = _agentStatusFailed(data);
+      if (runErr) {
+        if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:1.5rem;color:var(--accent-red);">' + esc(runErr) + '</td></tr>';
+        return;
+      }
+      renderAgentsRuns(data.runs || []);
+    } catch(e) {
+      if (tbody) tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:1.5rem;color:var(--accent-red);">' + esc(__('Failed to load agent runs') + ': ' + e.message) + '</td></tr>';
+    }
+  }
+
+  function saveAgentsAdmin() {
+    var status = document.getElementById('agentSaveStatus');
+    var btn = document.getElementById('agentSaveBtn');
+    function setStatus(text, color) {
+      if (status) { status.textContent = text; status.style.color = color; }
+    }
+    var enabledEl = document.getElementById('agents_enabled');
+    var enabled = enabledEl ? (enabledEl.checked ? 'true' : 'false') : null;
+    var providerEl = document.querySelector('input[name="agents_provider"]:checked');
+    var provider = providerEl ? providerEl.value : 'auto';
+    var roles = {};
+    _AGENT_ROLES.forEach(function(role) {
+      var sel = document.getElementById('agent_role_' + role);
+      if (sel && sel.value) roles[role] = sel.value;
+    });
+    var body = {
+      agents_enabled: enabled,
+      agents_provider: provider,
+      agent_provider_roles: JSON.stringify(roles)
+    };
+    var runEl = document.getElementById('agent_local_runtime');
+    var modelEl = document.getElementById('agent_local_model');
+    var urlEl = document.getElementById('agent_local_url');
+    var capEl = document.getElementById('agent_cap');
+    var retEl = document.getElementById('agent_retention_days');
+    if (runEl && runEl.value) body.local_runtime = runEl.value;
+    if (modelEl && modelEl.value) body.local_model = modelEl.value;
+    if (urlEl && urlEl.value) body.local_url = urlEl.value;
+    if (capEl && capEl.value) body.agent_cap = parseInt(capEl.value, 10);
+    if (retEl && retEl.value) body.agent_retention_days = parseInt(retEl.value, 10);
+    if (btn) { btn.textContent = __('Saving...'); btn.disabled = true; }
+    setStatus(__('Saving...'), 'var(--accent-blue)');
+    (async function() {
+      try {
+        var result = await api('/ai/agents/admin', { method: 'PUT', body: JSON.stringify(body) });
+        var err = _agentStatusFailed(result);
+        if (err || !result || result.status !== 'ok') {
+          if (btn) { btn.textContent = __('Save'); btn.disabled = false; }
+          setStatus('✗ ' + (err || __('Save failed')), 'var(--accent-red)');
+          if (typeof toastError === 'function') toastError(err || __('Failed to save AI Agents settings'));
+          return;
+        }
+        if (btn) { btn.textContent = __('Save'); btn.disabled = false; }
+        setStatus('✓ ' + __('Saved'), 'var(--accent-green)');
+        if (typeof toastSuccess === 'function') toastSuccess(__('AI Agents settings saved'));
+      } catch(e) {
+        if (btn) { btn.textContent = __('Save'); btn.disabled = false; }
+        setStatus('✗ ' + __('Save failed') + ': ' + e.message, 'var(--accent-red)');
+        if (typeof toastError === 'function') toastError(__('Failed to save AI Agents settings') + ': ' + e.message);
+      }
+    })();
+  }
+
+  window.AdminAgents = {
+    load: loadAgentsAdmin,
+    save: saveAgentsAdmin,
+    renderRuns: renderAgentsRuns
   };
 })();
