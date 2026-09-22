@@ -9,15 +9,11 @@
     return '' + p;
   }
 
-  function authHeaders() {
-    var t = '';
-    if (typeof window.getAccessToken === 'function') { t = window.getAccessToken() || ''; }
-    if (!t) { t = localStorage.getItem('access_token') || ''; }
-    return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + t };
-  }
-
   function authFetch(url, opts) {
-    return fetch(url, Object.assign({ headers: authHeaders() }, opts || {}));
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    if (!opts.headers['Content-Type']) { opts.headers['Content-Type'] = 'application/json'; }
+    return window.authFetch(url, opts);
   }
 
   function postJSON(path, body) {
