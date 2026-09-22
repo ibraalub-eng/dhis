@@ -247,8 +247,15 @@ import { confirmDestructive } from './confirm-modal.js';
             const expr = document.getElementById('ruleEditExpr').value;
             let p = {};
             try { p = JSON.parse(_vbBuildParams() || '{}'); } catch (e) { p = {}; }
-            const chips = function(list) { return (list || []).map(c => '<span class="rule-ref-chip">' + esc(c) + '</span>').join(' + ') || '<em>…</em>'; };
-            const chip = function(v) { return v ? '<span class="rule-ref-chip">' + esc(v) + '</span>' : '<em>…</em>'; };
+            // Indicator chips reuse the drawer's clickable chip (jumps to the
+            // Indicator Tree) when rules-manager.js has loaded; fall back to a
+            // plain chip so the preview still renders on a stale module chain.
+            const chipOf = function(v) {
+                if (!v) return '<em>…</em>';
+                return (typeof window._ruleChip === 'function') ? window._ruleChip(v) : '<span class="rule-ref-chip">' + esc(v) + '</span>';
+            };
+            const chips = function(list) { return (list || []).map(chipOf).join(' + ') || '<em>…</em>'; };
+            const chip = function(v) { return chipOf(v); };
             const num = function(v) { return (v !== undefined && v !== null && v !== '') ? esc(v) : '<em>…</em>'; };
             let cond = '';
             switch (expr) {

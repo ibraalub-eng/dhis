@@ -3309,6 +3309,8 @@ function loadHospitalsSettings() {
                 esc(code) + (name && name !== code ? ' — ' + esc(name) : '') + '</span>';
         }
 
+        window._ruleChip = _ruleChip;
+
         // Labelled param rows for the drawer's Parameters section: every
         // indicator-shaped value renders as "code — indicator name" straight
         // from the impact map's params/ref_names (server-resolved names).
@@ -3359,6 +3361,14 @@ function loadHospitalsSettings() {
         window._openIndicatorInTree = function(code) {
             if (!code) return;
             closeRuleDrawer();
+            // Chips also live in the rule builder's expression preview: close
+            // any open rule dialogs so they don't cover the tree after the
+            // jump (closeRuleModal is a stub until rules.js loads).
+            if (typeof window.closeRuleModal === 'function' &&
+                window.closeRuleModal.toString().indexOf('Module not loaded') === -1) {
+                window.closeRuleModal();
+            }
+            window.closeRuleTestModal();
             window.switchTab('indicator-tree');
             const hsel = document.getElementById('treeHospitalSelect');
             const msel = document.getElementById('treeMonthSelect');

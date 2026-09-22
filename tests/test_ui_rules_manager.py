@@ -639,6 +639,8 @@ def test_drawer_chips_open_indicator_tree():
     # Both chip call sites go through the shared helper.
     assert "refCodes.map(c => _ruleChip(c, refNames[c])).join(' ')" in js
     assert "const codeName = function(c) { return _ruleChip(c, refNames[c]); };" in js
+    # Exposed on window so rules.js's expression preview can reuse it.
+    assert "window._ruleChip = _ruleChip;" in js
 
 
 def test_drawer_tree_jump_reveals_node():
@@ -670,6 +672,20 @@ def test_open_in_tree_label_translated():
     with open(path, encoding="utf-8") as f:
         i18n = f.read()
     assert "'Open in Indicator Tree':" in i18n
+
+
+def test_expr_preview_chips_are_clickable():
+    """The rule builder's expression preview reuses the drawer's clickable
+    chip helper (window._ruleChip) for indicator codes, with a plain-chip
+    fallback when rules-manager.js hasn't loaded yet."""
+    js = _read_rules_js()
+    preview = js[js.index("window.updateRuleExprPreview = function"):]
+    preview = preview[:preview.index("// ── Render builders per category")] if "// ── Render builders per category" in preview else preview
+    assert "typeof window._ruleChip === 'function'" in preview
+    assert "window._ruleChip(v)" in preview
+    assert "'<span class=\"rule-ref-chip\">' + esc(v) + '</span>'" in preview  # fallback path
+    # Ellipsis placeholders stay non-clickable.
+    assert "if (!v) return '<em>…</em>';" in preview
 
 
 def test_drawer_param_rows_cover_le_sum():
