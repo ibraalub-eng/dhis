@@ -93,6 +93,8 @@
                     _initTab(name);
                     // Re-apply translations to newly loaded content
                     if (typeof window.applyLang === 'function') window.applyLang();
+                    // Mount AI agent surfaces (chat/digest panels) after content loads
+                    if (typeof window.AgentUI === 'object' && typeof window.AgentUI.init === 'function') { try { window.AgentUI.init(); } catch (e) { console.error('[agents] init error:', e); } }
                 }).catch((err) => {
                     targetContent.dataset.loaded = 'false';
                     _tabInited.delete(name);

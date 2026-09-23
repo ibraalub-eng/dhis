@@ -53,3 +53,20 @@ def test_ai_settings_form_carries_agent_keys():
     assert "agents_enabled" in src
     assert "agents_provider" in src
     assert "agent_provider_roles" in src
+
+
+def test_agents_js_loaded_in_index_html():
+    src = (BASE / "static" / "index.html").read_text(encoding="utf-8")
+    assert 'src="/static/js/agents.js"' in src
+
+
+def test_agent_panels_present_in_dashboard_template():
+    src = (BASE / "static" / "tabs" / "dashboard.html").read_text(encoding="utf-8")
+    assert 'data-agent-panel="chat"' in src
+    assert 'data-agent-panel="digest"' in src
+
+
+def test_agentui_init_called_on_tab_load():
+    src = (BASE / "static" / "js" / "main.js").read_text(encoding="utf-8")
+    assert "AgentUI" in src
+    assert "AgentUI.init" in src
