@@ -468,10 +468,12 @@ def test_cache_keys_include_version(client):
         expected_key = "smart_overview_2026-06_v3"
         deadline = time.time() + 5
         while time.time() < deadline:
-            if expected_key in cache._cache:
+            if any(k[1] == expected_key for k in cache._cache):
                 break
             time.sleep(0.05)
-    assert "smart_overview_2026-06_v3" in cache._cache
+    # Memory keys are (epoch, key) tuples since cache entries became
+    # data-epoch scoped.
+    assert any(k[1] == expected_key for k in cache._cache)
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
@@ -486,7 +488,7 @@ def test_trend_response_cached(mock_run, client, db_session):
     r2 = client.get(f"/smart/trend/{h.id}")
     assert r1.status_code == 200
     assert r1.json() == r2.json()
-    assert any(k.startswith("smart_trend_") for k in cache._cache)
+    assert any(k[1].startswith("smart_trend_") for k in cache._cache)
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
@@ -499,7 +501,7 @@ def test_drilldown_response_cached(mock_run, client, db_session):
     r2 = client.get(f"/smart/drilldown/{h.id}/2027-01")
     assert r1.status_code == 200
     assert r1.json() == r2.json()
-    assert any(k.startswith("smart_drilldown_") for k in cache._cache)
+    assert any(k[1].startswith("smart_drilldown_") for k in cache._cache)
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))

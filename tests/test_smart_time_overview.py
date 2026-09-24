@@ -94,7 +94,9 @@ def test_time_overview_cached(client):
     from app.cache import cache
     cache.invalidate("smart_time_overview_")
     client.get("/smart/time-overview")
-    assert any(k.startswith("smart_time_overview_") for k in cache._cache)
+    # Memory keys are (epoch, key) tuples since cache entries became
+    # data-epoch scoped.
+    assert any(k[1].startswith("smart_time_overview_") for k in cache._cache)
 
 
 @patch("app.api.smart_analytics.run_smart_analytics", side_effect=Exception("boom"))

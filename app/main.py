@@ -689,6 +689,18 @@ async def lifespan(app: FastAPI):
         finally:
             session.close()
         _startup_done = True
+
+    # Data-epoch sweep: fingerprint the DB content, then drop every cache
+    # file written under a different data state (dump restores, re-imports,
+    # purges) or before epoch scoping existed. Without this, a restore while
+    # the app ran left the app serving a day of phantom months/hospitals/
+    # scores from stale files.
+    try:
+        from app.cache import get_data_epoch, cache as _epoch_cache
+        _epoch_cache.sweep_stale_epochs(get_data_epoch())
+    except Exception as _epoch_exc:
+        print(f"[startup] Cache epoch sweep skipped: {_epoch_exc}")
+
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     yield
 
@@ -740,6 +752,7 @@ app.include_router(menu_router.router)
 
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from sqlalchemy import func as _sa_func  # noqa: E402
+from app.cache import get_data_epoch  # noqa: E402
 
 
 @app.get("/health")
@@ -756,7 +769,7 @@ def health():
             db.execute(_sa_func.now())
         finally:
             db.close()
-        return {"status": "ok", "database": "ok", "version": "0.1.0", "schema_in_sync": schema_in_sync}
+        return {"status": "ok", "database": "ok", "version": "0.1.0", "schema_in_sync": schema_in_sync, "data_epoch": get_data_epoch()}
     except Exception as exc:  # pragma: no cover - defensive for readiness
         return JSONResponse(
             status_code=503,

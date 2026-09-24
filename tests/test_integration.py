@@ -189,11 +189,15 @@ class TestAnalysisFlow:
 
     def test_heatmap_filters_by_hospital(self, client, db_session):
         """Regression: /analysis/heatmap?hospital_id= was ignored."""
-        from app.models import QualityScore
+        from app.models import QualityScore, IndicatorValue, Indicator
         from app.cache import cache
 
         hospitals = db_session.query(Hospital).order_by(Hospital.id).all()
         h1, h2 = hospitals[0], hospitals[1]
+        ind = db_session.query(Indicator).first()
+        # Ghost doctrine: score rows need real indicator data to surface
+        db_session.add(IndicatorValue(hospital_id=h1.id, month="2027-03", indicator_id=ind.id, value=1))
+        db_session.add(IndicatorValue(hospital_id=h2.id, month="2027-03", indicator_id=ind.id, value=1))
         db_session.add(QualityScore(hospital_id=h1.id, month="2027-03", score=70.0))
         db_session.add(QualityScore(hospital_id=h2.id, month="2027-03", score=90.0))
         db_session.commit()

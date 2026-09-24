@@ -377,16 +377,44 @@ def dashboard_trend(db: Session = Depends(get_db)):
     everywhere else. Query params like month_from/month_to reach no handler here
     and are dropped.
     """
-    from app.api.analysis import get_enabled_months
-    enabled_months = get_enabled_months(db)
+    # Disabled months come straight from SystemSetting — NOT via
+    # get_enabled_months, whose base month list is the 24h-cached
+    # /analysis/months response. That cache was repeatedly poisoned (a DB
+    # restore once hid real months, and pytest runs leaked fixture months
+    # like 2027-01 into it), which silently dropped real months from this
+    # trend. Ghost (never-analyzed) months are already excluded by
+    # _analyzed_exists, so no cached month list is needed here.
+    from app.models import SystemSetting
+    from app.api.config_api import MONTH_SETTINGS_PREFIX
+    disabled_rows = db.query(SystemSetting).filter(
+        SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
+    ).all()
+    disabled_by_hid: dict = {}
+    for row in disabled_rows:
+        if row.value != "false":
+            continue
+        # key format: month_enabled_<hid>_<YYYY-MM>
+        rest = row.key[len(MONTH_SETTINGS_PREFIX):]
+        hid_str, _, m = rest.partition("_")
+        if not hid_str.isdigit() or not m:
+            continue
+        disabled_by_hid.setdefault(int(hid_str), set()).add(m)
+    # Exclude a month only when EVERY scored hospital disabled it.
+    scored_hids = {r[0] for r in db.query(QualityScore.hospital_id).distinct().all()}
+    common_disabled: set = set()
+    if scored_hids and disabled_by_hid:
+        common_disabled = set.intersection(
+            *(disabled_by_hid.get(h, set()) for h in scored_hids)
+        )
+
     trend_q = db.query(
         QualityScore.month,
         func.avg(QualityScore.score).label("score"),
     ).filter(
         _analyzed_exists(db, QualityScore)
     )
-    if enabled_months:
-        trend_q = trend_q.filter(QualityScore.month.in_(enabled_months))
+    if common_disabled:
+        trend_q = trend_q.filter(~QualityScore.month.in_(common_disabled))
     trend_rows = trend_q.group_by(QualityScore.month).order_by(QualityScore.month.asc()).all()
     return {
         "quality_trend": [

@@ -128,10 +128,13 @@ def main():
         print(f"\nDeleted {total} ghost/malformed row(s).")
 
         # Invalidate the shared file cache so month dropdowns, dashboards and
-        # rankings reflect the purge without a restart.
-        from app.cache import cache
+        # rankings reflect the purge without a restart, and rotate the data
+        # epoch so any entries written under the pre-purge content state
+        # (including other processes') become unreachable everywhere.
+        from app.cache import cache, refresh_data_epoch
         cache.invalidate()
-        print("Cache invalidated (data/cache cleared).")
+        refresh_data_epoch()
+        print("Cache invalidated (data/cache cleared) and data epoch rotated.")
     finally:
         db.close()
 

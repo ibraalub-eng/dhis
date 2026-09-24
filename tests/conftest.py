@@ -63,6 +63,37 @@ def _redirect_xgb_model_dir(tmp_path_factory, monkeypatch):
     monkeypatch.setattr(xgboost_predictor, "MODEL_DIR", str(model_dir))
 
 
+@pytest.fixture(autouse=True)
+def _isolate_cache_dir(tmp_path_factory, monkeypatch):
+    """Point the TTLCache's file layer at a temp dir for every test.
+
+    The live app and pytest both persist to data/cache — without this
+    isolation a test run leaked fixture months ("2027-01") and fixture
+    hospitals into the LIVE cache files, which the running app then served:
+    real months silently vanished from the Quality Score Trend and the
+    month/year dropdowns for up to 24h after every pytest run.
+
+    _CACHE_DIR is read at CALL time from the module global, so patching it
+    redirects every cache instance (app modules bind the instance by
+    reference via `from app.cache import cache` — replacing the attribute
+    would not reach them). The in-memory dict of the shared instance is
+    cleared so entries from a previous test cannot leak into this one.
+    """
+    import app.cache as cache_mod
+    test_dir = str(tmp_path_factory.mktemp("test_cache"))
+    monkeypatch.setattr(cache_mod, "_CACHE_DIR", test_dir)
+    # Freeze the data epoch: the fingerprint queries the REAL database,
+    # which tests must not touch (and each test's in-memory SQLite differs
+    # anyway). Patching compute_data_epoch (not get_data_epoch) keeps the
+    # real lazy-compute/interval-refresh logic live in every code path while
+    # making the fingerprint a deterministic constant.
+    monkeypatch.setattr(cache_mod, "compute_data_epoch", lambda: "test-epoch")
+    monkeypatch.setattr(cache_mod, "_data_epoch", None)
+    cache_mod.cache._cache.clear()
+    yield
+    cache_mod.cache._cache.clear()
+
+
 @pytest.fixture
 def db_session():
     """In-memory SQLite session with schema seeded. Thread-safe for TestClient."""

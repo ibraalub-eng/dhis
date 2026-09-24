@@ -660,11 +660,16 @@ def analysis_cache_status(db: Session = Depends(get_db)):
 
 @router.get("/heatmap")
 def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: Session = Depends(get_db)):
-    cache_key = cache.make_key("analysis:heatmap_v2", month=month, hospital_id=hospital_id)
-    cached = cache.get(cache_key)
-    if cached:
-        return cached
-
+    # Deliberately NOT cached. The 24h TTLCache poisoned this endpoint twice:
+    # an empty matrix written during a DB restore hid real data for a day,
+    # and pytest runs leaked their in-memory-SQLite hospitals ("Central
+    # Medical" etc.) into the shared data/cache files. The query is small
+    # (one table, ~hundreds of rows) so it is always read fresh from the DB.
+    import re as _re
+    # Synthetic/stamped months (e.g. '__all__') must never become heatmap
+    # columns — a legacy ghost row used to render a bogus '__all__' column
+    # and shifted every real month into the wrong position. Filtered in
+    # Python (not SQL REGEXP) so it also works on SQLite in tests.
     q = db.query(
         QualityScore.hospital_id,
         QualityScore.month,
@@ -674,21 +679,51 @@ def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: S
         q = q.filter(QualityScore.month == month)
     if hospital_id:
         q = q.filter(QualityScore.hospital_id == hospital_id)
-    rows = q.all()
+    rows = [r for r in q.all() if r.month and _re.match(r"^\d{4}-\d{2}$", str(r.month))]
 
     # Get hospital names and active status
     hosp_map = {h.id: h for h in db.query(Hospital).all()}
     active_ids = {h.id for h in hosp_map.values() if h.is_active}
 
-    # Get enabled months per hospital
-    from app.api.analysis import get_enabled_months
-    enabled_by_hid: dict = {}
-    for hid in set(r.hospital_id for r in rows):
-        if hid in active_ids:
-            enabled_by_hid[hid] = set(get_enabled_months(db, hospital_id=hid))
+    # Months enabled per hospital (manual disable toggles in SystemSetting).
+    # Queried fresh — NOT via get_enabled_months, whose month list comes from
+    # a 24h-cached endpoint and would reintroduce the staleness this endpoint
+    # just had removed.
+    from app.models import SystemSetting
+    from app.api.config_api import MONTH_SETTINGS_PREFIX
+    all_months = {r[0] for r in db.query(IndicatorValue.month).distinct().all()}
+    disabled_rows = db.query(SystemSetting).filter(
+        SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
+    ).all()
+    disabled_by_hid: dict = {}
+    for row in disabled_rows:
+        if row.value != "false":
+            continue
+        # key format: month_enabled_<hid>_<YYYY-MM>
+        rest = row.key[len(MONTH_SETTINGS_PREFIX):]
+        hid_str, _, m = rest.partition("_")
+        if not hid_str.isdigit() or not m:
+            continue
+        disabled_by_hid.setdefault(int(hid_str), set()).add(m)
 
-    hospitals = sorted([h.name for h in hosp_map.values() if h.is_active])
-    months = sorted(set(r.month for r in rows))
+    hospitals = sorted(h.name for h in hosp_map.values() if h.is_active)
+    # Column months must have REAL indicator data (same ghost doctrine as
+    # /analysis/months and the trend: a QualityScore row for a month that
+    # was never analyzed is a zero-score sentinel, not data). QualityScore
+    # rows arrive pre-filtered to YYYY-MM, and all_months is a fresh DB
+    # query, so ghost months like '__all__' or reanalysis sentinels can
+    # never become heatmap columns.
+    months = sorted({r.month for r in rows} & all_months)
+    if not months:
+        return {"hospitals": hospitals, "months": [], "data": []}
+
+    # A scored cell is shown unless its month was manually disabled for that
+    # hospital (then rendered as "--"). Months a hospital never analyzed
+    # (no IndicatorValue) also render as "--" through this gate.
+    enabled_by_hid: dict = {}
+    for hid in {r.hospital_id for r in rows}:
+        if hid in active_ids:
+            enabled_by_hid[hid] = all_months - disabled_by_hid.get(hid, set())
 
     matrix: dict = {}
     for r in rows:
@@ -714,7 +749,6 @@ def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: S
         data.append(row)
 
     result = {"hospitals": hospitals, "months": months, "data": data}
-    cache.set(cache_key, result)
     return result
 
 

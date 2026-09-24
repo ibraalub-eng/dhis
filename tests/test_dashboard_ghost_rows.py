@@ -201,3 +201,59 @@ def test_months_endpoint_filters_malformed_month_values(app, db_session, ghost_d
     months = client.get("/analysis/months").json()
     assert months == ["2026-01"]  # only the real ghost_data month
     assert "__all__" not in months
+
+
+def test_heatmap_excludes_malformed_months(app, db_session, ghost_data):
+    """A QualityScore row stamped '__all__' (legacy tree All-Months bug) must
+    never become a heatmap column — it used to render a bogus '__all__'
+    column and shifted every real month into the wrong position."""
+    from app.cache import cache
+    cache.invalidate("v2|analysis:")
+
+    hosp = db_session.query(Hospital).first()
+    ind = db_session.query(Indicator).filter(Indicator.code == "ANC.1").first() or \
+        db_session.query(Indicator).first()
+    db_session.add(QualityScore(hospital_id=hosp.id, month="__all__", score=15.0))
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2026-02",
+                                  indicator_id=ind.id, value=10))
+    db_session.add(QualityScore(hospital_id=hosp.id, month="2026-02", score=70.0))
+    db_session.commit()
+
+    client = TestClient(app)
+    hm = client.get("/analysis/heatmap").json()
+    assert "__all__" not in hm["months"]
+    assert hm["months"] == ["2026-01", "2026-02"]
+    row = next(r for r in hm["data"] if r["hospital"] == hosp.name)
+    assert "__all__" not in row
+    assert row["2026-01"] == 90.0 and row["2026-02"] == 70.0
+
+
+def test_heatmap_reads_database_not_cache(app, db_session, ghost_data):
+    """The heatmap must reflect the database immediately. Its old 24h cache
+    poisoned the endpoint twice: an empty matrix written during a DB restore
+    hid real data for a day, and pytest runs leaked their in-memory-SQLite
+    hospitals into the shared data/cache files. It is now never cached."""
+    client = TestClient(app)
+    hosp = db_session.query(Hospital).first()
+    ind = db_session.query(Indicator).filter(Indicator.code == "ANC.1").first() or \
+        db_session.query(Indicator).first()
+
+    # First call: 2026-02 exists as a QualityScore-only ghost month — same
+    # ghost doctrine as /analysis/months and the trend: never a column.
+    hm = client.get("/analysis/heatmap").json()
+    row = next(r for r in hm["data"] if r["hospital"] == hosp.name)
+    assert row["2026-01"] == 90.0
+    assert "2026-02" not in hm["months"]
+    assert "2026-02" not in row
+
+    # Data written AFTER the first call must appear on the very next call
+    # (a cached endpoint would keep serving the first, stale response).
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2026-02",
+                                  indicator_id=ind.id, value=10))
+    db_session.add(QualityScore(hospital_id=hosp.id, month="2026-02", score=75.0))
+    db_session.commit()
+
+    hm2 = client.get("/analysis/heatmap").json()
+    assert hm2["months"] == ["2026-01", "2026-02"]
+    row2 = next(r for r in hm2["data"] if r["hospital"] == hosp.name)
+    assert row2["2026-01"] == 90.0 and row2["2026-02"] == 75.0
