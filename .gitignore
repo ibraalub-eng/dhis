@@ -46,3 +46,10 @@ node_modules/
 # OS
 Thumbs.db
 .DS_Store
+
+# NSSM service logs
+logs/
+
+# Local-only env backups and DB row backups (may contain secrets)
+.env.bak.local
+data/backups/
