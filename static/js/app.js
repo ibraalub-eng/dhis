@@ -126,6 +126,12 @@ window.expandAllTree = _stub('expandAllTree');
 window.collapseAllTree = _stub('collapseAllTree');
 window.initIndicatorTree = _stub('initIndicatorTree');
 window.loadIndicatorTree = _stub('loadIndicatorTree');
+window.initIndicatorGroups = _stub('initIndicatorGroups');
+window.refreshIndicatorGroups = _stub('refreshIndicatorGroups');
+window.openGroupModal = _stub('openGroupModal');
+window.closeGroupModal = _stub('closeGroupModal');
+window.saveGroupModal = _stub('saveGroupModal');
+window.closeMembersModal = _stub('closeMembersModal');
 window.saveTreeConfig = _stub('saveTreeConfig');
 window.removeTreeData = _stub('removeTreeData');
 window.undoTreeData = _stub('undoTreeData');
@@ -172,6 +178,7 @@ async function _loadModules() {
     ['validation',  () => import('./validation.js')],
     ['clinical',    () => import('./clinical.js')],
     ['tree',        () => import('./tree.js')],
+    ['indicatorGroups', () => import('./indicator-groups.js')],
     ['rules',       () => import('./rules.js')],
     ['audit',       () => import('./audit.js')],
     ['hospitals',   () => import('./hospitals.js')],
@@ -254,6 +261,18 @@ function _bindAll(mod, label) {
       _bind(mod, 'removeTreeData');
       _bind(mod, 'undoTreeData'); _bind(mod, 'dismissTreeUndo');
       _bind(mod, 'previewNeverReported');
+      break;
+    case 'indicatorGroups':
+      _bind(mod, 'initIndicatorGroups'); _bind(mod, 'refreshIndicatorGroups');
+      _bind(mod, 'openGroupModal'); _bind(mod, 'closeGroupModal');
+      _bind(mod, 'saveGroupModal'); _bind(mod, 'closeMembersModal');
+      _bind(mod, 'igOnScopeChange'); _bind(mod, 'igRenderTreePicker');
+      _bind(mod, 'igExpandAllPicker'); _bind(mod, 'igCollapseAllPicker');
+      _bind(mod, 'igCheckVisible'); _bind(mod, 'igUncheckAll');
+      _bind(mod, 'igAddCheckedMembers'); _bind(mod, 'igRemoveMember');
+      _bind(mod, 'igMoveMember'); _bind(mod, 'igToggleGroup');
+      _bind(mod, 'igOpenMembers'); _bind(mod, 'igEditGroup');
+      _bind(mod, 'igDeleteGroup');
       break;
     case 'rules':
       _bind(mod, '_vbDragStart'); _bind(mod, '_vbDragOver'); _bind(mod, '_vbDragEnter');

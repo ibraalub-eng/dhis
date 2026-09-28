@@ -1,0 +1,105 @@
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+                        <div>
+                            <h2 style="margin:0;">Indicator Groups</h2>
+                            <span style="font-size:0.82rem;color:var(--text-muted);">Bulk enable/disable macros over indicators — toggling writes config rows, groups are never consulted at runtime</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:0.4rem;">
+                            <button class="btn btn-sm btn-outline" onclick="refreshIndicatorGroups()" title="Reload groups from the server">↻ Refresh</button>
+                            <button class="btn btn-sm" id="igNewGroupBtn" data-requires="settings.write" onclick="openGroupModal()">＋ New Group</button>
+                        </div>
+                    </div>
+
+                    <div id="igNotice" class="hidden" style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.6rem;padding:0.4rem 0.7rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-surface-hover);"></div>
+
+                    <div class="card" style="padding:0.8rem 1rem;">
+                        <div id="igLoading" style="display:none;text-align:center;padding:1.5rem;color:var(--text-muted);"><span class="spinner"></span> <span style="font-size:0.8rem;">Loading groups…</span></div>
+                        <div id="igEmpty" style="display:none;text-align:center;padding:2rem 1rem;color:var(--text-muted);">
+                            <div style="font-size:1.6rem;margin-bottom:0.4rem;opacity:0.35;">🗂️</div>
+                            <p style="margin:0 0 0.8rem;font-size:0.85rem;">No indicator groups yet. Create a group, pick its indicators, then use Enable/Disable All to write the config rows.</p>
+                            <button class="btn btn-sm" data-requires="settings.write" onclick="openGroupModal()">＋ New Group</button>
+                        </div>
+                        <div id="igGroupsContainer" style="display:flex;flex-direction:column;gap:0.8rem;"></div>
+                    </div>
+
+                    <!-- Group editor modal (create / edit / members) -->
+                    <div id="igGroupModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10001;display:none;align-items:center;justify-content:center;">
+                        <div style="background:var(--bg-surface);border:1px solid var(--border-default);border-radius:12px;padding:1.3rem;max-width:860px;width:94%;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:92vh;overflow-y:auto;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+                                <h3 id="igModalTitle" style="margin:0;font-size:1.05rem;color:var(--text-primary);">New Group</h3>
+                                <button onclick="closeGroupModal()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">&times;</button>
+                            </div>
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+                                <div>
+                                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;">Name *</label>
+                                    <input id="igGroupName" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);" placeholder="e.g. Maternal core indicators">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;">Description</label>
+                                    <input id="igGroupDesc" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);" placeholder="Optional">
+                                </div>
+                                <div>
+                                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;">Scope</label>
+                                    <div style="display:flex;gap:1rem;align-items:center;padding:0.35rem 0;">
+                                        <label style="font-size:0.8rem;cursor:pointer;display:flex;gap:0.3rem;align-items:center;"><input type="radio" name="igScope" value="all" checked onchange="igOnScopeChange()"> All hospitals</label>
+                                        <label style="font-size:0.8rem;cursor:pointer;display:flex;gap:0.3rem;align-items:center;"><input type="radio" name="igScope" value="hospital" onchange="igOnScopeChange()"> Single hospital</label>
+                                    </div>
+                                </div>
+                                <div id="igHospitalWrap" style="display:none;">
+                                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;">Hospital *</label>
+                                    <select id="igHospitalSelect" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);"><option value="">Select hospital…</option></select>
+                                </div>
+                                <div id="igMonthFromWrap">
+                                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;">Month From (YYYY-MM)</label>
+                                    <input id="igMonthFrom" placeholder="e.g. 2025-01" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+                                </div>
+                                <div id="igMonthToWrap">
+                                    <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;">Month To — empty = all known months</label>
+                                    <input id="igMonthTo" placeholder="e.g. 2025-06" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+                                </div>
+                            </div>
+                            <div id="igFormError" style="display:none;color:var(--accent-red);font-size:0.8rem;margin-top:0.5rem;"></div>
+
+                            <div style="margin-top:0.9rem;border-top:1px solid var(--border-default);padding-top:0.7rem;">
+                                <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.5rem;">
+                                    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);">
+                                        Members <span id="igMembersCount" style="font-weight:400;color:var(--text-muted);font-size:0.78rem;"></span>
+                                    </div>
+                                    <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                                        <input id="igTreeSearch" placeholder="Search indicators…" oninput="igRenderTreePicker()" style="font-size:0.76rem;padding:0.25rem 0.5rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);min-width:160px;">
+                                        <button class="btn btn-sm btn-outline" onclick="igExpandAllPicker()" style="font-size:0.72rem;padding:0.15rem 0.5rem;">Expand</button>
+                                        <button class="btn btn-sm btn-outline" onclick="igCollapseAllPicker()" style="font-size:0.72rem;padding:0.15rem 0.5rem;">Collapse</button>
+                                        <button class="btn btn-sm btn-outline" onclick="igCheckVisible()" style="font-size:0.72rem;padding:0.15rem 0.5rem;">Select visible</button>
+                                        <button class="btn btn-sm btn-outline" onclick="igUncheckAll()" style="font-size:0.72rem;padding:0.15rem 0.5rem;">Clear</button>
+                                    </div>
+                                </div>
+                                <div id="igTreePicker" style="max-height:300px;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.5rem;font-size:0.8rem;background:var(--bg-input);">
+                                    <div style="text-align:center;color:var(--text-muted);padding:1rem;">Loading indicator tree…</div>
+                                </div>
+                                <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.8rem;">
+                                    <button class="btn btn-sm btn-outline" onclick="closeGroupModal()">Cancel</button>
+                                    <button class="btn btn-sm" id="igSaveBtn" onclick="saveGroupModal()">Save Group</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Members management modal (existing group) -->
+                    <div id="igMembersModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10001;display:none;align-items:center;justify-content:center;">
+                        <div style="background:var(--bg-surface);border:1px solid var(--border-default);border-radius:12px;padding:1.3rem;max-width:640px;width:94%;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:92vh;overflow-y:auto;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+                                <h3 id="igMembersTitle" style="margin:0;font-size:1.05rem;color:var(--text-primary);">Members</h3>
+                                <button onclick="closeMembersModal()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">&times;</button>
+                            </div>
+                            <div id="igMembersList" style="margin-bottom:0.8rem;"></div>
+                            <div style="border-top:1px solid var(--border-default);padding-top:0.7rem;">
+                                <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.5rem;">Add indicators</div>
+                                <div id="igTreePicker2" style="max-height:260px;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.5rem;font-size:0.8rem;background:var(--bg-input);">
+                                    <div style="text-align:center;color:var(--text-muted);padding:1rem;">Loading indicator tree…</div>
+                                </div>
+                                <div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.8rem;">
+                                    <button class="btn btn-sm btn-outline" onclick="closeMembersModal()">Close</button>
+                                    <button class="btn btn-sm" onclick="igAddCheckedMembers()">Add Selected</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
