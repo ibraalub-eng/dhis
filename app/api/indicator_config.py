@@ -84,7 +84,13 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
     """Recalculate completeness and overall score for a specific hospital's quality scores."""
     from app.engine.pipeline import get_disabled_indicator_ids as _gcd
     from app.models import QualityScore, Indicator as _RI, AppConfig
-    all_ind_rows = db.query(_RI.id, _RI.code).all()
+    # Exclude synthetic labels (code "0") — they are not required indicators
+    # and must never dilute the completeness of a hospital's scores.
+    from app.indicators import SYNTHETIC_INDICATOR_CODES as _SYN
+    all_ind_rows = [
+        r for r in db.query(_RI.id, _RI.code).all()
+        if r[1] not in _SYN
+    ]
     all_ids = [i for i, _ in all_ind_rows]
     id_to_code = {i: c for i, c in all_ind_rows}
     code_to_id = {c: i for i, c in all_ind_rows}
@@ -213,6 +219,134 @@ def toggle_indicator(
         is_enabled=new_state,
         message=msg,
     )
+
+
+@router.get("/indicators/never-reported")
+def get_never_reported_indicators(db: Session = Depends(get_db)):
+    """List enabled indicators that have NO value rows in the entire history.
+
+    These are the recurring "ghost gaps" that resurface after every new import:
+    indicators the SRMNH form still contains but that no hospital ever reports
+    (e.g. 16 NICU admissions, 2.k/2.l, 11.a/11.b, 12, 21, 26). They drag
+    completeness down every month and reappear in missing-indicator lists.
+
+    The synthetic form-header labels (SYNTHETIC_INDICATOR_CODES, e.g. code "0"
+    "Main elements complete ratio") are excluded — they are already hidden
+    from every engine and are never counted as missing.
+    """
+    from app.indicators import SYNTHETIC_INDICATOR_CODES
+
+    reported_ids = {
+        iid for (iid,) in db.query(IndicatorValue.indicator_id).distinct().all()
+    }
+    never = []
+    for ind in db.query(Indicator).order_by(Indicator.sort_order, Indicator.code).all():
+        if ind.id in reported_ids or ind.code in SYNTHETIC_INDICATOR_CODES:
+            continue
+        never.append({
+            "indicator_id": ind.id,
+            "code": ind.code,
+            "name": ind.name,
+            "disabled": False,   # recomputed below from live configs
+        })
+    if never:
+        never_ids = [i["indicator_id"] for i in never]
+        disabled_ids = {
+            iid for (iid,) in db.query(HospitalIndicatorConfig.indicator_id).filter(
+                HospitalIndicatorConfig.indicator_id.in_(never_ids),
+                HospitalIndicatorConfig.is_enabled.is_(False),
+            ).distinct().all()
+        }
+        for i in never:
+            i["disabled"] = i["indicator_id"] in disabled_ids
+    return {
+        "indicators": never,
+        "count": len(never),
+        "disabled_count": sum(1 for i in never if i["disabled"]),
+    }
+
+
+@router.post("/indicators/disable-never-reported")
+def disable_never_reported_indicators(
+    dry_run: bool = Query(False, description="Preview the affected indicators without changing anything"),
+    db: Session = Depends(get_db),
+):
+    """Disable every enabled indicator that has no value rows in the entire
+    history, for all hospitals at once (default scope, month-agnostic).
+
+    This is the doctrine-sanctioned way to silence indicators the SRMNH form
+    carries but no hospital ever reports — the completeness engines already
+    treat hospital_indicator_configs.is_enabled=false as "not required"
+    (docs/COVERAGE-DISABLE-DOCTRINE.md §3). New imports cannot resurrect the
+    gap: the config rows survive re-uploads, and if a hospital ever DOES
+    report one of these indicators, the admin simply re-enables it from the
+    tree.
+
+    Returns the affected codes; with dry_run=true nothing is written.
+    """
+    from app.indicators import SYNTHETIC_INDICATOR_CODES
+
+    reported_ids = {
+        iid for (iid,) in db.query(IndicatorValue.indicator_id).distinct().all()
+    }
+    targets = [
+        ind for ind in db.query(Indicator).order_by(Indicator.sort_order, Indicator.code).all()
+        if ind.id not in reported_ids and ind.code not in SYNTHETIC_INDICATOR_CODES
+    ]
+    hospital_ids = [h.id for h in db.query(Hospital.id).filter(Hospital.is_active.is_(True)).all()]
+    if dry_run or not targets or not hospital_ids:
+        return {
+            "dry_run": dry_run,
+            "disabled": [{"code": t.code, "name": t.name} for t in targets],
+            "count": len(targets),
+            "hospital_count": len(hospital_ids),
+            "message": (
+                f"{len(targets)} never-reported indicator(s) would be disabled for "
+                f"{len(hospital_ids)} hospital(s)"
+                if targets else "No never-reported indicators found — nothing to disable"
+            ),
+        }
+
+    target_ids = [t.id for t in targets]
+    existing = {
+        (c.hospital_id, c.indicator_id): c
+        for c in db.query(HospitalIndicatorConfig).filter(
+            HospitalIndicatorConfig.hospital_id.in_(hospital_ids),
+            HospitalIndicatorConfig.indicator_id.in_(target_ids),
+        ).all()
+    }
+    for hid in hospital_ids:
+        for iid in target_ids:
+            config = existing.get((hid, iid))
+            if not config:
+                db.add(HospitalIndicatorConfig(
+                    hospital_id=hid, indicator_id=iid, is_enabled=False,
+                ))
+            else:
+                config.is_enabled = False
+    db.commit()
+
+    try:
+        from app.cache import cache as _smart_cache
+        _smart_cache.invalidate("smart_drilldown_")
+        _smart_cache.invalidate("smart_trend_")
+        _smart_cache.invalidate("smart_overview_")
+    except Exception:
+        pass
+    try:
+        _recalc_all_hospital_scores(db)
+    except Exception:
+        pass
+    return {
+        "dry_run": False,
+        "disabled": [{"code": t.code, "name": t.name} for t in targets],
+        "count": len(targets),
+        "hospital_count": len(hospital_ids),
+        "message": (
+            f"Disabled {len(targets)} never-reported indicator(s) "
+            f"for {len(hospital_ids)} hospital(s) and recalculated scores"
+        ),
+    }
 
 
 def _all_known_months(db: Session):

@@ -40,8 +40,14 @@ def _recalc_completeness(db, scores):
         return []
     config_ok = True
     try:
-        # 1. Pre-fetch all indicators ONCE (id -> code for covered-code mapping)
-        all_ind = db.query(_RI.id, _RI.code).all()
+        # 1. Pre-fetch all indicators ONCE (id -> code for covered-code mapping).
+        # Synthetic form-header labels (code "0") are excluded so they can never
+        # count as a required-and-missing indicator in completeness math.
+        from app.indicators import SYNTHETIC_INDICATOR_CODES as _SYN
+        all_ind = [
+            (i, c) for i, c in db.query(_RI.id, _RI.code).all()
+            if c not in _SYN
+        ]
         all_ids = [i for i, _ in all_ind]
         id_to_code = dict(all_ind)
         code_to_id = {c: i for i, c in all_ind}
@@ -426,6 +432,7 @@ def dashboard_trend(db: Session = Depends(get_db)):
 @router.get("/kpi")
 def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
     from app.api.analysis import get_enabled_months
+    from app.cache import get_data_epoch
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
     if year is not None and not re.match(r"^\d{4}$", str(year)):
         return {"error": "Invalid year format"}
@@ -492,7 +499,358 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         {"id": "conf_high", "label": "High Confidence", "value": conf_high_pct,
          "target": 60, "unit": "%", "higher_is_better": True},
     ]
-    return {"kpis": kpis}
+
+    # ── Period-over-period delta (modern DHIS-style dashboards always answer
+    # "compared to what?"). The previous period mirrors the selected window
+    # length and ends on the day before it starts: a 2026-02→2026-04 range
+    # compares against 2025-11→2026-01, a single month against the month
+    # before it, a year against the previous year. Same ghost-row gate.
+    def _shift_month(m: str, k: int) -> str:
+        y, mo = int(m[:4]), int(m[5:7])
+        t = (y * 12 + (mo - 1)) + k
+        return f"{t // 12:04d}-{t % 12 + 1:02d}"
+
+    win_lo = month_from or (f"{year}-01" if year else None)
+    win_hi = month_to or (f"{year}-12" if year else None)
+    if not win_lo and month:
+        win_lo = win_hi = month
+    prev_delta = None
+    if win_lo and win_hi and win_lo <= win_hi:
+        span = (int(win_hi[:4]) * 12 + int(win_hi[5:7])) - (int(win_lo[:4]) * 12 + int(win_lo[5:7]))
+        p_hi = _shift_month(win_lo, -1)
+        p_lo = _shift_month(win_lo, -(1 + span))
+
+        def _avg_over(lo: str, hi: str):
+            # Fresh query: `base` already carries the current window's month
+            # bounds, so filtering it again would intersect two disjoint
+            # windows and always yield an empty (0.0) previous period.
+            pq = db.query(QualityScore).filter(_analyzed_exists(db, QualityScore))
+            if hospital_id:
+                pq = pq.filter(QualityScore.hospital_id == hospital_id)
+            pq = pq.filter(QualityScore.month >= lo, QualityScore.month <= hi)
+            rows = pq.with_entities(
+                func.avg(QualityScore.score).label("s"),
+                func.avg(QualityScore.rule_compliance).label("c"),
+                func.avg(QualityScore.consistency).label("co"),
+                func.avg(QualityScore.outlier_penalty).label("op"),
+            ).first()
+            if rows is None or rows.s is None:
+                return None  # no analyzed data in the previous window → no comparison
+            cp = _recalc_completeness(db, pq.all())
+            return {
+                "quality_score": round(float(rows.s or 0), 1),
+                "rule_compliance": round(float(rows.c or 0), 1),
+                "completeness": round(sum(cp) / len(cp), 1) if cp else 0,
+                "consistency": round(float(rows.co or 0), 1),
+                "outlier_score": round(100 - float(rows.op or 0), 1),
+            }
+
+        # Confidence is queried on its own table (same filters as the main
+        # conf query above), so shift it separately.
+        def _conf_avg(lo: str, hi: str):
+            cq = db.query(func.avg(ConfidenceScore.overall_confidence)).filter(
+                _analyzed_exists(db, ConfidenceScore)
+            )
+            if hospital_id:
+                cq = cq.filter(ConfidenceScore.hospital_id == hospital_id)
+            cq = cq.filter(ConfidenceScore.month >= lo, ConfidenceScore.month <= hi)
+            v = cq.first()[0]
+            return None if v is None else round(float(v), 1)
+
+        prev = _avg_over(p_lo, p_hi)
+        if prev:
+            prev["conf_high"] = _conf_avg(p_lo, p_hi)
+            cur = {k["id"]: k["value"] for k in kpis}
+            for k in kpis:
+                kid = k["id"]
+                if prev.get(kid) is not None and cur.get(kid) is not None:
+                    k["prev_value"] = prev[kid]
+                    k["delta"] = round(cur[kid] - prev[kid], 1)
+        prev_delta = {"from": p_lo, "to": p_hi}
+
+    # ── Peer benchmark (modern DHIS-style): when a single hospital is
+    # selected, each KPI also carries the network average for the SAME
+    # window (excluding the hospital itself, ghost-gated, same
+    # completeness/confidence recalc), so a manager sees at a glance
+    # whether a value is poor or just normal for the network.
+    if hospital_id:
+        net = db.query(QualityScore).filter(
+            _analyzed_exists(db, QualityScore),
+            QualityScore.hospital_id != hospital_id,
+        )
+        if month_from:
+            net = net.filter(QualityScore.month >= month_from)
+        if month_to:
+            net = net.filter(QualityScore.month <= month_to)
+        elif month:
+            net = net.filter(QualityScore.month == month)
+        elif year:
+            net = net.filter(QualityScore.month.like(f"{year}-%"))
+        elif enabled_months:
+            net = net.filter(QualityScore.month.in_(enabled_months))
+
+        def _net_val(kid):
+            if kid == "conf_high":
+                cq = db.query(func.avg(ConfidenceScore.overall_confidence)).filter(
+                    _analyzed_exists(db, ConfidenceScore),
+                    ConfidenceScore.hospital_id != hospital_id,
+                )
+                if month_from:
+                    cq = cq.filter(ConfidenceScore.month >= month_from)
+                if month_to:
+                    cq = cq.filter(ConfidenceScore.month <= month_to)
+                elif year:
+                    cq = cq.filter(ConfidenceScore.month.like(f"{year}-%"))
+                v = cq.first()[0]
+                return None if v is None else round(float(v), 1)
+            if kid == "completeness":
+                cp = _recalc_completeness(db, net.all())
+                return round(sum(cp) / len(cp), 1) if cp else None
+            col = {
+                "quality_score": QualityScore.score,
+                "rule_compliance": QualityScore.rule_compliance,
+                "consistency": QualityScore.consistency,
+            }.get(kid)
+            if col is None:  # outlier_score: avg penalty inverted
+                row = net.with_entities(func.avg(QualityScore.outlier_penalty)).first()
+                return None if row[0] is None else round(100 - float(row[0]), 1)
+            row = net.with_entities(func.avg(col)).first()
+            return None if row[0] is None else round(float(row[0]), 1)
+
+        for k in kpis:
+            nv = _net_val(k["id"])
+            if nv is not None:
+                k["network_value"] = nv
+
+    return {"kpis": kpis, "data_epoch": get_data_epoch(), "prev_period": prev_delta}
+
+
+@router.get("/attention")
+def dashboard_attention(hospital_id: int | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
+    """'Needs attention' strip: the three lists a quality manager should look
+    at first — worst month-over-month movers, hospitals with critical/high
+    rule failures in the latest month, and hospitals with data problems
+    (missing values / zero completeness) in the latest month.
+
+    Modern DHIS-style practice: the dashboard answers "what should I look
+    at", not only "what are the scores". Every row carries the params its
+    Why popup needs (kind, hospital_id, month) so nothing is derived twice.
+    """
+    hospitals = {h.id: h for h in db.query(Hospital).filter(Hospital.is_active.is_(True)).all()}
+
+    def _base_q(model):
+        q = db.query(model).filter(_analyzed_exists(db, model))
+        if hospital_id:
+            q = q.filter(model.hospital_id == hospital_id)
+        if month_from:
+            q = q.filter(model.month >= month_from)
+        if month_to:
+            q = q.filter(model.month <= month_to)
+        elif year:
+            q = q.filter(model.month.like(f"{year}-%"))
+        return q
+
+    scores = _base_q(QualityScore).order_by(QualityScore.hospital_id, QualityScore.month).all()
+    by_hosp: dict = {}
+    for s in scores:
+        if s.hospital_id in hospitals:
+            by_hosp.setdefault(s.hospital_id, []).append(s)
+
+    movers = []
+    latest_month = None
+    for hid, ss in by_hosp.items():
+        if len(ss) < 2:
+            continue
+        cur, prev = ss[-1], ss[-2]
+        latest_month = max(latest_month or "", cur.month)
+        if cur.score is None or prev.score is None:
+            continue
+        delta = round(float(cur.score) - float(prev.score), 1)
+        if delta >= 0:
+            continue  # "Needs attention" lists only declining hospitals
+        movers.append({
+            "hospital_id": hid,
+            "hospital": hospitals[hid].name,
+            "month": cur.month,
+            "value": round(float(cur.score), 1),
+            "prev_value": round(float(prev.score), 1),
+            "delta": delta,
+            "why": {"kind": "quality_score", "hospital_id": hid, "month": cur.month},
+        })
+    movers.sort(key=lambda m: m["delta"])
+    movers = movers[:3]
+
+    # Latest analyzed month across the selection drives the alert/problem lists.
+    if latest_month is None and scores:
+        latest_month = max(s.month for s in scores)
+
+    alert_rows = []
+    if latest_month:
+        aq = (
+            db.query(
+                ValidationResult.hospital_id,
+                func.count().label("cnt"),
+            )
+            .filter(
+                ValidationResult.status == "FAIL",
+                ValidationResult.severity.in_(["CRITICAL", "HIGH"]),
+                ValidationResult.month == latest_month,
+                ValidationResult.hospital_id.in_(hospitals.keys()),
+            )
+            .group_by(ValidationResult.hospital_id)
+            .order_by(func.count().desc())
+            .limit(3)
+            .all()
+        )
+        for row in aq:
+            # A representative rule so the Why popup can explain kind=rule
+            # (which requires a rule_code): the most-severe failure this
+            # hospital-month, CRITICAL before HIGH then alphabetical.
+            top_rule = (
+                db.query(ValidationResult)
+                .filter(
+                    ValidationResult.hospital_id == row.hospital_id,
+                    ValidationResult.month == latest_month,
+                    ValidationResult.status == "FAIL",
+                    ValidationResult.severity.in_(["CRITICAL", "HIGH"]),
+                )
+                .order_by(
+                    (ValidationResult.severity == "CRITICAL").desc(),
+                    ValidationResult.rule_code.asc(),
+                )
+                .first()
+            )
+            alert_rows.append({
+                "hospital_id": row.hospital_id,
+                "hospital": hospitals[row.hospital_id].name,
+                "month": latest_month,
+                "count": row.cnt,
+                # Ranked severity from the representative rule (func.max would
+                # be alphabetical and rank HIGH above CRITICAL).
+                "top_severity": top_rule.severity if top_rule else "HIGH",
+                "top_rule_code": top_rule.rule_code if top_rule else None,
+                "why": {
+                    "kind": "rule" if top_rule else "quality_score",
+                    "hospital_id": row.hospital_id,
+                    "month": latest_month,
+                    "rule_code": top_rule.rule_code if top_rule else None,
+                },
+            })
+
+    problem_rows = []
+    if latest_month:
+        for hid, ss in by_hosp.items():
+            cur = next((s for s in ss if s.month == latest_month), None)
+            if cur is None or (cur.completeness is not None and float(cur.completeness) >= 80.0):
+                continue
+            problem_rows.append({
+                "hospital_id": hid,
+                "hospital": hospitals[hid].name,
+                "month": latest_month,
+                "completeness": round(float(cur.completeness or 0), 1),
+                "why": {"kind": "quality_score", "hospital_id": hid, "month": latest_month},
+            })
+        problem_rows.sort(key=lambda p: p["completeness"])
+        problem_rows = problem_rows[:3]
+
+    # ── Statistical anomalies vs the hospital's OWN history — catches what
+    # fixed thresholds and last-month deltas miss:
+    #   • abnormal jump/drop: the latest value is a z-score outlier (≥2σ)
+    #     against the hospital's own history (often a data-quality problem);
+    #   • slow decline: N consecutive month-over-month drops (N configurable,
+    #     default 3), even when each step is too small to trip the movers list.
+    # Run per quality COMPONENT (overall score, rule compliance, completeness,
+    # consistency, outlier score): a hospital can look stable overall while
+    # one component quietly collapses underneath.
+    anomaly_rows = []
+    # Knobs are admin-configurable (System Settings → Analysis Control):
+    # z-score threshold for abnormal jumps/drops, and how many consecutive
+    # monthly drops count as a slow decline.
+    from app.api.config_api import get_anomaly_settings
+    _an_cfg = get_anomaly_settings(db)
+    _z_thresh = _an_cfg["anomaly_zscore_threshold"]
+    _drift_len = int(_an_cfg["anomaly_drift_months"])
+    hq = db.query(QualityScore).filter(_analyzed_exists(db, QualityScore)).order_by(
+        QualityScore.hospital_id, QualityScore.month)
+    if year:
+        hq = hq.filter(QualityScore.month.like(f"{year}-%"))
+    hist: dict = {}
+    for s in hq.all():
+        if s.hospital_id in hospitals and (not hospital_id or s.hospital_id == hospital_id):
+            hist.setdefault(s.hospital_id, []).append(s)
+    # Component series: (key, QualityScore column, invert) — outlier_score is
+    # stored as a penalty, so higher penalty = worse = inverted value.
+    _ANOMALY_COMPONENTS = (
+        ("quality_score", "score", False),
+        ("rule_compliance", "rule_compliance", False),
+        ("completeness", "completeness", False),
+        ("consistency", "consistency", False),
+        ("outlier_score", "outlier_penalty", True),
+    )
+    for hid, rows in hist.items():
+        if len(rows) < 4:
+            continue
+        for comp_key, attr, invert in _ANOMALY_COMPONENTS:
+            vals = []
+            for r in rows:
+                v = getattr(r, attr, None)
+                if v is None:
+                    continue
+                vals.append(100.0 - float(v) if invert else float(v))
+            if len(vals) < 4:
+                continue
+            cur = vals[-1]
+            hist_v = vals[:-1]
+            # A z-score against fewer than 4 prior months is statistically
+            # unstable (any tight baseline makes the next point an "outlier"),
+            # so small histories only go through the drift detector below.
+            if len(hist_v) >= 4:
+                mean = sum(hist_v) / len(hist_v)
+                sd = (sum((x - mean) ** 2 for x in hist_v) / len(hist_v)) ** 0.5
+                if sd > 1e-9:
+                    z = (cur - mean) / sd
+                else:
+                    # Flat history: any real deviation from the constant is an anomaly.
+                    z = 99.0 if cur - mean > 5 else (-99.0 if mean - cur > 5 else 0.0)
+                if abs(z) >= _z_thresh:
+                    anomaly_rows.append({
+                        "hospital_id": hid,
+                        "hospital": hospitals[hid].name,
+                        "month": rows[-1].month,
+                        "component": comp_key,
+                        "kind": "jump" if z > 0 else "drop",
+                        "zscore": round(z, 2),
+                        "value": round(cur, 1),
+                        "mean": round(mean, 1),
+                        "why": {"kind": "quality_score", "hospital_id": hid, "month": rows[-1].month,
+                                "component": comp_key},
+                    })
+                    continue
+            deltas = [vals[i] - vals[i - 1] for i in range(max(1, len(vals) - _drift_len), len(vals))]
+            if len(deltas) == _drift_len and all(d < 0 for d in deltas):
+                anomaly_rows.append({
+                    "hospital_id": hid,
+                    "hospital": hospitals[hid].name,
+                    "month": rows[-1].month,
+                    "component": comp_key,
+                    "kind": "drift",
+                    "months": _drift_len,
+                    "value": round(cur, 1),
+                    "start": round(vals[-(_drift_len + 1)], 1),
+                    "why": {"kind": "quality_score", "hospital_id": hid, "month": rows[-1].month,
+                            "component": comp_key},
+                })
+    # Worst first: most negative z (drops), then most extreme jumps.
+    anomaly_rows.sort(key=lambda a: (0 if a["kind"] != "jump" else 1, a.get("zscore", 0)))
+    anomaly_rows = anomaly_rows[:5]
+
+    return {
+        "month": latest_month,
+        "movers": movers,
+        "alerts": alert_rows,
+        "problems": problem_rows,
+        "anomalies": anomaly_rows,
+    }
 
 
 @router.get("/ranking")
@@ -692,7 +1050,13 @@ def recalculate_completeness(db: Session = Depends(get_db), user=Depends(require
     """Bulk recalculate completeness for all quality_scores (batch-optimized)."""
     from app.models import Indicator, IndicatorValue as _IV, HospitalIndicatorConfig as _HIC, SystemSetting, AppConfig
     # Pre-fetch all data in batch
-    all_ind = [i for i in db.query(Indicator.id, Indicator.code).all()]
+    # Synthetic labels (code "0") never count as required indicators —
+    # otherwise completeness math silently under-counts every hospital/month.
+    from app.indicators import SYNTHETIC_INDICATOR_CODES as _SYN_CP
+    all_ind = [
+        (i, c) for i, c in db.query(Indicator.id, Indicator.code).all()
+        if c not in _SYN_CP
+    ]
     all_ind_ids = [i for i, _ in all_ind]
     id_to_code = {i: c for i, c in all_ind}
     code_to_id = {c: i for i, c in all_ind}
@@ -909,7 +1273,13 @@ def component_diagnostics(
     from app.engine.pipeline import get_disabled_indicator_ids as _get_disabled
     from app.models import HospitalIndicatorConfig as _HIC
     # Pre-fetch all indicators once
-    all_ind_rows = db.query(Indicator.id, Indicator.code, Indicator.name).all()
+    # Exclude synthetic labels (code "0") here too — they are not data
+    # indicators and must never appear in missing-indicator lists.
+    from app.indicators import SYNTHETIC_INDICATOR_CODES as _SYN_DG
+    all_ind_rows = [
+        r for r in db.query(Indicator.id, Indicator.code, Indicator.name).all()
+        if r[1] not in _SYN_DG
+    ]
     all_ind_ids = [r[0] for r in all_ind_rows]
     id_to_code = {r[0]: r[1] for r in all_ind_rows}
     code_to_id = {r[1]: r[0] for r in all_ind_rows}
@@ -1506,6 +1876,31 @@ def component_diagnostics(
         _build("Consistency", "consistency", avg_co, co_vals, co_months, _direction(co_vals), co_causes, targets["consistency"]),
         _build("Outlier Score", "outlier_score", avg_op, op_vals, op_months, _direction(op_vals), op_causes, targets["outlier_score"]),
     ]
+
+    # Per-hospital monthly series per component: the sparkline inside each
+    # affected-hospital card must draw THAT hospital's own line, not the
+    # network monthly average (which made every card's trend look identical).
+    # Computed from the same `scores` already fetched; completeness reuses
+    # the same batch recalc that feeds the trend arrays (indexes align).
+    _hosp_monthly: dict = {"quality_score": {}, "rule_compliance": {}, "completeness": {}, "consistency": {}, "outlier_score": {}}
+    for i, s in enumerate(scores):
+        _hm = s.month
+        _hosp_monthly["quality_score"].setdefault(s.hospital_id, []).append(
+            {"month": _hm, "value": round(float(s.score or 0), 1)})
+        _hosp_monthly["rule_compliance"].setdefault(s.hospital_id, []).append(
+            {"month": _hm, "value": round(float(s.rule_compliance or 0), 1)})
+        _hosp_monthly["completeness"].setdefault(s.hospital_id, []).append(
+            {"month": _hm, "value": round(float(_trend_cp[i]), 1)})
+        _hosp_monthly["consistency"].setdefault(s.hospital_id, []).append(
+            {"month": _hm, "value": round(float(s.consistency or 0), 1)})
+        if s.outlier_penalty is not None:
+            _hosp_monthly["outlier_score"].setdefault(s.hospital_id, []).append(
+                {"month": _hm, "value": round(max(0.0, 100.0 - float(s.outlier_penalty)), 1)})
+    for _per in _hosp_monthly.values():
+        for _hid in _per:
+            _per[_hid].sort(key=lambda d: d["month"])
+    for c in components:
+        c["hosp_monthly"] = _hosp_monthly.get(c["key"], {})
     # Filter by metric if specified
     if metric:
         components = [c for c in components if c["key"] == metric]

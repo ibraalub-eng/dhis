@@ -287,6 +287,52 @@ const btn = document.getElementById('treeSaveBtn');
             }
         }
 
+        // ── Never-Reported Indicators ─────────────────────────────
+        // Indicators the SRMNH form carries but no hospital ever reported
+        // (e.g. 16 NICU admissions). They resurface in every missing list
+        // after each import; this one-click disable silences them for all
+        // hospitals at once, with a confirm + dry-run preview.
+        export function previewNeverReported() {
+            authFetch(API() + '/hospitals/indicators/never-reported')
+                .then(r => r.json())
+                .then(async function(info) {
+                    const items = info.indicators || [];
+                    const enabledItems = items.filter(function(i) { return !i.disabled; });
+                    if (!enabledItems.length) {
+                        toastSuccess(__('All never-reported indicators are already disabled.'));
+                        return;
+                    }
+                    const listHtml = '<div style="max-height:260px;overflow-y:auto;margin:0.5rem 0;text-align:' + (currentLang === 'ar' ? 'right' : 'left') + '">' +
+                        enabledItems.map(function(i) {
+                            return '<div style="padding:0.2rem 0;border-bottom:1px solid var(--border-default);font-size:0.8rem;">' +
+                                '<span class="tree-code">' + esc(i.code) + '</span> ' + esc(i.name) + '</div>';
+                        }).join('') + '</div>';
+                    const ok = await confirmDestructive({
+                        title: __('Never-Reported Indicators'),
+                        message: __('Disable all indicators that no hospital ever reported? They will stop counting as missing.') + ' (' + enabledItems.length + ')',
+                        details: listHtml,
+                        okLabel: __('Disable'),
+                    });
+                    if (!ok) return;
+                    return applyNeverReportedDisable();
+                })
+                .catch(e => toastError(__('Failed: ') + e.message));
+        }
+
+        function applyNeverReportedDisable() {
+            return authFetch(API() + '/hospitals/indicators/disable-never-reported', { method: 'POST' })
+                .then(r => r.json())
+                .then(function(res) {
+                    toastSuccess(res.message || __('Done'));
+                    if (typeof window.clearApiCache === 'function') window.clearApiCache();
+                    if (typeof window.loadDashboard === 'function') window.loadDashboard();
+                    if (document.getElementById('treeHospitalSelect') && document.getElementById('treeHospitalSelect').value) {
+                        loadIndicatorTree();
+                    }
+                })
+                .catch(e => toastError(__('Failed: ') + e.message));
+        }
+
         // After a delete, the month may have vanished from /analysis/months (it is
         // derived from score/validation/anomaly rows). Re-populate the selector and
         // fall back to the nearest remaining month so the tree never queries a month

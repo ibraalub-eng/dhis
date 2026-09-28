@@ -177,7 +177,7 @@ def test_hospital_tree_all_months_inherits_default(client, db_session):
     """A hospital with no override must show inherited default in the '__all__' tree."""
     from app.models import Indicator, IndicatorDefaultConfig
 
-    ind = db_session.query(Indicator).first()
+    ind = db_session.query(Indicator).filter(Indicator.code != "0").first()
     db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
     db_session.commit()
 
@@ -243,7 +243,7 @@ def test_default_tree_aggregates_hospital_values(client, db_session):
     """The default-scope tree must aggregate values across hospitals per month."""
     from app.models import Indicator, IndicatorValue
 
-    ind = db_session.query(Indicator).first()
+    ind = db_session.query(Indicator).filter(Indicator.code != "0").first()
     db_session.add(IndicatorValue(hospital_id=1, month="2027-01", indicator_id=ind.id, value=5))
     db_session.add(IndicatorValue(hospital_id=2, month="2027-01", indicator_id=ind.id, value=7))
     db_session.commit()
@@ -274,7 +274,7 @@ def test_default_tree_per_hospital_breakdown_all_months(client, db_session):
     """Default-scope __all__ must aggregate per hospital across months."""
     from app.models import Indicator, IndicatorValue
 
-    ind = db_session.query(Indicator).first()
+    ind = db_session.query(Indicator).filter(Indicator.code != "0").first()
     db_session.add(IndicatorValue(hospital_id=1, month="2027-01", indicator_id=ind.id, value=5))
     db_session.add(IndicatorValue(hospital_id=1, month="2027-02", indicator_id=ind.id, value=3))
     db_session.add(IndicatorValue(hospital_id=2, month="2027-01", indicator_id=ind.id, value=7))
@@ -326,7 +326,7 @@ def test_default_tree_endpoint_reflects_default_config(client, db_session):
     """The default-scope tree endpoint must show disabled state from IndicatorDefaultConfig."""
     from app.models import Indicator, IndicatorDefaultConfig
 
-    ind = db_session.query(Indicator).first()
+    ind = db_session.query(Indicator).filter(Indicator.code != "0").first()
     db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
     db_session.commit()
 
@@ -354,7 +354,7 @@ def test_hospital_tree_reflects_inherited_default(client, db_session):
     """A hospital with no override must show the inherited default state in its tree."""
     from app.models import Indicator, IndicatorDefaultConfig
 
-    ind = db_session.query(Indicator).first()
+    ind = db_session.query(Indicator).filter(Indicator.code != "0").first()
     db_session.add(IndicatorDefaultConfig(indicator_id=ind.id, month="2027-02", is_enabled=False))
     db_session.commit()
 
@@ -391,8 +391,12 @@ def _insert_indicator_value(db_session, hospital_id, month, code, value):
 
 
 def _all_active_indicator_count(db_session):
+    """Required-indicator denominator: every indicator EXCEPT the synthetic
+    form-header label code "0" ("Main elements complete ratio"), which is
+    excluded by SYNTHETIC_INDICATOR_CODES in the completeness engines itself
+    (doctrine §8 — it is a label, not data, and never counts as missing)."""
     from app.models import Indicator
-    return db_session.query(Indicator).count()
+    return db_session.query(Indicator).filter(Indicator.code != "0").count()
 
 
 def test_recalc_completeness_ignores_covered_children(client, db_session):
@@ -419,10 +423,13 @@ def test_recalc_completeness_ignores_covered_children(client, db_session):
     qs = db_session.query(QualityScore).filter(
         QualityScore.hospital_id == 1, QualityScore.month == month
     ).first()
-    # present=6 (parent + 5 children), covered=3 (2.c, 2.d, 2.j),
-    # active denominator excludes covered.
+    # present=6 (parent + 5 children), covered=8: (2.c, 2.d, 2.j) from the
+    # exhaustive eq(2 = 2.c..2.j), (3, 4, 5) from the containment
+    # ge(2 >= 3+4+5), and 2 more from other containment families whose
+    # reported children fit within their parents. Active denominator excludes
+    # all covered.
     filled_active = 6
-    active_denom = total_indicators - 3
+    active_denom = total_indicators - 8
     expected_pct = round(filled_active / active_denom * 100, 1)
     assert qs.completeness == expected_pct
 
@@ -447,8 +454,10 @@ def test_recalc_completeness_still_penalizes_real_gaps(client, db_session):
     qs = db_session.query(QualityScore).filter(
         QualityScore.hospital_id == 1, QualityScore.month == month
     ).first()
-    # present=6 (parent + 5 children), missing=3 not covered -> all active.
-    expected_pct = round(6 / total_indicators * 100, 1)
+    # present=6 (parent + 5 children). The eq family does not reconcile
+    # (27 != 31), so 2.c/2.d/2.j stay missing. Containment families still
+    # hold (reported children fit within parents) → 5 codes covered → -5.
+    expected_pct = round(6 / (total_indicators - 5) * 100, 1)
     assert qs.completeness == expected_pct
 
 

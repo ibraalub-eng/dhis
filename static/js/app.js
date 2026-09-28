@@ -1,5 +1,9 @@
 // app.js — Resilient bootstrap: one broken module should NOT block the whole app.
 import { API, apiGet, apiPost, apiPut, uploadedData, clearApiCache } from './api.js';
+// Register window.showWhyPopup globally — the Why buttons in tables, heatmap
+// cells and the drilldown call it via inline onclick without module scope.
+import { showWhyPopup } from './explain.js';
+window.showWhyPopup = showWhyPopup;
 import { toggleLang, __, translateDOM, currentLang } from './i18n.js';
 import { _saveUIState, _restoreUIState, showLoader, hideLoader, SwitchTab, switchTab, _tabInited } from './main.js';
 import { renderSidebar } from './renderSidebar.js';
@@ -97,6 +101,27 @@ window.openBatchDetail = _stub('openBatchDetail');
 window.showRuleFailureDetail = _stub('showRuleFailureDetail');
 window.showModal = _stub('showModal');
 window.closeModal = _stub('closeModal');
+// The detail modal's ✕ button uses inline onclick="closeModal()". If its owner
+// module (clinical.js) failed to load, the stub only logs and the modal can
+// never be dismissed — the X "sometimes does nothing". This safety net closes
+// it directly, so the ✕ ALWAYS works even when the module is broken.
+window.closeModal = window.closeModal || function() {};
+(function () {
+  var _realCloseModal = null;
+  Object.defineProperty(window, 'closeModal', {
+    configurable: true,
+    get: function () { return _realCloseModal || _defaultCloseModal; },
+    set: function (fn) { _realCloseModal = fn; }
+  });
+  function _defaultCloseModal() {
+    var dm = document.getElementById('detailModal');
+    if (dm) dm.classList.remove('show');
+    var canvas = document.getElementById('kpiDrilldownChart');
+    if (canvas && typeof Chart !== 'undefined' && typeof Chart.getChart === 'function') {
+      try { var chart = Chart.getChart(canvas); if (chart) chart.destroy(); } catch (e) { /* non-fatal */ }
+    }
+  }
+})();
 window.expandAllTree = _stub('expandAllTree');
 window.collapseAllTree = _stub('collapseAllTree');
 window.initIndicatorTree = _stub('initIndicatorTree');
@@ -202,7 +227,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'loadAllSettings'); _bind(mod, 'saveAllSettings'); _bind(mod, 'reanalyzeAll');
       _bind(mod, 'showSettingsTab'); _bind(mod, 'saveAiSettings'); _bind(mod, 'loadAiSettings');
       _bind(mod, 'onAiProviderChange'); _bind(mod, 'loadRulesManager'); _bind(mod, 'saveRulesManager');
-      _bind(mod, 'initRootCause'); _bind(mod, 'initDashboard');
+      _bind(mod, 'initRootCause'); _bind(mod, 'initDashboard'); _bind(mod, 'initSystemInfo');
       _bind(mod, 'loadRootCause'); _bind(mod, 'loadDashboard');
       _bind(mod, 'updateWeightDisplay'); _bind(mod, 'updateCfgDisplay'); _bind(mod, 'updateCfgVal');
       _bind(mod, 'loadRankingTable'); _bind(mod, 'showHospitalScorecard');
@@ -228,6 +253,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'saveTreeConfig'); _bind(mod, 'esc');
       _bind(mod, 'removeTreeData');
       _bind(mod, 'undoTreeData'); _bind(mod, 'dismissTreeUndo');
+      _bind(mod, 'previewNeverReported');
       break;
     case 'rules':
       _bind(mod, '_vbDragStart'); _bind(mod, '_vbDragOver'); _bind(mod, '_vbDragEnter');
