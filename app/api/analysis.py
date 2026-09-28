@@ -660,6 +660,10 @@ def analysis_cache_status(db: Session = Depends(get_db)):
 
 @router.get("/heatmap")
 def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: Session = Depends(get_db)):
+    # NOTE: hospital_id is accepted (and ignored) for API compatibility. The
+    # Quality Score heatmap is a network-wide view: it always shows every
+    # active hospital regardless of the dashboard's selected hospital, so
+    # users can compare the selected facility against its peers in place.
     # Deliberately NOT cached. The 24h TTLCache poisoned this endpoint twice:
     # an empty matrix written during a DB restore hid real data for a day,
     # and pytest runs leaked their in-memory-SQLite hospitals ("Central
@@ -677,8 +681,8 @@ def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: S
     )
     if month:
         q = q.filter(QualityScore.month == month)
-    if hospital_id:
-        q = q.filter(QualityScore.hospital_id == hospital_id)
+    # Deliberately NO hospital_id filter here — see note above: the heatmap
+    # must not be narrowed by the dashboard's selected hospital.
     rows = [r for r in q.all() if r.month and _re.match(r"^\d{4}-\d{2}$", str(r.month))]
 
     # Get hospital names and active status
@@ -731,11 +735,11 @@ def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: S
         matrix[key] = round(float(r.score), 1)
 
     data = []
+    # Every active hospital gets a row — hospital_id does not narrow the
+    # matrix (see note at the top of this endpoint).
     active_hosp = sorted([(h.id, h.name) for h in hosp_map.values() if h.is_active])
-    if hospital_id:
-        active_hosp = [(h.id, h.name) for h in hosp_map.values() if h.id == hospital_id]
     for hid, hname in active_hosp:
-        row = {"hospital": hname}
+        row = {"hospital_id": hid, "hospital": hname}
         for m in months:
             key = f"{hid}||{m}"
             if key in matrix:

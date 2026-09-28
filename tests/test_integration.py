@@ -20,8 +20,13 @@ def client(db_session):
     app.dependency_overrides.clear()
 
 
-def _make_excel_file(hospital="Test Hospital", month="2026-04"):
-    """Create an in-memory Excel file with sample SRMNH data."""
+def _make_excel_file(hospital="General Hospital", month="2026-04"):
+    """Create an in-memory Excel file with sample SRMNH data.
+
+    NOTE: hospital name and filename must stay free of test/preview markers —
+    this file goes through the real upload endpoint, which now rejects
+    test-looking uploads before they can create anything.
+    """
     data = {
         "organisationunitname": [hospital, hospital],
         "month": [month, month],
@@ -44,7 +49,7 @@ class TestUploadFlow:
         f = _make_excel_file()
         resp = client.post(
             "/upload/preview",
-            files={"file": ("test.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files={"file": ("integration_upload.xlsx", f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -187,8 +192,10 @@ class TestAnalysisFlow:
         resp = client.get("/analysis/heatmap")
         assert resp.status_code == 200
 
-    def test_heatmap_filters_by_hospital(self, client, db_session):
-        """Regression: /analysis/heatmap?hospital_id= was ignored."""
+    def test_heatmap_ignores_hospital_filter(self, client, db_session):
+        """The Quality Score heatmap is a network-wide peer comparison: it must
+        NOT narrow to the dashboard's selected hospital. hospital_id is still
+        accepted for API compatibility but deliberately ignored."""
         from app.models import QualityScore, IndicatorValue, Indicator
         from app.cache import cache
 
@@ -203,9 +210,18 @@ class TestAnalysisFlow:
         db_session.commit()
         cache.invalidate("analysis:months")
 
-        r1 = client.get(f"/analysis/heatmap?hospital_id={h1.id}").json()
-        assert len(r1["data"]) == 1
-        assert r1["data"][0]["hospital"] == h1.name
+        with_filter = client.get(f"/analysis/heatmap?hospital_id={h1.id}").json()
+        without_filter = client.get("/analysis/heatmap").json()
+        # hospital_id must not narrow the matrix — every active hospital shows
+        active_names = {
+            h.name for h in db_session.query(Hospital).all() if h.is_active
+        }
+        assert len(with_filter["data"]) == len(active_names)
+        assert {row["hospital"] for row in with_filter["data"]} == active_names
+        row1 = next(r for r in with_filter["data"] if r["hospital"] == h1.name)
+        row2 = next(r for r in with_filter["data"] if r["hospital"] == h2.name)
+        assert row1["2027-03"] == 70.0 and row2["2027-03"] == 90.0
+        assert with_filter == without_filter
 
     def test_clinical_endpoint(self, client):
         resp = client.get("/clinical/test_hospital/2026-04")
