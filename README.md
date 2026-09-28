@@ -2,6 +2,15 @@
 
 SRMNH Data Quality System — an intelligent platform for analyzing Sexual, Reproductive, Maternal and Newborn Health (SRMNH) indicator data quality.
 
+## ⚠️ Mandatory rules for contributors
+
+Before touching code, read:
+
+1. **[`docs/COVERAGE-DISABLE-DOCTRINE.md`](docs/COVERAGE-DISABLE-DOCTRINE.md)** — indicators reported as `None`/missing are NOT necessarily a problem: an indicator *covered by a total* (sum rules) or *disabled from the Indicator Tree* must never be flagged missing nor penalize completeness. Applies to anything touching Completeness, missing-indicator lists, the Why popup or the Audit screen.
+2. **[`docs/ARABIC-TERMINOLOGY.md`](docs/ARABIC-TERMINOLOGY.md)** — one Arabic term per concept; new UI strings must follow the approved glossary.
+
+Guard tests enforce both (`tests/test_ui_doctrine_docs.py`, `tests/test_ui_terminology.py`).
+
 ## Tech Stack
 
 - **Backend:** Python, FastAPI, SQLAlchemy, Pandas, NumPy, scikit-learn
