@@ -813,11 +813,34 @@ def _build_version() -> str:
 @app.get("/api/version")
 def version_info():
     """Return build metadata so the UI can show whether this deploy is up to date."""
+    from datetime import datetime, timezone
+    build_ts = None
+    try:
+        static_root = os.path.join(BASE_DIR, "static")
+        latest = 0.0
+        for _root, _dirs, files in os.walk(static_root):
+            _dirs[:] = [d for d in _dirs if d not in ("node_modules", "vendor", "i18n")]
+            for f in files:
+                if f.endswith((".js", ".css", ".html")):
+                    try:
+                        latest = max(latest, os.path.getmtime(os.path.join(_root, f)))
+                    except OSError:
+                        continue
+        if latest:
+            build_ts = datetime.fromtimestamp(latest, tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    except Exception:
+        build_ts = None
+    try:
+        from app.cache import get_data_epoch
+        epoch = get_data_epoch()
+    except Exception:
+        epoch = None
     return {
         "version": "0.1.0",
         "build": _build_version(),
+        "build_time": build_ts,
         "render": bool(os.getenv("RENDER_GIT_COMMIT", "").strip()),
-        "server_time": None,
+        "data_epoch": epoch,
     }
 
 

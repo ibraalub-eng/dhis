@@ -71,7 +71,85 @@
         export const _tabInited = new Set();
         export function SwitchTab(name) { const t = document.querySelector('.tab[data-tab="' + name + '"]'); if (t) t.click(); }
 
+        // ── Tab history + browser Back support ────────────────────
+        // The app is a single-page app with no hash routes: pressing the
+        // browser Back button used to leave the app entirely ("close project").
+        // Instead, every tab activation pushes a history entry, and popstate
+        // walks BACK through the tab trail (closing any open overlay first),
+        // and FORWARD replays the next tab. Forward entries are kept on a
+        // stack (not history.forward()) so overlays/loads stay consistent.
+        var _tabTrail = [];      // past tabs, newest last
+        var _tabFuture = [];     // forward tabs after a Back, newest last
+        var _tabTrailGuard = false; // suppress push during popstate-driven switches
+        var _tabTrailCurrent = null;
+
+        function _closeAnyOverlay() {
+            try {
+                // Why popup (highest overlay) first — it sits above everything.
+                var ex = document.getElementById('explainModalOverlay');
+                if (ex && ex.style.display === 'flex' && typeof window.closeWhyPopup === 'function') {
+                    window.closeWhyPopup();
+                    return true;
+                }
+                // Each remaining overlay closes with its own function so any
+                // side effects (chart teardown, state reset) still run.
+                var dm = document.getElementById('detailModal');
+                if (dm && dm.classList.contains('show') && typeof window.closeModal === 'function') { window.closeModal(); return true; }
+                var rt = document.getElementById('ruleTestModal');
+                if (rt && rt.classList.contains('show') && typeof window.closeRuleTestModal === 'function') { window.closeRuleTestModal(); return true; }
+                var re = document.getElementById('ruleEditModal');
+                if (re && re.classList.contains('show') && typeof window.closeRuleModal === 'function') { window.closeRuleModal(); return true; }
+                var so = document.getElementById('searchOverlay');
+                if (so && so.classList.contains('active')) { closeSearch(); return true; }
+            } catch (e) { /* non-fatal */ }
+            return false;
+        }
+        window._closeAnyOverlay = _closeAnyOverlay;
+
+        window.addEventListener('popstate', function () {
+            // An overlay is open → Back closes it first and does NOT switch tabs.
+            if (_closeAnyOverlay()) {
+                // Re-push WITH the trail marker so the next Back keeps walking
+                // the tab trail instead of hitting the foreign-entry re-mark.
+                history.pushState({ __tabtrail: true, tab: _tabTrailCurrent }, '');
+                return;
+            }
+            if (_tabTrailGuard) { _tabTrailGuard = false; return; }
+            // popstate can fire for a foreign entry (login reload, old hash):
+            // if our marker is gone, push it back so Back keeps working.
+            if (history.state && history.state.__tabtrail) {
+                if (_tabTrail.length) {
+                    _tabFuture.push(_tabTrailCurrent);
+                    var prev = _tabTrail.pop();
+                    _tabTrailCurrent = prev;
+                    _tabTrailGuard = true;
+                    switchTab(prev);
+                } else {
+                    history.pushState({ __tabtrail: true, tab: _tabTrailCurrent }, '');
+                }
+            } else {
+                history.pushState({ __tabtrail: true, tab: _tabTrailCurrent }, '');
+            }
+        });
+
+        // Forward = replay the next tab from the future stack (kept in-page so
+        // overlays and lazy tab loads stay consistent with our switchTab).
+        window._tabGoForward = function () {
+            if (!_tabFuture.length) return;
+            var next = _tabFuture.pop();
+            _tabTrail.push(_tabTrailCurrent);
+            _tabTrailCurrent = next;
+            _tabTrailGuard = true;
+            history.pushState({ __tabtrail: true, tab: next }, '');
+            switchTab(next);
+        };
+
         export async function switchTab(name) {
+            // Consume the trail guard immediately so a failed/unknown switch
+            // can never leave it latched (the next user click must always be
+            // recorded as a fresh navigation).
+            var _isTrailSwitch = _tabTrailGuard;
+            _tabTrailGuard = false;
             const activeContent = document.querySelector('.tab-content.active');
             const activeId = activeContent ? activeContent.id : '';
             if (activeId === 'tab-settings' && name !== 'settings' && typeof window._settingsGuardSwitch === 'function') {
@@ -86,6 +164,15 @@
             targetTab.classList.add('active');
             targetContent.classList.add('active'); updateBreadcrumb(name);
             _saveUIState(name);
+            // Record the activation in the in-page tab trail (browser Back then
+            // walks the trail instead of leaving the app). Skipped when the
+            // switch was itself caused by Back/Forward.
+            if (!_isTrailSwitch) {
+                if (_tabTrailCurrent && _tabTrailCurrent !== name) _tabTrail.push(_tabTrailCurrent);
+                _tabTrailCurrent = name;
+                _tabFuture = []; // new navigation invalidates the forward stack
+                try { history.pushState({ __tabtrail: true, tab: name }, ''); } catch (e) { /* storage poisoned */ }
+            }
             // Rules Manager: start from an empty search every time the screen
             // is opened (skip when re-clicking the already-active tab).
             if (name === 'rules-manager' && activeId !== 'tab-rules-manager') _resetRulesSearchState();
@@ -149,7 +236,7 @@
             if (name === 'quality') _tryInit('loadQualityReports', 10);
             if (name === 'alerts') { _tryInit('loadAlerts', 10); _tryInit('loadRuleFailures', 10); }
             if (name === 'outliers') _tryInit('loadOutliers', 10);
-            if (name === 'settings') _tryInit('loadAllSettings', 10);
+            if (name === 'settings') { _tryInit('loadAllSettings', 10); _tryInit('initSystemInfo', 10); }
             if (name === 'root-cause') _tryInit('initRootCause', 10);
             if (name === 'analysis') _tryInit('initAnalysis', 10);
             if (name === 'clinical') _tryInit('initClinical', 10);

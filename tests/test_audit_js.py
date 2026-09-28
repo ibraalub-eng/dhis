@@ -74,3 +74,20 @@ def test_css_classes_defined():
     css = _read_css()
     for cls in [".audit-kpis", ".audit-summary", ".audit-label", ".range-track", ".range-dot", ".range-legend"]:
         assert cls in css
+
+
+def test_chain_nodes_wired_after_dom_insertion():
+    """Regression: chain-node click handlers were attached while renderAudit's
+    HTML was still a string (before `container.innerHTML = html`), so
+    querySelectorAll found zero nodes and the traceability chain rendered but
+    every click did nothing. The wiring must run after DOM insertion."""
+    js = _read()
+    assert "function _wireChainNodes" in js
+    insert_at = js.index("container.innerHTML = html;")
+    wire_at = js.index("_wireChainNodes(container);")
+    assert wire_at > insert_at, (
+        "_wireChainNodes must be called after container.innerHTML = html "
+        "so the chain nodes exist in the DOM when handlers are attached"
+    )
+    # ...and must not be called anywhere before the insertion point.
+    assert js.index("_wireChainNodes(") >= insert_at

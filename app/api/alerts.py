@@ -89,6 +89,7 @@ def alerts_overview(
         hosp = db.query(Hospital).filter(Hospital.id == vr.hospital_id).first()
         critical.append({
             "id": vr.id,
+            "hospital_id": vr.hospital_id,
             "hospital": hosp.name if hosp else "Unknown",
             "month": vr.month,
             "rule_code": vr.rule_code,

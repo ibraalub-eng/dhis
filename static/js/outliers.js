@@ -76,7 +76,7 @@
             const hosp = document.getElementById('outlierHospitalFilter').value;
             const mon = document.getElementById('outlierMonthFilter').value;
             const rate = document.getElementById('outlierRateFilter').value;
-            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
+            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
             let url = '/analysis/outliers?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
@@ -86,7 +86,7 @@
                 updateOutlierUI(data, hosp, mon, rate);
             }).catch(err => {
                 document.getElementById('outlierLoading').classList.add('hidden');
-                document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="8" style="color:red;">Error: ' + err.message + '</td></tr>';
+                document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="9" style="color:red;">Error: ' + err.message + '</td></tr>';
             });
         }
 
@@ -126,7 +126,7 @@
             // Render table
             const tbody = document.getElementById('outlierTbody');
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
                 return;
             }
             const idxById = new Map();
@@ -143,6 +143,11 @@
                 const peerCell = hasPeers && d.peers_detail && d.peers_detail.length
                     ? '<a href="#" onclick="event.preventDefault();togglePeerPopover(this,' + rowIdx + ')" style="text-decoration:underline dotted;cursor:pointer;">' + d.peer_count + '</a>'
                     : (hasPeers ? d.peer_count : '--');
+                // "Why?" — opens the unified explain popup for this anomaly row:
+                // formula, peer set, threshold that fired, reproduced z ✓/✗.
+                const whyBtn = '<button onclick="window.showWhyPopup(\'anomaly\',' + Number(d.hospital_id) + ',\'' + esc(d.month) + '\',' + JSON.stringify(String(d.rate_name)).replace(/"/g, '&quot;') + ')" '
+                    + 'title="' + __('Why? — formula, peers, threshold, reproduction') + '" '
+                    + 'style="background:none;border:1px solid var(--border-default,#ccc);border-radius:4px;padding:1px 7px;font-size:0.7rem;cursor:pointer;color:var(--accent-blue,#1565c0);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button>';
                 return '<tr>' +
                     '<td>' + esc(d.hospital) + '</td>' +
                     '<td>' + esc(d.month) + '</td>' +
@@ -152,6 +157,7 @@
                     '<td><span class="badge ' + zClass + '">' + (z ? Number(d.z_score).toFixed(2) : '--') + '</span></td>' +
                     '<td>' + peerCell + '</td>' +
                     '<td>' + peerRange + '</td>' +
+                    '<td>' + whyBtn + '</td>' +
                     '</tr>';
             }).join('');
             wireOutlierSort();
@@ -279,7 +285,7 @@
             const typ = document.getElementById('ruleFailTypeFilter').value;
             const loading = document.getElementById('ruleFailLoading');
             if (loading) loading.classList.remove('hidden');
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading rule failures...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading rule failures...</td></tr>';
             let url = '/analysis/rule-failures?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
@@ -290,7 +296,7 @@
                 updateRuleFailUI(data, hosp, mon);
             }).catch(err => {
                 if (loading) loading.classList.add('hidden');
-                tbody.innerHTML = '<tr><td colspan="7" style="color:red;text-align:center;">Error loading rule failures: ' + err.message + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="color:red;text-align:center;">Error loading rule failures: ' + err.message + '</td></tr>';
             });
         }
 
@@ -330,7 +336,7 @@
             // Render
             const tbody = document.getElementById('ruleFailTbody');
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No rule failures found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">No rule failures found.</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(d => {
@@ -344,6 +350,9 @@
                     '<td><span class="badge ' + sevBadge + '">' + esc(d.severity) + '</span></td>' +
                     '<td><span class="badge ' + typeBadge + '">' + esc(d.rule_type) + '</span></td>' +
                     '<td style="font-size:0.8rem;color:var(--text-secondary);">' + esc(d.details).substring(0,80) + '</td>' +
+                    '<td><button onclick="window.showWhyPopup(\'rule\',' + Number(d.hospital_id) + ',\'' + esc(d.month) + '\',null,' + JSON.stringify(String(d.rule_code)).replace(/"/g, '&quot;') + ')" '
+                        + 'title="' + __('Why did this rule fail?') + '" '
+                        + 'style="background:none;border:1px solid var(--border-default,#ccc);border-radius:4px;padding:1px 7px;font-size:0.7rem;cursor:pointer;color:var(--accent-blue,#1565c0);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button></td>' +
                     '</tr>';
             }).join('');
             wireRuleFailSort();

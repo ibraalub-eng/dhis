@@ -49,6 +49,30 @@ export {
     loadRulesManager, saveRulesManager, EXPR_EXPLANATIONS, exprTypeLabel,
 } from './rules-manager.js';
 
+// ── System info: version / build / data epoch (current-version UX) ──
+function initSystemInfo() {
+    const vEl = document.getElementById('sysInfoVersion');
+    if (!vEl || vEl.dataset.loaded) return;
+    apiGet('/api/version', { noCache: true }).then(function (v) {
+        if (!v) return;
+        vEl.dataset.loaded = '1';
+        vEl.textContent = 'v' + (v.version || '0.1.0') + ' · build ' + (v.build || 'dev') + (v.build_time ? ' · ' + v.build_time : '');
+        const eEl = document.getElementById('sysInfoEpoch');
+        if (eEl && v.data_epoch) eEl.textContent = 'data epoch ' + v.data_epoch;
+        // Offer a hard reload when a newer static bundle is on disk than the
+        // one this page was served with (asset-bust query vs live mtime).
+        const m = /v=(\d{13})/.exec(location.search);
+        const btn = document.getElementById('sysInfoReloadBtn');
+        try {
+            if (btn && m) {
+                apiGet('/health', { noCache: true }).then(function (h) { if (h && h.data_epoch && btn) btn.style.display = 'inline-block'; }).catch(function () {});
+            }
+        } catch (e) { /* non-fatal */ }
+    }).catch(function () { /* non-fatal */ });
+}
+window._sysHardReload = function () { location.reload(true); };
+window.initSystemInfo = initSystemInfo;
+
 // ---- Self Change Password ----
 window.changeSelfPassword = async function() {
     var curEl = document.getElementById('selfPwCurrent');

@@ -258,6 +258,34 @@ function renderAudit() {
     const container = document.getElementById('auditResults');
     let html = '';
 
+    // ── Traceability chain strip (req ⑦⑨) ─────────────────────────
+    // One visual chain per hospital/month: Source Data → Validation →
+    // Calculation → Analysis → Finding → Recommendation. Every node maps to
+    // an existing section/endpoint already loaded on this screen.
+    if (_auditMeta) {
+        const hid = _auditMeta.hid, month = _auditMeta.month;
+        const _chainNodes = [
+            { step: __('Source Data'), hint: __('Raw indicator values from uploaded files'), jump: 'da' },
+            { step: __('Validation'), hint: __('Business rules evaluated on the raw values'), jump: 'da' },
+            { step: __('Calculation'), hint: __('Rates, components and weighted scores'), jump: 'steps' },
+            { step: __('Analysis'), hint: __('Benchmarks, trends and outliers'), jump: 'bench' },
+            { step: __('Finding'), hint: __('What this audit concludes'), jump: 'report' },
+            { step: __('Recommendation'), hint: __('Actions proposed from the findings'), jump: 'report' },
+        ];
+        html += '<div class="card" data-audit-why style="margin-bottom:0.8rem;padding:0.55rem 0.8rem;">';
+        html += '<div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin-bottom:0.3rem;">' + __('Traceability chain') + '</div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:0.3rem;align-items:center;">';
+        _chainNodes.forEach(function (n, i) {
+            html += '<span title="' + esc(n.hint) + '" data-jump="' + n.jump + '" class="_audit-chain-node" '
+                + 'style="cursor:pointer;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:8px;padding:3px 10px;font-size:0.72rem;font-weight:600;">'
+                + esc(n.step) + '</span>';
+            if (i < _chainNodes.length - 1) html += '<span style="color:var(--text-muted);font-size:0.75rem;">\u2192</span>';
+        });
+        html += '</div>';
+        html += '<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.35rem;">' + __('Click any step to jump to its section below.') + '</div>';
+        html += '</div>';
+    }
+
     // ملخص: لمن هذا التدقيق؟
     if (_auditMeta) {
         html += '<div class="card" style="margin-bottom:0.8rem;padding:0.5rem 0.8rem;font-size:0.8rem;">';
@@ -538,6 +566,27 @@ function renderAudit() {
     html += '</details></div>';
 
     container.innerHTML = html;
+
+    // Wire the chain nodes AFTER the HTML is actually in the DOM: each node
+    // scrolls to the matching collapsible section (details element) and
+    // opens it. (Wiring before innerHTML found zero nodes — the chain was
+    // rendered but every click did nothing.)
+    _wireChainNodes(container);
+}
+
+function _wireChainNodes(container) {
+    const chainMap = { steps: 0, bench: 1, da: 2, report: 3 };
+    container.querySelectorAll('._audit-chain-node').forEach(function (node) {
+        node.onclick = function () {
+            const idx = chainMap[node.dataset.jump];
+            if (idx == null) return;
+            const cards = container.querySelectorAll(':scope > .card > details');
+            if (cards[idx]) {
+                cards[idx].open = true;
+                cards[idx].scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        };
+    });
 }
 
 export function downloadAuditJSON() {

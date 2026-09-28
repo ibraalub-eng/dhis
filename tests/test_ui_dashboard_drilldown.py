@@ -51,7 +51,7 @@ def test_drilldown_modal_has_component_tabs():
     component) instead of stacking every component's diagnostics in one long
     collapsible page."""
     js = _read_js()
-    drill = _fn_src(js, "window.openKPIDrilldown = function", 52000)
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 64000)
     # tab bar is injected at the top of the modal body, sticky via CSS
     assert "_dd-tabs" in drill
     assert "_dd-tab" in drill
@@ -106,7 +106,7 @@ def test_affected_hospital_card_is_compact_and_highlighted():
     collapse to a first→last (N months) summary, >6 failed-rule chips hide
     behind a '+N more' toggle, and the header row has a hover highlight."""
     js = _read_js()
-    drill = _fn_src(js, "window.openKPIDrilldown = function", 52000)
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 64000)
     # hover highlight class on the card header
     assert '_hosp-head' in drill
     # months summary collapses long lists (first → last + count) and is LTR-safe
@@ -143,3 +143,89 @@ def test_missing_indicators_are_never_truncated_with_more_row():
     py = PY_DASHBOARD_PATH.read_text(encoding="utf-8")
     assert 'missing_indicators": sorted(list(ha["missing_indicators"]))[:10]' not in py
     assert 'for k, v in sorted(ha["missing_by_indicator"].items())\n                    ][:10]' not in py
+
+
+# ── Cross-screen navigation from the drilldown ────────────────────────────
+# Every drilldown finding must be one press from its full verification:
+# hospital rows jump to the Audit screen, failed-rule chips deep-link into
+# the Rules Manager, and 🔧 data-problem causes offer the Data Auditor.
+
+
+def test_affected_hospital_row_has_direct_audit_screen_jump():
+    """Affected-hospital cards keep ONE navigation button: 'Why' opens the
+    digest popup, whose footer carries the audit-screen jump. A separate
+    'Audit' button must NOT be duplicated on the row itself."""
+    js = _read_js()
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 64000)
+    # Why popup is the row's single entry point...
+    assert "window.showWhyPopup(\\'quality_score\\'" in drill
+    # ...and no second Audit button on the row
+    assert "\\u2696" not in drill
+    # the shared jump helper still exists globally (popup footer + DA causes use it)
+    src = (Path(__file__).resolve().parent.parent / "static" / "js" / "explain.js").read_text(encoding="utf-8")
+    assert "window._explainJumpTo = function" in src
+
+
+def test_explain_jump_to_helper_exposes_audit_jump_globally():
+    """explain.js must expose _explainJumpTo (hospital, month, mode) so any
+    screen can deep-link into the Audit screen without opening the digest
+    popup first; the popup's own footer jump must route through it too."""
+    src = (Path(__file__).resolve().parent.parent / "static" / "js" / "explain.js").read_text(encoding="utf-8")
+    assert "window._explainJumpTo = function" in src
+    # closes the Why popup and any open detail modal before switching screens
+    assert "closeWhyPopup();" in src
+    assert "window.closeModal" in src
+    # the existing footer/endpoint jump path reuses the same helper
+    assert "window._explainJumpTo(hid, month, jump);" in src
+
+
+def test_failed_rule_chips_jump_to_rules_manager_with_rule_preselected():
+    """Failed-rule chips must be clickable and deep-link into the Rules Manager
+    with the rule preselected. main.js resets the rules search on every screen
+    activation, so the preselection lands after the switch via the pending
+    global + loadRulesManager's app-state restore."""
+    js = _read_js()
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 64000)
+    # chips are buttons now (pointer + stopPropagation so the card doesn't toggle)
+    assert "window._kpiDrilldownOpenRule(" in drill
+    assert "event.stopPropagation()" in drill
+    # helper switches tab first, then applies the pending selection
+    helper = _fn_src(js, "window._kpiDrilldownOpenRule = function", 2000)
+    assert "window._kpiPendingRuleSelect" in helper
+    assert "switchTab('rules-manager')" in helper
+    assert "rulesSearchInput" in helper
+    assert "window.onRulesSearch" in helper or "window.renderRulesManager" in helper
+
+
+def test_data_problem_causes_offer_data_auditor_jump():
+    """🔧 data-problem causes must show a 'Data Auditor' button that jumps to
+    the audit screen's Data Auditor section (mode 'da'), preselecting the
+    cause's first month when present."""
+    js = _read_js()
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 64000)
+    assert r"\'da\'" in drill
+    assert "_isDataProblem" in drill
+    assert "cause.first_month" in drill
+
+
+def test_drilldown_navigation_strings_are_translated():
+    """New navigation strings must have Arabic translations in i18n.js."""
+    i18n = (Path(__file__).resolve().parent.parent / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
+    for key in ("Audit", "Data Auditor", "full verification for this hospital-month",
+                "open this rule in the Rules Manager",
+                "Open the Data Auditor to inspect the source values for this hospital-month"):
+        assert f"'{key}'" in i18n, f"missing i18n entry: {key}"
+
+
+def test_affected_hospital_rows_render_mini_trend_sparklines():
+    """Expanded hospital cards must include a mini-trend canvas drawn from the
+    component's monthly series; the canvas is painted by _kpiDrilldownDrawSparks
+    both after the modal renders and whenever a tab pane becomes visible."""
+    js = _read_js()
+    drill = _fn_src(js, "window.openKPIDrilldown = function", 64000)
+    assert "_dd-spark" in drill
+    assert "window._kpiDrilldownDrawSparks" in drill
+    assert "_kpiDrilldownCompMeta" in drill
+    # drawn lazily on tab switches too, not just after initial render
+    switch = _fn_src(js, "window._kpiDrilldownSwitchTab = function", 2000)
+    assert "_kpiDrilldownDrawSparks" in switch

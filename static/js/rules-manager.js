@@ -9,6 +9,7 @@ import { esc } from './tree.js';
 import { _saveUIState, _restoreUIState, SwitchTab, _tabInited } from './main.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
 import { confirmDestructive, confirmWarning } from './confirm-modal.js';
+import { showWhyPopup } from './explain.js';
 
         // ── Rules Manager ─────────────────────────────────────────
         export let rulesManagerData = [];
@@ -1470,10 +1471,37 @@ function loadHospitalsSettings() {
                         : '#555';
                     const barPct = Math.min(pct * 100, 100);
                     var _noDrill = k.id === 'report_coverage';
+                    // Period-over-period delta: every number answers "compared to
+                    // what?" — green when the change is an improvement for this
+                    // KPI (some KPIs are not higher-is-better), grey when flat.
+                    let _delta = '';
+                    if (k.delta != null && k.prev_value != null) {
+                        const _good = k.delta > 0 === !!k.higher_is_better && k.delta !== 0;
+                        const _dc = k.delta === 0 ? 'var(--text-muted)' : (_good ? 'var(--accent-green)' : 'var(--accent-red)');
+                        const _arrow = k.delta === 0 ? '\u2192' : (k.delta > 0 ? '\u25b2' : '\u25bc');
+                        _delta = '<div style="font-size:0.65rem;margin-top:3px;color:' + _dc + ';font-weight:600;" title="' +
+                            esc(__('Previous period') + ': ' + k.prev_value + (k.unit || '')) + '">' +
+                            _arrow + ' ' + Math.abs(k.delta).toFixed(1) + '</div>';
+                    }
+                    // Peer benchmark: "you vs the rest of the network" — same
+                    // window, so a manager can tell a real problem from a
+                    // network-wide norm.
+                    var _bench = '';
+                    if (k.network_value != null && hid) {
+                        var _behind = (k.value - k.network_value) * (k.higher_is_better === false ? -1 : 1);
+                        var _bc = Math.abs(_behind) < 0.05 ? 'var(--text-muted)' : (_behind > 0 ? 'var(--accent-green)' : 'var(--accent-orange)');
+                        var _sign = _behind >= 0 ? '+' : '\u2212';
+                        _bench = '<div style="font-size:0.63rem;margin-top:2px;color:' + _bc + ';" title="' +
+                            esc(__('Other hospitals average') + ': ' + k.network_value + (k.unit || '')) + '">' +
+                            _sign + ' ' + Math.abs(k.value - k.network_value).toFixed(1) + ' ' +
+                            esc(__('vs other hospitals') + ' (' + k.network_value + ')') + '</div>';
+                    }
                     return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';' + (_noDrill ? '' : 'cursor:pointer;') + '"' + (_noDrill ? '' : ' onclick="window.openKPIDrilldown(\'' + k.id + '\')"') + '>' +
                         '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
                         '<span style="font-size:0.75rem;color:var(--text-secondary);font-weight:500;">' + k.label + '</span>' +
                         '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? ' <span style="font-size:0.7rem;">' + k.unit + '</span>' : '') + '</span></div>' +
+                        _delta +
+                        _bench +
                         (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + (pct >= 1 ? 'var(--accent-green)' : pct >= 0.75 ? 'var(--accent-yellow)' : 'var(--accent-red)') + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:var(--text-muted);">target ' + k.target + '</span></div>' : '') +
                         '</div>';
                 }).join('');
@@ -1530,16 +1558,92 @@ function loadHospitalsSettings() {
             for (var i = 0; i < panes.length; i++) {
                 var p = panes[i];
                 var match = p.getAttribute('data-tabpane') === name;
-                if (match) p.hidden = false; else p.hidden = true;
-                // Lazily fill overview panes that were placeholders at render time
-                if (match && typeof p._fillOverview === 'function') { p._fillOverview(); p._fillOverview = null; }
-            }
-            var btns = body.querySelectorAll('._dd-tab');
-            for (var j = 0; j < btns.length; j++) {
-                if (btns[j].getAttribute('data-tab') === name) btns[j].classList.add('active'); else btns[j].classList.remove('active');
-            }
-            if (name === 'overview' && typeof _kpiDrilldownRedraw === 'function') _kpiDrilldownRedraw();
+            if (match) p.hidden = false; else p.hidden = true;
+            // Lazily fill overview panes that were placeholders at render time
+            if (match && typeof p._fillOverview === 'function') { p._fillOverview(); p._fillOverview = null; }
+        }
+        var btns = body.querySelectorAll('._dd-tab');
+        for (var j = 0; j < btns.length; j++) {
+            if (btns[j].getAttribute('data-tab') === name) btns[j].classList.add('active'); else btns[j].classList.remove('active');
+        }
+        if (name === 'overview' && typeof _kpiDrilldownRedraw === 'function') _kpiDrilldownRedraw();
+        // Hospital cards on the newly visible pane may carry mini-trend
+        // canvases — draw any not yet painted.
+        if (typeof window._kpiDrilldownDrawSparks === 'function') window._kpiDrilldownDrawSparks();
+    };
+
+        // ── Drilldown cross-screen navigation ─────────────────────
+        // Failed-rule chips deep-link into the Rules Manager with the rule
+        // preselected in the search box. main.js resets the rules search to ''
+        // on EVERY activation of the screen (autofill-junk defense), so the
+        // preselection must land AFTER the switch: set the pending value, then
+        // loadRulesManager() restores app state from _rulesSearchAppState once
+        // the tab DOM exists.
+        window._kpiDrilldownOpenRule = function(ruleCode) {
+            if (!ruleCode) return;
+            window._kpiPendingRuleSelect = String(ruleCode);
+            if (typeof window.switchTab === 'function') window.switchTab('rules-manager');
+            var tries = 0;
+            (function _apply() {
+                var box = document.getElementById('rulesSearchInput');
+                if (!box && ++tries < 80) { setTimeout(_apply, 100); return; }
+                if (!box) return;
+                window._rulesSearchAppState = window._kpiPendingRuleSelect;
+                window._rulesSearchTouched = true;
+                box.value = window._kpiPendingRuleSelect;
+                window._kpiPendingRuleSelect = '';
+                try { localStorage.setItem('rulesSearch', window._rulesSearchAppState); } catch (e) {}
+                if (typeof window.onRulesSearch === 'function') window.onRulesSearch();
+                else if (typeof window.renderRulesManager === 'function') window.renderRulesManager();
+            })();
         };
+
+        // Draw the per-hospital mini trend (sparkline) on every drilldown
+        // sparkline canvas. Uses the component's monthly array — the AGGREGATE
+        // monthly values across all hospitals in the current filter, not a
+        // per-hospital series (the payload does not carry one) — so the line
+        // always answers "how was this component moving month to month?".
+        window._kpiDrilldownDrawSparks = function() {
+            var canvases = document.querySelectorAll('#modalBody canvas._dd-spark:not(._dd-spark-done)');
+            if (!canvases.length) return;
+            var comp = (window._kpiDrilldownCompMeta && window._kpiDrilldownActiveTab) ? window._kpiDrilldownCompMeta[window._kpiDrilldownActiveTab] : null;
+            var monthly = (comp && Array.isArray(comp.monthly)) ? comp.monthly : [];
+            var hospMonthly = (comp && comp.hosp_monthly) ? comp.hosp_monthly : null;
+            for (var i = 0; i < canvases.length; i++) {
+                var cv = canvases[i];
+                cv.classList.add('_dd-spark-done');
+                var ctx = cv.getContext && cv.getContext('2d');
+                // Per-hospital series first: every card draws ITS OWN line
+                // (cv carries data-hosp). Falls back to the network monthly
+                // average only when no per-hospital series exists.
+                var series = (hospMonthly && cv.dataset.hosp && hospMonthly[cv.dataset.hosp]) ? hospMonthly[cv.dataset.hosp] : monthly;
+                if (!ctx || series.length < 2) continue;
+                var vals = series.map(function(m) { return (m && m.value != null) ? Number(m.value) : null; }).filter(function(v) { return v != null && !isNaN(v); });
+                if (vals.length < 2) continue;
+                var w = cv.width, h = cv.height, pad = 3;
+                var max = Math.max.apply(null, vals), min = Math.min.apply(null, vals);
+                var range = (max - min) || 1;
+                ctx.clearRect(0, 0, w, h);
+                ctx.beginPath();
+                for (var p = 0; p < vals.length; p++) {
+                    var x = pad + (p / (vals.length - 1)) * (w - 2 * pad);
+                    var y = h - pad - ((vals[p] - min) / range) * (h - 2 * pad);
+                    if (p === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                }
+                var first = vals[0], last = vals[vals.length - 1];
+                ctx.strokeStyle = last >= first ? '#2e7d32' : '#c62828';
+                ctx.lineWidth = 1.4;
+                ctx.stroke();
+                ctx.lineTo(w - pad, h - pad); ctx.lineTo(pad, h - pad); ctx.closePath();
+                ctx.fillStyle = last >= first ? 'rgba(46,125,50,0.10)' : 'rgba(198,40,40,0.10)';
+                ctx.fill();
+                // Hover tooltip: month: value for every plotted point (native
+                // title, same mechanism as the Why-popup SVG sparkline).
+                cv.title = series.filter(function(m) { return m && m.value != null; })
+                    .map(function(m) { return m.month + ': ' + m.value; }).join('  \u00b7  ');
+            }
+        };
+
         window.openKPIDrilldown = function(metric) {
             if (metric === 'report_coverage') return; // no drilldown for report count
             const modal = document.getElementById('detailModal');
@@ -1567,6 +1671,8 @@ function loadHospitalsSettings() {
             modal.classList.add('show');
 
             const hid = document.getElementById('dashHospital').value;
+            // Remember for cross-screen jumps from cause rows (Data Auditor button)
+            window._kpiDrilldownHospitalId = hid ? Number(hid) : null;
             const yr = document.getElementById('dashYear').value;
             // Honor the dashboard's From/To month filter — the KPI cards above
             // send month_from/month_to (window._dashboardDateRange), and the
@@ -1593,6 +1699,16 @@ function loadHospitalsSettings() {
             if (yr) diagUrl += 'year=' + yr + '&';
             if (metric && metric !== 'quality_score' && metric !== 'conf_high' && metric !== 'report_coverage') diagUrl += 'metric=' + metric;
 
+            // Scope subtitle: the analysis window this drilldown reflects, so
+            // the modal can never be read as "all data" when the dashboard
+            // filters narrowed it (DHIS convention: every view states its window).
+            var _scope = (hid ? (document.getElementById('dashHospital').selectedOptions[0] || {}).textContent || ('Hospital #' + hid) : __('All Hospitals')) +
+                ' · ' + (dr && dr.from ? dr.from + ' → ' + dr.to : (yr || __('All months')));
+            var _oldScope = document.getElementById('modalScope');
+            if (_oldScope) _oldScope.remove();
+            titleEl.insertAdjacentHTML('afterend',
+                '<div id="modalScope" style="font-size:0.72rem;color:var(--text-muted);margin:-0.6rem 0 0.8rem;">' + esc(_scope) + ' <span id="modalEpoch" dir="ltr" style="font-family:monospace;font-size:0.62rem;"></span></div>');
+
             // For conf_high: resolve hospital + month from live data (no hardcoded IDs/months)
             var _confPromise = (metric === 'conf_high')
                 ? _resolveConfTarget(hid, yr).then(function(target) {
@@ -1607,6 +1723,11 @@ function loadHospitalsSettings() {
                 var kpiData = results[0], overviewData = results[1], diag = results[2], confDetail = results[3], ctrlSettings = results[4] || {};
                 console.log('[conf] confDetail:', confDetail ? (confDetail.indicators || []).length + ' indicators' : 'null');
                 var kpi = (kpiData.kpis || []).find(function(k) { return k.id === metric; });
+                // Stamp the modal with the data epoch (same snapshot marker the
+                // Why popup carries): same stamp = same underlying data.
+                var _epochEl = document.getElementById('modalEpoch');
+                if (_epochEl && kpiData && kpiData.data_epoch) _epochEl.textContent = '· ' + kpiData.data_epoch;
+                else if (_epochEl) _epochEl.textContent = '';
                 var trend = overviewData.quality_trend || [];
                 var radar = overviewData.radar_components || {};
                 var components = (diag && diag.components) || [];
@@ -1623,6 +1744,9 @@ function loadHospitalsSettings() {
                 if (compTabs.indexOf(metric) !== -1) window._kpiDrilldownActiveTab = metric;
                 var _compMeta = {};
                 components.forEach(function(c) { _compMeta[String(c.key)] = c; });
+                // Sparkline source: per-tab component meta (monthly values),
+                // read by _kpiDrilldownDrawSparks when a tab pane renders.
+                window._kpiDrilldownCompMeta = _compMeta;
 
                 var html = '';
 
@@ -1740,11 +1864,35 @@ function loadHospitalsSettings() {
                                 var sevColor = cause.severity === 'critical' ? 'var(--accent-red)' : cause.severity === 'warning' ? 'var(--accent-orange)' : cause.severity === 'ok' ? 'var(--accent-green)' : 'var(--text-muted)';
                                 var sevBg = cause.severity === 'critical' ? 'rgba(198,40,40,0.08)' : cause.severity === 'warning' ? 'rgba(230,81,0,0.08)' : 'rgba(46,125,50,0.08)';
                                 var sevIcon = cause.severity === 'critical' ? '\u274c' : cause.severity === 'warning' ? '\u26a0\ufe0f' : cause.severity === 'ok' ? '\u2705' : '\u2139\ufe0f';
+                                // Requirement ⑧: distinguish data problems from analytical
+                                // findings right in the cause header.
+                                var _isDataProblem = cause.cause === 'Severely missing indicator data' || cause.cause === 'Partial indicator gaps';
+                                var _clsBadge = _isDataProblem
+                                    ? '<span style="display:inline-flex;align-items:center;gap:3px;border:1px solid var(--accent-orange);color:var(--accent-orange);border-radius:12px;padding:1px 8px;font-size:0.62rem;font-weight:700;flex-shrink:0;">🔧 ' + __('Data problem') + '</span>'
+                                    : (cause.severity !== 'ok'
+                                        ? '<span style="display:inline-flex;align-items:center;gap:3px;border:1px solid var(--accent-blue);color:var(--accent-blue);border-radius:12px;padding:1px 8px;font-size:0.62rem;font-weight:700;flex-shrink:0;">📊 ' + __('Statistical finding') + '</span>'
+                                        : '');
+                                // 🔧 data-problem causes usually trace back to the upload/source
+                                // values — offer a direct jump to the Data Auditor section of
+                                // the Audit screen preselected on the WORST affected hospital
+                                // and the cause's first month (falls back to the dashboard's
+                                // hospital, or month-only when the drilldown ran on All
+                                // Hospitals); 📊 findings keep the Why popup.
+                                var _daHid = (cause.affected_hospitals && cause.affected_hospitals[0] && cause.affected_hospitals[0].hospital_id != null)
+                                    ? Number(cause.affected_hospitals[0].hospital_id)
+                                    : (window._kpiDrilldownHospitalId || null);
+                                var _daMonth = cause.first_month || '';
+                                var _daJump = _isDataProblem
+                                    ? '<button onclick="event.stopPropagation();window._explainJumpTo(' + (_daHid || 'null') + ',\'' + _daMonth + '\',\'da\')" '
+                                        + 'title="' + __('Open the Data Auditor to inspect the source values for this hospital-month') + '" '
+                                        + 'style="flex-shrink:0;background:none;border:1px solid var(--border-default);border-radius:4px;padding:1px 7px;font-size:0.65rem;cursor:pointer;color:var(--accent-orange);font-weight:600;">🔧 ' + __('Data Auditor') + '</button>'
+                                    : '';
                                 html += '<div style="display:flex;align-items:flex-start;gap:6px;padding:0.4rem 0.5rem;border-radius:6px;margin-bottom:0.3rem;background:' + sevBg + ';flex-wrap:wrap;">';
                                 html += '<span style="font-size:0.75rem;flex-shrink:0;margin-top:1px;">' + sevIcon + '</span>';
                                 html += '<div style="flex:1;min-width:120px;">';
-                                html += '<div style="font-size:0.78rem;font-weight:600;color:' + sevColor + ';">' + esc(__(cause.cause)) + '</div>';
+                                html += '<div style="font-size:0.78rem;font-weight:600;color:' + sevColor + ';">' + esc(__(cause.cause)) + ' ' + _clsBadge + '</div>';
                                 html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:1px;" dir="auto">' + esc(cause.detail) + '</div>';
+                                if (_daJump) html += '<div style="margin-top:3px;">' + _daJump + '</div>';
                                 html += '</div>';
                                 if (cause.impact_pct > 0) {
                                     html += '<div style="text-align:right;flex-shrink:0;">';
@@ -1804,6 +1952,17 @@ function loadHospitalsSettings() {
                                             html += '<span style="flex-shrink:0;background:rgba(198,40,40,0.15);color:var(--accent-red);padding:1px 7px;border-radius:10px;font-size:0.65rem;font-weight:700;" title="' + __('Missing Indicators') + '">' + missTotal + '</span>';
                                         }
                                         html += '<span style="flex-shrink:0;font-size:0.7rem;font-weight:700;color:' + hCol + ';"><span dir="ltr">' + avgNum + '%</span></span>';
+                                        if (h.hospital_id != null && problemMonths.length) {
+                                            // "Why?" — jump straight to the calculation for the
+                                            // hospital's worst problem month. (The audit jump is
+                                            // deliberately NOT repeated here: the Why popup's footer
+                                            // already carries "Open in audit screen" — one jump per
+                                            // row keeps the header compact.)
+                                            var _wm = problemMonths.slice().sort()[0];
+                                            html += '<button onclick="event.stopPropagation();window.showWhyPopup(\'quality_score\',' + Number(h.hospital_id) + ',\'' + _wm + '\')" '
+                                                + 'title="' + __('Why? — formula, inputs, reproduction for this hospital-month') + '" '
+                                                + 'style="flex-shrink:0;background:none;border:1px solid var(--border-default);border-radius:4px;padding:1px 7px;font-size:0.65rem;cursor:pointer;color:var(--accent-blue);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button>';
+                                        }
                                         html += '<span class="_hosp-chev" style="flex-shrink:0;font-size:0.7rem;color:var(--text-muted);">\u25b8</span>';
                                         html += '</div>';
 
@@ -1826,6 +1985,17 @@ function loadHospitalsSettings() {
                                             html += '<div style="margin-bottom:0.4rem;font-size:0.63rem;color:var(--text-muted);"><span dir="ltr">' + pmTxt + '</span></div>';
                                         }
 
+                                        // Per-hospital mini trend (sparkline): THIS hospital's
+                                        // own component series (diag.components[].hosp_monthly,
+                                        // drawn by _kpiDrilldownDrawSparks via data-hosp) — shows
+                                        // "declining" vs "one bad month" at a glance without expanding.
+                                        if (h.hospital_id != null && Array.isArray(c.monthly) && c.monthly.length > 1) {
+                                            html += '<div style="margin-bottom:0.45rem;display:flex;align-items:center;gap:0.4rem;">';
+                                            html += '<span style="font-size:0.63rem;color:var(--text-muted);flex-shrink:0;">' + __('Trend') + '</span>';
+                                            html += '<canvas class="_dd-spark" data-hosp="' + Number(h.hospital_id) + '" width="120" height="26" style="width:120px;height:26px;flex-shrink:0;"></canvas>';
+                                            html += '</div>';
+                                        }
+
                                         // Failed rules: collapsible chip cloud (first 6 inline, rest behind a toggle)
                                         if (failedRules.length) {
                                             var fr = failedRules;
@@ -1838,7 +2008,10 @@ function loadHospitalsSettings() {
                                                 var rDesc = typeof r === 'object' ? (r.description || r.code) : r;
                                                 var rBg = rSev === 'CRITICAL' ? 'rgba(198,40,40,0.2)' : rSev === 'HIGH' ? 'rgba(198,40,40,0.12)' : 'rgba(230,81,0,0.12)';
                                                 var rFg = rSev === 'CRITICAL' || rSev === 'HIGH' ? 'var(--accent-red)' : 'var(--accent-orange)';
-                                                html += '<span style="display:inline-block;background:' + rBg + ';color:' + rFg + ';padding:1px 5px;border-radius:3px;font-size:0.58rem;font-weight:600;cursor:help;" title="' + esc(rDesc) + '">' + esc(rCode) + '</span>';
+                                                // Clickable: jumps to the Rules Manager with this rule
+                                                // preselected in the search box (deep-link contract
+                                                // with _resetRulesSearchState in main.js).
+                                                html += '<span style="display:inline-block;background:' + rBg + ';color:' + rFg + ';padding:1px 5px;border-radius:3px;font-size:0.58rem;font-weight:600;cursor:pointer;" title="' + esc(rDesc) + ' — ' + __('open this rule in the Rules Manager') + '" onclick="window._kpiDrilldownOpenRule(\'' + String(rCode).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;') + '\');event.stopPropagation();">' + esc(rCode) + '</span>';
                                             });
                                             if (fr.length > 6) {
                                                 html += '<span style="display:inline-block;color:var(--text-muted);font-size:0.6rem;font-weight:600;cursor:pointer;padding:1px 4px;" onclick="var extra=this.nextElementSibling;var hiding=extra.style.display!==\'none\';extra.style.display=hiding?\'none\':\'contents\';this.textContent=(hiding?\'+' + (fr.length - 6) + ' ' + __('more') + '\' : \'show less\');">+' + (fr.length - 6) + ' ' + __('more') + '</span>';
@@ -2068,7 +2241,12 @@ function loadHospitalsSettings() {
                 // Chart.js canvas (hidden tabs measure as 0-width).
                 var _tabsRoot = document.createElement('div');
                 _tabsRoot.className = '_dd-tabs';
-                var _tabBtns = '<button class="_dd-tab' + (window._kpiDrilldownActiveTab === 'overview' ? ' active' : '') + '" data-tab="overview">' + __('Overview') + '</button>';
+                // Fullscreen toggle: dense component analysis benefits from a
+                // near-viewport modal; state resets when the modal closes.
+                var _modalEl0 = document.getElementById('detailModal');
+                _modalEl0.classList.remove('fullscreen');
+                var _fsBtn = '<button id="_ddFullscreen" title="' + __('Toggle full screen') + '" style="margin-left:auto;background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:6px;color:var(--text-secondary);font-size:0.7rem;padding:3px 10px;cursor:pointer;white-space:nowrap;">\u26f6 ' + __('Fullscreen') + '</button>';
+                var _tabBtns = _fsBtn + '<button class="_dd-tab' + (window._kpiDrilldownActiveTab === 'overview' ? ' active' : '') + '" data-tab="overview">' + __('Overview') + '</button>';
                 components.forEach(function(c) {
                     var cc = _compMeta[String(c.key)];
                     var _tcol = cc && cc.avg >= 80 ? 'var(--accent-green)' : cc && cc.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
@@ -2079,8 +2257,19 @@ function loadHospitalsSettings() {
                     var btn = ev.target.closest('._dd-tab');
                     if (btn) window._kpiDrilldownSwitchTab(btn.getAttribute('data-tab'));
                 });
+                var _fsToggle = _tabsRoot.querySelector('#_ddFullscreen');
+                if (_fsToggle) _fsToggle.addEventListener('click', function() {
+                    var m = document.getElementById('detailModal');
+                    var on = m.classList.toggle('fullscreen');
+                    _fsToggle.innerHTML = on ? '\u2715 ' + __('Exit fullscreen') : '\u26f6 ' + __('Fullscreen');
+                    // Re-measure the chart at the new size.
+                    if (typeof _kpiDrilldownRedraw === 'function') _kpiDrilldownRedraw();
+                });
                 bodyEl.insertBefore(_tabsRoot, bodyEl.firstChild);
                 window._kpiDrilldownSwitchTab(window._kpiDrilldownActiveTab);
+                // Sparklines live in expanded hospital bodies — draw after the
+                // tab panes are in the DOM (initially the active tab only).
+                window._kpiDrilldownDrawSparks();
 
                 // Render chart (only when its container is visible — a canvas inside
                 // a hidden tab pane measures 0×0 and Chart.js renders a broken
@@ -2487,7 +2676,21 @@ function loadHospitalsSettings() {
                         responsive: true,
                         maintainAspectRatio: false,
                         resizeDelay: 200,
-                        plugins: { legend: { display: false } },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { callbacks: { afterBody: function (items) {
+                                return __('\u2139\ufe0f Click the point for the full calculation');
+                            } } }
+                        },
+                        onClick: function (evt, elements) {
+                            if (!elements.length) return;
+                            const pt = trendPoints[elements[0].index];
+                            if (!pt || !pt.month) return;
+                            // Trend points are aggregate across hospitals. When a
+                            // specific hospital is selected, explain its score;
+                            // otherwise explain the month across all hospitals.
+                            showWhyPopup({ kind: 'quality_score', hospitalId: hid ? Number(hid) : undefined, month: pt.month });
+                        },
                         scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
                     }
                 });
@@ -2554,13 +2757,78 @@ function loadHospitalsSettings() {
                 }
 
                 document.getElementById('dashLoading').style.display = 'none';
-                // Load heatmap
-                loadHeatmap(hid);
+                // Load heatmap — ignores the selected hospital on purpose
+                // (network-wide peer comparison, see loadHeatmap).
+                loadHeatmap();
                 loadRankingTable();
+                loadAttentionStrip();
             }).catch(e => {
                 document.getElementById('dashLoading').style.display = 'none';
                 console.error('Dashboard error:', e);
             });
+        }
+
+        // ── 'Needs attention' strip ──────────────────────────────
+        // Modern DHIS practice: the dashboard's first answer is "what should I
+        // look at" — worst month-over-month movers, hospitals with critical
+        // rule failures, and hospitals with data problems. Every row opens its
+        // Why digest (kind + hospital + month come straight from the payload).
+        function loadAttentionStrip() {
+            const el = document.getElementById('dashAttention');
+            if (!el) return;
+            const hid = document.getElementById('dashHospital').value;
+            const yr = document.getElementById('dashYear').value;
+            const dr = window._dashboardDateRange;
+            let url = '/dashboard/attention?';
+            if (hid) url += 'hospital_id=' + hid + '&';
+            if (dr && dr.from) url += 'month_from=' + dr.from + '&';
+            if (dr && dr.to) url += 'month_to=' + dr.to + '&';
+            if (yr) url += 'year=' + yr;
+            apiGet(url).then(att => {
+                const rows = [];
+                (att.movers || []).forEach(function (m) {
+                    if (m.delta >= 0) return; // only declines need attention
+                    rows.push({ icon: '\u25bc', color: 'var(--accent-red)', hospital: m.hospital,
+                        text: __('score') + ' ' + m.prev_value + ' \u2192 ' + m.value + ' (' + (m.delta > 0 ? '+' : '') + m.delta + ')',
+                        month: m.month, why: m.why });
+                });
+                (att.alerts || []).forEach(function (a) {
+                    rows.push({ icon: '\u26a0\ufe0f', color: 'var(--accent-orange)', hospital: a.hospital,
+                        text: a.count + ' ' + __('critical/high rule failures'),
+                        month: a.month, why: a.why, ruleCode: a.top_rule_code });
+                });
+                (att.anomalies || []).forEach(function (a) {
+                    var _compLabels = { quality_score: __('Quality Score'), rule_compliance: __('Validation rule'), completeness: __('Completeness'), consistency: __('Consistency'), outlier_score: __('Outlier Score') };
+                    var _comp = _compLabels[a.component] || a.component;
+                    var _txt = (a.component && a.component !== 'quality_score' ? _comp + ' \u00b7 ' : '') +
+                        (a.kind === 'drift'
+                        ? __('Slow decline') + ': ' + a.start + ' \u2192 ' + a.value + ' ' + __('in') + ' ' + (a.months || 3) + ' ' + __('months')
+                        : __('Abnormal jump') + ': ' + a.value + ' (' + __('avg') + ' ' + a.mean + ', z=' + a.zscore + ')');
+                    rows.push({ icon: '\ud83d\udcc9', color: 'var(--accent-purple, #9b59b6)', hospital: a.hospital,
+                        text: _txt, month: a.month, why: a.why });
+                });
+                (att.problems || []).forEach(function (p) {
+                    rows.push({ icon: '\ud83d\udd27', color: 'var(--accent-yellow)', hospital: p.hospital,
+                        text: __('Completeness') + ' ' + p.completeness + '%',
+                        month: p.month, why: p.why });
+                });
+                if (!rows.length) { el.innerHTML = ''; return; }
+                el.innerHTML = '<div class="card" style="padding:0.7rem 1rem;">' +
+                    '<h2 style="margin-bottom:0.5rem;">' + __('Needs attention') +
+                    (att.month ? ' <span style="font-size:0.72rem;font-weight:400;color:var(--text-muted);">' + esc(att.month) + '</span>' : '') + '</h2>' +
+                    rows.slice(0, 8).map(function (r) {
+                        return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;border-bottom:1px dashed var(--border-default);font-size:0.76rem;">' +
+                            '<span style="color:' + r.color + ';font-weight:700;">' + r.icon + '</span>' +
+                            '<span style="font-weight:600;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(r.hospital) + '</span>' +
+                            '<span style="color:var(--text-secondary);flex:1;">' + esc(r.text) + '</span>' +
+                            '<span dir="ltr" style="color:var(--text-muted);font-size:0.68rem;">' + esc(r.month || '') + '</span>' +
+                            '<button onclick="window.showWhyPopup({kind:\'' + r.why.kind + '\',hospitalId:' + Number(r.why.hospital_id) + ',month:\'' + r.why.month + '\'' +
+                            (r.why.component ? ",component:'" + String(r.why.component).replace(/[^a-z_]/g, '') + "'" : '') +
+                            (r.ruleCode ? ",ruleCode:'" + String(r.ruleCode).replace(/\\/g, '').replace(/'/g, '') + "'" : '') + '})" ' +
+                            'style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:4px;padding:2px 8px;font-size:0.68rem;font-weight:700;cursor:pointer;color:var(--accent-blue);white-space:nowrap;">' +
+                            __('Why') + '</button></div>';
+                    }).join('') + '</div>';
+            }).catch(function () { el.innerHTML = ''; });
         }
 
         window.applyDashboardFilter = function() {
@@ -2581,9 +2849,13 @@ function loadHospitalsSettings() {
             loadDashboard();
         };
 
-        function loadHeatmap(hospitalId, month) {
+        function loadHeatmap(month) {
+            // Network-wide view: the Quality Score Heatmap intentionally does
+            // NOT filter by the dashboard's selected hospital — it always
+            // shows every active hospital so the selected facility can be
+            // compared against its peers in place.
             let url = '/analysis/heatmap?';
-            if (hospitalId) url += 'hospital_id=' + hospitalId + '&';
+            if (month) url += 'month=' + month + '&';
             if (month) url += 'month=' + month + '&';
             apiGet(url).then(hm => {
                 const container = document.getElementById('heatmapContainer');
@@ -2599,7 +2871,7 @@ function loadHospitalsSettings() {
                 hm.data.forEach(d => {
                     const vals = months.map(m => d[m]).filter(v => v !== null);
                     const avg = vals.length ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '--';
-                    html += '<tr><td style="padding:0.2rem 0.4rem;font-weight:600;position:sticky;left:0;background:var(--bg-surface);z-index:1;">' + d.hospital + '</td>';
+                    html += '<tr><td style="padding:0.2rem 0.4rem;font-weight:600;position:sticky;left:0;background:var(--bg-surface);z-index:1;">' + esc(d.hospital) + '</td>';
                     months.forEach(m => {
                         const v = d[m];
                         if (v === null) { html += '<td style="text-align:center;padding:0.2rem;background:var(--bg-surface);color:var(--text-muted);">--</td>'; return; }
@@ -2611,7 +2883,9 @@ function loadHospitalsSettings() {
                         else if (v >= 50) { bg = '#f57c00'; fg = '#fff'; }
                         else if (v >= 40) { bg = '#e64a19'; fg = '#fff'; }
                         else { bg = '#b71c1c'; fg = '#fff'; }
-                        html += '<td style="text-align:center;padding:0.2rem;background:' + bg + ';color:' + fg + ';font-weight:600;">' + v.toFixed(1) + '</td>';
+                        html += '<td onclick="window.showWhyPopup(\'heatmap_cell\',' + Number(d.hospital_id) + ',\'' + m + '\')" '
+                            + 'title="' + __('Score {v} — click Why for the full calculation').replace('{v}', v.toFixed(1)) + '" '
+                            + 'style="text-align:center;padding:0.2rem;background:' + bg + ';color:' + fg + ';font-weight:600;cursor:pointer;">' + v.toFixed(1) + '</td>';
                     });
                     html += '<td style="text-align:center;padding:0.2rem;font-weight:700;">' + avg + '</td></tr>';
                 });

@@ -557,6 +557,24 @@ window._adminAssignHospitals = function(id, btn) {
                   </label>
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                  <div style="display:flex;gap:1.2rem;flex-wrap:wrap;">
+                      <div>
+                          <strong style="display:block;margin-bottom:0.3rem;">Anomaly Z-Score Threshold</strong>
+                          <input type="number" id="cfg_anomaly_zscore" min="1" max="5" step="0.1" onchange="adminMarkControlDirty()"
+                                 style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span style="display:block;font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;max-width:280px;">
+                              Flags a hospital whose latest score is this many standard deviations from its own history (1–5, default 2.0). Lower = more sensitive.</span>
+                      </div>
+                      <div>
+                          <strong style="display:block;margin-bottom:0.3rem;">Slow-Decline Length</strong>
+                          <input type="number" id="cfg_anomaly_drift" min="2" max="6" step="1" onchange="adminMarkControlDirty()"
+                                 style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span style="display:block;font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;max-width:280px;">
+                              Consecutive monthly drops that count as a slow decline (2–6, default 3).</span>
+                      </div>
+                  </div>
+              </div>
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
                       <input type="checkbox" id="cfg_dev_hints" onchange="adminToggleDevHints(this.checked)" style="margin-top:0.2rem;width:18px;height:18px;">
                       <div>
@@ -1602,6 +1620,10 @@ window._adminAssignHospitals = function(id, btn) {
         if (hideCb) hideCb.checked = !!data.hide_explanatory_text;
         var incCb = document.getElementById("cfg_incremental_months");
         if (incCb) incCb.checked = !!data.upload_incremental_months;
+        var zIn = document.getElementById("cfg_anomaly_zscore");
+        if (zIn) zIn.value = (data.anomaly_zscore_threshold != null) ? data.anomaly_zscore_threshold : 2.0;
+        var dIn = document.getElementById("cfg_anomaly_drift");
+        if (dIn) dIn.value = (data.anomaly_drift_months != null) ? data.anomaly_drift_months : 3;
       }
     } catch(e) {}
     var enabled = localStorage.getItem("dev_hints_enabled") !== "false";
@@ -1623,6 +1645,10 @@ window._adminAssignHospitals = function(id, btn) {
     var sqVal = sqCb ? sqCb.checked : true;
     var hideVal = hideCb ? hideCb.checked : false;
     var incVal = incCb ? incCb.checked : false;
+    var zRaw = document.getElementById("cfg_anomaly_zscore");
+    var dRaw = document.getElementById("cfg_anomaly_drift");
+    var zVal = zRaw && zRaw.value !== "" ? parseFloat(zRaw.value) : null;
+    var dVal = dRaw && dRaw.value !== "" ? parseInt(dRaw.value, 10) : null;
     var status = document.getElementById("controlSaveStatus");
     var btn = document.getElementById('controlSaveBtn');
     function setStatus(text, color) {
@@ -1632,15 +1658,18 @@ window._adminAssignHospitals = function(id, btn) {
     setStatus("Saving...", "var(--accent-blue)");
     (async function() {
       try {
+        var payload = {
+          auto_disable_null_indicators: val ? "true" : "false",
+          structured_logging_enabled: logVal ? "true" : "false",
+          slow_query_logging_enabled: sqVal ? "true" : "false",
+          hide_explanatory_text: hideVal ? "true" : "false",
+          upload_incremental_months: incVal ? "true" : "false"
+        };
+        if (zVal != null) payload.anomaly_zscore_threshold = zVal;
+        if (dVal != null) payload.anomaly_drift_months = dVal;
         var result = await api("/config/control/settings", {
           method: "PUT",
-          body: JSON.stringify({
-            auto_disable_null_indicators: val ? "true" : "false",
-            structured_logging_enabled: logVal ? "true" : "false",
-            slow_query_logging_enabled: sqVal ? "true" : "false",
-            hide_explanatory_text: hideVal ? "true" : "false",
-            upload_incremental_months: incVal ? "true" : "false"
-          })
+          body: JSON.stringify(payload)
         });
         if (!result || result._error || result._forbidden) {
           if (btn) { btn.textContent = "Save (*)"; btn.disabled = false; }

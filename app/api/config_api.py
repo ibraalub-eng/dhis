@@ -17,6 +17,28 @@ SLOW_QUERY_KEY = "slow_query_logging_enabled"
 HIDE_EXPLANATIONS_KEY = "hide_explanatory_text"
 INCREMENTAL_UPLOAD_KEY = "upload_incremental_months"
 MONTH_SETTINGS_PREFIX = "month_enabled_"
+ANOMALY_ZSCORE_KEY = "anomaly_zscore_threshold"
+ANOMALY_DRIFT_KEY = "anomaly_drift_months"
+
+
+def _num_setting(db: Session, key: str, default: float, lo: float, hi: float) -> float:
+    """Read a numeric SystemSetting with a safe fallback and clamping."""
+    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    try:
+        v = float(row.value) if row else default
+    except (TypeError, ValueError):
+        v = default
+    return max(lo, min(hi, v))
+
+
+def get_anomaly_settings(db: Session) -> dict:
+    """Statistical anomaly detector knobs (dashboard 'Needs attention'):
+    z-score threshold for abnormal jumps/drops, and how many consecutive
+    monthly drops count as a slow decline. Clamped to sane ranges."""
+    return {
+        ANOMALY_ZSCORE_KEY: round(_num_setting(db, ANOMALY_ZSCORE_KEY, 2.0, 1.0, 5.0), 2),
+        ANOMALY_DRIFT_KEY: int(_num_setting(db, ANOMALY_DRIFT_KEY, 3, 2, 6)),
+    }
 
 
 @router.get("/database-status")
@@ -56,13 +78,15 @@ def get_control_settings(db: Session = Depends(get_db)):
     slow_row = db.query(SystemSetting).filter(SystemSetting.key == SLOW_QUERY_KEY).first()
     hide_row = db.query(SystemSetting).filter(SystemSetting.key == HIDE_EXPLANATIONS_KEY).first()
     incremental_row = db.query(SystemSetting).filter(SystemSetting.key == INCREMENTAL_UPLOAD_KEY).first()
-    return {
+    result = {
         "auto_disable_null_indicators": (row.value == "true") if row else False,
         "structured_logging_enabled": (log_row.value == "true") if log_row else True,
         "slow_query_logging_enabled": (slow_row.value == "true") if slow_row else True,
         "hide_explanatory_text": (hide_row.value == "true") if hide_row else False,
         "upload_incremental_months": (incremental_row.value == "true") if incremental_row else False,
     }
+    result.update(get_anomaly_settings(db))
+    return result
 
 
 @router.put("/control/settings")
@@ -77,6 +101,22 @@ def update_control_settings(updates: dict = Body(...), db: Session = Depends(get
             else:
                 db.add(SystemSetting(key=key, value=val))
             updated[key] = val == "true"
+    for key, default, lo, hi in (
+        (ANOMALY_ZSCORE_KEY, 2.0, 1.0, 5.0),
+        (ANOMALY_DRIFT_KEY, 3, 2, 6),
+    ):
+        if key in updates:
+            try:
+                val = float(updates[key])
+            except (TypeError, ValueError):
+                continue  # ignore unparseable input, keep the current value
+            val = round(max(lo, min(hi, val)), 2)
+            row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+            if row:
+                row.value = str(val)
+            else:
+                db.add(SystemSetting(key=key, value=str(val)))
+            updated[key] = val
     db.commit()
     # Update runtime flags immediately
     if LOGGING_KEY in updated:

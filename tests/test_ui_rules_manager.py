@@ -521,8 +521,11 @@ def test_rules_search_rejects_login_username_junk():
         js = f.read()
     assert "function _rulesSearchIsLoginJunk" in js
     assert "getUserInfo" in js  # junk detection compares against the logged-in user
-    # user-input path: autofill fires input events too — the handler must scrub
-    oninput = js[js.index("window.onRulesSearch"):]
+    # user-input path: autofill fires input events too — the handler must scrub.
+    # Anchor on the DEFINITION (window.onRulesSearch = function), not the first
+    # textual occurrence: earlier call sites (e.g. the drilldown re-render) also
+    # mention window.onRulesSearch.
+    oninput = js[js.index("window.onRulesSearch = function"):]
     assert "_rulesSearchIsLoginJunk" in oninput[:600]
     # render path: persist the app-owned state, never the raw box content
     render = js[js.index("function renderRulesManager"):]  # first = the real one

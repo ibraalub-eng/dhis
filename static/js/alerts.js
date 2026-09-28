@@ -126,14 +126,22 @@
                 document.getElementById('alertTopHospitals').innerHTML = '<span style="color:var(--text-muted);">No hospitals with alerts.</span>';
             }
 
-            // Recent critical alerts
+            // Recent critical alerts — same Why engine as the rule-failures
+            // table below (same rows, same explanation, one knowledge source).
             const crit = data.recent_critical || [];
             let critHtml = '';
             if (crit.length) {
-                critHtml = crit.map(r => '<div style="padding:0.35rem 0.5rem;border-left:3px solid #b71c1c;margin:0.25rem 0;background:var(--bg-elevated);border-radius:3px;">' +
+                critHtml = crit.map(r => '<div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.35rem 0.5rem;border-left:3px solid #b71c1c;margin:0.25rem 0;background:var(--bg-elevated);border-radius:3px;">' +
+                    '<div style="min-width:0;">' +
                     '<strong style="font-size:0.78rem;">' + esc(r.rule_code) + '</strong>' +
                     '<span style="color:var(--text-muted);font-size:0.72rem;"> | ' + esc(r.hospital) + ' | ' + esc(r.month) + '</span>' +
                     '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.1rem;">' + esc(r.rule_description) + '</div>' +
+                    '</div>' +
+                    (r.hospital_id
+                        ? '<button onclick="window.showWhyPopup(\'rule\',' + Number(r.hospital_id) + ',\'' + esc(r.month) + '\',null,' + JSON.stringify(String(r.rule_code)).replace(/"/g, '&quot;') + ')" '
+                            + 'title="' + __('Why did this rule fail?') + '" '
+                            + 'style="background:none;border:1px solid var(--border-default,#ccc);border-radius:4px;padding:1px 7px;font-size:0.7rem;cursor:pointer;color:var(--accent-blue,#1565c0);font-weight:600;flex-shrink:0;">\u2139\ufe0f ' + __('Why') + '</button>'
+                        : '') +
                     '</div>').join('');
             } else {
                 critHtml = '<span style="color:var(--text-muted);font-size:0.78rem;">No critical alerts</span>';
