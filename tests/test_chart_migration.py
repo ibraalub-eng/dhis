@@ -148,7 +148,7 @@ class TestDrawRcTimelineChart:
         assert "__('Peer average')" in content  # peer mean label
         i18n = _read("static/js/i18n.js")
         assert "المستشفى" in i18n
-        assert "متوسط النظير" in i18n
+        assert "متوسط النظراء" in i18n
 
     def test_ci_band_plugin_registered(self):
         content = _read_settings_pair()

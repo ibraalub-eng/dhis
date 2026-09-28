@@ -1425,11 +1425,11 @@ def test_upload_excel_invalidates_report_cache(mock_api, client, db_session):
     buf.seek(0)
     resp = client.post(
         "/upload/",
-        files={"file": ("test.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        files={"file": ("unit_refresh.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
     )
     assert resp.status_code == 200
     assert get_stored_report(db_session, "2026-06", "ar") is None
-    uploaded = os.path.join(os.path.dirname(__file__), "..", "data", "uploads", "test.xlsx")
+    uploaded = os.path.join(os.path.dirname(__file__), "..", "data", "uploads", "unit_refresh.xlsx")
     try:
         if os.path.exists(uploaded):
             os.remove(uploaded)

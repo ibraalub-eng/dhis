@@ -171,3 +171,65 @@ def test_import_updates_existing_value_in_place(db_session, tmp_path):
     ).all()
     assert len(rows) == 1
     assert rows[0].value == 250
+
+
+# ─────────────────── test/preview upload guard ───────────────────────
+
+def _write_testish(tmp_path, filename, org):
+    p = tmp_path / filename
+    p.write_text(
+        "organisationunitname,month,Total Deliveries\n"
+        f"{org},2026-04,300\n",
+        encoding="utf-8",
+    )
+    return str(p)
+
+
+def test_guard_rejects_preview_filename(db_session, tmp_path):
+    """A preview_*/test_* file must never auto-create hospitals (this exact
+    file recreated a phantom 'Test Hospital' twice)."""
+    from app.models import Hospital
+    from app.utils.excel_parser import process_excel_upload
+
+    with pytest.raises(ValueError, match="test/preview"):
+        process_excel_upload(
+            _write_testish(tmp_path, "preview_test_pt1.csv", "Test Hospital"), db_session
+        )
+    assert db_session.query(Hospital).filter(Hospital.name == "Test Hospital").count() == 0
+
+
+def test_guard_rejects_test_organisation_name(db_session, tmp_path):
+    """A legit-looking filename whose organisation rows are test entries is
+    also rejected — the file content is what creates the ghost."""
+    from app.models import Hospital
+    from app.utils.excel_parser import process_excel_upload
+
+    with pytest.raises(ValueError, match="test entry"):
+        process_excel_upload(
+            _write_testish(tmp_path, "monthly_report.csv", "Test Hospital"), db_session
+        )
+    assert db_session.query(Hospital).filter(Hospital.name == "Test Hospital").count() == 0
+
+
+def test_guard_rejects_arabic_test_name(db_session, tmp_path):
+    from app.models import Hospital
+    from app.utils.excel_parser import process_excel_upload
+
+    with pytest.raises(ValueError, match="test"):
+        process_excel_upload(
+            _write_testish(tmp_path, "report.csv", "مستشفى اختبار"), db_session
+        )
+    assert db_session.query(Hospital).filter(Hospital.name == "مستشفى اختبار").count() == 0
+
+
+def test_guard_allows_real_hospitals(db_session, tmp_path):
+    """Real facility names must pass untouched (no false positives on names
+    that merely contain 'latest'/'contest'-style substrings)."""
+    from app.models import Hospital
+    from app.utils.excel_parser import process_excel_upload
+
+    result = process_excel_upload(
+        _write_testish(tmp_path, "monthly_data.csv", "Al-Shifa Hospital"), db_session
+    )
+    assert result["new_hospitals"] == 1
+    assert db_session.query(Hospital).filter(Hospital.name == "Al-Shifa Hospital").count() == 1

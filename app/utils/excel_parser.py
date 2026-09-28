@@ -10,6 +10,35 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Test/preview uploads must never auto-create real hospitals. We have twice
+# purged a phantom "Test Hospital" that reappeared because the import
+# pipeline auto-creates a hospital for every unknown organisationunitname.
+# Both the file name and the organisation names are checked so a spreadsheet
+# full of "Test Hospital 1..N" rows is rejected too.
+_TEST_NAME_PATTERNS = re.compile(
+    r"(^|[^a-z\u0600-\u06FF])(test|preview|dummy|sample|fixture)([^a-z\u0600-\u06FF]|$)",
+    re.IGNORECASE,
+)
+_ARABIC_TEST_WORDS = ("اختبار", "تجربة")
+
+
+def _looks_like_test_upload(filename: str, hospital_names) -> List[str]:
+    """Return the reasons this upload looks like test/preview data (empty = OK)."""
+    reasons = []
+    base = (filename or "").rsplit(".", 1)[0].strip().lower()
+    # Filename like preview_test_pt1 / test_tid / test_ua: match 'test'/'preview'
+    # as a token inside the base name.
+    if _TEST_NAME_PATTERNS.search(base) or any(w in base for w in _ARABIC_TEST_WORDS):
+        reasons.append(f"filename '{filename}' contains test/preview markers")
+    for name in hospital_names:
+        n = str(name or "").strip().lower()
+        if not n:
+            continue
+        if _TEST_NAME_PATTERNS.search(n) or n in ("test hospital", "test") \
+                or any(w in n for w in _ARABIC_TEST_WORDS):
+            reasons.append(f"organisation name '{name}' looks like a test entry")
+    return reasons
+
 HEADER_KEYWORDS = [
     "organisationunitname", "organizationunitname", "orgunit",
     "organisation unit", "organization unit",
@@ -570,6 +599,19 @@ def process_excel_upload(file_path: str, session: Session) -> Dict:
             "Please check that the file has hospital names in an 'organisationunitname' column "
             "(or 'hospital'/'facility'), indicator columns matching SRMNH names, "
             "and a 'month' column or a title row with the reporting period."
+        )
+    # ── Guard: reject test/preview uploads before ANY hospital/indicator/value
+    # is created (the ghost-doctrine equivalent for the organisation registry).
+    test_reasons = _looks_like_test_upload(
+        filename, {r["hospital_name"] for r in records}
+    )
+    if test_reasons:
+        logger.warning("Rejected probable test upload '%s': %s", filename, "; ".join(test_reasons))
+        raise ValueError(
+            f"Upload rejected: '{filename}' looks like a test/preview file "
+            f"({'; '.join(sorted(set(test_reasons)))}). "
+            "Test uploads must not create real hospitals. Rename the file and use "
+            "real facility names from the SRMNH registry, then try again."
         )
     new_indicator_names = df.attrs.get("new_indicators") or {}
     new_hospitals, new_values, new_indicators = import_data_to_db(

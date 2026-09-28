@@ -10,6 +10,75 @@ from scripts.seed_rules import seed_rules
 from scripts.seed_menu import seed_menu  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _isolate_production_db(db_session, monkeypatch):
+    """Keep pytest off the production database and uploads folder.
+
+    Background workers (process-preview, upload-multiple-analyze) build their
+    own session via ``SessionLocal`` in fresh threads — the get_db dependency
+    override does NOT cover them. Without this fixture a single test run
+    imports fixture rows ("Al-Shifa Hospital", formerly "Test Hospital")
+    into the real Postgres and leaves poison files in data/uploads/ that
+    resurrect the ghost hospital on the next run.
+
+    Two defenses:
+    1. Every module-level ``SessionLocal`` binding is redirected to a
+       sessionmaker bound to the test engine (lazy ``from app.database
+       import SessionLocal`` inside functions resolves through
+       app.database, which is patched too).
+    2. Files newly created in data/uploads/ during a test are removed on
+       teardown (best-effort, never fails the test).
+    """
+    import os
+    from app import database as _database
+
+    test_sessionmaker = sessionmaker(bind=db_session.get_bind())
+
+    import app.api.admin as _admin
+    import app.api.analysis as _analysis
+    import app.api.file_ops as _file_ops
+    import app.api.reports as _reports
+    import app.main as _main
+    for mod in (_database, _admin, _analysis, _file_ops, _reports, _main):
+        if hasattr(mod, "SessionLocal"):
+            monkeypatch.setattr(mod, "SessionLocal", test_sessionmaker)
+
+    uploads_dir = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "data", "uploads")
+    )
+    # Known test-residue patterns: files the suite itself writes (or wrote
+    # before isolation existed). Removed at setup so a leftover poison file
+    # can never be re-processed against production again.
+    import fnmatch
+    residue_patterns = ("unit_*", "test_*", "*_test*", "preview_test*", "preview_qr*", "integration_*", "to_update.xlsx")
+    if os.path.isdir(uploads_dir):
+        for name in os.listdir(uploads_dir):
+            if any(fnmatch.fnmatch(name, p) for p in residue_patterns):
+                try:
+                    os.remove(os.path.join(uploads_dir, name))
+                except OSError:
+                    pass
+    before = set(os.listdir(uploads_dir)) if os.path.isdir(uploads_dir) else set()
+    yield
+    try:
+        after = set(os.listdir(uploads_dir)) if os.path.isdir(uploads_dir) else set()
+        import shutil
+        import time
+        for name in after - before:
+            path = os.path.join(uploads_dir, name)
+            for _ in range(10):  # Windows releases handles asynchronously
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                    elif os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=True)
+                    break
+                except OSError:
+                    time.sleep(0.2)
+    except Exception:
+        pass
+
+
 class _FakeSuperAdmin:
     """Minimal superadmin stub for test auth bypass."""
     id = 99999
@@ -96,12 +165,19 @@ def _isolate_cache_dir(tmp_path_factory, monkeypatch):
 
 @pytest.fixture
 def db_session():
-    """In-memory SQLite session with schema seeded. Thread-safe for TestClient."""
+    """File-backed SQLite session with schema seeded.
+
+    File-backed (not :memory:+StaticPool) because background workers run in
+    separate threads with their OWN connections via the redirected
+    SessionLocal — a single StaticPool connection shared across threads
+    segfaults the interpreter (native sqlite3 access violation).
+    """
+    import tempfile
+    _tmpdir = tempfile.mkdtemp(prefix="healthai_test_db_")
     engine = create_engine(
-        "sqlite://",
+        f"sqlite:///{_tmpdir}/test.db",
         echo=False,
-        connect_args={"check_same_thread": False},
-        poolclass=__import__("sqlalchemy.pool", fromlist=["StaticPool"]).StaticPool,
+        connect_args={"check_same_thread": False, "timeout": 30},
     )
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)

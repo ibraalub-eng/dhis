@@ -42,7 +42,7 @@ def sample_excel_bytes():
     import pandas as pd
     def _make_bytes():
         data = {
-            "organisationunitname": ["Test Hospital", "Test Hospital"],
+            "organisationunitname": ["Al-Shifa Hospital", "Al-Shifa Hospital"],
             "month": ["2026-04", "2026-04"],
             "Total Deliveries": [300, 280],
             "Normal Vaginal Deliveries": [200, 180],
@@ -72,7 +72,7 @@ class TestListSavedFiles:
         h = db_session.query(Hospital).first()
         db_session.add(IndicatorValue(
             hospital_id=h.id, indicator_id=1, month="2026-01",
-            value=10.0, source_file="test_list.xlsx",
+            value=10.0, source_file="unit_list.xlsx",
         ))
         db_session.commit()
 
@@ -81,20 +81,20 @@ class TestListSavedFiles:
         data = resp.json()
         assert isinstance(data, list)
         filenames = [f["filename"] for f in data]
-        assert "test_list.xlsx" in filenames
+        assert "unit_list.xlsx" in filenames
 
     def test_file_has_required_fields(self, client, sample_excel_bytes, db_session):
         from app.models import IndicatorValue, Hospital
         h = db_session.query(Hospital).first()
         db_session.add(IndicatorValue(
             hospital_id=h.id, indicator_id=1, month="2026-02",
-            value=20.0, source_file="test_fields.xlsx",
+            value=20.0, source_file="unit_fields.xlsx",
         ))
         db_session.commit()
 
         resp = client.get("/analysis/saved-files")
         data = resp.json()
-        matching = [f for f in data if f["filename"] == "test_fields.xlsx"]
+        matching = [f for f in data if f["filename"] == "unit_fields.xlsx"]
         assert matching
         f = matching[0]
         assert "filename" in f
@@ -125,11 +125,11 @@ class TestAnalyzeSavedFiles:
 
     def test_with_valid_file(self, client, sample_excel_bytes, db_session):
         os.makedirs(UPLOAD_DIR, exist_ok=True)
-        test_file = os.path.join(UPLOAD_DIR, "test_analyze.xlsx")
+        test_file = os.path.join(UPLOAD_DIR, "unit_analyze.xlsx")
         with open(test_file, "wb") as f:
             f.write(sample_excel_bytes().getvalue())
 
-        resp = client.post("/analysis/analyze-saved?filenames=test_analyze.xlsx")
+        resp = client.post("/analysis/analyze-saved?filenames=unit_analyze.xlsx")
         assert resp.status_code == 200
         data = resp.json()
         assert data["files_processed"] >= 1
@@ -185,7 +185,7 @@ class TestUploadMultiple:
         buf = sample_excel_bytes()
         resp = client.post(
             "/analysis/upload-multiple",
-            files={"files": ("test_upload.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files={"files": ("unit_upload.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -219,7 +219,7 @@ class TestUploadMultipleAnalyze:
         buf = sample_excel_bytes()
         resp = client.post(
             "/analysis/upload-multiple-analyze",
-            files={"files": ("test_ua.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files={"files": ("unit_ua.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -230,7 +230,7 @@ class TestUploadMultipleAnalyze:
         buf = sample_excel_bytes()
         resp = client.post(
             "/analysis/upload-multiple-analyze",
-            files={"files": ("test_tid.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+            files={"files": ("unit_tid.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         )
         data = resp.json()
         assert data["task_id"]
@@ -287,14 +287,19 @@ class TestUpdateSavedFiles:
 
 
 class TestProcessPreview:
+    # NOTE: filenames here must NOT contain test/preview markers and the
+    # organisation rows must be real-sounding — process-preview spawns a
+    # background thread with a REAL SessionLocal(), so anything it processes
+    # can reach production Postgres. A leftover "Test Hospital" file here is
+    # exactly how the phantom hospital kept resurrecting itself.
     def test_process_existing_file(self, client, sample_excel_bytes, db_session):
         os.makedirs(UPLOAD_DIR, exist_ok=True)
-        test_file = os.path.join(UPLOAD_DIR, "preview_test_pt1.xlsx")
+        test_file = os.path.join(UPLOAD_DIR, "unit_preview_pt1.xlsx")
         with open(test_file, "wb") as f:
             f.write(sample_excel_bytes().getvalue())
         assert os.path.exists(test_file), f"File not created: {test_file}"
 
-        resp = client.post("/analysis/process-preview", params={"filename": "preview_test_pt1.xlsx"})
+        resp = client.post("/analysis/process-preview", params={"filename": "unit_preview_pt1.xlsx"})
         assert resp.status_code in (200, 404, 422, 500)
 
         try:
@@ -309,12 +314,12 @@ class TestProcessPreview:
 
     def test_process_returns_quality_reports(self, client, sample_excel_bytes, db_session):
         os.makedirs(UPLOAD_DIR, exist_ok=True)
-        test_file = os.path.join(UPLOAD_DIR, "preview_qr_pt2.xlsx")
+        test_file = os.path.join(UPLOAD_DIR, "unit_qr_pt2.xlsx")
         with open(test_file, "wb") as f:
             f.write(sample_excel_bytes().getvalue())
         assert os.path.exists(test_file), f"File not created: {test_file}"
 
-        resp = client.post("/analysis/process-preview", params={"filename": "preview_qr_pt2.xlsx"})
+        resp = client.post("/analysis/process-preview", params={"filename": "unit_qr_pt2.xlsx"})
         assert resp.status_code in (200, 404, 422, 500)
 
         try:
