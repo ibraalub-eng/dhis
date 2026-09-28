@@ -36,10 +36,23 @@ def test_ge_sibling_covered_when_partial_sum_equals_total():
     assert "4" in covered and "5" in covered
 
 
-def test_ge_sibling_not_covered_when_partial_sum_below_total():
+def test_ge_sibling_covered_when_reported_fit_within_parent():
+    """Containment doctrine (updated): ge/gt rules describe a NON-EXHAUSTIVE
+    subset of the parent. When the reported children fit within the parent,
+    unreported siblings mean "no activity in that category" — not missing
+    data. (60 cases of live births breakdown + 40 unreported = the parent's
+    100 is still consistent with the children that exist.)"""
     ctx = _ctx({"2": 100.0, "3": 60.0})
     covered = get_covered_child_codes(ctx)
-    assert "4" not in covered
+    assert "4" in covered and "5" in covered
+
+
+def test_ge_overflow_leaves_siblings_uncovered():
+    """When the reported children EXCEED the parent, the rule cannot reconcile
+    and the missing siblings may be exactly the missing pieces — stay flagged."""
+    ctx = _ctx({"2": 100.0, "3": 140.0})
+    covered = get_covered_child_codes(ctx)
+    assert "4" not in covered and "5" not in covered
 
 
 def test_parent_missing_means_no_coverage():

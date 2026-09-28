@@ -544,7 +544,9 @@ def _iter_sum_rules(session: Session = None):
             db_rules = []
         if db_rules:
             for rule in db_rules:
-                if rule.expression_type not in ("ge", "eq", "le_sum"):
+                # gt/ge_factor are containment sums too (e.g. R080: 6 > 6.d+6.f+6.g
+                # — categories within the parent) and drive coverage the same way.
+                if rule.expression_type not in ("ge", "eq", "le_sum", "gt", "ge_factor"):
                     continue
                 params = json.loads(rule.params) if isinstance(rule.params, str) else (rule.params or {})
                 if rule.expression_type == "le_sum":
@@ -562,20 +564,40 @@ def _iter_sum_rules(session: Session = None):
 def compute_covered_codes(values: Dict[str, float], disabled_codes: set, session: Session = None) -> set:
     """Return sibling child *codes* whose absence is already explained by a total.
 
-    For every sum rule (parent == sum of children, parent >= sum of children), when
-    the reported child values already add up to the parent value within tolerance,
-    any unreported sibling is considered "covered" — it should not be flagged as
-    missing nor penalize completeness.
+    Two doctrines, matching how the validation rules themselves treat totals:
+
+    1. **Exhaustive sums (eq / le_sum):** when the reported children already add
+       up to the parent within tolerance, any unreported sibling is "covered" —
+       it should not be flagged as missing nor penalize completeness.
+    2. **Containment sums (gt / ge / ge_factor):** these rules (e.g. R080
+       "6 > 6.d + 6.f + 6.g") define a NON-EXHAUSTIVE subset: the children are
+       categories *within* the parent, and zero/unreported is a legitimate
+       "no activity in that category" answer. When the parent is reported and
+       the children that ARE reported stay within the parent (rule PASSes),
+       unreported siblings are covered — the facility simply had no such cases
+       and total-based checks (like R012's total-covered sweep or the upload
+       sheet) already account for them via the parent total.
+
+    Unreported children of a containment rule are covered ONLY when the
+    reported ones do not overflow the parent — otherwise the missing siblings
+    may be exactly the reason the rule cannot reconcile, and stay flagged.
     """
     tolerance = _RULES_CONFIG.get("eq_tolerance", 0.01)
     covered = set()
     disabled_codes = disabled_codes or set()
-    for _op, parent, children in _iter_sum_rules(session):
+    for op, parent, children in _iter_sum_rules(session):
         pv = values.get(parent)
         if pv is None:
             continue
         cs = sum(values.get(c) or 0 for c in children)
-        if abs(pv - cs) <= tolerance:
+        if op in ("gt", "ge", "ge_factor"):
+            # Containment: reported children must fit within the parent.
+            # _vs/_v treat missing as 0, mirroring the rule execution itself.
+            if cs <= pv + tolerance:
+                for c in children:
+                    if values.get(c) is None and c not in disabled_codes:
+                        covered.add(c)
+        elif abs(pv - cs) <= tolerance:
             for c in children:
                 if values.get(c) is None and c not in disabled_codes:
                     covered.add(c)

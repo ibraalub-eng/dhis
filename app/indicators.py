@@ -17,7 +17,16 @@ def _natural_sort_key(code: str):
 # They are seeded like real indicators so the tree renders, but engines must
 # never treat them as data: no rule-detail resolution, no completeness
 # counting, no audit rows, no upload template or data-entry options.
+#
+# They are also HIDDEN from the indicator tree itself (build_tree_from_db /
+# get_flat_list_from_db): they come from the SRMNH form header, not from the
+# uploaded files — no hospital ever reports them — so showing them as tree
+# nodes confused users into thinking a data indicator was missing.
 SYNTHETIC_INDICATOR_CODES = {"0"}
+
+
+def _is_synthetic_code(code) -> bool:
+    return str(code) in SYNTHETIC_INDICATOR_CODES
 
 
 INDICATOR_TREE = {
@@ -1595,7 +1604,12 @@ def get_all_indicators():
 
 def build_tree_from_db(session):
     from app.models import Indicator
-    indicators = session.query(Indicator).order_by(Indicator.sort_order, Indicator.code).all()
+    # Synthetic labels (code "0") are hidden from every tree view — they are
+    # form-header labels, not data indicators (see SYNTHETIC_INDICATOR_CODES).
+    indicators = [
+        ind for ind in session.query(Indicator).order_by(Indicator.sort_order, Indicator.code).all()
+        if not _is_synthetic_code(ind.code)
+    ]
     ind_map = {ind.id: ind for ind in indicators}
     children_map = {}
     root_ids = []
@@ -1628,7 +1642,12 @@ def build_tree_from_db(session):
 
 def get_flat_list_from_db(session):
     from app.models import Indicator
-    indicators = session.query(Indicator).order_by(Indicator.sort_order, Indicator.code).all()
+    # Hide synthetic labels here too — the flat list feeds tree consumers and
+    # name lookups that must never surface code "0" as an indicator.
+    indicators = [
+        ind for ind in session.query(Indicator).order_by(Indicator.sort_order, Indicator.code).all()
+        if not _is_synthetic_code(ind.code)
+    ]
     ind_map = {ind.id: ind for ind in indicators}
     result = []
     for ind in indicators:
