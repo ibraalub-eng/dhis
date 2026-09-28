@@ -5,7 +5,7 @@ from app.database import get_db
 from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig
 from app.schemas import (
     HospitalIndicatorConfigOut, ConfigToggleOut,
-    IndicatorUpdate, IndicatorOut, IndicatorBase,
+    IndicatorUpdate, IndicatorOut, IndicatorBase, RequirementTypeIn,
 )
 from app.core.deps import require_permission
 
@@ -91,6 +91,19 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
         r for r in db.query(_RI.id, _RI.code).all()
         if r[1] not in _SYN
     ]
+    # Rev 2: Optional indicators are excluded from the denominator entirely
+    # (must match dashboard._recalc_completeness and the pipeline helper —
+    # the three sites must not drift). Defensive or-defaults for rows
+    # predating the column.
+    try:
+        _optional_ids = {
+            r[0] for r in db.query(_RI.id, _RI.requirement_type).all()
+            if (r[1] or "Required") == "Optional"
+        }
+        if _optional_ids:
+            all_ind_rows = [r for r in all_ind_rows if r[0] not in _optional_ids]
+    except Exception:
+        pass
     all_ids = [i for i, _ in all_ind_rows]
     id_to_code = {i: c for i, c in all_ind_rows}
     code_to_id = {c: i for i, c in all_ind_rows}
@@ -659,3 +672,35 @@ def set_indicator_sort_order(
     ind.sort_order = order
     db.commit()
     return {"message": f"Sort order updated to {order}", "indicator_id": indicator_id, "sort_order": order}
+
+
+@router.put("/indicators/{indicator_id}/requirement-type")
+def set_requirement_type(
+    indicator_id: int,
+    body: RequirementTypeIn,
+    db: Session = Depends(get_db),
+):
+    """Set an indicator's completeness requirement type (rev 2).
+
+    'Required' → counts in the completeness denominator (today's behavior).
+    'Optional' → excluded from the denominator entirely — a third legitimate
+    absence reason alongside covered-by-total and disabled, per the
+    Coverage-Disable Doctrine. All three completeness call sites apply the
+    same filter, so the flag takes effect after the standard recalculation.
+    """
+    if body.requirement_type not in ("Required", "Optional"):
+        raise HTTPException(status_code=422, detail="requirement_type must be 'Required' or 'Optional'")
+    ind = db.query(Indicator).filter(Indicator.id == indicator_id).first()
+    if not ind:
+        raise HTTPException(status_code=404, detail="Indicator not found")
+    ind.requirement_type = body.requirement_type
+    db.commit()
+    try:
+        _recalc_all_hospital_scores(db)
+    except Exception:
+        pass
+    return {
+        "indicator_id": indicator_id,
+        "requirement_type": body.requirement_type,
+        "message": f"Indicator '{ind.code}' set to {body.requirement_type}",
+    }

@@ -144,6 +144,48 @@ def get_enabled_values_for_hospital_month(session: Session, hospital_id: int, mo
     return result
 
 
+def get_required_indicator_ids(session, hospital_id, month):
+    """Completeness denominator (indicator-groups design rev 2).
+
+    An indicator counts toward the denominator iff:
+      enabled   — NOT effectively disabled (hospital override > monthly default
+                  > global True), and not auto-disabled (null value / missing
+                  row) when the auto_disable_null_indicators setting is on;
+      required  — Indicator.requirement_type == 'Required' ('Optional' is
+                  excluded from the denominator entirely — doctrine: an
+                  Optional indicator is a third legitimate reason for absence,
+                  alongside covered-by-total and disabled).
+
+    Synthetic form-header labels (SYNTHETIC_INDICATOR_CODES, e.g. code "0")
+    are excluded, as in every completeness path today. The three completeness
+    call sites (pipeline._compute_full_analysis, dashboard._recalc_completeness,
+    indicator_config._recalc_hospital_scores) must all compose through this
+    helper so they cannot drift apart.
+
+    Returns a sorted list of indicator IDs.
+    """
+    from app.indicators import SYNTHETIC_INDICATOR_CODES
+    disabled_ids = set(get_disabled_indicator_ids(session, hospital_id, month))
+    required_ids = [
+        iid for (iid, req) in session.query(Indicator.id, Indicator.requirement_type).all()
+        if iid not in disabled_ids
+        # Defensive (req is None) for rows created before the column had a
+        # value — None behaves as 'Required', preserving pre-feature behavior.
+        and (req or "Required") == "Required"
+    ]
+    # Synthetic codes never have a value row, so they are usually already
+    # disabled/absent — but exclude them explicitly so they can never slip
+    # into the denominator via a stray config row.
+    if SYNTHETIC_INDICATOR_CODES:
+        syn_ids = {
+            r[0] for r in session.query(Indicator.id).filter(
+                Indicator.code.in_(SYNTHETIC_INDICATOR_CODES)
+            ).all()
+        }
+        required_ids = [iid for iid in required_ids if iid not in syn_ids]
+    return sorted(required_ids)
+
+
 def get_disabled_indicator_ids(session, hospital_id, month):
     """Return all indicator IDs that should be considered disabled — manual + auto (null values + missing rows)."""
     manually_disabled = get_effective_manual_disabled_ids(session, hospital_id, month)
@@ -339,9 +381,15 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
             deduped_anomalies.append(a)
     anomaly_results = deduped_anomalies
 
-    total_indicators = session.query(Indicator).count()
-    all_disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
-    active_indicator_count = total_indicators - len(all_disabled_ids)
+    # Rev 2 denominator: enabled ∧ requirement_type=='Required', via the shared
+    # helper. Falls back to the historical total-minus-disabled count if the
+    # helper fails (e.g. requirement_type column not yet migrated).
+    try:
+        active_indicator_count = len(get_required_indicator_ids(session, hospital_id, month))
+    except Exception:
+        total_indicators = session.query(Indicator).count()
+        all_disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
+        active_indicator_count = total_indicators - len(all_disabled_ids)
     from app.config_utils import get_config_dict
     quality_config = get_config_dict(session, "quality")
     covered_codes = get_covered_child_codes(ctx, session)

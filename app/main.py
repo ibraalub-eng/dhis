@@ -39,6 +39,7 @@ from app.api import facility_ownerships as facility_ownerships_api
 from app.api import facility_types as facility_types_api
 from app.api import governorates as governorates_api
 from app.api import hospital_types as hospital_types_api
+from app.api import indicator_groups as indicator_groups_router
 from app.api import menu as menu_router
 from app.api import regional as regional_router
 from app.api import rules as rules_api
@@ -656,6 +657,17 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 print(f"[startup] Admin user setup error (non-fatal): {e}")
 
+            # Backfill menu items for tabs added to the registry after this
+            # database was first initialized (the full seed only runs on an
+            # empty menu table). seed_menu is idempotent — a no-op when
+            # nothing is missing — so this is safe on every startup.
+            try:
+                backfilled = seed_menu(session)
+                if backfilled:
+                    print(f"[startup] Menu backfilled: {', '.join(backfilled)}")
+            except Exception as e:
+                print(f"[startup] Menu backfill error (non-fatal): {e}")
+
             # Apply hospital metadata (OrgUnit ID, Ownership, Governorate, Type)
             # from scripts/hospital_metadata.json - safe to run every startup.
             try:
@@ -725,6 +737,8 @@ app.middleware("http")(monitoring_middleware)
 app.include_router(upload.router)
 app.include_router(hospitals.router)
 app.include_router(indicator_config.router)
+app.include_router(indicator_groups_router.router)
+app.include_router(indicator_groups_router.router)
 app.include_router(tree_config.router)
 app.include_router(reports.router)
 app.include_router(analysis.router)

@@ -128,6 +128,70 @@ class IndicatorUpdate(BaseModel):
     default_weight: Optional[float] = None
 
 
+class IndicatorGroupCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    scope_type: str = "all"  # "all" | "hospital"
+    hospital_id: Optional[int] = None
+    month_from: Optional[str] = None  # YYYY-MM, inclusive — applied only for scope "all"
+    month_to: Optional[str] = None
+    indicator_ids: List[int] = []
+
+
+class IndicatorGroupUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    scope_type: Optional[str] = None
+    hospital_id: Optional[int] = None
+    month_from: Optional[str] = None
+    month_to: Optional[str] = None
+
+
+class IndicatorGroupMemberOut(BaseModel):
+    indicator_id: int
+    indicator_code: str = ""
+    indicator_name: str = ""
+    sort_order: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class IndicatorGroupOut(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    scope_type: str
+    hospital_id: Optional[int] = None
+    hospital_name: Optional[str] = None
+    month_from: Optional[str] = None
+    month_to: Optional[str] = None
+    member_count: int = 0
+    members: List[IndicatorGroupMemberOut] = []
+    # Derived from member config rows (rev 2: no stored is_enabled flag) —
+    # stays correct after single-indicator edits outside the group.
+    is_enabled: bool = True
+
+
+class IndicatorGroupToggleIn(BaseModel):
+    """Explicit target state — idempotent, unlike the flip semantics of the
+    single-indicator toggle endpoints."""
+    enabled: bool
+
+
+class IndicatorGroupMembersIn(BaseModel):
+    indicator_ids: List[int]
+
+
+class IndicatorReorderIn(BaseModel):
+    items: List[dict]
+
+
+class RequirementTypeIn(BaseModel):
+    """Body for PUT /hospitals/indicators/{id}/requirement-type."""
+    requirement_type: str  # "Required" | "Optional"
+
+
 class HospitalIndicatorConfigOut(BaseModel):
     id: int
     hospital_id: int

@@ -48,6 +48,18 @@ def _recalc_completeness(db, scores):
             (i, c) for i, c in db.query(_RI.id, _RI.code).all()
             if c not in _SYN
         ]
+        # Rev 2: Optional indicators are excluded from the denominator entirely
+        # (doctrine: a third legitimate absence reason alongside covered and
+        # disabled). Defensive or-defaults for rows predating the column.
+        try:
+            optional_ids = {
+                r[0] for r in db.query(_RI.id, _RI.requirement_type).all()
+                if (r[1] or "Required") == "Optional"
+            }
+        except Exception:
+            optional_ids = set()
+        if optional_ids:
+            all_ind = [(i, c) for i, c in all_ind if i not in optional_ids]
         all_ids = [i for i, _ in all_ind]
         id_to_code = dict(all_ind)
         code_to_id = {c: i for i, c in all_ind}

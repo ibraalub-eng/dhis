@@ -96,6 +96,12 @@ class Indicator(Base):
     group_name = Column(String(100), nullable=True)
     formula = Column(Text, nullable=True)
     default_weight = Column(Float, default=1.0)
+    # Completeness denominator gate (indicator-groups design rev 2):
+    # 'Required' counts in the denominator, 'Optional' is excluded entirely.
+    # server_default keeps the column safe for the startup
+    # _ensure_required_columns() self-heal path; the backfill is 'Required'
+    # so existing scores are preserved exactly.
+    requirement_type = Column(String(10), nullable=False, server_default="Required", default="Required")
 
     parent = relationship("Indicator", remote_side=[id], backref="children")
     values = relationship("IndicatorValue", back_populates="indicator")
@@ -135,6 +141,56 @@ class IndicatorDefaultConfig(Base):
 
     __table_args__ = (
         UniqueConstraint("indicator_id", "month", name="uq_indicator_default_month"),
+    )
+
+
+class IndicatorGroup(Base):
+    """Named set of indicators toggled together as a bulk-action macro.
+
+    The group is NEVER consulted at runtime: toggling it upserts
+    IndicatorDefaultConfig (scope='all') or HospitalIndicatorConfig
+    (scope='hospital') rows for its members, and those config rows — not this
+    table — are what the engines read (design rev 2). There is deliberately no
+    stored is_enabled flag: the list view derives it from member config rows
+    so it stays correct after single-indicator edits.
+
+    month_from/month_to only ever APPLY when scope_type='all':
+    HospitalIndicatorConfig has no month column, so a hospital-scoped override
+    is month-agnostic by design (toggling a hospital group with a stored range
+    is rejected with 422 — see the router).
+    """
+    __tablename__ = "indicator_groups"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    scope_type = Column(String(20), nullable=False, default="all")  # 'all' | 'hospital'
+    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=True, index=True)
+    # Inclusive YYYY-MM range — saved for all scopes, applied only for 'all'.
+    month_from = Column(String(7), nullable=True)
+    month_to = Column(String(7), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    hospital = relationship("Hospital")
+    members = relationship(
+        "IndicatorGroupMember", back_populates="group",
+        cascade="all, delete-orphan", order_by="IndicatorGroupMember.sort_order",
+    )
+
+
+class IndicatorGroupMember(Base):
+    __tablename__ = "indicator_group_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    group_id = Column(Integer, ForeignKey("indicator_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    indicator_id = Column(Integer, ForeignKey("indicators.id", ondelete="CASCADE"), nullable=False, index=True)
+    sort_order = Column(Integer, default=0)
+
+    group = relationship("IndicatorGroup", back_populates="members")
+    indicator = relationship("Indicator")
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "indicator_id", name="uq_group_indicator"),
     )
 
 
