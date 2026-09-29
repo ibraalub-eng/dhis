@@ -19,11 +19,65 @@ from app.core.deps import require_permission, get_user_hospital_ids
 # module excludes them with this correlated EXISTS (the (hospital, month) has
 # indicator values, which only real analysis runs produce).
 def _analyzed_exists(db, model):
+    # "Analyzed" means the month has at least one NON-NULL value: a hospital
+    # whose upload produced header-only NULL rows (e.g. a form template was
+    # seeded but never filled) has no analyzed data, and its QualityScore row
+    # (a 15.0 formula floor) must not drag its scorecard average or trend.
     from app.models import IndicatorValue as _IV
     return db.query(_IV.id).filter(
         _IV.hospital_id == model.hospital_id,
         _IV.month == model.month,
+        _IV.value.isnot(None),
     ).exists()
+
+
+def _disabled_pairs(db):
+    """Set of (hospital_id, month) pairs whose month was explicitly disabled
+    for that hospital (month_enabled_<hid>_<YYYY-MM> = false). A disabled
+    month leaves the hospital's KPI aggregates ENTIRELY — score, completeness,
+    compliance, consistency, confidence — in per-hospital AND network-wide
+    views (the old intersection-only rule only handled network-wide months
+    and ignored per-hospital disables when any month filter was set).
+    """
+    from app.models import SystemSetting
+    from app.api.config_api import MONTH_SETTINGS_PREFIX
+    rows = db.query(SystemSetting).filter(
+        SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
+    ).all()
+    out = set()
+    for row in rows:
+        if row.value != "false":
+            continue
+        rest = row.key[len(MONTH_SETTINGS_PREFIX):]
+        hid_str, _, m = rest.partition("_")
+        if hid_str.isdigit() and m:
+            out.add((int(hid_str), m))
+    return out
+
+
+def _exclude_disabled(db, q, model, hospital_id=None):
+    """Apply the disabled-(hospital, month) exclusion to a QualityScore (or
+    ConfidenceScore) query. Cheap no-op when nothing is disabled."""
+    pairs = _disabled_pairs(db)
+    if not pairs:
+        return q
+    if hospital_id is not None:
+        months = {m for (hid, m) in pairs if hid == hospital_id}
+        if months:
+            q = q.filter(~model.month.in_(months))
+        return q
+    from sqlalchemy import and_, or_
+    by_hosp: dict = {}
+    for hid, m in pairs:
+        by_hosp.setdefault(hid, set()).add(m)
+    # One condition per hospital THAT HAS disabled months; every other
+    # hospital must pass through untouched — a `NOT IN ()` over an empty
+    # list evaluates FALSE in SQL and would silently drop whole hospitals.
+    conds = [
+        or_(model.hospital_id != hid, ~model.month.in_(months))
+        for hid, months in by_hosp.items()
+    ]
+    return q.filter(and_(*conds)) if conds else q
 
 
 # ── Shared helper: recalculate completeness (batch-optimized) ──
@@ -233,6 +287,7 @@ def dashboard_overview(
     radar_row = radar_q.first()
     # Recalculate radar completeness with current disabled indicators
     _radar_q = db.query(QualityScore)
+    _radar_q = _exclude_disabled(db, _radar_q, QualityScore, hospital_id=hospital_id)
     if hospital_id:
         _radar_q = _radar_q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -347,6 +402,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     base = db.query(QualityScore).filter(
         _analyzed_exists(db, QualityScore)
     )
+    base = _exclude_disabled(db, base, QualityScore, hospital_id=hospital_id)
     if hospital_id:
         base = base.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -433,6 +489,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             # bounds, so filtering it again would intersect two disjoint
             # windows and always yield an empty (0.0) previous period.
             pq = db.query(QualityScore).filter(_analyzed_exists(db, QualityScore))
+            pq = _exclude_disabled(db, pq, QualityScore, hospital_id=hospital_id)
             if hospital_id:
                 pq = pq.filter(QualityScore.hospital_id == hospital_id)
             pq = pq.filter(QualityScore.month >= lo, QualityScore.month <= hi)
@@ -486,6 +543,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             _analyzed_exists(db, QualityScore),
             QualityScore.hospital_id != hospital_id,
         )
+        net = _exclude_disabled(db, net, QualityScore)
         if month_from:
             net = net.filter(QualityScore.month >= month_from)
         if month_to:
@@ -530,7 +588,26 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             if nv is not None:
                 k["network_value"] = nv
 
-    return {"kpis": kpis, "data_epoch": get_data_epoch(), "prev_period": prev_delta}
+    # Disabled-months transparency: when a hospital is selected, list the
+    # months excluded from these very aggregates (after the user's month
+    # filters), so the badge on the cards can never claim an exclusion that
+    # did not apply here.
+    disabled_months_meta = None
+    if hospital_id:
+        _all_dis = {m for (hid, m) in _disabled_pairs(db) if hid == hospital_id}
+        if _all_dis:
+            _in_window = [m for m in sorted(_all_dis)
+                          if ((month_from and m >= month_from) or (month_to and m <= month_to)
+                              or (month and m == month) or (year and m.startswith(str(year)))
+                              or not (month_from or month_to or month or year))]
+            if _in_window:
+                disabled_months_meta = {
+                    "months": _in_window,
+                    "hint": "These months are switched off for this hospital and are not counted in any KPI below.",
+                }
+
+    return {"kpis": kpis, "data_epoch": get_data_epoch(), "prev_period": prev_delta,
+            "disabled_months": disabled_months_meta}
 
 
 @router.get("/attention")
@@ -774,6 +851,7 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
             QualityScore.hospital_id == h.id,
             _analyzed_exists(db, QualityScore),
         )
+        q = _exclude_disabled(db, q, QualityScore, hospital_id=h.id)
         if month_from:
             q = q.filter(QualityScore.month >= month_from)
         if month_to:
@@ -861,7 +939,9 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
     scores = db.query(QualityScore).filter(
         QualityScore.hospital_id == hospital_id,
         _analyzed_exists(db, QualityScore),
-    ).order_by(QualityScore.month.asc()).all()
+    )
+    scores = _exclude_disabled(db, scores, QualityScore, hospital_id=hospital_id)
+    scores = scores.order_by(QualityScore.month.asc()).all()
 
     quality_trend = [{"month": s.month, "score": round(s.score, 1)} for s in scores]
     avg_score = round(sum(s.score for s in scores) / len(scores), 1) if scores else 0

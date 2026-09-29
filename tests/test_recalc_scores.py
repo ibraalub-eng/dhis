@@ -1058,6 +1058,62 @@ def test_group_toggle_recalc_matches_engine_formula(db_session):
     )
 
 
+def test_disabled_month_excluded_from_kpi_entirely(db_session, client):
+    """Disabling a month for a hospital (month_enabled_<hid>_<month> = false)
+    must remove that month from the hospital's KPI aggregates ENTIRELY —
+    score AND completeness — in per-hospital AND network-wide views."""
+    from app.models import QualityScore, SystemSetting, IndicatorValue
+    month = "2027-11"
+    _insert_indicator_value(db_session, 1, month, "2", 100)
+    _insert_indicator_value(db_session, 1, month, "2.a", 60)
+    db_session.add(QualityScore(hospital_id=1, month=month, score=40.0,
+                                completeness=50.0, rule_compliance=40.0,
+                                consistency=40.0))
+    # A control hospital/month so network averages have a second row.
+    _insert_indicator_value(db_session, 2, month, "2", 100)
+    db_session.add(QualityScore(hospital_id=2, month=month, score=90.0,
+                                completeness=90.0, rule_compliance=90.0,
+                                consistency=90.0))
+    db_session.commit()
+
+    # Before disable: both rows count.
+    k = {x["id"]: x["value"] for x in client.get("/dashboard/kpi").json()["kpis"]}
+    assert k["quality_score"] == 65.0  # (40+90)/2
+    kh = {x["id"]: x["value"] for x in client.get("/dashboard/kpi", params={"hospital_id": 1}).json()["kpis"]}
+    assert kh["quality_score"] == 40.0
+    # completeness is recalculated live from values (not the stored 50) —
+    # just record it to compare against the post-disable state.
+    kh_cp_before = kh["completeness"]
+
+    # Disable the month for hospital 1 → it must vanish from every aggregate.
+    db_session.add(SystemSetting(key=f"month_enabled_1_{month}", value="false"))
+    db_session.commit()
+
+    k = {x["id"]: x["value"] for x in client.get("/dashboard/kpi").json()["kpis"]}
+    # score: hospital-1's disabled 40.0 row must not count → network avg = 90.0.
+    # completeness: recomputed LIVE per remaining row (hospital 2 only), so it
+    # equals hospital 2's own live recalc — not the stored 90.
+    kh2 = {x["id"]: x["value"] for x in client.get("/dashboard/kpi", params={"hospital_id": 2}).json()["kpis"]}
+    assert k["quality_score"] == 90.0
+    assert k["completeness"] == kh2["completeness"]
+    # Per-hospital: the disabled month is gone entirely — no score rows left.
+    kh = {x["id"]: x["value"] for x in client.get("/dashboard/kpi", params={"hospital_id": 1}).json()["kpis"]}
+    assert kh["quality_score"] == 0.0 and kh["completeness"] == 0.0
+    assert kh_cp_before >= 0  # sanity: the before-state was populated
+    # Ranking: hospital 1's only month is disabled → it drops out entirely;
+    # hospital 2 remains with its 90.0.
+    rk_rows = client.get("/dashboard/ranking").json()
+    assert all(r["id"] != 1 for r in rk_rows)
+    rk2 = next(r for r in rk_rows if r["id"] == 2)
+    assert rk2["avg_score"] == 90.0
+    # Disabled-months badge metadata rides on the KPI response.
+    meta = client.get("/dashboard/kpi", params={"hospital_id": 1}).json()["disabled_months"]
+    assert meta is not None and meta["months"] == [month]
+    assert "not counted" in meta["hint"]
+    # Hospital 2 has nothing disabled → no badge metadata.
+    assert client.get("/dashboard/kpi", params={"hospital_id": 2}).json()["disabled_months"] is None
+
+
 def test_optional_indicator_fill_does_not_inflate_completeness(db_session):
     """An Optional indicator WITH a value counts in the numerator (engine
     doctrine, capped at 100%) but never in the denominator — all sites must

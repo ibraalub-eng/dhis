@@ -1460,6 +1460,21 @@ function loadHospitalsSettings() {
             if (yr) url += 'year=' + yr;
             apiGet(url).then(data => {
                 const container = document.getElementById('dashKpiCards');
+                // Disabled-months badge: when the selected hospital has months
+                // switched off, say so ABOVE the cards (the numbers below are
+                // computed WITHOUT those months) and list them on hover.
+                var _badgeEl = document.getElementById('dashDisabledMonthsBadge');
+                if (_badgeEl) _badgeEl.remove();
+                var dm = data.disabled_months;
+                if (dm && dm.months && dm.months.length && hid) {
+                    var _badge = document.createElement('div');
+                    _badge.id = 'dashDisabledMonthsBadge';
+                    _badge.style.cssText = 'margin:0 0 0.5rem;display:inline-flex;align-items:center;gap:0.4rem;font-size:0.72rem;color:var(--accent-orange);background:var(--severity-warning-bg);border:1px solid var(--accent-orange);border-radius:8px;padding:0.2rem 0.6rem;cursor:help;';
+                    _badge.innerHTML = '⏸ ' + esc(__('Disabled months')) + ': <strong dir="ltr">' + esc(dm.months.join(', ')) + '</strong> — ' +
+                        '<span style="color:var(--text-secondary);">' + esc(__(dm.hint || 'not counted in the KPIs below')) + '</span>';
+                    _badge.title = dm.months.join(', ');  // native hover tooltip
+                    container.parentNode.insertBefore(_badge, container);
+                }
                 container.innerHTML = (data.kpis || []).map(k => {
                     const hasTarget = k.target != null;
                     const pct = hasTarget ? Math.min(k.value / k.target, 1) : 0.5;
