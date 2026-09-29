@@ -340,7 +340,10 @@ def group_impact(
     would change, how many config rows the toggle would write, which enabled
     rules reference the changing indicators, and the completeness-denominator
     effect. Quality scores are NOT recomputed here; the 'after' denominators
-    are derived arithmetically from the same state maps the recalc uses.
+    are derived arithmetically from the same state maps the recalc uses,
+    including requirement_type exclusion (Optional members never count) and
+    the auto_disable_null_indicators setting (null/missing rows are already
+    outside the denominator, so config-disabling them predicts zero change).
     """
     group = db.query(IndicatorGroup).filter(IndicatorGroup.id == group_id).first()
     if not group:
@@ -418,14 +421,47 @@ def group_impact(
         return True
 
     # Effective-state changes per hospital, and default-row writes per month.
+    # Denominator math mirrors pipeline.get_required_indicator_ids exactly:
+    # a member counts iff its effective state is enabled AND it is Required —
+    # and when auto_disable_null_indicators is on, it must also have a
+    # non-null value row at the sampled month (null/missing rows are
+    # auto-disabled already, so config-disabling them predicts zero change).
     changing_codes = set()
     config_rows_to_write = 0
     affected_hospitals = set()
     hospital_deltas = {}  # hid -> [denom_before, denom_after]
+
+    from app.engine.pipeline import _is_auto_disable_null, get_required_indicator_ids
+    auto_disable_null = _is_auto_disable_null(db)
+    req_by_id = {
+        m.indicator_id: (ind.requirement_type or "Required")
+        for m, ind in member_rows
+    }
+    nonnull_rows = set()  # (hid, iid) with a non-null value row at the sample month
+    if auto_disable_null and sample_month:
+        for hid, iid in (
+            db.query(IndicatorValue.hospital_id, IndicatorValue.indicator_id)
+            .filter(
+                IndicatorValue.hospital_id.in_(hid_list),
+                IndicatorValue.indicator_id.in_(member_ids),
+                IndicatorValue.month == sample_month,
+                IndicatorValue.value.isnot(None),
+            )
+            .all()
+        ):
+            nonnull_rows.add((hid, iid))
+
+    def _in_denominator(hid: int, iid: int, eff_enabled: bool) -> bool:
+        if not eff_enabled:
+            return False
+        if req_by_id.get(iid, "Required") != "Required":
+            return False
+        if auto_disable_null:
+            return (hid, iid) in nonnull_rows
+        return True
+
     for h in hospitals:
         before_cnt = after_cnt = None
-        from app.engine.pipeline import get_required_indicator_ids
-        before_cnt = None
         try:
             if sample_month:
                 before_cnt = len(get_required_indicator_ids(db, h.id, sample_month))
@@ -433,29 +469,33 @@ def group_impact(
             before_cnt = None
         after_cnt = before_cnt
         for iid in member_ids:
+            has_override = (h.id, iid) in override_state
             if group.scope_type == "hospital":
                 before = _state_before(h.id, iid, None)
-                if before != target:
+                after = target
+                if before != after:
                     config_rows_to_write += 1
                     affected_hospitals.add(h.id)
                     changing_codes.add(code_by_id[iid])
             else:
-                for month in months:
-                    before = _state_before(h.id, iid, month)
-                    after = target
-                    if before != after:
-                        affected_hospitals.add(h.id)
-                        changing_codes.add(code_by_id[iid])
-                        # A default-row write happens once per (member, month),
-                        # regardless of how many hospitals it affects.
-                        if (iid, month) not in default_state or default_state[(iid, month)] != target:
-                            pass  # counted below, not per hospital
-                    # Denominator delta for the sampled month only.
-                    if month == sample_month and before_cnt is not None:
-                        if before and not after:
-                            after_cnt -= 1
-                        elif not before and after:
-                            after_cnt += 1
+                # Effective state after the toggle = target, unless this
+                # hospital holds an override row: overrides outrank the
+                # defaults the toggle writes, so they shield the member.
+                state_changes = (
+                    not has_override
+                    and any(_state_before(h.id, iid, m) != target for m in months)
+                )
+                if state_changes:
+                    affected_hospitals.add(h.id)
+                    changing_codes.add(code_by_id[iid])
+            if before_cnt is not None:
+                # Denominator delta at the sampled month only.
+                before_eff = _state_before(h.id, iid, sample_month if group.scope_type == "all" else None)
+                after_eff = before_eff if (group.scope_type == "all" and has_override) else target
+                b_in = _in_denominator(h.id, iid, before_eff)
+                a_in = _in_denominator(h.id, iid, after_eff)
+                if b_in != a_in:
+                    after_cnt += 1 if a_in else -1
         if before_cnt is not None:
             hospital_deltas[h.id] = [before_cnt, after_cnt]
     if group.scope_type == "all":

@@ -2622,6 +2622,32 @@ function loadHospitalsSettings() {
             if (scorecardRatesInstance) { scorecardRatesInstance.destroy(); scorecardRatesInstance = null; }
         }
 
+        // Re-sync stored QualityScore rows with the shared rev-2 formula
+        // (POST /dashboard/recalculate-completeness), then redraw the
+        // dashboard so the KPI cards reflect the refreshed rows.
+        export async function recalcDashboard(btn) {
+            const orig = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ ' + __('Recalculating…'); }
+            try {
+                const confirmed = await confirmWarning({
+                    title: __('Recalculate all stored scores') + '?',
+                    message: __('Completeness and quality scores are recomputed for every hospital and month from current config (disabled indicators, Optional, covered-by-total).'),
+                    details: __('Raw values and rule results are not touched.'),
+                    okLabel: __('Recalculate')
+                });
+                if (!confirmed) return;
+                const res = await apiPost('/dashboard/recalculate-completeness');
+                toastSuccess(__('Recalculated {n} of {t} score rows')
+                    .replace('{n}', (res && res.updated) || 0).replace('{t}', (res && res.total) || 0));
+                clearApiCache();
+                loadDashboard();
+            } catch (e) {
+                toastError(e && e.message ? e.message : __('Recalculation failed'));
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+            }
+        }
+
         export function loadDashboard() {
             const hsel = document.getElementById('dashHospital');
             if (!hsel) return; // dashboard tab not loaded

@@ -9,6 +9,10 @@ Covers the acceptance criteria that live in the backend:
   * requirement_type exclusion from the completeness denominator at the
     dashboard recalc and per-hospital recalc call sites
   * idempotent toggling
+  * impact preview denominator math: predicted before/after denominators
+    must equal what a REAL toggle produces (requirement_type, the
+    auto_disable_null_indicators setting, and hospital-override shielding
+    all accounted for)
 """
 import pytest
 from fastapi.testclient import TestClient
@@ -382,3 +386,142 @@ class TestRequirementType:
         db_session.commit()
         required = get_required_indicator_ids(db_session, hospital_id=1, month="2027-11")
         assert missing in required
+
+
+class TestImpactPreviewDenominatorMath:
+    """Regression: the impact preview's predicted denominators must equal what
+    a REAL toggle produces. The first cut of the preview ignored requirement_type
+    and the auto_disable_null_indicators setting, so it predicted a −4/hospital
+    completeness drop for a disable whose real effect was +4.
+    """
+
+    def _preview_completeness(self, client, gid, enabled, hospital_id=None):
+        url = f"/indicator-groups/{gid}/impact?enabled={'true' if enabled else 'false'}"
+        if hospital_id is not None:
+            url += f"&hospital_id={hospital_id}"
+        return client.get(url).json()["completeness"]
+
+    def _real_denominator(self, db, hospital_id, month):
+        from app.engine.pipeline import get_required_indicator_ids
+        return len(get_required_indicator_ids(db, hospital_id, month))
+
+    def test_disable_prediction_matches_real_toggle(self, client, db_session):
+        """Plain Required members, auto-disable OFF: before/after predicted == real."""
+        ids = [_iid(db_session, c) for c in ("10", "11")]
+        db_session.add(IndicatorValue(hospital_id=1, indicator_id=ids[0], month="2027-01", value=5))
+        db_session.commit()
+        gid = client.post("/indicator-groups", json={
+            "name": "PlainDisable", "scope_type": "all",
+            "indicator_ids": ids,
+        }).json()["id"]
+
+        real_before = self._real_denominator(db_session, 1, "2027-01")
+        comp = self._preview_completeness(client, gid, False, hospital_id=1)
+        assert comp["per_hospital"][0]["hospital_id"] == 1
+        assert comp["per_hospital"][0]["before"] == real_before
+        assert comp["per_hospital"][0]["after"] == real_before - 2
+
+        client.put(f"/indicator-groups/{gid}/toggle", json={"enabled": False})
+        real_after = self._real_denominator(db_session, 1, "2027-01")
+        assert comp["per_hospital"][0]["after"] == real_after
+
+    def test_optional_member_never_counts(self, client, db_session):
+        """An Optional member is outside the denominator BEFORE and AFTER the
+        toggle — disabling it must predict zero denominator change."""
+        ids = [_iid(db_session, c) for c in ("10", "11")]
+        db_session.add(IndicatorValue(hospital_id=1, indicator_id=ids[0], month="2027-05", value=5))
+        db_session.query(Indicator).filter(Indicator.id == ids[1]).update(
+            {"requirement_type": "Optional"}, synchronize_session=False)
+        db_session.commit()
+        gid = client.post("/indicator-groups", json={
+            "name": "OptionalMember", "scope_type": "all",
+            "indicator_ids": ids,
+        }).json()["id"]
+
+        real_before = self._real_denominator(db_session, 1, "2027-05")
+        comp = self._preview_completeness(client, gid, False, hospital_id=1)
+        assert comp["per_hospital"][0]["before"] == real_before
+        # Only member 10 leaves the denominator — the Optional member was
+        # never in it, so it contributes no delta.
+        assert comp["per_hospital"][0]["after"] == real_before - 1
+
+        client.put(f"/indicator-groups/{gid}/toggle", json={"enabled": False})
+        assert self._real_denominator(db_session, 1, "2027-05") == real_before - 1
+        assert comp["per_hospital"][0]["after"] == self._real_denominator(db_session, 1, "2027-05")
+
+    def test_auto_disable_null_means_null_members_predict_zero_change(self, client, db_session):
+        """With auto_disable_null_indicators ON, a null-row member and a
+        no-row member are ALREADY outside the denominator — the preview must
+        predict zero change (the live miss this regression pins down)."""
+        from app.models import SystemSetting
+        db_session.add(SystemSetting(key="auto_disable_null_indicators", value="true"))
+        ids = [_iid(db_session, c) for c in ("10", "11")]
+        # Hospital 1 @ 2027-02: member 10 has a NULL row, member 11 has NO row.
+        db_session.add(IndicatorValue(hospital_id=1, indicator_id=ids[0], month="2027-02", value=None))
+        for ind in db_session.query(Indicator).all():
+            if ind.id in ids:
+                continue
+            db_session.add(IndicatorValue(hospital_id=1, indicator_id=ind.id, month="2027-02", value=5))
+        db_session.commit()
+        gid = client.post("/indicator-groups", json={
+            "name": "AutoNull", "scope_type": "all",
+            "indicator_ids": ids,
+        }).json()["id"]
+
+        real_before = self._real_denominator(db_session, 1, "2027-02")
+        comp = self._preview_completeness(client, gid, False, hospital_id=1)
+        assert comp["per_hospital"][0]["before"] == real_before
+        assert comp["per_hospital"][0]["after"] == real_before  # zero predicted change
+
+        client.put(f"/indicator-groups/{gid}/toggle", json={"enabled": False})
+        real_after = self._real_denominator(db_session, 1, "2027-02")
+        assert real_after == real_before
+        assert comp["per_hospital"][0]["after"] == real_after
+
+    def test_hospital_override_shields_member_from_default_toggle(self, client, db_session):
+        """A hospital override outranks the defaults a scope-'all' toggle writes:
+        the overridden member must not change that hospital's denominator."""
+        ids = [_iid(db_session, c) for c in ("10", "11")]
+        db_session.add(IndicatorValue(hospital_id=1, indicator_id=ids[0], month="2027-03", value=5))
+        db_session.add(HospitalIndicatorConfig(hospital_id=1, indicator_id=ids[0], is_enabled=False))
+        db_session.commit()
+        gid = client.post("/indicator-groups", json={
+            "name": "Shielded", "scope_type": "all",
+            "indicator_ids": ids,
+        }).json()["id"]
+
+        real_before = self._real_denominator(db_session, 1, "2027-03")
+        comp = self._preview_completeness(client, gid, False, hospital_id=1)
+        # Only member 11 can change for hospital 1 — the override pins 10 off.
+        assert comp["per_hospital"][0]["before"] == real_before
+        assert comp["per_hospital"][0]["after"] == real_before - 1
+
+        client.put(f"/indicator-groups/{gid}/toggle", json={"enabled": False})
+        real_after = self._real_denominator(db_session, 1, "2027-03")
+        assert real_after == real_before - 1
+        assert comp["per_hospital"][0]["after"] == real_after
+
+    def test_hospital_scope_prediction_matches_real_toggle(self, client, db_session):
+        """Hospital-scope groups: month-agnostic override rows, latest month sampled."""
+        iid16 = _iid(db_session, "16")
+        db_session.add(IndicatorValue(hospital_id=2, indicator_id=iid16, month="2027-04", value=5))
+        db_session.commit()
+        gid = client.post("/indicator-groups", json={
+            "name": "HospScope", "scope_type": "hospital", "hospital_id": 1,
+            "indicator_ids": [iid16],
+        }).json()["id"]
+
+        real_before = self._real_denominator(db_session, 1, "2027-04")
+        comp = self._preview_completeness(client, gid, False)
+        assert comp["per_hospital"][0]["before"] == real_before
+        assert comp["per_hospital"][0]["after"] == real_before - 1
+
+        client.put(f"/indicator-groups/{gid}/toggle", json={"enabled": False})
+        real_after = self._real_denominator(db_session, 1, "2027-04")
+        assert real_after == real_before - 1
+        assert comp["per_hospital"][0]["after"] == real_after
+        row = db_session.query(HospitalIndicatorConfig).filter(
+            HospitalIndicatorConfig.hospital_id == 1,
+            HospitalIndicatorConfig.indicator_id == iid16,
+        ).first()
+        assert row is not None and row.is_enabled is False

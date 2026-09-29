@@ -40,22 +40,37 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
     missing_count = 0
     present_count = 0
     covered_count = 0
+    optional_count = 0
     for ind in visible_indicators:
         code = ind.code
         val_row = next((v for v in values_q if v.indicator_id == ind.id), None)
         is_present = val_row is not None and val_row.value is not None
-        is_covered = (not is_present) and code in covered_codes
+        # Rev 2: an Optional indicator is a third legitimate absence reason.
+        # It keeps its own audit row (data transparency) and its fill still
+        # shows up, but its absence is 'optional', NOT 'missing' — it does
+        # not penalize the hospital and is excluded from completeness
+        # denominators everywhere else.
+        is_optional = (not is_present) and (ind.requirement_type or "Required") == "Optional"
         if is_present:
             present_count += 1
-        elif is_covered:
-            covered_count += 1
+        elif is_optional:
+            optional_count += 1
         else:
-            missing_count += 1
+            is_covered = code in covered_codes
+            if is_covered:
+                covered_count += 1
+            else:
+                missing_count += 1
         completeness.append({
             "indicator_code": code,
             "indicator_name": ind.name,
             "value": val_row.value if val_row else None,
-            "status": "present" if is_present else ("covered" if is_covered else "missing"),
+            "status": (
+                "present" if is_present
+                else "optional" if is_optional
+                else "covered" if code in covered_codes
+                else "missing"
+            ),
         })
 
     qs = db.query(QualityScore).filter(
@@ -144,6 +159,7 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
             "total": len(visible_indicators),
             "present": present_count,
             "covered": covered_count,
+            "optional": optional_count,
             "missing": missing_count,
             "indicators": completeness,
         },

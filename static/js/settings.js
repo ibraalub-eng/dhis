@@ -45,6 +45,7 @@ export {
     loadRootCause, initRootCause, goRootCause, applyRootCauseContext,
     populateMonthSelect, loadRankingTable, showHospitalScorecard, closeScorecard,
     loadDashboard, initDashboard, loadAllSettings, saveAllSettings, reanalyzeAll,
+    recalcDashboard,
     loadAiSettings, saveAiSettings, onAiProviderChange,
     loadRulesManager, saveRulesManager, EXPR_EXPLANATIONS, exprTypeLabel,
 } from './rules-manager.js';
@@ -72,6 +73,9 @@ function initSystemInfo() {
 }
 window._sysHardReload = function () { location.reload(true); };
 window.initSystemInfo = initSystemInfo;
+// Exported for app.js _bind('initSystemInfo') — window assignment alone is not
+// visible on the module namespace that dynamic import hands to _bind.
+export { initSystemInfo };
 
 // ---- Self Change Password ----
 window.changeSelfPassword = async function() {

@@ -463,10 +463,13 @@ function renderAudit() {
     if (da.completeness) {
         const comp = da.completeness;
         const effectivePresent = comp.present + (comp.covered || 0);
-        const pct = comp.total > 0 ? Math.round(effectivePresent / comp.total * 100) : 0;
+        // Optional absences are legitimate — excluded from the penalty base
+        // (mirrors the rev-2 completeness denominator everywhere else).
+        const penaltyBase = comp.total - (comp.optional || 0);
+        const pct = penaltyBase > 0 ? Math.round(effectivePresent / penaltyBase * 100) : 100;
         const pctColor = pct >= 80 ? 'var(--accent-green)' : pct >= 50 ? 'var(--accent-orange)' : 'var(--accent-red)';
         html += subLabel(__('Completeness') + ' <span style="font-weight:400;">' + pct + '%</span>');
-        html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem;">' + effectivePresent + ' / ' + comp.total + ' ' + __('indicators present (') + (comp.missing || 0) + __(' missing') + ((comp.covered || 0) ? ', ' + comp.covered + __(' covered by parent total') : '') + ')</div>';
+        html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.3rem;">' + effectivePresent + ' / ' + penaltyBase + ' ' + __('indicators present (') + (comp.missing || 0) + __(' missing') + ((comp.covered || 0) ? ', ' + comp.covered + __(' covered by parent total') : '') + ((comp.optional || 0) ? ', ' + comp.optional + __(' optional — not counted') : '') + ')</div>';
 
         const missing = (comp.indicators || []).filter(i => i.status === 'missing');
         if (missing.length) {
@@ -483,6 +486,15 @@ function renderAudit() {
             html += '<summary style="cursor:pointer;color:var(--accent-green);">' + covered.length + ' ' + __('covered by parent total') + '</summary>';
             covered.forEach(i => {
                 html += '<div style="padding:0.1rem 0.5rem;color:var(--text-secondary);">' + esc(i.indicator_code) + ' - ' + esc(i.indicator_name) + '</div>';
+            });
+            html += '</details>';
+        }
+        const optional = (comp.indicators || []).filter(i => i.status === 'optional');
+        if (optional.length) {
+            html += '<details style="margin:0.2rem 0;font-size:0.72rem;">';
+            html += '<summary style="cursor:pointer;color:var(--accent-blue);">' + optional.length + ' ' + __('optional — absence does not penalize the score') + '</summary>';
+            optional.forEach(i => {
+                html += '<div style="padding:0.1rem 0.5rem;color:var(--text-secondary);">' + esc(i.indicator_code) + ' - ' + esc(i.indicator_name) + ' <span style="font-size:0.66rem;color:var(--accent-blue);font-weight:600;">Optional</span></div>';
             });
             html += '</details>';
         }

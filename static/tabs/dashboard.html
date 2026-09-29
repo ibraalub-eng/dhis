@@ -11,6 +11,7 @@
     <input type="month" id="filter-to" style="max-width:180px;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border-default);border-radius:6px;padding:0.3rem 0.5rem;font-size:0.78rem;">
     <button onclick="window.applyDashboardFilter()" class="btn btn-primary" style="font-size:0.78rem;padding:0.3rem 0.7rem;" data-i18n="Apply">تطبيق</button>
     <button onclick="window.resetDashboardFilter()" class="btn btn-secondary" style="font-size:0.78rem;padding:0.3rem 0.7rem;" data-i18n="Reset">إعادة</button>
+    <button onclick="recalcDashboard(this)" class="btn btn-secondary" data-requires="dashboard.write" title="Re-sync stored completeness and scores from current config (disabled indicators, Optional, covered-by-total)" style="font-size:0.78rem;padding:0.3rem 0.7rem;">↻ <span data-i18n="Recalculate">إعادة حساب الدرجات</span></button>
     <span id="dashLoading" class="status-loading hidden" style="padding:0.2rem 0.5rem;font-size:0.8rem;"><span class="spinner"></span> Loading...</span>
 </div>
 

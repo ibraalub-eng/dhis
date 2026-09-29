@@ -84,7 +84,7 @@ def test_audit_excludes_synthetic_ratio_even_when_present(db_session):
     comp, codes = _audit_codes(db_session, h.id, "2026-08")
     assert "0" not in codes
     assert "2" in codes
-    assert comp["total"] == comp["present"] + comp["covered"] + comp["missing"]
+    assert comp["total"] == comp["present"] + comp["covered"] + comp["missing"] + comp.get("optional", 0)
 
 
 def test_audit_excludes_indicators_disabled_in_tree_config(db_session):
@@ -107,7 +107,32 @@ def test_audit_excludes_indicators_disabled_in_tree_config(db_session):
     assert "0" not in codes
     assert "3" not in codes
     assert "2" in codes
-    assert comp["total"] == comp["present"] + comp["covered"] + comp["missing"]
+    assert comp["total"] == comp["present"] + comp["covered"] + comp["missing"] + comp.get("optional", 0)
+
+
+def test_audit_marks_absent_optional_indicator_not_missing(db_session):
+    """Rev 2: an Optional indicator with no value is audited as 'optional',
+    never as 'missing' — its absence is legitimate and must not inflate the
+    missing count (three sites already exclude it from the denominator)."""
+    h = db_session.query(Hospital).first()
+    opt = db_session.query(Indicator).filter(Indicator.code == "16").first()
+    db_session.query(Indicator).filter(Indicator.id == opt.id).update(
+        {"requirement_type": "Optional"}, synchronize_session=False)
+    _add_value(db_session, h, "2", "2026-09", 120)
+    db_session.commit()
+
+    comp, codes = _audit_codes(db_session, h.id, "2026-09")
+    row = next(r for r in comp["indicators"] if r["indicator_code"] == "16")
+    assert row["status"] == "optional"
+    assert comp.get("optional", 0) >= 1
+    # The optional row is outside missing, and the identity holds.
+    assert comp["total"] == comp["present"] + comp["covered"] + comp["missing"] + comp.get("optional", 0)
+    # And a present Optional indicator still audits as present.
+    _add_value(db_session, h, "16", "2026-10", 7)
+    db_session.commit()
+    comp2, _ = _audit_codes(db_session, h.id, "2026-10")
+    row2 = next(r for r in comp2["indicators"] if r["indicator_code"] == "16")
+    assert row2["status"] == "present"
 
 
 # ── Upload template + manual data-entry options ─────────────────────

@@ -81,32 +81,15 @@ def _get_all_descendant_ids(db: Session, indicator_id: int) -> List[int]:
 
 
 def _recalc_hospital_scores(db: Session, hospital_id: int):
-    """Recalculate completeness and overall score for a specific hospital's quality scores."""
-    from app.engine.pipeline import get_disabled_indicator_ids as _gcd
-    from app.models import QualityScore, Indicator as _RI, AppConfig
-    # Exclude synthetic labels (code "0") — they are not required indicators
-    # and must never dilute the completeness of a hospital's scores.
-    from app.indicators import SYNTHETIC_INDICATOR_CODES as _SYN
-    all_ind_rows = [
-        r for r in db.query(_RI.id, _RI.code).all()
-        if r[1] not in _SYN
-    ]
-    # Rev 2: Optional indicators are excluded from the denominator entirely
-    # (must match dashboard._recalc_completeness and the pipeline helper —
-    # the three sites must not drift). Defensive or-defaults for rows
-    # predating the column.
-    try:
-        _optional_ids = {
-            r[0] for r in db.query(_RI.id, _RI.requirement_type).all()
-            if (r[1] or "Required") == "Optional"
-        }
-        if _optional_ids:
-            all_ind_rows = [r for r in all_ind_rows if r[0] not in _optional_ids]
-    except Exception:
-        pass
-    all_ids = [i for i, _ in all_ind_rows]
-    id_to_code = {i: c for i, c in all_ind_rows}
-    code_to_id = {c: i for i, c in all_ind_rows}
+    """Recalculate completeness and overall score for a specific hospital's quality scores.
+
+    Completeness comes from the single shared rev-2 formula
+    (pipeline.compute_hospital_completeness) — identical to what
+    run_full_analysis writes, so toggles can never drift the stored rows
+    away from a fresh analysis.
+    """
+    from app.engine.pipeline import compute_hospital_completeness as _chc
+    from app.models import QualityScore, AppConfig
     scores = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id).all()
     if not scores:
         return
@@ -122,21 +105,7 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
         w_rc, w_cp, w_co, w_op = 0.35, 0.25, 0.25, 0.15
     for s in scores:
         try:
-            dis = set(_gcd(db, s.hospital_id, s.month))
-            from app.engine.quality import compute_covered_codes as _ccc
-            mv_full = db.query(IndicatorValue.indicator_id, IndicatorValue.value).filter(
-                IndicatorValue.hospital_id == s.hospital_id,
-                IndicatorValue.month == s.month,
-            ).all()
-            values = {id_to_code[iid]: val for iid, val in mv_full if iid in id_to_code and val is not None}
-            disabled_codes = {id_to_code[d] for d in dis if d in id_to_code}
-            cov = {code_to_id[c] for c in _ccc(values, disabled_codes, db) if c in code_to_id}
-            en = [iid for iid in all_ids if iid not in dis and iid not in cov]
-            if not en:
-                continue
-            mv = [row for row in mv_full if row[0] in en]
-            filled = sum(1 for iv in mv if iv.value is not None)
-            new_cp = round(filled / len(en) * 100, 1)
+            new_cp = round(_chc(db, s.hospital_id, s.month), 1)
             s.completeness = new_cp
             rc = float(s.rule_compliance or 0) / 100
             cp = new_cp / 100

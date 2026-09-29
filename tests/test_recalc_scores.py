@@ -979,3 +979,105 @@ def test_drilldown_targets_match_kpi_cards(db_session, client):
         assert comp["target"] == kpi_targets[comp["key"]], (
             f"drilldown target for {comp['key']} ({comp['target']}) != KPI card target ({kpi_targets[comp['key']]})"
         )
+
+
+# ── Rev-2 completeness parity: every site must use ONE formula ─────────────
+
+def _engine_style_completeness(db, hospital_id, month):
+    """Reference formula exactly as scoring._calc_completeness computes it
+    inside run_full_analysis: numerator = enabled non-null values (capped),
+    denominator = required(enabled ∧ Required) minus covered-by-total."""
+    from app.engine.pipeline import (
+        get_disabled_indicator_ids,
+        get_enabled_values_for_hospital_month,
+        get_required_indicator_ids,
+    )
+    from app.engine.quality import compute_covered_codes
+    values = get_enabled_values_for_hospital_month(db, hospital_id, month)
+    disabled_ids = get_disabled_indicator_ids(db, hospital_id, month)
+    disabled_codes = {
+        c for (c,) in db.query(Indicator.code)
+        .filter(Indicator.id.in_(disabled_ids)).all()
+    } if disabled_ids else set()
+    covered = compute_covered_codes(values, disabled_codes, db)
+    active = max(1, len(get_required_indicator_ids(db, hospital_id, month)) - len(covered))
+    filled = sum(1 for v in values.values() if v is not None)
+    return min(1.0, filled / active) * 100.0
+
+
+def test_card_helper_matches_engine_formula(db_session):
+    """dashboard._recalc_completeness must reproduce the engine's completeness
+    for every (hospital, month) — covered-by-total included in the numerator,
+    subtracted from the denominator. Regression: the card helper used a
+    different formula and the KPI cards drifted from the stored scores."""
+    from app.api.dashboard import _recalc_completeness
+    from app.engine.pipeline import compute_hospital_completeness
+    from app.models import QualityScore
+    month = "2027-08"
+    # Hospital 1: a sum family (2 = 2.a + 2.b) with the parent filled and one
+    # sibling missing → exercises the covered-by-total path.
+    _insert_indicator_value(db_session, 1, month, "2", 100)
+    _insert_indicator_value(db_session, 1, month, "2.a", 60)
+    _insert_indicator_value(db_session, 1, month, "3", 50)
+    _insert_indicator_value(db_session, 2, month, "2", 40)
+    _insert_indicator_value(db_session, 2, month, "2.a", 40)
+    _insert_indicator_value(db_session, 2, month, "2.b", 0)
+    db_session.add(QualityScore(hospital_id=1, month=month, score=50.0))
+    db_session.add(QualityScore(hospital_id=2, month=month, score=50.0))
+    db_session.commit()
+
+    scores = db_session.query(QualityScore).filter(QualityScore.month == month).all()
+    card_vals = _recalc_completeness(db_session, scores)
+    for s, card in zip(scores, card_vals):
+        engine = _engine_style_completeness(db_session, s.hospital_id, month)
+        assert card == pytest.approx(engine), (
+            f"card completeness for hosp {s.hospital_id} ({card}) != engine formula ({engine})"
+        )
+        assert compute_hospital_completeness(db_session, s.hospital_id, month) == pytest.approx(engine)
+
+
+def test_group_toggle_recalc_matches_engine_formula(db_session):
+    """After a group toggle, _recalc_hospital_scores must write the SAME
+    completeness the engine would compute — not a config-only variant."""
+    from app.api.indicator_config import _recalc_hospital_scores
+    from app.models import QualityScore
+    month = "2027-09"
+    _insert_indicator_value(db_session, 1, month, "2", 100)
+    _insert_indicator_value(db_session, 1, month, "2.a", 60)
+    _insert_indicator_value(db_session, 1, month, "3", 50)
+    db_session.add(QualityScore(hospital_id=1, month=month, score=50.0))
+    db_session.commit()
+
+    _recalc_hospital_scores(db_session, 1)
+    s = db_session.query(QualityScore).filter(
+        QualityScore.hospital_id == 1, QualityScore.month == month
+    ).first()
+    engine = _engine_style_completeness(db_session, 1, month)
+    assert s.completeness == pytest.approx(round(engine, 1)), (
+        f"stored completeness {s.completeness} != engine formula {round(engine, 1)}"
+    )
+
+
+def test_optional_indicator_fill_does_not_inflate_completeness(db_session):
+    """An Optional indicator WITH a value counts in the numerator (engine
+    doctrine, capped at 100%) but never in the denominator — all sites must
+    reproduce this, not exclude the fill."""
+    from app.api.indicator_config import _recalc_hospital_scores
+    from app.models import QualityScore, Indicator, IndicatorValue
+    month = "2027-10"
+    _insert_indicator_value(db_session, 1, month, "2", 100)
+    _insert_indicator_value(db_session, 1, month, "2.a", 60)
+    opt_ind = db_session.query(Indicator).filter(Indicator.code == "16").first()
+    db_session.add(IndicatorValue(
+        hospital_id=1, month=month, indicator_id=opt_ind.id, value=5))
+    db_session.query(Indicator).filter(Indicator.id == opt_ind.id).update(
+        {"requirement_type": "Optional"}, synchronize_session=False)
+    db_session.add(QualityScore(hospital_id=1, month=month, score=50.0))
+    db_session.commit()
+
+    _recalc_hospital_scores(db_session, 1)
+    s = db_session.query(QualityScore).filter(
+        QualityScore.hospital_id == 1, QualityScore.month == month
+    ).first()
+    engine = _engine_style_completeness(db_session, 1, month)
+    assert s.completeness == pytest.approx(round(engine, 1))

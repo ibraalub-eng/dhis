@@ -27,6 +27,7 @@ let _pickerTree = null;      // indicator tree for the member pickers
 let _pickerExpanded = {};    // id → bool, picker expansion state
 let _pickerChecked = {};     // id → bool, checked indicators (editor modal)
 let _membersChecked = {};    // id → bool, checked indicators (members modal)
+let _membersExisting = new Set(); // indicator_ids already in the group (green ✓ in picker)
 let _editingGroupId = null;  // null = create
 let _membersGroupId = null;
 
@@ -160,6 +161,11 @@ export function _renderGroups() {
         const stateBadge = g.is_enabled
             ? '<span style="font-size:0.72rem;color:var(--accent-green);font-weight:600;">● ' + __('Enabled') + '</span>'
             : '<span style="font-size:0.72rem;color:var(--accent-red);font-weight:600;">● ' + __('Disabled') + '</span>';
+        // One status-driven toggle button instead of an Enable/Disable pair:
+        // the label is always the action that flips the group's current state.
+        const toggleBtn = g.is_enabled
+            ? '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + g.id + ', false)" title="' + esc(__('Group is currently enabled — click to disable all members')) + '" style="background:var(--accent-red);color:#fff;">' + __('Disable All') + '</button>'
+            : '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + g.id + ', true)" title="' + esc(__('Group is currently disabled — click to enable all members')) + '" style="background:var(--accent-green);color:#fff;">' + __('Enable All') + '</button>';
         const rangeTxt = _fmtRange(g);
         return '<div class="card" style="padding:0.8rem 1rem;border-left:4px solid ' + (g.is_enabled ? 'var(--accent-green)' : 'var(--accent-red)') + ';">' +
             '<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:0.5rem;">' +
@@ -173,8 +179,7 @@ export function _renderGroups() {
                     '</div>' +
                 '</div>' +
                 '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">' +
-                    '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + g.id + ', true)" style="background:var(--accent-green);color:#fff;">' + __('Enable All') + '</button>' +
-                    '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + g.id + ', false)" style="background:var(--accent-red);color:#fff;">' + __('Disable All') + '</button>' +
+                    toggleBtn +
                     '<button class="btn btn-sm btn-outline" onclick="igPreviewImpact(' + g.id + ')" title="' + __('Dry run: what would Enable/Disable All change?') + '">🔍 ' + __('Impact') + '</button>' +
                     '<button class="btn btn-sm btn-outline" onclick="igOpenMembers(' + g.id + ')">' + __('Members') + '</button>' +
                     '<button class="btn btn-sm btn-outline" data-requires="settings.write" onclick="igEditGroup(' + g.id + ')">' + __('Edit') + '</button>' +
@@ -345,7 +350,7 @@ export async function saveGroupModal() {
         _renderGroups();
         if (!wasEdit) {
             // Point at the one-click bulk toggle right after creation.
-            _showNotice(__('Group created — use Enable All / Disable All to write the config rows.'));
+            _showNotice(__('Group created — use the toggle button to write the config rows.'));
         }
     } catch (e) {
         errEl.textContent = _errText(e);
@@ -378,12 +383,18 @@ export async function igOpenMembers(groupId) {
     _closeOtherModals('igMembersModal');
     _membersGroupId = groupId;
     _membersChecked = {};
+    _membersExisting = new Set();
     const modal = document.getElementById('igMembersModal');
     document.getElementById('igMembersTitle').textContent = __('Members');
     document.getElementById('igMembersList').innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:0.8rem;"><span class="spinner"></span></div>';
     modal.style.display = 'flex';
     try {
         const detail = await apiGet('/indicator-groups/' + groupId, _fresh);
+        // Pre-check existing members in the tree picker so opening the
+        // Members screen shows the group's current membership selected.
+        _membersExisting = new Set(((detail && detail.members) || []).map(m => m.indicator_id));
+        _membersChecked = {};
+        _membersExisting.forEach(id => { _membersChecked[id] = true; });
         _renderMembersList(detail);
     } catch (e) {
         document.getElementById('igMembersList').innerHTML =
@@ -398,6 +409,7 @@ export function closeMembersModal() {
     if (modal) modal.style.display = 'none';
     _membersGroupId = null;
     _membersChecked = {};
+    _membersExisting = new Set();
 }
 
 function _renderMembersList(detail) {
@@ -437,6 +449,9 @@ export async function igRemoveMember(groupId, indicatorId) {
         toastSuccess(__('Member removed'));
         const detail = await apiGet('/indicator-groups/' + groupId, _fresh);
         _renderMembersList(detail);
+        _membersExisting.delete(indicatorId);
+        delete _membersChecked[indicatorId];
+        if (_pickerTree) igRenderTreePicker('igTreePicker2');
         _groups = await apiGet('/indicator-groups', _fresh);
         _renderGroups();
     } catch (e) {
@@ -467,6 +482,13 @@ export async function igAddCheckedMembers() {
         toastError(__('Select at least one indicator to add.'));
         return;
     }
+    // Unchecking an existing member does not remove it (this dialog only
+    // adds) — say so instead of silently leaving it in place.
+    const uncheckedExisting = [..._membersExisting].filter(id => ids.indexOf(id) === -1);
+    if (uncheckedExisting.length) {
+        toastError(__('Existing members stay selected — to remove one use the ✕ button in the member list above.'));
+        return;
+    }
     try {
         await apiPostJSON('/indicator-groups/' + _membersGroupId + '/members', { indicator_ids: ids });
         // Exclusive membership: the backend evicted these from other groups —
@@ -474,6 +496,8 @@ export async function igAddCheckedMembers() {
         toastSuccess(__('Members added (removed from any other group)'));
         _membersChecked = {};
         const detail = await apiGet('/indicator-groups/' + _membersGroupId, _fresh);
+        _membersExisting = new Set((detail.members || []).map(m => m.indicator_id));
+        _membersExisting.forEach(id => { _membersChecked[id] = true; });
         _renderMembersList(detail);
         if (_pickerTree) igRenderTreePicker('igTreePicker2');
         _groups = await apiGet('/indicator-groups', _fresh);
@@ -505,7 +529,7 @@ function _treeMatches(node, q) {
     return (node.children || []).some(ch => _treeMatches(ch, q));
 }
 
-function _pickerHtml(nodes, q, checked, depth) {
+function _pickerHtml(nodes, q, checked, depth, existing) {
     if (!nodes || !nodes.length) return '';
     return nodes.filter(n => _treeMatches(n, q)).map(n => {
         const hasChildren = (n.children || []).length > 0;
@@ -521,8 +545,12 @@ function _pickerHtml(nodes, q, checked, depth) {
         // checkbox covers the subtree.
         const ownIds = selfId != null ? [selfId] : branchIds;
         const allOn = ownIds.length > 0 && ownIds.every(id => checked[id]);
+        // Members-modal context: ids already in the group render with a green
+        // checkbox + ✓ badge, so pre-checked members are distinguishable from
+        // freshly picked (blue) ones.
+        const isExisting = !!(existing && selfId != null && existing.has(selfId));
         const checkbox = ownIds.length
-            ? '<input type="checkbox" data-ig-ids="' + ownIds.join(',') + '"' + (allOn ? ' checked' : '') + ' style="accent-color:var(--accent-blue);cursor:pointer;margin-inline-end:0.35rem;">'
+            ? '<input type="checkbox" data-ig-ids="' + ownIds.join(',') + '"' + (allOn ? ' checked' : '') + ' style="accent-color:var(--accent-' + (isExisting ? 'green' : 'blue') + ');cursor:pointer;margin-inline-end:0.35rem;">'
             : '<span style="display:inline-block;width:1rem;"></span>';
         // ⤵N selects the DESCENDANTS only — the parent has its own checkbox,
         // so children-without-parent is one click and parent+children is two.
@@ -538,10 +566,11 @@ function _pickerHtml(nodes, q, checked, depth) {
             '<span style="color:' + (hasChildren ? 'var(--accent-purple)' : 'var(--text-primary)') + ';">' + esc(n.name || ('#' + n.indicator_id)) + '</span>' +
             (n.code ? ' <code style="font-size:0.68rem;color:var(--text-muted);direction:ltr;">' + esc(n.code) + '</code>' : '') +
             (n.unit ? ' <span style="font-size:0.68rem;color:var(--text-muted);">(' + esc(n.unit) + ')</span>' : '') +
+            (isExisting ? ' <span style="font-size:0.66rem;color:var(--accent-green);font-weight:600;" title="' + esc(__('Already a member of this group')) + '">✓</span>' : '') +
             branchBtn +
             '</div>';
         if (hasChildren && isOpen) {
-            html += _pickerHtml(n.children, q, checked, depth + 1);
+            html += _pickerHtml(n.children, q, checked, depth + 1, existing);
         }
         return html;
     }).join('');
@@ -557,7 +586,7 @@ export function igRenderTreePicker(which) {
     const qEl = document.getElementById('igTreeSearch');
     const q = (!isMembers && qEl ? qEl.value.trim().toLowerCase() : '');
     const roots = (_pickerTree && _pickerTree.children) || [];
-    box.innerHTML = _pickerHtml(roots, q, checked, 0) ||
+    box.innerHTML = _pickerHtml(roots, q, checked, 0, isMembers ? _membersExisting : null) ||
         '<div style="text-align:center;color:var(--text-muted);padding:1rem;">' + __('No indicators match') + '</div>';
     box.querySelectorAll('input[type="checkbox"][data-ig-ids]').forEach(cb => {
         cb.addEventListener('change', function () {
@@ -625,7 +654,7 @@ export function igUncheckAll() {
 
 // ── Impact preview (dry run) ─────────────────────────────────────────
 // Fetches the server's dry-run for BOTH target states and renders them
-// side by side. Nothing is written until the user clicks Enable/Disable All.
+// side by side. Nothing is written until the user applies the action button.
 
 export async function igPreviewImpact(groupId) {
     _closeOtherModals('igImpactModal');
@@ -684,10 +713,16 @@ function _impactCard(d, title, color) {
 function _renderImpact(off, on) {
     const body = document.getElementById('igImpactBody');
     const g = _groups.find(x => x.id === off.group_id);
+    // Same merged pattern as the card: one action button that flips the
+    // group's current state (the other future stays visible as a card).
+    const curEnabled = g ? !!g.is_enabled : true;
+    const applyBtn = curEnabled
+        ? '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + off.group_id + ', false); closeImpactModal()" title="' + esc(__('Group is currently enabled — click to disable all members')) + '" style="background:var(--accent-red);color:#fff;">' + __('Disable All') + '</button>'
+        : '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + off.group_id + ', true); closeImpactModal()" title="' + esc(__('Group is currently disabled — click to enable all members')) + '" style="background:var(--accent-green);color:#fff;">' + __('Enable All') + '</button>';
     body.innerHTML =
         '<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">' +
             __('Group') + ': <strong>' + esc(off.group_name) + '</strong> — ' + off.members + ' ' + __('members') + '. ' +
-            __('Dry run — nothing is saved until you click Enable All or Disable All.') +
+            __('Dry run — nothing is saved until you apply the action below.') +
         '</div>' +
         '<div style="display:flex;gap:0.6rem;flex-wrap:wrap;">' +
             _impactCard(off, __('If DISABLED'), 'var(--accent-red)') +
@@ -696,8 +731,7 @@ function _renderImpact(off, on) {
         '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.6rem;">ℹ️ ' + esc(off.note || '') + '</div>' +
         '<div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.8rem;">' +
             '<button class="btn btn-sm btn-outline" onclick="closeImpactModal()">' + __('Close') + '</button>' +
-            '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + off.group_id + ', false); closeImpactModal()" style="background:var(--accent-red);color:#fff;">' + __('Disable All') + '</button>' +
-            '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + off.group_id + ', true); closeImpactModal()" style="background:var(--accent-green);color:#fff;">' + __('Enable All') + '</button>' +
+            applyBtn +
         '</div>';
     _syncPermissionUI();
 }

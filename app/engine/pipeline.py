@@ -186,6 +186,37 @@ def get_required_indicator_ids(session, hospital_id, month):
     return sorted(required_ids)
 
 
+def compute_hospital_completeness(session, hospital_id, month):
+    """Rev-2 completeness for one hospital/month (0-100), mirroring the
+    analysis engine's scoring._calc_completeness EXACTLY so the stored
+    QualityScore rows, the dashboard KPI-card recalc and the indicator-config
+    recalc cannot drift apart:
+
+      numerator   = enabled non-null values (covered-by-total and Optional
+                    fills included; result capped at 100%)
+      denominator = required indicators (enabled ∧ requirement_type=='Required'
+                    via get_required_indicator_ids) minus covered-by-total
+
+    This is the single shared formula — call sites must compose through here
+    instead of re-deriving the math inline.
+    """
+    from app.engine.quality import compute_covered_codes
+    values = get_enabled_values_for_hospital_month(session, hospital_id, month)
+    # The engine feeds manual+auto disabled codes into the coverage pass
+    # (ValidationContext.disabled_codes) — mirror that exactly so an
+    # auto-disabled sibling is never marked "covered".
+    disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
+    disabled_codes = {
+        code for (code,) in session.query(Indicator.code)
+        .filter(Indicator.id.in_(disabled_ids)).all()
+    } if disabled_ids else set()
+    covered_codes = compute_covered_codes(values, disabled_codes, session)
+    required_count = len(get_required_indicator_ids(session, hospital_id, month))
+    active = max(1, required_count - len(covered_codes))
+    filled = sum(1 for v in values.values() if v is not None)
+    return min(1.0, filled / active) * 100.0
+
+
 def get_disabled_indicator_ids(session, hospital_id, month):
     """Return all indicator IDs that should be considered disabled — manual + auto (null values + missing rows)."""
     manually_disabled = get_effective_manual_disabled_ids(session, hospital_id, month)

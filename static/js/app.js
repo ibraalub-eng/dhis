@@ -252,6 +252,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'showSettingsTab'); _bind(mod, 'saveAiSettings'); _bind(mod, 'loadAiSettings');
       _bind(mod, 'onAiProviderChange'); _bind(mod, 'loadRulesManager'); _bind(mod, 'saveRulesManager');
       _bind(mod, 'initRootCause'); _bind(mod, 'initDashboard'); _bind(mod, 'initSystemInfo');
+      _bind(mod, 'recalcDashboard');
       _bind(mod, 'loadRootCause'); _bind(mod, 'loadDashboard');
       _bind(mod, 'updateWeightDisplay'); _bind(mod, 'updateCfgDisplay'); _bind(mod, 'updateCfgVal');
       _bind(mod, 'loadRankingTable'); _bind(mod, 'showHospitalScorecard');
