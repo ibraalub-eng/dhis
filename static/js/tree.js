@@ -1,7 +1,8 @@
-        import { API, apiGet } from './api.js';
+        import { API, apiGet, apiPut } from './api.js';
         import { __, currentLang, translations, translateDOM } from './i18n.js';
         import { _restoreUIState } from './main.js';
 import { toastSuccess, toastError, toastWarning } from './toast.js';
+import { confirmWarning } from './confirm-modal.js';
 
         // ── Indicator Tree ────────────────────────────────────────
         let currentTreeData = null;
@@ -541,6 +542,45 @@ const btn = document.getElementById('treeSaveBtn');
             })();
         }
 
+        // ── Requirement type chip (indicator-groups rev 2) ───────────────
+        // 'Required' counts in the completeness denominator; 'Optional' is
+        // excluded entirely — a third legitimate absence reason alongside
+        // covered-by-total and disabled (Coverage-Disable Doctrine).
+        // This is a GLOBAL flag, not part of the pending-save batch: it
+        // applies to all hospitals/months immediately via its own endpoint.
+        function _reqChip(node) {
+            const chip = document.createElement('span');
+            const req = node.requirement_type || 'Required';
+            chip.className = 'tree-req-chip' + (req === 'Optional' ? ' opt' : '');
+            chip.textContent = req === 'Optional' ? __('Optional') : __('Req');
+            chip.title = req === 'Optional'
+                ? __('Optional: excluded from the completeness denominator. Click to make it Required.')
+                : __('Required: counts in the completeness denominator. Click to make it Optional.');
+            chip.onclick = async function(e) {
+                e.stopPropagation();
+                if (!node.indicator_id) return;
+                const next = req === 'Optional' ? 'Required' : 'Optional';
+                const ok = await confirmWarning({
+                    title: __('Set requirement type'),
+                    message: (next === 'Optional'
+                        ? __('Exclude this indicator from the completeness denominator (all hospitals, all months)?')
+                        : __('Count this indicator in the completeness denominator (all hospitals, all months)?')) +
+                        '<br><strong>' + esc(node.code) + ' — ' + esc(node.name) + '</strong>',
+                    okLabel: next,
+                });
+                if (!ok) return;
+                try {
+                    const res = await apiPut('/hospitals/indicators/' + node.indicator_id + '/requirement-type', { requirement_type: next });
+                    node.requirement_type = next;
+                    toastSuccess(res.message || __('Requirement type updated'));
+                    _localRenderTree();
+                } catch (err) {
+                    toastError(err.message || __('Failed to update requirement type'));
+                }
+            };
+            return chip;
+        }
+
         function perHospitalHtml(node) {
             if (!node.per_hospital || node.per_hospital.length === 0) return '';
             const total = node.value;
@@ -618,6 +658,7 @@ const btn = document.getElementById('treeSaveBtn');
                     : ' <span class="tree-val tree-val-null">—</span>';
                 line.insertAdjacentHTML('beforeend', '<span class="tree-code">' + esc(node.code) + '</span> ' +
                     '<span class="tree-name">' + esc(node.name) + '</span>' + leafVal);
+                line.appendChild(_reqChip(node));
                 if (isDefault && node.per_hospital) line.insertAdjacentHTML('beforeend', perHospitalHtml(node));
                 wrapper.appendChild(line);
             }

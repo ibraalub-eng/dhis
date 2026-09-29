@@ -1667,3 +1667,13 @@ details.tree-flash > summary, .tree-leaf.tree-flash { animation: tree-flash-kf 2
 ._dd-tab.active { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
 ._dd-tab span { opacity: 0.85; font-size: 0.68rem; margin-inline-start: 2px; }
 body.rtl ._dd-tabs { direction: rtl; }
+
+/* Indicator tree — requirement type chip (Required/Optional, rev 2) */
+.tree-req-chip { display: inline-block; margin-inline-start: 0.4rem; font-size: 0.62rem; font-weight: 700; padding: 0 0.4rem; border-radius: 8px; cursor: pointer; border: 1px solid var(--border-default); color: var(--text-muted); vertical-align: middle; user-select: none; }
+.tree-req-chip:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+.tree-req-chip.opt { border-color: var(--accent-amber, #d97706); color: var(--accent-amber, #d97706); }
+.tree-req-chip.opt:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+
+/* Indicator groups picker — "select whole branch" chip on parent rows */
+.tree-pick-branch { display: inline-block; margin-inline-start: 0.35rem; font-size: 0.62rem; font-weight: 700; padding: 0 0.35rem; border-radius: 8px; border: 1px dashed var(--border-default); color: var(--text-muted); cursor: pointer; vertical-align: middle; user-select: none; }
+.tree-pick-branch:hover { border-color: var(--accent-blue); color: var(--accent-blue); }

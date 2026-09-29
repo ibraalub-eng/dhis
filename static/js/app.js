@@ -33,7 +33,20 @@ export { showLoader, hideLoader, SwitchTab, switchTab, __, API, apiGet, apiPost,
 
 // ── Stub: will be replaced by dynamic imports ──
 const _stubs = {};
-function _stub(name) { return function() { console.warn('[app] Module not loaded:', name); }; }
+// Stubs must be VISIBLE, not silent: a kept-open SPA tab running pre-update
+// JS hits these for functions that did not exist when the tab loaded (e.g. a
+// new button's handler). The console.warn alone reads as "the button is
+// broken" — surface a refresh hint instead.
+function _stub(name) {
+  return function() {
+    console.warn('[app] Module not loaded:', name);
+    try {
+      import('./toast.js').then(m => m.toastWarning(
+        'This page was loaded before a recent update — refresh it (Ctrl+F5) and try again.', 6000
+      ));
+    } catch (e) { /* toast unavailable — console warning stands */ }
+  };
+}
 
 // Placeholders — replaced async by _loadModules()
 window.confirmImport = _stub('confirmImport');
@@ -132,6 +145,9 @@ window.openGroupModal = _stub('openGroupModal');
 window.closeGroupModal = _stub('closeGroupModal');
 window.saveGroupModal = _stub('saveGroupModal');
 window.closeMembersModal = _stub('closeMembersModal');
+window.igClearMonths = _stub('igClearMonths');
+window.igPreviewImpact = _stub('igPreviewImpact');
+window.closeImpactModal = _stub('closeImpactModal');
 window.saveTreeConfig = _stub('saveTreeConfig');
 window.removeTreeData = _stub('removeTreeData');
 window.undoTreeData = _stub('undoTreeData');
@@ -165,6 +181,7 @@ window.loadHospitalsTab = _stub('loadHospitalsTab');
 // ── Load modules async (non-blocking, replaces stubs) ──
 function _bind(mod, name) {
   if (mod && typeof mod[name] === 'function') window[name] = mod[name];
+  else console.warn('[app] bind skipped: ' + name + ' not exported by its module');
 }
 function _val(mod, name) { return mod ? mod[name] : undefined; }
 
@@ -266,13 +283,14 @@ function _bindAll(mod, label) {
       _bind(mod, 'initIndicatorGroups'); _bind(mod, 'refreshIndicatorGroups');
       _bind(mod, 'openGroupModal'); _bind(mod, 'closeGroupModal');
       _bind(mod, 'saveGroupModal'); _bind(mod, 'closeMembersModal');
-      _bind(mod, 'igOnScopeChange'); _bind(mod, 'igRenderTreePicker');
+      _bind(mod, 'igOnScopeChange'); _bind(mod, 'igRenderTreePicker'); _bind(mod, 'igClearMonths');
       _bind(mod, 'igExpandAllPicker'); _bind(mod, 'igCollapseAllPicker');
       _bind(mod, 'igCheckVisible'); _bind(mod, 'igUncheckAll');
       _bind(mod, 'igAddCheckedMembers'); _bind(mod, 'igRemoveMember');
       _bind(mod, 'igMoveMember'); _bind(mod, 'igToggleGroup');
       _bind(mod, 'igOpenMembers'); _bind(mod, 'igEditGroup');
-      _bind(mod, 'igDeleteGroup');
+      _bind(mod, 'igDeleteGroup'); _bind(mod, 'igPreviewImpact');
+      _bind(mod, 'closeImpactModal');
       break;
     case 'rules':
       _bind(mod, '_vbDragStart'); _bind(mod, '_vbDragOver'); _bind(mod, '_vbDragEnter');

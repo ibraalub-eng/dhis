@@ -175,6 +175,7 @@ export function _renderGroups() {
                 '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">' +
                     '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + g.id + ', true)" style="background:var(--accent-green);color:#fff;">' + __('Enable All') + '</button>' +
                     '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + g.id + ', false)" style="background:var(--accent-red);color:#fff;">' + __('Disable All') + '</button>' +
+                    '<button class="btn btn-sm btn-outline" onclick="igPreviewImpact(' + g.id + ')" title="' + __('Dry run: what would Enable/Disable All change?') + '">🔍 ' + __('Impact') + '</button>' +
                     '<button class="btn btn-sm btn-outline" onclick="igOpenMembers(' + g.id + ')">' + __('Members') + '</button>' +
                     '<button class="btn btn-sm btn-outline" data-requires="settings.write" onclick="igEditGroup(' + g.id + ')">' + __('Edit') + '</button>' +
                     '<button class="btn btn-sm btn-outline" data-requires="settings.write" onclick="igDeleteGroup(' + g.id + ')" style="color:var(--accent-red);border-color:var(--accent-red);">' + __('Delete') + '</button>' +
@@ -209,7 +210,27 @@ export async function igToggleGroup(groupId, enabled) {
 
 // ── Create / edit modal ──────────────────────────────────────────────
 
+// The group-card Edit button calls this; openGroupModal doubles as the
+// create path when called without an id. (Defined separately so the
+// app.js _bind check and the inline onclick both resolve.)
+export function igEditGroup(groupId) {
+    openGroupModal(groupId);
+}
+
+// The three modals share one z-index; the later-in-DOM one paints on top.
+// Opening any modal must close the others, or a still-open impact preview
+// hides the edit modal that just opened "underneath" it.
+function _closeOtherModals(keepId) {
+    ['igGroupModal', 'igMembersModal', 'igImpactModal'].forEach(id => {
+        if (id !== keepId) {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        }
+    });
+}
+
 export function openGroupModal(groupId) {
+    _closeOtherModals('igGroupModal');
     _editingGroupId = groupId || null;
     _pickerChecked = {};
     const modal = document.getElementById('igGroupModal');
@@ -225,13 +246,22 @@ export function openGroupModal(groupId) {
     document.getElementById('igHospitalSelect').value = g && g.hospital_id ? String(g.hospital_id) : '';
     document.getElementById('igMonthFrom').value = g && g.month_from ? g.month_from : '';
     document.getElementById('igMonthTo').value = g && g.month_to ? g.month_to : '';
-    if (g && g.members) {
+    if (g && g.members && g.members.length) {
         g.members.forEach(m => { _pickerChecked[m.indicator_id] = true; });
     }
     igOnScopeChange();
     modal.style.display = 'flex';
     igRenderTreePicker();
     _loadHospitals(); // ensure dropdown is populated even if the early load raced
+    if (groupId) {
+        // The LIST payload carries members: [] — fetch the detail so the
+        // picker shows the group's real membership as checked.
+        apiGet('/indicator-groups/' + groupId, _fresh).then(d => {
+            if (_editingGroupId !== groupId) return; // modal closed/reopened meanwhile
+            (d.members || []).forEach(m => { _pickerChecked[m.indicator_id] = true; });
+            igRenderTreePicker();
+        }).catch(() => { /* picker stays at list-level state */ });
+    }
 }
 
 export function closeGroupModal() {
@@ -251,9 +281,15 @@ export function igOnScopeChange() {
     document.getElementById('igMonthFromWrap').style.display = isHospital ? 'none' : '';
     document.getElementById('igMonthToWrap').style.display = isHospital ? 'none' : '';
     if (isHospital) {
-        document.getElementById('igMonthFrom').value = '';
-        document.getElementById('igMonthTo').value = '';
+        igClearMonths();
     }
+}
+
+// Empty range = the toggle falls back to ALL known months — one click to
+// get back to that after picking dates.
+export function igClearMonths() {
+    document.getElementById('igMonthFrom').value = '';
+    document.getElementById('igMonthTo').value = '';
 }
 
 function _validateMonths(from, to) {
@@ -339,6 +375,7 @@ export async function igDeleteGroup(groupId) {
 // ── Members modal (existing group) ───────────────────────────────────
 
 export async function igOpenMembers(groupId) {
+    _closeOtherModals('igMembersModal');
     _membersGroupId = groupId;
     _membersChecked = {};
     const modal = document.getElementById('igMembersModal');
@@ -447,8 +484,12 @@ export async function igAddCheckedMembers() {
 }
 
 // ── Indicator tree picker (shared by both modals) ────────────────────
-// Checks on a parent check/uncheck every descendant, mirroring the tree
-// semantics: a parent node is an aggregation, its leaves are indicators.
+// Each control does exactly one thing:
+//   checkbox = THAT indicator only (parents are real indicators too —
+//              e.g. code 10 with sub-indicators 10.a/10.b)
+//   ⤵N chip  = all N sub-indicators WITHOUT the parent
+// Whole branch = both controls. Pure category headers (no own
+// indicator_id) have no chip; their checkbox covers the subtree.
 
 function _collectIds(node, out) {
     if (!node) return out;
@@ -472,12 +513,23 @@ function _pickerHtml(nodes, q, checked, depth) {
         // state by name so sibling groups don't share one '' bucket.
         const nodeKey = n.indicator_id != null ? String(n.indicator_id) : 'n:' + (n.name || '');
         const isOpen = depth === 0 || !!q || _pickerExpanded[nodeKey];
-        const ids = _collectIds(n, []);
-        const allOn = ids.length > 0 && ids.every(id => checked[id]);
-        const someOn = ids.some(id => checked[id]);
-        const checkbox = ids.length
-            ? '<input type="checkbox" data-ig-ids="' + ids.join(',') + '"' + (allOn ? ' checked' : '') + ' style="accent-color:var(--accent-blue);cursor:pointer;margin-inline-end:0.35rem;">'
+        const selfId = n.indicator_id != null ? n.indicator_id : null;
+        const branchIds = _collectIds(n, []);
+        const someOn = branchIds.some(id => checked[id]);
+        // Checkbox = THIS indicator only. Pure category nodes (no own
+        // indicator_id) have nothing of their own to select, so their
+        // checkbox covers the subtree.
+        const ownIds = selfId != null ? [selfId] : branchIds;
+        const allOn = ownIds.length > 0 && ownIds.every(id => checked[id]);
+        const checkbox = ownIds.length
+            ? '<input type="checkbox" data-ig-ids="' + ownIds.join(',') + '"' + (allOn ? ' checked' : '') + ' style="accent-color:var(--accent-blue);cursor:pointer;margin-inline-end:0.35rem;">'
             : '<span style="display:inline-block;width:1rem;"></span>';
+        // ⤵N selects the DESCENDANTS only — the parent has its own checkbox,
+        // so children-without-parent is one click and parent+children is two.
+        const childIds = selfId != null ? branchIds.filter(id => id !== selfId) : [];
+        const branchBtn = childIds.length
+            ? ' <span class="tree-pick-branch" data-ig-branch="' + childIds.join(',') + '" title="' + __('Select all sub-indicators without this one') + ' (' + childIds.length + ')">⤵' + childIds.length + '</span>'
+            : '';
         let html = '<div style="margin-inline-start:' + (depth * 1.1) + 'rem;padding:0.12rem 0;' + (someOn && !allOn ? 'font-weight:600;' : '') + '">' +
             checkbox +
             (hasChildren
@@ -486,6 +538,7 @@ function _pickerHtml(nodes, q, checked, depth) {
             '<span style="color:' + (hasChildren ? 'var(--accent-purple)' : 'var(--text-primary)') + ';">' + esc(n.name || ('#' + n.indicator_id)) + '</span>' +
             (n.code ? ' <code style="font-size:0.68rem;color:var(--text-muted);direction:ltr;">' + esc(n.code) + '</code>' : '') +
             (n.unit ? ' <span style="font-size:0.68rem;color:var(--text-muted);">(' + esc(n.unit) + ')</span>' : '') +
+            branchBtn +
             '</div>';
         if (hasChildren && isOpen) {
             html += _pickerHtml(n.children, q, checked, depth + 1);
@@ -509,6 +562,13 @@ export function igRenderTreePicker(which) {
     box.querySelectorAll('input[type="checkbox"][data-ig-ids]').forEach(cb => {
         cb.addEventListener('change', function () {
             this.dataset.igIds.split(',').forEach(id => { checked[Number(id)] = this.checked; });
+            igRenderTreePicker(box.id);
+        });
+    });
+    box.querySelectorAll('[data-ig-branch]').forEach(btn => {
+        btn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            this.dataset.igBranch.split(',').forEach(id => { checked[Number(id)] = true; });
             igRenderTreePicker(box.id);
         });
     });
@@ -561,6 +621,85 @@ export function igUncheckAll() {
     if (isMembers) _membersChecked = {};
     else _pickerChecked = {};
     igRenderTreePicker(_activePicker());
+}
+
+// ── Impact preview (dry run) ─────────────────────────────────────────
+// Fetches the server's dry-run for BOTH target states and renders them
+// side by side. Nothing is written until the user clicks Enable/Disable All.
+
+export async function igPreviewImpact(groupId) {
+    _closeOtherModals('igImpactModal');
+    const modal = document.getElementById('igImpactModal');
+    const body = document.getElementById('igImpactBody');
+    if (!modal || !body) return;
+    body.innerHTML = '<div style="text-align:center;padding:1.2rem;color:var(--text-muted);"><span class="spinner"></span> <span style="font-size:0.8rem;">' + __('Calculating impact…') + '</span></div>';
+    modal.style.display = 'flex';
+    try {
+        const [off, on] = await Promise.all([
+            apiGet('/indicator-groups/' + groupId + '/impact?enabled=false', _fresh),
+            apiGet('/indicator-groups/' + groupId + '/impact?enabled=true', _fresh),
+        ]);
+        _renderImpact(off, on);
+    } catch (e) {
+        body.innerHTML = '<div style="color:var(--accent-red);font-size:0.8rem;padding:0.8rem;">' + esc(_errText(e)) + '</div>';
+    }
+}
+
+export function closeImpactModal() {
+    const modal = document.getElementById('igImpactModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function _impactRow(label, val) {
+    return '<tr><td style="padding:0.15rem 0;color:var(--text-muted);">' + label + '</td>' +
+        '<td style="padding:0.15rem 0;text-align:left;font-weight:600;color:var(--text-primary);direction:ltr;">' + val + '</td></tr>';
+}
+
+function _impactCard(d, title, color) {
+    const row = _impactRow;
+    const rules = (d.rule_impact && d.rule_impact.length)
+        ? d.rule_impact.map(r => '<code style="font-size:0.68rem;color:var(--accent-blue);direction:ltr;">' + esc(r.rule_code) + '</code>').join(' ')
+        : '<span style="color:var(--text-muted);">' + __('none') + '</span>';
+    const c = d.completeness || {};
+    let denom = '—';
+    if (c.sum_before != null && c.sum_after != null) {
+        const delta = c.sum_after - c.sum_before;
+        denom = c.sum_before + ' → ' + c.sum_after +
+            (delta !== 0 ? ' (' + (delta > 0 ? '+' : '') + delta + ')' : '');
+    }
+    const changing = (d.changing_indicators || []).map(cd => '<code style="font-size:0.68rem;color:var(--text-secondary);direction:ltr;">' + esc(cd) + '</code>').join(' ') || '—';
+    return '<div class="card" style="flex:1;min-width:270px;padding:0.7rem 0.9rem;border-top:3px solid ' + color + ';">' +
+        '<div style="font-weight:700;font-size:0.85rem;color:var(--text-primary);margin-bottom:0.35rem;">' + title + '</div>' +
+        '<table style="width:100%;font-size:0.76rem;border-collapse:collapse;">' +
+            row(__('Hospitals affected'), d.hospitals_affected) +
+            row(__('Config rows to write'), d.config_rows_to_write) +
+            row(__('Months'), esc(d.months_note || '')) +
+            row(__('Completeness denominator'), denom) +
+        '</table>' +
+        '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.45rem;">' + __('Indicators that would change') + ': ' + changing + '</div>' +
+        '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.3rem;">' + __('Rules that would stop evaluating') + ': ' + rules + '</div>' +
+    '</div>';
+}
+
+function _renderImpact(off, on) {
+    const body = document.getElementById('igImpactBody');
+    const g = _groups.find(x => x.id === off.group_id);
+    body.innerHTML =
+        '<div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.6rem;">' +
+            __('Group') + ': <strong>' + esc(off.group_name) + '</strong> — ' + off.members + ' ' + __('members') + '. ' +
+            __('Dry run — nothing is saved until you click Enable All or Disable All.') +
+        '</div>' +
+        '<div style="display:flex;gap:0.6rem;flex-wrap:wrap;">' +
+            _impactCard(off, __('If DISABLED'), 'var(--accent-red)') +
+            _impactCard(on, __('If ENABLED'), 'var(--accent-green)') +
+        '</div>' +
+        '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.6rem;">ℹ️ ' + esc(off.note || '') + '</div>' +
+        '<div style="display:flex;justify-content:flex-end;gap:0.5rem;margin-top:0.8rem;">' +
+            '<button class="btn btn-sm btn-outline" onclick="closeImpactModal()">' + __('Close') + '</button>' +
+            '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + off.group_id + ', false); closeImpactModal()" style="background:var(--accent-red);color:#fff;">' + __('Disable All') + '</button>' +
+            '<button class="btn btn-sm" data-requires="settings.write" onclick="igToggleGroup(' + off.group_id + ', true); closeImpactModal()" style="background:var(--accent-green);color:#fff;">' + __('Enable All') + '</button>' +
+        '</div>';
+    _syncPermissionUI();
 }
 
 // ── Shared helpers ───────────────────────────────────────────────────

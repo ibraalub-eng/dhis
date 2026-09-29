@@ -369,6 +369,12 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
             "value": raw_value,
             "label": code_to_name.get(code, node["name"]),
             "is_enabled": is_enabled,
+            # Completeness requirement type (indicator-groups design rev 2):
+            # 'Required' counts in the completeness denominator, 'Optional'
+            # is excluded entirely. The tree screen offers the toggle.
+            "requirement_type": (
+                (db_indicator.requirement_type or "Required") if db_indicator else "Required"
+            ),
             "children": [],
             "leaf": not bool(node.get("children")),
             "tooltip": tooltip,

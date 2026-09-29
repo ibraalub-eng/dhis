@@ -324,6 +324,189 @@ def delete_group(group_id: int, db: Session = Depends(get_db)):
     return {"ok": True, "deleted": group.name}
 
 
+# ── Impact preview (dry run) ────────────────────────────────────────────────
+
+@router.get("/{group_id}/impact")
+def group_impact(
+    group_id: int,
+    enabled: bool = Query(..., description="The target state you are considering"),
+    hospital_id: Optional[int] = Query(None, description="Preview completeness for one hospital (scope 'all' groups otherwise aggregate every active hospital)"),
+    db: Session = Depends(get_db),
+):
+    """Dry-run for the bulk toggle: NOTHING is written.
+
+    Mirrors the real toggle's state math — effective state is
+    hospital override > monthly default > True — and reports which members
+    would change, how many config rows the toggle would write, which enabled
+    rules reference the changing indicators, and the completeness-denominator
+    effect. Quality scores are NOT recomputed here; the 'after' denominators
+    are derived arithmetically from the same state maps the recalc uses.
+    """
+    group = db.query(IndicatorGroup).filter(IndicatorGroup.id == group_id).first()
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    if group.scope_type == "hospital" and (group.month_from or group.month_to):
+        raise HTTPException(status_code=422, detail="Hospital-scoped group has a stored month range it cannot apply")
+
+    member_rows = (
+        db.query(IndicatorGroupMember, Indicator)
+        .join(Indicator, IndicatorGroupMember.indicator_id == Indicator.id)
+        .filter(IndicatorGroupMember.group_id == group.id)
+        .order_by(IndicatorGroupMember.sort_order, Indicator.id)
+        .all()
+    )
+    if not member_rows:
+        raise HTTPException(status_code=400, detail="Group has no members — nothing to toggle")
+    member_ids = [m.indicator_id for m, _ in member_rows]
+    code_by_id = {m.indicator_id: ind.code for m, ind in member_rows}
+    target = bool(enabled)
+
+    # ── Scope: which hospitals and which months does the toggle touch? ──
+    if group.scope_type == "hospital":
+        hospitals = [db.query(Hospital).filter(Hospital.id == group.hospital_id).first()]
+        months = [None]  # month-agnostic overrides
+        months_note = "every month (per-hospital overrides have no month column)"
+    else:
+        if hospital_id is not None:
+            h = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+            if not h:
+                raise HTTPException(status_code=404, detail="Hospital not found")
+            hospitals = [h]
+        else:
+            hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).order_by(Hospital.id).all()
+        months = _expand_months(db, group.month_from, group.month_to)
+        months_note = (
+            "all known months (no range set)"
+            if not (group.month_from or group.month_to)
+            else f"{group.month_from} → {group.month_to}"
+        )
+    if not hospitals or hospitals[0] is None:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+    if group.scope_type == "all" and not months:
+        raise HTTPException(status_code=400, detail="No known months in the database — nothing to preview")
+
+    hid_list = [h.id for h in hospitals]
+
+    # Denominator sample month: the first month of the range for scope 'all'
+    # (each month's denominator is independent), or the latest known month
+    # for hospital scope (whose overrides apply to every month).
+    sample_month = months[0] if group.scope_type == "all" else (
+        db.query(IndicatorValue.month).order_by(IndicatorValue.month.desc()).first()[0]
+        if db.query(IndicatorValue.month).first() else None
+    )
+
+    # ── Load the state maps (2 queries) ──
+    default_state = {}  # (indicator_id, month) -> is_enabled
+    if group.scope_type == "all":
+        q = db.query(IndicatorDefaultConfig).filter(IndicatorDefaultConfig.indicator_id.in_(member_ids))
+        if group.month_from or group.month_to:
+            q = q.filter(IndicatorDefaultConfig.month.in_(months))
+        for c in q.all():
+            default_state[(c.indicator_id, c.month)] = c.is_enabled
+    override_state = {}  # (hospital_id, indicator_id) -> is_enabled
+    for c in db.query(HospitalIndicatorConfig).filter(
+        HospitalIndicatorConfig.hospital_id.in_(hid_list),
+        HospitalIndicatorConfig.indicator_id.in_(member_ids),
+    ).all():
+        override_state[(c.hospital_id, c.indicator_id)] = c.is_enabled
+
+    def _state_before(hid: int, iid: int, month: Optional[str]) -> bool:
+        if (hid, iid) in override_state:
+            return override_state[(hid, iid)]
+        if month is not None and (iid, month) in default_state:
+            return default_state[(iid, month)]
+        return True
+
+    # Effective-state changes per hospital, and default-row writes per month.
+    changing_codes = set()
+    config_rows_to_write = 0
+    affected_hospitals = set()
+    hospital_deltas = {}  # hid -> [denom_before, denom_after]
+    for h in hospitals:
+        before_cnt = after_cnt = None
+        from app.engine.pipeline import get_required_indicator_ids
+        before_cnt = None
+        try:
+            if sample_month:
+                before_cnt = len(get_required_indicator_ids(db, h.id, sample_month))
+        except Exception:
+            before_cnt = None
+        after_cnt = before_cnt
+        for iid in member_ids:
+            if group.scope_type == "hospital":
+                before = _state_before(h.id, iid, None)
+                if before != target:
+                    config_rows_to_write += 1
+                    affected_hospitals.add(h.id)
+                    changing_codes.add(code_by_id[iid])
+            else:
+                for month in months:
+                    before = _state_before(h.id, iid, month)
+                    after = target
+                    if before != after:
+                        affected_hospitals.add(h.id)
+                        changing_codes.add(code_by_id[iid])
+                        # A default-row write happens once per (member, month),
+                        # regardless of how many hospitals it affects.
+                        if (iid, month) not in default_state or default_state[(iid, month)] != target:
+                            pass  # counted below, not per hospital
+                    # Denominator delta for the sampled month only.
+                    if month == sample_month and before_cnt is not None:
+                        if before and not after:
+                            after_cnt -= 1
+                        elif not before and after:
+                            after_cnt += 1
+        if before_cnt is not None:
+            hospital_deltas[h.id] = [before_cnt, after_cnt]
+    if group.scope_type == "all":
+        for iid in member_ids:
+            for month in months:
+                cur = default_state.get((iid, month), True)
+                if cur != target:
+                    config_rows_to_write += 1
+
+    # ── Rules referencing indicators whose state would change ──
+    rule_impact = []
+    if changing_codes:
+        from app.engine.confidence import build_indicator_rule_map
+        try:
+            rule_map = build_indicator_rule_map(db)
+        except Exception:
+            rule_map = {}
+        rule_codes = sorted({rc for code in changing_codes for rc in rule_map.get(code, [])})
+        if rule_codes:
+            from app.models import Rule
+            for rc, name in db.query(Rule.code, Rule.name).filter(Rule.code.in_(rule_codes)).all():
+                rule_impact.append({"rule_code": rc, "rule_name": name})
+
+    return {
+        "group_id": group.id,
+        "group_name": group.name,
+        "enabled": target,
+        "dry_run": True,
+        "scope": group.scope_type,
+        "members": len(member_ids),
+        "months": months if group.scope_type == "all" else None,
+        "months_note": months_note,
+        "hospitals_affected": len(affected_hospitals),
+        "config_rows_to_write": config_rows_to_write,
+        "changing_indicators": sorted(changing_codes),
+        "rule_impact": rule_impact,
+        "completeness": {
+            "month": sample_month,
+            "per_hospital": [
+                {"hospital_id": hid, "before": b, "after": a}
+                for hid, (b, a) in sorted(hospital_deltas.items())
+            ][:50],
+            "sum_before": sum(b for _, (b, _) in hospital_deltas.items()) if hospital_deltas else None,
+            "sum_after": sum(a for _, (_, a) in hospital_deltas.items()) if hospital_deltas else None,
+        },
+        "note": (
+            "Quality scores and smart-analytics caches are recalculated automatically when you confirm."
+        ),
+    }
+
+
 # ── Bulk toggle ─────────────────────────────────────────────────────────────
 
 @router.put("/{group_id}/toggle", dependencies=[Depends(require_permission("settings.write"))])

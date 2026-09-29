@@ -674,7 +674,10 @@ def set_indicator_sort_order(
     return {"message": f"Sort order updated to {order}", "indicator_id": indicator_id, "sort_order": order}
 
 
-@router.put("/indicators/{indicator_id}/requirement-type")
+@router.put(
+    "/indicators/{indicator_id}/requirement-type",
+    dependencies=[Depends(require_permission("settings.write"))],
+)
 def set_requirement_type(
     indicator_id: int,
     body: RequirementTypeIn,
