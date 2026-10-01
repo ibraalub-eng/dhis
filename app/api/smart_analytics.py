@@ -679,6 +679,15 @@ def get_xgboost(month: str, horizon: int = Query(1, description="أفق التن
                 row["peer_percentile"] = info["percentile"]
                 row["peer_rank"] = info["rank"]
 
+    # ── إغلاق الحلقة (المرحلة 3): تقييم اللقطات المحفوظة مقابل الفعلي ──
+    # غير فتّاع: فشل التتبع لا يُسقط استجابة التنبؤات.
+    tracking_result = None
+    try:
+        from app.engine.smart.tracking import evaluate_forecast_tracking
+        tracking_result = evaluate_forecast_tracking(db)
+    except Exception:
+        logger.exception("forecast tracking failed")
+
     return _sanitize({
         "month": month,
         "horizon": horizon,
@@ -686,6 +695,7 @@ def get_xgboost(month: str, horizon: int = Query(1, description="أفق التن
         "forecast_accuracy": accuracy,
         "trajectory": trajectory,
         "peer_percentile": peer_percentile,
+        "forecast_tracking": tracking_result,
     })
 
 

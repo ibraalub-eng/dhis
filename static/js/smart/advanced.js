@@ -291,6 +291,27 @@ function _recommendationFor(p, drivers) {
   return `💡 ${_t('Recommendation')}: ${base} — ${_t('verify data accuracy, investigate root cause, and prepare a corrective plan')}`;
 }
 
+function _renderForecastTracking(tracking) {
+  const el = document.getElementById('smart-forecast-tracking');
+  if (!el) return;
+  if (!tracking || !tracking.months || !tracking.months.length) { el.innerHTML = ''; return; }
+  const o = tracking.overall || {};
+  const trendBadge = { improving: '🟢', declining: '🔴', stable: '🟡', insufficient: '⚪' }[o.trend] || '⚪';
+  const rows = tracking.months.map(m => `<tr>
+    <td style="text-align:center;">${_smartEscapeHtml(m.month)}</td>
+    <td style="text-align:center;">${m.n}</td>
+    <td style="text-align:center;">${(m.mae ?? 0).toFixed(3)}</td>
+    <td style="text-align:center;">${m.direction_hit_rate == null ? '—' : Math.round(m.direction_hit_rate * 100) + '%'}</td>
+    <td style="text-align:center;">${m.severity_hit_rate == null ? '—' : Math.round(m.severity_hit_rate * 100) + '%'}</td>
+  </tr>`).join('');
+  el.innerHTML = `
+    <h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.8rem 0 0.4rem;">${_t('Live forecast tracking')} ${trendBadge}</h4>
+    <div class="smart-table-wrap"><table><thead><tr>
+      <th>${_t('Evaluated month')}</th><th>${_t('Predictions')}</th><th>${_t('MAE')}</th>
+      <th>${_t('Direction hit')}</th><th>${_t('Severity hit')}</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;">${_smartEscapeHtml(tracking.note || '')}</div>`;
+}
+
 export function renderForecastAccuracy(accuracy, peers) {
   const c = document.getElementById('smart-forecast-accuracy');
   if (!c) return;
@@ -577,6 +598,7 @@ export function renderXGBoost(xgb, payload) {
   renderForecastTimeline(pl.trajectory);
   renderForecastAccuracy(pl.forecast_accuracy, pl.peer_percentile);
   _renderForecastSignals(pl.signals);
+  _renderForecastTracking(pl.forecast_tracking);
   renderWalkForward(xgb);
   renderPredictedScatter(xgb);
   // Always show model info header
