@@ -1,8 +1,9 @@
 import math
 import logging
+from typing import Dict
 from datetime import datetime
 import numpy as np
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -14,6 +15,9 @@ from app.engine.smart.schemas import SmartAnalyticsResult
 import threading
 from app.core.deps import require_permission
 from app.core.error_handler import safe_endpoint
+from app.engine.smart.trajectory import run_forecast_trajectory
+from app.engine.smart.xgboost_predictor import compute_forecast_accuracy
+from app.engine.comparative.advanced_comparison import compare_peers
 
 router = APIRouter(prefix="/smart", tags=["Smart Analytics"], dependencies=[Depends(require_permission("smart_analytics.read"))])
 
@@ -117,6 +121,7 @@ def _envelope(result: SmartAnalyticsResult) -> dict:
             "retrained": xgb.retrained,
             "data_fingerprint": xgb.data_fingerprint,
             "walk_forward": xgb.walk_forward,
+            "fold_predictions": xgb.fold_predictions,
             "feature_variant": xgb.feature_variant,
             "predictions": [
                 {
@@ -469,15 +474,219 @@ def get_lag_analysis(month: str, db: Session = Depends(get_db)):
     return {"month": month, "lag_analysis": result["data"].get("lag_analysis", {})}
 
 
+@router.get("/forecast-signals/{month}")
+@safe_endpoint("خطأ في إشارات التنبؤ والإنذار المبكر", cache_keys=["smart_overview_{month}"])
+def get_forecast_signals(month: str, horizon: int = Query(3, description="أفق الإشارة بالأشهر (1/3/6)"), db: Session = Depends(get_db)):
+    """إشارات الإنذار المبكر + الأهداف الديناميكية + المزيج متعدد المصادر
+    + علاقات المؤشرات — كلها بأفق صريح وإخلاء مسؤولية إحصائي."""
+    if horizon not in (1, 3, 6):
+        raise HTTPException(status_code=422, detail="horizon must be 1, 3 or 6")
+
+    from app.engine.smart.early_warning import (
+        compute_early_warning_signals, rank_forecast_targets,
+        blended_indicator_forecast, indicator_relationships,
+    )
+    from app.models import QualityScore, Hospital, IndicatorValue, Indicator
+
+    envelope = _get_envelope_or_empty(db, month)
+    if "empty" in envelope or "computing" in envelope:
+        for key in ("signals", "targets", "blended", "relationships", "note"):
+            envelope.setdefault(key, [] if key != "note" else "")
+        envelope["horizon"] = horizon
+        return envelope
+    data = envelope.get("data") or {}
+
+    # ── 1) سلاسل الجودة لكل مستشفى (كل الأشهر المخزنة) ──
+    hosp_names = {h.id: h.name for h in db.query(Hospital).filter(Hospital.is_active).all()}
+    quality_series = {}
+    for q in db.query(QualityScore).order_by(QualityScore.hospital_id, QualityScore.month).all():
+        name = hosp_names.get(q.hospital_id)
+        if not name:
+            continue
+        quality_series.setdefault(name, []).append({
+            "month": q.month, "quality": q.score,
+            "rule_compliance": q.rule_compliance or 0.0,
+        })
+
+    # ── 2) الأنماط المركبة: هذا الشهر من الكاش + الشهر السابق إن توفر ──
+    patterns_by_month = {}
+    cur_patterns = data.get("patterns") or []
+    if cur_patterns:
+        patterns_by_month[month] = [
+            {"indicators": p.get("indicators"), "hospitals": p.get("hospitals")}
+            for p in cur_patterns
+        ]
+    try:
+        y, m = month.split("-")
+        prev_month = f"{int(y) - (m == '01')}-{(int(m) - 1) or 12:02d}"
+        prev_env = cache.get(f"smart_overview_{prev_month}_v3")
+        prev_patterns = ((prev_env or {}).get("data") or {}).get("patterns") or []
+        if prev_patterns:
+            patterns_by_month[prev_month] = [
+                {"indicators": p.get("indicators"), "hospitals": p.get("hospitals")}
+                for p in prev_patterns
+            ]
+    except Exception:
+        pass
+
+    signals = compute_early_warning_signals(quality_series, patterns_by_month)
+    targets = rank_forecast_targets(signals)
+
+    # ── 3) المزيج متعدد المصادر لسلسلة القيصارية لكل مستشفى هدف ──
+    cs_series = _hospital_rate_series(db, hosp_names)
+    all_last = [s[-1][1] for s in cs_series.values() if s]
+    peer_mean = float(np.mean(all_last)) if all_last else 0.0
+    blended = []
+    for t in targets:
+        series = cs_series.get(t["hospital"]) or []
+        if len(series) < 3:
+            continue
+        vals = [v for _, v in series]
+        slope = float(np.polyfit(range(len(vals)), vals, 1)[0]) if len(vals) >= 2 else 0.0
+        trend_target = vals[-1] + slope * horizon
+        self_mean = float(np.mean(vals))
+        blended.append(blended_indicator_forecast(
+            "cs_rate", current=vals[-1], trend_target=trend_target,
+            peer_mean=peer_mean, self_mean=self_mean, n_months=len(vals),
+        ))
+
+    relationships = indicator_relationships(data.get("lag_analysis") or {})
+
+    return _sanitize({
+        "month": month,
+        "horizon": horizon,
+        "signals": signals,
+        "targets": targets,
+        "blended": blended,
+        "relationships": relationships,
+        "note": (
+            f"إشارات بأفق {horizon} شهر إن استمرت الاتجاهات المرصودة — "
+            "كل التنبؤات تقديرات إحصائية لا تنبؤ مؤكد، والعلاقات ارتباطية لا سببية."
+        ),
+    })
+
+
+def _hospital_rate_series(db: Session, hosp_names: Dict[int, str]) -> Dict[str, list]:
+    """سلسلة معدل القيصارية الشهرية لكل مستشفى (5/2×100) من قيم المؤشرات.
+
+    الشهر بمقام مفقود/صفري يُسقط (بيانات ناقصة لا صفر صامت)."""
+    ind_map = {i.id: i.code for i in db.query(Indicator).all()}
+    needed = {"2", "5"}
+    per: Dict[tuple, Dict[str, float]] = {}
+    rows = (
+        db.query(IndicatorValue.hospital_id, IndicatorValue.month,
+                 IndicatorValue.indicator_id, IndicatorValue.value)
+        .filter(IndicatorValue.value.isnot(None)).all()
+    )
+    for hid, m, iid, v in rows:
+        code = ind_map.get(iid)
+        if code not in needed or hid not in hosp_names:
+            continue
+        per.setdefault((hid, m), {})[code] = float(v)
+    series: Dict[str, list] = {}
+    for (hid, m), vals in per.items():
+        denom, cs = vals.get("2"), vals.get("5")
+        if not denom or denom <= 0 or cs is None:
+            continue
+        series.setdefault(hosp_names[hid], []).append((m, cs / denom * 100.0))
+    for name in series:
+        series[name].sort(key=lambda x: x[0])
+    return series
+
+
 @router.get("/xgboost/{month}")
 @safe_endpoint("خطأ في تحليل التنبؤات", cache_keys=["smart_overview_{month}"])
-def get_xgboost(month: str, db: Session = Depends(get_db)):
+def get_xgboost(month: str, horizon: int = Query(1, description="أفق التنبؤ بالأشهر (1/3/6)"), db: Session = Depends(get_db)):
+    from types import SimpleNamespace
+
     envelope = _get_smart_data(db, month)
     xgb = (envelope.get("data") or {}).get("xgboost")
     if not xgb or not xgb.get("predictions"):
         return {"month": month, "empty": True,
                 "message": "Not enough data for predictions this month", "xgboost": None}
-    return {"month": month, "xgboost": xgb}
+    if horizon not in (1, 3, 6):
+        raise HTTPException(status_code=422, detail="horizon must be 1, 3 or 6")
+
+    # ── الدقة لكل مستشفى من سجلات الطيات المحفوظة في الكاش — بلا إعادة حساب ──
+    accuracy = None
+    try:
+        accuracy = compute_forecast_accuracy(SimpleNamespace(
+            fold_predictions=xgb.get("fold_predictions") or [],
+            model_mae=xgb.get("model_mae") or 0.0,
+        ))
+    except Exception:
+        logger.exception("forecast accuracy failed")
+
+    # ── مسار الأفق المختار: مثبت على تنبؤات XGBoost للشهر m+1 من الكاش ──
+    anchor_ns = SimpleNamespace(predictions=[
+        SimpleNamespace(hospital_name=p.get("hospital_name"),
+                        predicted_next_score=p.get("predicted_next_score"))
+        for p in xgb.get("predictions", [])
+    ])
+    fold_errors = None
+    if accuracy and accuracy.get("overall", {}).get("interval"):
+        iv = accuracy["overall"]["interval"]
+        if iv["p90"] > 0:
+            fold_errors = [iv["p10"], (iv["p10"] + iv["p90"]) / 2.0, iv["p90"]]
+    trajectory = None
+    try:
+        traj = run_forecast_trajectory(db, month, horizon, xgb_predictions=anchor_ns,
+                                       fold_errors=fold_errors)
+        trajectory = _sanitize({
+            "base_month": traj["base_month"],
+            "horizon": traj["horizon"],
+            "note": traj["note"],
+            "trajectories": [
+                {
+                    "hospital_name": t.hospital_name,
+                    "model": t.model,
+                    "anchor_applied": t.anchor_applied,
+                    "confidence": t.confidence,
+                    "points": [p.__dict__ for p in t.points],
+                    "threshold_crossing": (t.threshold_crossing.__dict__ if t.threshold_crossing else None),
+                    "backtest": t.backtest.__dict__,
+                    "note": t.note,
+                }
+                for t in traj["trajectories"]
+            ],
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception:
+        logger.exception("forecast trajectory failed")
+        trajectory = None
+
+    # ── مئين النظير لكل مستشفى من شذوذ الكاش نفسه — بلا إعادة تشغيل للمحرك ──
+    peer_percentile = {}
+    try:
+        anomalies_ns = SimpleNamespace(anomalies=[
+            SimpleNamespace(hospital_id=a.get("hospital_id"),
+                            hospital_name=a.get("hospital_name"),
+                            anomaly_score=a.get("anomaly_score"))
+            for a in (envelope.get("data") or {}).get("anomalies") or []
+        ])
+        for p in compare_peers(db, month, "all", analytics=anomalies_ns):
+            peer_percentile[p.hospital_name] = {
+                "percentile": p.percentile, "rank": p.rank, "total": p.total_hospitals,
+                "label": p.comparison_label,
+            }
+    except Exception:
+        peer_percentile = {}
+    if accuracy and peer_percentile:
+        for row in accuracy["rows"]:
+            info = peer_percentile.get(row["hospital"])
+            if info:
+                row["peer_percentile"] = info["percentile"]
+                row["peer_rank"] = info["rank"]
+
+    return _sanitize({
+        "month": month,
+        "horizon": horizon,
+        "xgboost": xgb,
+        "forecast_accuracy": accuracy,
+        "trajectory": trajectory,
+        "peer_percentile": peer_percentile,
+    })
 
 
 @router.get("/trend/{hospital_id}")

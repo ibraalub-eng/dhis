@@ -217,6 +217,76 @@ def test_xgboost_renders_walk_forward_and_scatter():
     assert "smart-predicted-scatter" in js
 
 
+def test_forecast_accuracy_and_timeline_renderers_exist():
+    """المرحلة 1: رسّام الدقة لكل مستشفى والخط الزمني مع مُختار الأفق."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(path, encoding="utf-8") as f:
+        js = f.read()
+    assert "export function renderForecastAccuracy" in js
+    assert "export function renderForecastTimeline" in js
+    assert "export function initHorizonSelect" in js
+    # ركائز العرض: الجدول والنطاق وإخلاء المسؤولية والتوصية وما الذي تغيّر
+    assert "smart-forecast-accuracy" in js
+    assert "smart-forecast-timeline" in js
+    assert "Forecast accuracy per hospital" in js
+    assert "P10–P90" in js
+    assert "All forecasts are statistical estimates" in js
+    assert "_recommendationFor" in js
+    assert "What changed?" in js
+    # renderXGBoost يستقبل حمولة الخادم ويرسم الجديد
+    assert "export function renderXGBoost(xgb, payload)" in js
+    assert "renderForecastTimeline(pl.trajectory)" in js
+    assert "renderForecastAccuracy(pl.forecast_accuracy, pl.peer_percentile)" in js
+
+
+def test_horizon_select_wired_in_tab_and_init():
+    """مُختار الأفق موجود في HTML وملفوف بالتهيئة ويعيد تحميل التبويب."""
+    import os
+    tab_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    with open(tab_path, encoding="utf-8") as f:
+        html = f.read()
+    assert "smart-horizon-select" in html
+    assert "Within 3 months" in html
+    assert "Within 6 months" in html
+    assert "smart-forecast-timeline" in html
+    assert "smart-forecast-accuracy" in html
+
+    entry_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    with open(entry_path, encoding="utf-8") as f:
+        entry = f.read()
+    assert "initHorizonSelect" in entry
+
+    adv_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(adv_path, encoding="utf-8") as f:
+        adv = f.read()
+    assert "smart-horizon-select" in adv
+    assert "loadXGBoostTab(smartState.month)" in adv
+
+
+def test_forecast_signals_section_rendered():
+    """المرحلة 2: قسم إشارات الإنذار المبكر — حاوية HTML ورسّام JS ونقطة نهاية."""
+    import os
+    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    with open(html_path, encoding="utf-8") as f:
+        html = f.read()
+    assert "smart-forecast-signals" in html
+
+    adv_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(adv_path, encoding="utf-8") as f:
+        adv = f.read()
+    assert "_renderForecastSignals" in adv
+    assert "forecast-signals/${month}" in adv
+    assert "Blended indicator forecast" in adv
+    assert "correlational, not causal" in adv
+    assert "All forecasts are statistical estimates" not in adv.split("_renderForecastSignals")[1].split("function")[0]  # الإشارات تحمل الإخلاء من الخادم
+
+    api_path = os.path.join(os.path.dirname(__file__), "..", "app", "api", "smart_analytics.py")
+    with open(api_path, encoding="utf-8") as f:
+        api = f.read()
+    assert '"/forecast-signals/{month}"' in api
+
+
 def test_feature_importance_fetches_explanations_lazily():
     """CRIT-2: feature importance tab fetches /smart/anomalies since the
     decision-board payload (smartState.data) no longer carries explanations."""

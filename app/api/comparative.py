@@ -34,7 +34,7 @@ def get_comprehensive_report(
 def get_advanced_comparison(
     month: str,
     hospital_id: str = Query(None, description="معرف المستشفى (اختياري)"),
-    comparison_type: str = Query("all", description="نوع المقارنة (all/governorate/type)"),
+    comparison_type: str = Query("all", description="نوع المقارنة (all/governorate/type/ownership/size)"),
     lang: str = Query("en", description="Results language (ar/en)"),
     db: Session = Depends(get_db)
 ):

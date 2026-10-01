@@ -6,8 +6,7 @@ import { smartState, apiSmartGet, smartShowLoading, smartHideLoading,
          registerSectionLoaders, initSectionObserver, reloadSmartSections,
          trapFocus } from './smart/core.js';
 import { loadDecisionBoard, renderKPIs, renderCriticalList, renderEarlyWarnings, renderHealthyHospitals } from './smart/decision-board.js';
-import { initAdvancedTabs, loadAdvancedSection, loadClustersTab, loadCorrelationsTab,
-         loadPatternsTab, loadXGBoostTab, loadFeatureImportanceTab } from './smart/advanced.js';
+import { initAdvancedTabs, loadAdvancedSection, loadClustersTab, loadCorrelationsTab,          loadPatternsTab, loadXGBoostTab, loadFeatureImportanceTab, initHorizonSelect } from './smart/advanced.js';
 import { renderPlot } from './smart/charts.js';
 import { loadGeoSection } from './smart/geo-regional.js';
 import { initHospitalSelect, loadHospitalMode, openDrilldown, goRootCause } from './smart/hospital.js';
@@ -266,6 +265,7 @@ function wireScreen() {
   });
   initComparisonSelect();
   initAdvancedTabs();
+  initHorizonSelect();
 }
 
 // ---- error banner retry (spec 5): clicking an active error banner reloads its section ----
