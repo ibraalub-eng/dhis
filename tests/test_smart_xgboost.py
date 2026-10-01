@@ -800,3 +800,84 @@ class TestFoldPredictions:
             assert r.fold_predictions == []
         finally:
             session.close()
+
+
+class TestForecastAccuracy:
+    """دقة الشهر التالي لكل مستشفى من fold_predictions — بلا أي تدريب إضافي."""
+
+    class _FakeXgb:
+        def __init__(self, fold_predictions, model_mae=0.1, predictions=()):
+            self.fold_predictions = fold_predictions
+            self.model_mae = model_mae
+            self.predictions = list(predictions)
+
+    def test_returns_none_without_folds(self):
+        from app.engine.smart.xgboost_predictor import compute_forecast_accuracy
+        assert compute_forecast_accuracy(self._FakeXgb([])) is None
+
+    def test_per_hospital_mae_rmse_and_hits(self):
+        from app.engine.smart.xgboost_predictor import compute_forecast_accuracy
+        fp = [
+            {"hospital": "A", "month": "2026-01", "y_true": 0.50, "y_pred": 0.58},
+            {"hospital": "A", "month": "2026-02", "y_true": 0.60, "y_pred": 0.65},
+        ]
+        res = compute_forecast_accuracy(self._FakeXgb(fp))
+        row = res["rows"][0]
+        assert row["hospital"] == "A"
+        assert row["n"] == 2
+        assert row["mae"] == pytest.approx(0.065)
+        assert row["rmse"] == pytest.approx(0.0667, abs=0.001)
+        # الاتجاه: فعلي 0.5→0.6 صاعد (+0.1) والتنبؤ 0.58 صاعد عن 0.5 => إصابة
+        assert row["direction_hit_rate"] == 1.0
+        # الخطورة: 0.58 تحذير مقابل فعلي 0.5 تحذير؛ 0.65 حرج مقابل فعلي 0.6 حرج
+        assert row["severity_hit_rate"] == 1.0
+        assert row["last_predicted"] == 0.65 and row["last_actual"] == 0.6
+        assert row["confidence"] == pytest.approx(0.935)
+
+    def test_direction_always_decidable_and_correct(self):
+        from app.engine.smart.xgboost_predictor import compute_forecast_accuracy
+        # فعلي صاعد +0.2 والتنبؤ ثابت ضمن ±0.05 من الفعلي السابق => خطأ اتجاه.
+        fp = [
+            {"hospital": "A", "month": "2026-01", "y_true": 0.50, "y_pred": 0.50},
+            {"hospital": "A", "month": "2026-02", "y_true": 0.70, "y_pred": 0.55},
+        ]
+        row = compute_forecast_accuracy(self._FakeXgb(fp))["rows"][0]
+        assert row["direction_hit_rate"] == 0.0
+        # والفعلي الثابت مع تنبؤ بالثبات (0.49≈0.50) => إصابة:
+        fp2 = [
+            {"hospital": "B", "month": "2026-01", "y_true": 0.50, "y_pred": 0.49},
+            {"hospital": "B", "month": "2026-02", "y_true": 0.52, "y_pred": 0.80},
+        ]
+        row2 = compute_forecast_accuracy(self._FakeXgb(fp2))["rows"][0]
+        assert row2["direction_hit_rate"] == 1.0
+
+    def test_overall_and_interval(self):
+        from app.engine.smart.xgboost_predictor import compute_forecast_accuracy
+        fp = [
+            {"hospital": "A", "month": "2026-01", "y_true": 0.50, "y_pred": 0.55},
+            {"hospital": "A", "month": "2026-02", "y_true": 0.60, "y_pred": 0.68},
+            {"hospital": "B", "month": "2026-01", "y_true": 0.30, "y_pred": 0.33},
+            {"hospital": "B", "month": "2026-02", "y_true": 0.20, "y_pred": 0.25},
+        ]
+        res = compute_forecast_accuracy(self._FakeXgb(fp, model_mae=0.12))
+        o = res["overall"]
+        assert o["n_predictions"] == 4
+        # الأخطاء: 0.05, 0.08, 0.03, 0.05 => MAE = 0.0525
+        assert o["mae"] == pytest.approx(0.0525)
+        assert o["model_mae"] == pytest.approx(0.12)
+        assert len(o["last_6"]) == 4
+        assert o["last_6"][-1]["month"] == "2026-02"
+        iv = o["interval"]
+        assert 0.0 <= iv["p10"] <= iv["p90"]
+        # إخلاء المسؤولية الإحصائي دائماً
+        assert "تقدير إحصائي لا تنبؤ مؤكد" in res["note"]
+
+    def test_rows_sorted_and_malformed_entries_skipped(self):
+        from app.engine.smart.xgboost_predictor import compute_forecast_accuracy
+        fp = [
+            {"hospital": "B", "month": "2026-01", "y_true": 0.2, "y_pred": 0.25},
+            {"hospital": "A", "month": "2026-01", "y_true": 0.5, "y_pred": 0.5},
+            {"hospital": "A"},  # سجل تالف => يُتخطى
+        ]
+        res = compute_forecast_accuracy(self._FakeXgb(fp))
+        assert [r["hospital"] for r in res["rows"]] == ["A", "B"]

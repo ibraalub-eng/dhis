@@ -127,7 +127,11 @@ export function loadPatternsTab(month) {
 }
 
 export function loadXGBoostTab(month) {
-  return fetchSection(`/smart/xgboost/${month}`, 'xgboost').then(d => {
+  const horizon = document.getElementById('smart-horizon-select')?.value || '1';
+  return Promise.all([
+    fetchSection(`/smart/xgboost/${month}?horizon=${horizon}`, 'xgboost'),
+    apiSmartGet(`/smart/forecast-signals/${month}?horizon=${horizon}`).catch(() => null),
+  ]).then(([d, sig]) => {
     if (!d) return;
     // Even if empty, try to show the latest month's model info as fallback
     if (d.empty) {
@@ -137,8 +141,195 @@ export function loadXGBoostTab(month) {
       _showLatestModelInfo(month);
       return;
     }
-    renderXGBoost(d.xgboost || {});
+    renderXGBoost(d.xgboost || {}, { ...d, signals: sig });
   });
+}
+
+
+// ── إشارات الإنذار المبكر (المرحلة 2) ──
+
+function _renderForecastSignals(sig) {
+  const c = document.getElementById('smart-forecast-signals');
+  if (!c) return;
+  if (!sig) { c.innerHTML = ''; return; }
+  const sevBadge = (s) =>
+    `<span class="smart-badge ${s === 'critical' ? 'smart-badge-critical' : s === 'warning' ? 'smart-badge-warning' : 'smart-badge-normal'}">${_smartEscapeHtml(_t(s === 'critical' ? 'critical' : s === 'warning' ? 'warning' : 'normal'))}</span>`;
+
+  let html = `<h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.8rem 0 0.4rem;">${_t('Forecast signals')}</h4>`;
+
+  const signals = sig.signals || [];
+  if (signals.length) {
+    html += `<div class="smart-table-wrap"><table><thead><tr>
+      <th>${_t('Hospital')}</th><th>${_t('Signal')}</th><th>${_t('Severity')}</th>
+      <th>${_t('Forecast horizon')}</th><th>${_t('Message')}</th></tr></thead><tbody>` +
+      signals.slice(0, 12).map(s => `<tr>
+        <td>${_smartEscapeHtml(s.hospital)}</td>
+        <td style="font-size:0.75rem;">${_smartEscapeHtml(s.kind)}</td>
+        <td>${sevBadge(s.severity)}</td>
+        <td style="text-align:center;">${s.horizon_months} ${_t('months')}</td>
+        <td style="font-size:0.72rem;">${_smartEscapeHtml(s.message_ar)}</td>
+      </tr>`).join('') + `</tbody></table></div>`;
+  } else {
+    html += `<div class="smart-empty-state">${_t('No early-warning signals this month')}</div>`;
+  }
+
+  const blended = (sig.blended || []).filter(b => b.available);
+  if (blended.length) {
+    html += `<h4 style="font-size:0.8rem;color:var(--accent-blue);margin:0.7rem 0 0.3rem;">${_t('Blended indicator forecast')} (${_t('C-section rate')})</h4>`;
+    html += `<div class="smart-table-wrap"><table><thead><tr>
+      <th>${_t('Hospital')}</th><th>${_t('Current')}</th><th>${_t('Expected')}</th><th>${_t('Range')}</th>
+      <th>${_t('Peer avg')}</th><th>${_t('Confidence')}</th></tr></thead><tbody>` +
+      blended.map(b => `<tr>
+        <td>${_smartEscapeHtml(b.hospital || '—')}</td>
+        <td style="text-align:center;">${b.current}</td>
+        <td style="text-align:center;font-weight:600;">${b.forecast}</td>
+        <td style="text-align:center;font-size:0.72rem;direction:ltr;">${b.lower}–${b.upper}</td>
+        <td style="text-align:center;">${b.peer_mean}</td>
+        <td style="text-align:center;">${Math.round(b.confidence * 100)}%</td>
+      </tr>`).join('') + `</tbody></table></div>`;
+  }
+
+  const rels = sig.relationships || [];
+  if (rels.length) {
+    html += `<h4 style="font-size:0.8rem;color:var(--accent-blue);margin:0.7rem 0 0.3rem;">${_t('Indicator relationships')} (${_t('correlational, not causal')})</h4><ul style="font-size:0.75rem;color:var(--text-secondary);margin:0.2rem 0 0;padding-inline-start:1.2rem;">` +
+      rels.slice(0, 6).map(r => `<li>${_smartEscapeHtml(r.message_ar)}</li>`).join('') + `</ul>`;
+  }
+
+  if (sig.note) html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem;">${_smartEscapeHtml(sig.note)}</div>`;
+  c.innerHTML = html;
+}
+
+// ── آفاق التنبؤ + الدقة لكل مستشفى (المرحلة 1) ──
+
+let _lastXgboostPayload = null;
+
+export function initHorizonSelect() {
+  const sel = document.getElementById('smart-horizon-select');
+  if (!sel || sel.dataset.bound) return;
+  sel.dataset.bound = '1';
+  sel.addEventListener('change', () => loadXGBoostTab(smartState.month));
+}
+
+function _forecastDisclaimer() {
+  return `<div class="smart-empty-state" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.3rem;">${_t('All forecasts are statistical estimates, not certain predictions')}</div>`;
+}
+
+export function renderForecastTimeline(trajectory) {
+  const el = document.getElementById('smart-forecast-timeline');
+  if (!el) return;
+  if (!trajectory || !trajectory.trajectories || !trajectory.trajectories.length) {
+    el.innerHTML = '';
+    return;
+  }
+  const trajs = trajectory.trajectories;
+  const sel = document.getElementById('smart-timeline-hospital');
+  let current = sel ? sel.value : null;
+  if (!current || !trajs.some(t => t.hospital_name === current)) {
+    current = trajs[0].hospital_name; // الأخطر أولاً (مرتبة من الخادم)
+  }
+  const options = trajs.map(t =>
+    `<option value="${_smartEscapeHtml(t.hospital_name)}"${t.hospital_name === current ? ' selected' : ''}>${_smartEscapeHtml(t.hospital_name)}</option>`
+  ).join('');
+  const t = trajs.find(x => x.hospital_name === current);
+
+  const months = t.points.map(p => p.month);
+  const values = t.points.map(p => p.value);
+  const lower = t.points.map(p => p.lower);
+  const upper = t.points.map(p => p.upper);
+  // حزمة عدم اليقين: مضلع مغلق بين upper وlower
+  const band = {
+    type: 'scatter', mode: 'lines', x: months.concat(months.slice().reverse()),
+    y: upper.concat(lower.slice().reverse()), fill: 'toself',
+    fillcolor: 'rgba(99,102,241,0.15)', line: { width: 0 },
+    hoverinfo: 'skip', showlegend: true, name: _t('P10–P90 range'),
+  };
+  const line = {
+    type: 'scatter', mode: 'lines+markers', x: months, y: values,
+    line: { color: '#6366f1', width: 2.5 }, marker: { size: 7 },
+    name: _t('Predicted trajectory'),
+    text: months.map((m, i) => `${m}<br>${_t('Expected')}: ${values[i].toFixed(2)} (${lower[i].toFixed(2)}–${upper[i].toFixed(2)})`),
+    hovertemplate: '%{text}<extra></extra>',
+  };
+  const shapes = [
+    { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 0.3, y1: 0.3,
+      line: { color: '#f59e0b', width: 1.2, dash: 'dash' } },
+    { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 0.6, y1: 0.6,
+      line: { color: '#ef4444', width: 1.2, dash: 'dash' } },
+  ];
+  const cross = t.threshold_crossing
+    ? `<div class="smart-empty-state" style="font-size:0.78rem;margin-top:0.3rem;">⚠️ ${_t('Threshold crossing expected around')} <b>${_smartEscapeHtml(t.threshold_crossing.month)}</b> (${_smartEscapeHtml(_t(t.threshold_crossing.severity === 'critical' ? 'critical' : 'warning'))}) — ${_t('if the trend continues')}</div>`
+    : '';
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.5rem;margin:0.6rem 0 0.3rem;flex-wrap:wrap;">
+      <span style="font-size:0.82rem;color:var(--text-secondary);">${_t('Hospital')}:</span>
+      <select id="smart-timeline-hospital" class="smart-select" style="max-width:240px;">${options}</select>
+      <span style="font-size:0.78rem;color:var(--text-muted);">${_smartEscapeHtml(t.model === 'linear' ? _t('linear trend') : _t('moving average'))} · ${_t('confidence')}: ${Math.round((t.confidence || 0) * 100)}%${t.anchor_applied ? ' · ' + _t('anchored on XGBoost m+1') : ''}</span>
+    </div>
+    <div id="smart-timeline-plot" style="min-height:260px;"></div>
+    ${cross}
+    <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">${_smartEscapeHtml(trajectory.note || '')}</div>`;
+  const hsel = document.getElementById('smart-timeline-hospital');
+  if (hsel && !hsel.dataset.bound) {
+    hsel.dataset.bound = '1';
+    hsel.addEventListener('change', () => renderForecastTimeline(trajectory));
+  }
+  const yMax = Math.max(1.0, ...upper, ...values);
+  renderPlot('smart-timeline-plot', [band, line], {
+    margin: { t: 15, b: 40, l: 45, r: 15 }, height: 260,
+    xaxis: { tickfont: { size: 9 } },
+    yaxis: { title: { text: _t('Risk score'), font: { size: 9 } }, range: [0, Math.min(1.2, yMax + 0.05)], gridcolor: '#f0f0f0' },
+    shapes, showlegend: true, legend: { font: { size: 9 } },
+  });
+}
+
+function _recommendationFor(p, drivers) {
+  // توصية قاعديّة من العامل الأبرز لتنبؤ صاعد عالي الخطورة.
+  if (!p || p.risk_change !== 'increasing' || !['high', 'critical'].includes(p.predicted_severity)) return '';
+  const top = (drivers || [])[0];
+  const name = top ? (top.arabic_label || top.feature) : '';
+  const base = name ? `${_t('Address the rise in')} ${_smartEscapeHtml(name)}` : _t('Review risk drivers');
+  return `💡 ${_t('Recommendation')}: ${base} — ${_t('verify data accuracy, investigate root cause, and prepare a corrective plan')}`;
+}
+
+export function renderForecastAccuracy(accuracy, peers) {
+  const c = document.getElementById('smart-forecast-accuracy');
+  if (!c) return;
+  if (!accuracy || !accuracy.rows || !accuracy.rows.length) { c.innerHTML = ''; return; }
+  const o = accuracy.overall || {};
+  const iv = o.interval || {};
+  const bar = (v) => {
+    const pct = Math.round((v || 0) * 100);
+    const filled = Math.round(pct / 10);
+    return `${'█'.repeat(filled)}${'░'.repeat(10 - filled)} ${pct}%`;
+  };
+  const modelBar = `
+    <div class="smart-empty-state" style="margin-bottom:0.6rem;">
+      <div style="font-weight:600;font-size:0.82rem;">${_t('Model performance')} (${o.n_predictions || 0} ${_t('walk-forward predictions')})</div>
+      <div style="font-size:0.8rem;margin-top:0.2rem;">${_t('MAE')}: ${(o.mae || 0).toFixed(3)} · ${_t('RMSE')}: ${(o.rmse || 0).toFixed(3)} · ${_t('Direction hit')}: ${o.direction_hit_rate == null ? '—' : Math.round(o.direction_hit_rate * 100) + '%'} · ${_t('Prediction range (P10–P90 abs. error)')}: ±${((iv.p10 || 0)).toFixed(3)}–${((iv.p90 || 0)).toFixed(3)}</div>
+    </div>`;
+  const rows = accuracy.rows.map(r => {
+    const peerInfo = (peers || {})[r.hospital];
+    const peerTxt = peerInfo ? `${Math.round(peerInfo.percentile)}% (${peerInfo.rank}/${peerInfo.total})` : '—';
+    return `<tr>
+      <td>${_smartEscapeHtml(r.hospital)}</td>
+      <td style="text-align:center;">${(r.last_predicted ?? '—')}</td>
+      <td style="text-align:center;">${(r.last_actual ?? '—')}</td>
+      <td style="text-align:center;color:${Math.abs(r.last_error || 0) > 0.1 ? 'var(--accent-red, #ef4444)' : 'inherit'};">${(r.last_error ?? '—')}</td>
+      <td style="text-align:center;">${(r.mae ?? '—')}</td>
+      <td style="text-align:center;">${(r.rmse ?? '—')}</td>
+      <td style="text-align:center;">${r.direction_hit_rate == null ? '—' : Math.round(r.direction_hit_rate * 100) + '%'}</td>
+      <td style="text-align:center;">${peerTxt}</td>
+      <td style="font-size:0.72rem;direction:ltr;">${bar(r.confidence)}</td>
+    </tr>`;
+  }).join('');
+  c.innerHTML = `
+    <h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.8rem 0 0.4rem;">${_t('Forecast accuracy per hospital')}</h4>
+    ${modelBar}
+    <div class="smart-table-wrap"><table><thead><tr>
+      <th>${_t('Hospital')}</th><th>${_t('Last predicted')}</th><th>${_t('Last actual')}</th><th>${_t('Error')}</th>
+      <th>${_t('MAE')}</th><th>${_t('RMSE')}</th><th>${_t('Direction hit')}</th><th>${_t('Peer percentile')}</th><th>${_t('Confidence')}</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
+    ${_forecastDisclaimer()}`;
 }
 
 async function _showLatestModelInfo(currentMonth) {
@@ -378,10 +569,14 @@ function _renderStratifiedChart(indicator) {
   if (textEl) textEl.textContent = `${significant} ${_t('of')} ${filtered.length} ${_t('hospitals deviate >15% from peer average')}`;
 }
 
-export function renderXGBoost(xgb) {
+export function renderXGBoost(xgb, payload) {
   const pred = xgb.predictions || [];
   const c = document.getElementById('smart-xgboost-predictions');
   if (!c) return;
+  const pl = payload || {};
+  renderForecastTimeline(pl.trajectory);
+  renderForecastAccuracy(pl.forecast_accuracy, pl.peer_percentile);
+  _renderForecastSignals(pl.signals);
   renderWalkForward(xgb);
   renderPredictedScatter(xgb);
   // Always show model info header
@@ -398,11 +593,21 @@ export function renderXGBoost(xgb) {
     return;
   }
   c.innerHTML = modelInfo + `<div class="smart-table-wrap"><table><thead><tr>
-    <th>${_t('Hospital')}</th><th>${_t('Predicted score')}</th><th>${_t('Risk')}</th></tr></thead><tbody>` +
-    pred.map(p => `<tr><td>${_smartEscapeHtml(p.hospital_name)}</td>
+    <th>${_t('Hospital')}</th><th>${_t('Predicted score')}</th><th>${_t('Risk')}</th><th>${_t('What changed?')}</th><th>${_t('Recommendation')}</th></tr></thead><tbody>` +
+    pred.map(p => {
+      const drivers = (p.top_drivers || []).slice(0, 3);
+      const chips = drivers.map(d =>
+        `<span class="smart-badge ${d.shap_value > 0 ? 'smart-badge-critical' : 'smart-badge-normal'}" style="font-size:0.68rem;margin:0.1rem 0.15rem;display:inline-block;">${_smartEscapeHtml(d.arabic_label || d.feature)} ${d.shap_value > 0 ? '↑' : '↓'}</span>`
+      ).join('');
+      const rec = _recommendationFor(p, drivers);
+      return `<tr><td>${_smartEscapeHtml(p.hospital_name)}</td>
       <td>${_fmtNum(p.prediction ?? p.predicted_next_score, 3)}</td>
-      <td>${_riskLevel(p.prediction ?? p.predicted_next_score)}</td></tr>`).join('') + `</tbody></table></div>`;
+      <td>${_riskLevel(p.prediction ?? p.predicted_next_score)}</td>
+      <td>${chips || '—'}</td>
+      <td style="font-size:0.72rem;">${rec || '—'}</td></tr>`;
+    }).join('') + `</tbody></table></div>`;
 }
+
 
 export function renderWalkForward(xgb) {
   const c = document.getElementById('smart-walk-forward');

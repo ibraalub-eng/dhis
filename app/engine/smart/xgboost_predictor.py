@@ -379,6 +379,113 @@ def _score_to_severity(score: float) -> str:
     return "critical"
 
 
+def _direction_hit(prev_actual: float, prev_pred: float, next_actual: float) -> bool:
+    """هل أصاب التنبؤ اتجاه التغير الفعلي؟ (نفس عتبة ±0.05 المعتمدة للمسار)
+
+    فعلي صاعد/هابط => إصابة إن كان التنبؤ أعلى/أدنى من الفعلي السابق.
+    فعلي ثابت (ضمن ±0.05) => إصابة إن بقي التنبؤ قريباً من الفعلي السابق
+    (أي تنبأ بالثبات). الحكم دائماً قابل للتحديد رقمياً."""
+    d = next_actual - prev_actual
+    if abs(d) <= 0.05:
+        return abs(prev_pred - prev_actual) <= 0.05
+    if d > 0:
+        return prev_pred > prev_actual
+    return prev_pred < prev_actual
+
+
+def compute_forecast_accuracy(xgb_result) -> Optional[Dict[str, Any]]:
+    """دقة الشهر التالي لكل مستشفى من سجلات طيات walk-forward (البند 1.2).
+
+    يستهلك fold_predictions المسجّلة أثناء التدريب (hospital, month,
+    y_true, y_pred) بلا أي تدريب إضافي:
+    - لكل مستشفى: عدد التنبؤات، MAE، RMSE، إصابة الاتجاه (±0.05)، إصابة
+      درجة الخطورة، آخر تنبؤ مقابل آخر فعلي، وثقة (1−MAE).
+    - مستوى النموذج: الإجمالي، آخر 6 تنبؤات (شهر/تنبؤ/فعلي/خطأ)، ونطاق
+      P10–P90 من الأخطاء المطلقة (مصدر عرض النطاق في الواجهة).
+
+    يعيد None عند غياب السجلات (نموذج قديم بلا fold_predictions). كل القيم
+    تقديرات إحصائية من بيانات ماضية — لا تنبؤ مؤكد.
+    """
+    folds = getattr(xgb_result, "fold_predictions", None) or []
+    preds = getattr(xgb_result, "predictions", None) or []
+    model_mae = float(getattr(xgb_result, "model_mae", 0.0) or 0.0)
+    if not folds:
+        return None
+
+    def _parse(fp):
+        try:
+            return (str(fp["hospital"]), float(fp["y_true"]),
+                    float(fp["y_pred"]), str(fp["month"]))
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    parsed = [p for p in (_parse(fp) for fp in folds) if p is not None]
+    if not parsed:
+        return None
+
+    by_hosp: Dict[str, List[Tuple[float, float, str]]] = {}
+    for h, t, p, m in parsed:
+        by_hosp.setdefault(h, []).append((t, p, m))
+
+    rows = []
+    for name in sorted(by_hosp):
+        pts = sorted(by_hosp[name], key=lambda x: x[2])
+        errs = [p - t for t, p, _ in pts]
+        n = len(errs)
+        mae = float(np.mean([abs(e) for e in errs]))
+        rmse = float(np.sqrt(np.mean([e * e for e in errs])))
+        dir_pairs = list(zip(pts, pts[1:]))
+        dir_hits = sum(
+            1 for (t1, p1, _), (t2, _, _) in dir_pairs
+            if _direction_hit(t1, p1, t2)
+        )
+        sev_hits = sum(1 for t, p, _ in pts if _score_to_severity(p) == _score_to_severity(t))
+        t_last, p_last, _ = pts[-1]
+        rows.append({
+            "hospital": name,
+            "n": n,
+            "mae": round(mae, 4),
+            "rmse": round(rmse, 4),
+            "direction_hit_rate": round(dir_hits / len(dir_pairs), 3) if dir_pairs else None,
+            "severity_hit_rate": round(sev_hits / n, 3),
+            "last_predicted": round(p_last, 4),
+            "last_actual": round(t_last, 4),
+            "last_error": round(p_last - t_last, 4),
+            "confidence": round(max(0.0, min(1.0, 1.0 - mae)), 3),
+        })
+
+    all_sorted = sorted(parsed, key=lambda x: x[3])
+    errs_all = [p - t for _, t, p, _ in all_sorted]
+    abs_errs = sorted(abs(e) for e in errs_all)
+    all_pairs = list(zip(all_sorted, all_sorted[1:]))
+    dir_hits_all = sum(
+        1 for (_, t1, p1, _), (_, t2, _, _) in all_pairs
+        if _direction_hit(t1, p1, t2)
+    )
+    overall = {
+        "n_predictions": len(all_sorted),
+        "mae": round(float(np.mean([abs(e) for e in errs_all])), 4),
+        "rmse": round(float(np.sqrt(np.mean([e * e for e in errs_all]))), 4),
+        "direction_hit_rate": (round(dir_hits_all / len(all_pairs), 3) if all_pairs else None),
+        "model_mae": round(model_mae, 4),
+        "last_6": [
+            {"month": m, "predicted": round(p, 4), "actual": round(t, 4),
+             "error": round(p - t, 4)}
+            for _, t, p, m in all_sorted[-6:]
+        ],
+        "interval": {
+            "p10": round(float(np.quantile(abs_errs, 0.1)), 4),
+            "p90": round(float(np.quantile(abs_errs, 0.9)), 4),
+        },
+    }
+    note = (
+        f"دقة الشهر التالي لكل مستشفى محسوبة من {len(all_sorted)} تنبؤ تحقق زمني "
+        "(walk-forward) دون تدريب إضافي؛ النطاق P10–P90 من الأخطاء المطلقة، "
+        "والثقة (1−MAE) تنخفض مع قلة التنبؤات. تقدير إحصائي لا تنبؤ مؤكد."
+    )
+    return {"rows": rows, "overall": overall, "note": note}
+
+
 def _data_fingerprint(session, months: List[str], config: Dict[str, Any]) -> str:
     """بصمة بيانات المصدر التي يعتمد عليها التدريب.
 

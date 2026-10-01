@@ -1,6 +1,7 @@
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 import zlib
+import numpy as np
 from sqlalchemy.orm import Session
 from app.engine.smart import run_smart_analytics
 from app.models import Hospital
@@ -160,6 +161,39 @@ def _anomaly_map(analytics) -> Dict[int, dict]:
     return out
 
 
+def _size_tiers(session, month: str, n_tiers: int = 3) -> Dict[int, int]:
+    """شرائح حجم المستشفيات من متوسط الإنجاز التاريخي (ثلاثيات total_births).
+
+    الحجم غير مخزّن في المخطط — يُشتق من متوسط قيمة المؤشر «6» (المواليد
+    الأحياء) عبر كل الأشهر لكل مستشفى، ثم يُقسّم إلى n_tiers شرائح متساوية
+    العدد (0 = الأصغر). التعريف موثّق ومُختبَر وبلا أي تغيير في المخطط.
+    """
+    from app.models import IndicatorValue, Indicator
+
+    ind = session.query(Indicator).filter(Indicator.code == "6").first()
+    if ind is None:
+        return {}
+    rows = (
+        session.query(IndicatorValue.hospital_id, IndicatorValue.value)
+        .filter(IndicatorValue.indicator_id == ind.id, IndicatorValue.value.isnot(None))
+        .all()
+    )
+    sums: Dict[int, float] = {}
+    counts: Dict[int, int] = {}
+    for hid, v in rows:
+        sums[hid] = sums.get(hid, 0.0) + float(v)
+        counts[hid] = counts.get(hid, 0) + 1
+    avgs = {hid: s / counts[hid] for hid, s in sums.items() if counts[hid] > 0}
+    if len(avgs) < n_tiers:
+        # بيانات غير كافية للتقسيم => شريحة واحدة موحدة (لا تمييز حجم)
+        return {hid: 0 for hid in avgs}
+    # حدود الكمّيات على متوسطات الحجم: كل مستشفى يأخذ عدد الحدود التي بلغها
+    # أو تجاوزها (≥) — الأكبر شريحة عليا والأصغر دنيا دون اكتظاظ سفلي.
+    vals = sorted(avgs.values())
+    thresholds = [float(np.quantile(vals, k / n_tiers)) for k in range(1, n_tiers)]
+    return {hid: sum(1 for q in thresholds if v >= q) for hid, v in avgs.items()}
+
+
 def compare_peers(
     session: Session,
     month: str,
@@ -172,14 +206,15 @@ def compare_peers(
 
     - المعيار: anomaly_score تنازلياً (الرتبة 1 = الأخطر).
     - مئين المخاطرة صاعد: الرتبة 1 -> 100.
-    - النطاق: all = كل النشطة؛ governorate/type تتطلب hospital_id وتفلتر بالمحافظة/النوع.
+    - النطاق: all = كل النشطة؛ governorate/type/ownership/size تتطلب
+      hospital_id وتفلتر بالمحافظة/النوع/الملكية/شريحة الحجم المشتقة.
     """
     ana_map = _anomaly_map(analytics)
 
     hospitals = session.query(Hospital).filter(Hospital.is_active.is_(True)).all()
     # الفلتر حسب النطاق أولاً
     ref = None
-    if comparison_type in ("governorate", "type"):
+    if comparison_type in ("governorate", "type", "ownership", "size"):
         if not hospital_id:
             return []
         try:
@@ -189,6 +224,8 @@ def compare_peers(
         if ref is None:
             return []
 
+    size_tiers = _size_tiers(session, month) if comparison_type == "size" else None
+
     candidates = []
     for h in hospitals:
         info = ana_map.get(h.id)
@@ -197,6 +234,10 @@ def compare_peers(
         if comparison_type == "governorate" and h.governorate_id != ref.governorate_id:
             continue
         if comparison_type == "type" and h.hospital_type_id != ref.hospital_type_id:
+            continue
+        if comparison_type == "ownership" and h.facility_ownership_id != ref.facility_ownership_id:
+            continue
+        if comparison_type == "size" and size_tiers.get(h.id) != size_tiers.get(ref.id):
             continue
         candidates.append((h.id, info["name"], info["score"]))
 

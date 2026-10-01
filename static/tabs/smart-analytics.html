@@ -159,7 +159,18 @@
         <div class="smart-loader" data-smart-loader="xgboost"><span data-i18n="Computing...">جاري المعالجة...</span></div>
         <div class="smart-error-banner" data-smart-error="xgboost" role="alert"></div>
         <div class="smart-empty-state" data-smart-empty="xgboost"></div>
+        <div style="display:flex;align-items:center;gap:0.6rem;margin:0.4rem 0 0.8rem;flex-wrap:wrap;">
+          <label for="smart-horizon-select" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Forecast horizon">أفق التنبؤ</span></label>
+          <select id="smart-horizon-select" class="smart-select" style="max-width:180px;">
+            <option value="1" data-i18n="Next month (m+1)">الشهر التالي (m+1)</option>
+            <option value="3" data-i18n="Within 3 months">خلال 3 أشهر</option>
+            <option value="6" data-i18n="Within 6 months">خلال 6 أشهر</option>
+          </select>
+        </div>
         <div id="smart-xgboost-predictions"></div>
+        <div id="smart-forecast-timeline" style="min-height:280px;"></div>
+        <div id="smart-forecast-accuracy"></div>
+        <div id="smart-forecast-signals"></div>
         <div id="smart-walk-forward" style="min-height:220px;"></div>
         <div id="smart-predicted-scatter" style="height:260px;"></div>
       </div>

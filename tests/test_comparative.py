@@ -1607,3 +1607,164 @@ def test_prompt_includes_indicator_stats(mock_api, db_session):
     assert "الاتجاهات الشهرية" in prompt_arg
     assert "معدل القيصارية" in prompt_arg
     assert "المتوسط" in prompt_arg
+
+
+# --- نظائر الملكية والحجم (نطاقان جديدان في compare_peers) ---
+
+def _ownership_size_db(db_session):
+    """4 مستشفيات: 2 بملكية MOH (حجمان مختلفان) + 2 بملكية UNRWA.
+
+    يعيد قاموس المستشفيات بعد الربط بالملكية وحفظ القيم المؤسسية."""
+    from app.models import Hospital, FacilityOwnership, Governorate, HospitalType
+
+    gov = db_session.query(Governorate).filter(Governorate.name == "Gaza").first()
+    if not gov:
+        gov = Governorate(name="Gaza")
+        db_session.add(gov)
+    ht = db_session.query(HospitalType).filter(HospitalType.name == "general").first()
+    if not ht:
+        ht = HospitalType(name="general")
+        db_session.add(ht)
+    db_session.flush()
+
+    moh = db_session.query(FacilityOwnership).filter(FacilityOwnership.name == "MOH").first()
+    if not moh:
+        moh = FacilityOwnership(name="MOH")
+        db_session.add(moh)
+    unrwa = db_session.query(FacilityOwnership).filter(FacilityOwnership.name == "UNRWA").first()
+    if not unrwa:
+        unrwa = FacilityOwnership(name="UNRWA")
+        db_session.add(unrwa)
+    db_session.flush()
+
+    specs = {
+        "BigMOH": ("MOH", 300.0),
+        "SmallMOH": ("MOH", 30.0),
+        "BigUNRWA": ("UNRWA", 280.0),
+        "TinyUNRWA": ("UNRWA", 20.0),
+    }
+    hosp = {}
+    for name, (own, _) in specs.items():
+        h = db_session.query(Hospital).filter(Hospital.name == name).first()
+        if not h:
+            h = Hospital(name=name, governorate_id=gov.id,
+                         hospital_type_id=ht.id, is_active=True)
+            db_session.add(h)
+            db_session.flush()
+        h.facility_ownership_id = moh.id if own == "MOH" else unrwa.id
+        hosp[name] = h
+    db_session.commit()
+    return hosp
+
+
+def _seed_births(db_session, avg_by_name):
+    """زرع ثلاثيات المواليد (مؤشر 6) لشهرين لكل مستشفى لاشتقاق الحجم."""
+    from app.models import Indicator, IndicatorValue, Hospital
+    ind = db_session.query(Indicator).filter(Indicator.code == "6").first()
+    if not ind:
+        ind = Indicator(code="6", name="live births")
+        db_session.add(ind)
+        db_session.commit()
+    for h in db_session.query(Hospital).all():
+        if h.name not in avg_by_name:
+            continue
+        avg = avg_by_name[h.name]
+        for month in ("2026-05", "2026-06"):
+            db_session.add(IndicatorValue(
+                hospital_id=h.id, indicator_id=ind.id, month=month, value=avg))
+    db_session.commit()
+
+
+def test_size_tiers_derived_from_avg_births(db_session):
+    from app.engine.comparative.advanced_comparison import _size_tiers
+    from app.models import Hospital
+    _ownership_size_db(db_session)
+    _seed_births(db_session, {
+        "BigMOH": 300.0, "SmallMOH": 30.0, "BigUNRWA": 280.0, "TinyUNRWA": 20.0,
+    })
+    tiers = _size_tiers(db_session, "2026-06")
+    assert tiers, "يجب اشتقاق شرائح الحجم من ثلاثيات المواليد"
+    by_name = {h.name: h.id for h in db_session.query(Hospital).all()}
+    # شرائح تصاعدية بالحجم: الأكبران عليا، Tiny دنيا، Small وسط
+    assert tiers[by_name["BigMOH"]] == 2
+    assert tiers[by_name["BigUNRWA"]] == 2
+    assert tiers[by_name["SmallMOH"]] == 1
+    assert tiers[by_name["TinyUNRWA"]] == 0
+
+
+def test_compare_peers_ownership_scope(db_session):
+    """نظائر الملكية: MOH فقط تُقارن بـ MOH، وUNRWA بـ UNRWA."""
+    from app.engine.comparative.advanced_comparison import compare_peers
+    from app.engine.smart.schemas import SmartAnomalyResult
+
+    hosp = _ownership_size_db(db_session)
+    _seed_births(db_session, {
+        "BigMOH": 300.0, "SmallMOH": 30.0, "BigUNRWA": 280.0, "TinyUNRWA": 20.0,
+    })
+
+    def _anomaly(h, score):
+        return SmartAnomalyResult(
+            hospital_name=h.name, hospital_id=h.id, governorate="Gaza",
+            hospital_type="general", anomaly_score=score, method_scores={},
+            severity="warning", is_outlier=False,
+        )
+
+    analytics = type("A", (), {})()
+    analytics.anomalies = [
+        _anomaly(hosp["BigMOH"], 0.9), _anomaly(hosp["SmallMOH"], 0.5),
+        _anomaly(hosp["BigUNRWA"], 0.7), _anomaly(hosp["TinyUNRWA"], 0.3),
+    ]
+
+    peers_moh = compare_peers(
+        db_session, "2026-06", "ownership",
+        hospital_id=str(hosp["BigMOH"].id), analytics=analytics,
+    )
+    names_moh = {p.hospital_name for p in peers_moh}
+    assert names_moh == {"BigMOH", "SmallMOH"}
+
+    peers_unrwa = compare_peers(
+        db_session, "2026-06", "ownership",
+        hospital_id=str(hosp["TinyUNRWA"].id), analytics=analytics,
+    )
+    names_unrwa = {p.hospital_name for p in peers_unrwa}
+    assert names_unrwa == {"BigUNRWA", "TinyUNRWA"}
+
+
+def test_compare_peers_size_scope(db_session):
+    """نظائر الحجم: الحجم الكبير يقارن الكبار بغض النظر عن الملكية."""
+    from app.engine.comparative.advanced_comparison import compare_peers
+    from app.engine.smart.schemas import SmartAnomalyResult
+
+    hosp = _ownership_size_db(db_session)
+    _seed_births(db_session, {
+        "BigMOH": 300.0, "SmallMOH": 30.0, "BigUNRWA": 280.0, "TinyUNRWA": 20.0,
+    })
+
+    def _anomaly(h, score):
+        return SmartAnomalyResult(
+            hospital_name=h.name, hospital_id=h.id, governorate="Gaza",
+            hospital_type="general", anomaly_score=score, method_scores={},
+            severity="warning", is_outlier=False,
+        )
+
+    analytics = type("A", (), {})()
+    analytics.anomalies = [
+        _anomaly(hosp["BigMOH"], 0.9), _anomaly(hosp["SmallMOH"], 0.5),
+        _anomaly(hosp["BigUNRWA"], 0.7), _anomaly(hosp["TinyUNRWA"], 0.3),
+    ]
+
+    peers = compare_peers(
+        db_session, "2026-06", "size",
+        hospital_id=str(hosp["BigMOH"].id), analytics=analytics,
+    )
+    names = {p.hospital_name for p in peers}
+    # الحجمان الكبيران (300 و280) في شريحة واحدة؛ الصغيران في أخرى
+    assert "BigUNRWA" in names and "BigMOH" in names
+    assert "SmallMOH" not in names and "TinyUNRWA" not in names
+
+
+def test_compare_peers_new_scopes_require_hospital_id(db_session):
+    """ownership/size بلا hospital_id => قائمة فارغة (نفس عقد governorate/type)."""
+    from app.engine.comparative.advanced_comparison import compare_peers
+    assert compare_peers(db_session, "2026-06", "ownership") == []
+    assert compare_peers(db_session, "2026-06", "size") == []
