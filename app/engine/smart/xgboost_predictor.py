@@ -519,6 +519,20 @@ def _walk_forward_validation(X_defined, y_defined, meta_defined: List[Dict]) -> 
         y_pred = np.clip(model.predict(X_te), 0.0, 1.0)
         r2 = float(r2_score(y_te, y_pred)) if len(y_te) > 1 else 0.0
         mae = float(mean_absolute_error(y_te, y_pred)) if len(y_te) > 0 else 0.0
+        # تسجيل تنبؤات الطية على مستوى الصف: مصدر دقة الشهر التالي لكل مستشفى
+        # وعرض النطاق P10–P90 (يُحفظ مع النموذج في meta.json).
+        # ملاحظة: y_te/y_pred مفهرسة ضمنياً على المواقع التي تحقق test_mask.
+        test_positions = [j for j in range(len(meta_defined)) if test_mask[j]]
+        y_te_arr = np.asarray(y_te, dtype=float)
+        fold_preds = [
+            {
+                "hospital": meta_defined[j]["hospital_name"],
+                "month": meta_defined[j]["month"],
+                "y_true": round(float(y_te_arr[k]), 6),
+                "y_pred": round(float(y_pred[k]), 6),
+            }
+            for k, j in enumerate(test_positions)
+        ]
         folds.append({
             "train_through": months[i],
             "validate_month": months[i + 1],
@@ -526,12 +540,14 @@ def _walk_forward_validation(X_defined, y_defined, meta_defined: List[Dict]) -> 
             "n_test": int(len(y_te)),
             "r2": round(r2, 4),
             "mae": round(mae, 4),
+            "fold_predictions": fold_preds,
         })
     return folds
 
 
 def _save_trained_models(model_dir: str, meta: Dict[str, Any], ensemble_results: List[Dict],
-                         clf: Any, le: Any, clf_accuracy: float) -> None:
+                         clf: Any, le: Any, clf_accuracy: float,
+                         fold_predictions: Optional[List[Dict]] = None) -> None:
     """حفظ المجمّع المدرب + المصنّف + الترميز على القرص (كتابة ذرية)."""
     os.makedirs(model_dir, exist_ok=True)
 
@@ -555,7 +571,13 @@ def _save_trained_models(model_dir: str, meta: Dict[str, Any], ensemble_results:
     joblib.dump(le, tmp)
     os.replace(tmp, dst)
 
-    meta = {**meta, "clf_fitted": clf_fitted, "clf_accuracy": round(clf_accuracy, 4)}
+    meta = {
+        **meta,
+        "clf_fitted": clf_fitted,
+        "clf_accuracy": round(clf_accuracy, 4),
+        # تنبؤات الطيات على مستوى الصف — مصدر دقة كل مستشفى ونطاق P10–P90
+        "fold_predictions": fold_predictions or [],
+    }
     tmp = os.path.join(model_dir, "meta.json.tmp")
     dst = os.path.join(model_dir, "meta.json")
     with open(tmp, "w", encoding="utf-8") as f:
@@ -678,6 +700,7 @@ def run_xgboost_predictions(
     retrained = True
     clf_accuracy = 0.0
     walk_forward: List[Dict[str, Any]] = []
+    fold_predictions: List[Dict[str, Any]] = []
     feature_variant = "baseline"
     prev_meta = _read_meta(MODEL_DIR)
 
@@ -698,6 +721,7 @@ def run_xgboost_predictions(
                 clf_accuracy = float(loaded["meta"].get("clf_accuracy", 0.0))
                 trained_at = loaded["meta"].get("trained_at", "")
                 walk_forward = loaded["meta"].get("walk_forward", []) or []
+                fold_predictions = loaded["meta"].get("fold_predictions", []) or []
                 feature_variant = prev_meta.get("feature_variant", "baseline")
                 retrained = False
                 logger.info("XGBoost model loaded from disk (fingerprint %s, variant %s)",
@@ -766,6 +790,9 @@ def run_xgboost_predictions(
             clf_accuracy = 0.0
 
         walk_forward = _walk_forward_validation(X_defined, y_defined, meta_defined)
+        fold_predictions = [
+            fp for f in walk_forward for fp in f.get("fold_predictions", [])
+        ]
         trained_at = datetime.now().isoformat(timespec="seconds")
         try:
             _save_trained_models(MODEL_DIR, {
@@ -783,7 +810,8 @@ def run_xgboost_predictions(
                     for r in ensemble_results
                 },
                 "walk_forward": walk_forward,
-            }, ensemble_results, clf, le, clf_accuracy)
+            }, ensemble_results, clf, le, clf_accuracy,
+            fold_predictions=fold_predictions)
         except Exception as e:
             logger.warning("Failed to persist XGBoost model: %s", e)
     else:
@@ -917,5 +945,6 @@ def run_xgboost_predictions(
         accuracy_note=accuracy_note,
         trained_at=trained_at, retrained=retrained, data_fingerprint=fingerprint,
         walk_forward=walk_forward,
+        fold_predictions=fold_predictions,
         feature_variant=feature_variant,
     )

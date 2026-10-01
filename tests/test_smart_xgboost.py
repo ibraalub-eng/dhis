@@ -743,3 +743,60 @@ class TestXGBoostPredictionResult:
         assert isinstance(result.model_mae, float)
         assert result.model_mae >= 0
         session.close()
+
+
+class TestFoldPredictions:
+    """تسجيل تنبؤات كل طية walk-forward (hospital, month, y_true, y_pred)
+    وحفظها في meta.json وتحميلها مع النموذج المحفوظ — البند 1.2 من الخطة.
+    هذه السجلات هي مصدر دقة الشهر التالي لكل مستشفى وعرض النطاق P10–P90."""
+
+    def test_fold_predictions_structure(self, tmp_path, monkeypatch):
+        from app.engine.smart.xgboost_predictor import run_xgboost_predictions
+
+        model_dir = str(tmp_path / "models")
+        monkeypatch.setattr("app.engine.smart.xgboost_predictor.MODEL_DIR", model_dir)
+        session = _build_xgb_db(months=["2026-01", "2026-02", "2026-03", "2026-04"])
+        try:
+            r = run_xgboost_predictions(session, "2026-04", {"xgb_n_estimators": 20})
+            assert len(r.fold_predictions) >= 1
+            for fp in r.fold_predictions:
+                assert fp["hospital"], "كل سجل يحمل اسم المستشفى"
+                assert fp["month"], "كل سجل يحمل شهر التحقق"
+                assert 0.0 <= fp["y_true"] <= 1.0
+                assert 0.0 <= fp["y_pred"] <= 1.0
+            # شهر التحقق لكل سجل أحد أشهر البيانات (وليس الشهر الأساس بلا هدف)
+            assert all(fp["month"] < "2026-04" for fp in r.fold_predictions)
+        finally:
+            session.close()
+
+    def test_fold_predictions_persisted_and_reloaded(self, tmp_path, monkeypatch):
+        from app.engine.smart.xgboost_predictor import run_xgboost_predictions
+        import os, json
+
+        model_dir = str(tmp_path / "models")
+        monkeypatch.setattr("app.engine.smart.xgboost_predictor.MODEL_DIR", model_dir)
+        session = _build_xgb_db(months=["2026-01", "2026-02", "2026-03", "2026-04"])
+        try:
+            r1 = run_xgboost_predictions(session, "2026-04", {"xgb_n_estimators": 20})
+            with open(os.path.join(model_dir, "meta.json"), encoding="utf-8") as f:
+                meta = json.load(f)
+            assert meta.get("fold_predictions") == r1.fold_predictions
+
+            r2 = run_xgboost_predictions(session, "2026-04", {"xgb_n_estimators": 20})
+            assert r2.retrained is False
+            assert r2.fold_predictions == r1.fold_predictions
+        finally:
+            session.close()
+
+    def test_fold_predictions_empty_when_no_folds(self, tmp_path, monkeypatch):
+        from app.engine.smart.xgboost_predictor import run_xgboost_predictions
+
+        model_dir = str(tmp_path / "models")
+        monkeypatch.setattr("app.engine.smart.xgboost_predictor.MODEL_DIR", model_dir)
+        session = _build_xgb_db(months=["2026-01", "2026-02"])
+        try:
+            r = run_xgboost_predictions(session, "2026-02", {"xgb_n_estimators": 20})
+            assert r.walk_forward == []
+            assert r.fold_predictions == []
+        finally:
+            session.close()
