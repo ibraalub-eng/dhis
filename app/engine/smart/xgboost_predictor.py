@@ -1045,6 +1045,19 @@ def run_xgboost_predictions(
         f"Predictions are estimates based on historical patterns."
     )
 
+    # ── إغلاق الحلقة (المرحلة 3): لقطة تنبؤات الشهر الحالي للتقييم لاحقاً ──
+    # غير فتّاعة: فشل الحفظ لا يُسقط نتيجة التنبؤات.
+    try:
+        from app.engine.smart.tracking import save_forecast_snapshot
+        save_forecast_snapshot(
+            current_month,
+            predictions=[p.__dict__ for p in predictions],
+            trained_at=trained_at,
+            fingerprint=fingerprint,
+        )
+    except Exception as e:
+        logger.warning("Failed to save forecast snapshot: %s", e)
+
     return XGBoostPredictionResult(
         model_r2=best_r2, model_mae=best_mae,
         training_months=len(train_months), hospitals_trained=len(hospital_names),
