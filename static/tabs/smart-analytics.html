@@ -172,6 +172,16 @@
         <div id="smart-forecast-accuracy"></div>
         <div id="smart-forecast-tracking"></div>
         <div id="smart-forecast-signals"></div>
+        <div id="smart-indicator-forecast">
+          <div style="display:flex;align-items:center;gap:0.6rem;margin:0.6rem 0 0.5rem;flex-wrap:wrap;">
+            <label for="smart-indicator-select" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Indicator forecast">تنبؤ مؤشر</span></label>
+            <select id="smart-indicator-select" class="smart-select" style="max-width:220px;"></select>
+            <label for="smart-indicator-hospitals" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Select hospitals to forecast">اختر المستشفيات (متعدد)</span></label>
+            <select id="smart-indicator-hospitals" class="smart-select" multiple size="4" style="min-width:240px;max-width:320px;"></select>
+            <button id="smart-indicator-forecast-run" class="btn btn-sm" data-i18n="Forecast">تنبؤ</button>
+          </div>
+          <div id="smart-indicator-forecast-output"></div>
+        </div>
         <div id="smart-walk-forward" style="min-height:220px;"></div>
         <div id="smart-predicted-scatter" style="height:260px;"></div>
       </div>
