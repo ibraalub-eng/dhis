@@ -290,6 +290,23 @@ export function renderIndicatorForecast(d) {
       </tr>`;
       }).join('') + `</tbody></table></div>`;
   }
+  // مئين الموقع بين النظراء: الملكية + شريحة الحجم (نفس القسم)
+  if (rows.some(h => h.peer_percentiles)) {
+    const ppCell = (g, label) => {
+      if (!g) return '—';
+      if (!g.available) return `<span style="color:var(--text-muted);">${_smartEscapeHtml(g.reason || _t('Not enough peers'))}</span>`;
+      const lbl = label ? `<div style="font-size:0.68rem;color:var(--text-muted);">${_smartEscapeHtml(label)}</div>` : '';
+      return `${lbl}<b>${_t('Peer percentile')}: ${Math.round(g.percentile)}%</b> · ${g.rank}/${g.total}`;
+    };
+    html += `<div class="smart-table-wrap" style="margin-top:0.5rem;"><table><thead><tr>
+      <th>${_t('Hospital')}</th><th>${_t('Peers (ownership)')}</th><th>${_t('Peers (size)')}</th></tr></thead><tbody>` +
+      rows.map(h => {
+        const pp = h.peer_percentiles || {};
+        return `<tr><td>${_smartEscapeHtml(h.hospital_name)}</td>` +
+          `<td style="text-align:center;font-size:0.72rem;">${ppCell(pp.ownership, h.ownership_ar)}</td>` +
+          `<td style="text-align:center;font-size:0.72rem;">${ppCell(pp.size, (pp.size && pp.size.peer_label_ar) || '')}</td></tr>`;
+      }).join('') + `</tbody></table></div>`;
+  }
   const un = d.unavailable || [];
   if (un.length) {
     html += `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.4rem;">${_t('No data for')}: ` +

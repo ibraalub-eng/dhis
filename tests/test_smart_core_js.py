@@ -276,6 +276,38 @@ def test_indicator_forecast_section_wired_end_to_end():
         assert f"'{key}':" in i18n, key
 
 
+def test_indicator_forecast_renders_ownership_and_size_peers():
+    """مقارنة النظراء: مئين الموقع حسب الملكية وشريحة الحجم في نفس القسم."""
+    import os
+    adv_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(adv_path, encoding="utf-8") as f:
+        adv = f.read()
+    assert "peer_percentiles" in adv
+    assert "ownership" in adv and "size" in adv
+    assert "rank" in adv and "total" in adv
+    # أعمدة جدول فرعية للمئين مع تسمية عربية للمجموعة من الخادم
+    assert "Peer percentile" in adv
+    assert "peer_label_ar" in adv
+
+    i18n_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js")
+    with open(i18n_path, encoding="utf-8") as f:
+        i18n = f.read()
+    for key in ("Peers (ownership)", "Peers (size)", "Not enough peers",
+                "Hospital", "Peer percentile"):
+        assert f"'{key}':" in i18n, key
+    # حارس المصطلح: «النظراء» المعتمد في الترجمات الجديدة (لا «النظير»)
+    for key in ("Peers (ownership)", "Peers (size)"):
+        import re
+        m = re.search(rf"'{re.escape(key)}': '([^']*)'", i18n)
+        assert m and "النظراء" in m.group(1), (key, m and m.group(1))
+
+    engine_path = os.path.join(os.path.dirname(__file__), "..", "app", "engine", "smart", "indicator_forecast.py")
+    with open(engine_path, encoding="utf-8") as f:
+        eng = f.read()
+    assert "peer_percentiles_for_indicator" in eng
+    assert "facility_ownership_id" in eng
+
+
 def test_horizon_select_wired_in_tab_and_init():
     """مُختار الأفق موجود في HTML وملفوف بالتهيئة ويعيد تحميل التبويب."""
     import os

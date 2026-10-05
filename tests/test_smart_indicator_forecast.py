@@ -331,3 +331,152 @@ def test_stillbirth_rate_endpoint_second_formula(client, db_session):
     assert h["model"] == "linear"
     assert [p["value"] for p in h["points"]] == pytest.approx([20.0, 22.5, 25.0])
     assert [p["month"] for p in h["points"]] == ["2026-07", "2026-08", "2026-09"]
+
+
+# ── 4) مقارنة النظراء: الملكية وشريحة الحجم مع مئين الموقع ────────────
+
+_M6 = [f"2026-{k:02d}" for k in range(1, 7)]
+
+
+def _seed_ownership_and_sizes(db):
+    """ملكيّتان (حكومي/خاص) + مستشفى رابع خاص؛ الشرائح تُشتق من قيم «6» لاحقاً."""
+    from app.models import FacilityOwnership, Hospital
+
+    pub = FacilityOwnership(name="حكومي")
+    prv = FacilityOwnership(name="خاص")
+    db.add_all([pub, prv])
+    db.flush()
+    db.query(Hospital).filter(Hospital.id.in_([1, 2])).update(
+        {"facility_ownership_id": pub.id}, synchronize_session=False)
+    db.add(Hospital(name="Private Clinic", region="Region C", facility_ownership_id=prv.id))
+    db.commit()
+    return pub, prv
+
+
+def _seed_births(db, hid, v):
+    """قيم مؤشر «6» (المواليد الأحياء) على كامل المدة لاشتقاق شريحة الحجم."""
+    _seed_series(db, hid, {m: {"6": v} for m in _M6})
+
+
+class TestIndicatorPeerPercentilePure:
+    """التجميع النقي: ترتيب تنازلي بالقيمة، مئين صاعد، كسر تعادل بالاسم."""
+
+    def test_ranks_and_percentiles_within_groups(self):
+        from app.engine.smart.indicator_forecast import peer_percentiles_for_indicator
+        groups = peer_percentiles_for_indicator(
+            {"a": 23.0, "b": 15.0, "c": 15.0, "d": 5.0},
+            {"a": "حكومي", "b": "حكومي", "c": "خاص", "d": "خاص"})
+        assert groups["a"]["ownership"]["available"] is True
+        assert (groups["a"]["ownership"]["rank"], groups["a"]["ownership"]["total"]) == (1, 2)
+        assert groups["a"]["ownership"]["percentile"] == pytest.approx(100.0)
+        # التعادل 15/15 يُكسر بالاسم حتمياً: c قبل d
+        assert (groups["c"]["ownership"]["rank"], groups["d"]["ownership"]["rank"]) == (1, 2)
+        assert groups["c"]["ownership"]["percentile"] == pytest.approx(100.0)
+        assert groups["d"]["ownership"]["percentile"] == pytest.approx(50.0)
+        # بلا شريحة حجم => غير متاح بالسبب (لا صفر صامت)
+        assert groups["a"]["size"]["available"] is False and groups["a"]["size"]["reason"]
+
+    def test_missing_ownership_and_singleton_tier_unavailable(self):
+        from app.engine.smart.indicator_forecast import peer_percentiles_for_indicator
+        pp = peer_percentiles_for_indicator({"a": 10.0}, {"a": None})
+        assert pp["a"]["ownership"]["available"] is False and pp["a"]["ownership"]["reason"]
+        assert pp["a"]["size"]["available"] is False and pp["a"]["size"]["reason"]
+
+
+def test_endpoint_returns_ownership_and_size_percentiles(client, db_session):
+    _seed_ownership_and_sizes(db_session)
+    months = _cs_months(None, [40, 50, 60, 64, 70, 76])
+    _seed_series(db_session, 1, months)
+    _seed_series(db_session, 2, _cs_months(None, [30, 30, 30, 30, 30, 30]))
+    _seed_series(db_session, 3, _cs_months(None, [20, 20, 20, 20, 20, 20]))
+    _seed_series(db_session, 4, _cs_months(None, [20, 20, 20, 20, 20, 20]))  # 10% — دون 1 ضمن شريحته
+    # شرائح الحجم عبر متوسط «6»: 1 و4 كبيرتان، 2 متوسطة، 3 صغيرة
+    for hid, v in ((1, 500), (2, 200), (3, 50), (4, 500)):
+        _seed_births(db_session, hid, v)
+
+    resp = client.get("/smart/indicator-forecast/2026-06?indicator=cs_rate&hospital_ids=1,2&horizon=1")
+    assert resp.status_code == 200
+    by_id = {h["hospital_id"]: h for h in resp.json()["hospitals"]}
+    # الملكية: 1 و2 حكومي (23% مقابل 15%) — الأعلى رتبة 1 ومئين 100
+    own1 = by_id[1]["peer_percentiles"]["ownership"]
+    own2 = by_id[2]["peer_percentiles"]["ownership"]
+    assert (own1["rank"], own1["total"], own1["percentile"]) == (1, 2, 100.0)
+    assert (own2["rank"], own2["total"], own2["percentile"]) == (2, 2, 50.0)
+    # الحجم: 1 و4 (500) كبيرتان — الأعلى قيصرياً رتبة 1 من 2
+    sz1 = by_id[1]["peer_percentiles"]["size"]
+    assert (sz1["rank"], sz1["total"], sz1["percentile"]) == (1, 2, 100.0)
+    # 2 وحدها في شريحتها (200) => شريحة الحجم غير متاحة لها بالسبب
+    sz2 = by_id[2]["peer_percentiles"]["size"]
+    assert sz2["available"] is False and sz2["reason"]
+    # ملكية كل مستشفى موثقة في صفه
+    assert by_id[1]["ownership_ar"] == "حكومي"
+    assert by_id[2]["ownership_ar"] == "حكومي"
+
+
+def test_ownership_peer_group_of_three_ranks_and_size_labels(client, db_session):
+    pub, _prv = _seed_ownership_and_sizes(db_session)
+    from app.models import Hospital
+    db_session.add(Hospital(name="General Two", region="Region D",
+                            facility_ownership_id=pub.id))
+    db_session.commit()
+    _seed_series(db_session, 1, _cs_months(None, [40, 50, 60, 64, 70, 76]))   # 23%
+    _seed_series(db_session, 2, _cs_months(None, [30, 30, 30, 30, 30, 30]))   # 15%
+    _seed_series(db_session, 3, _cs_months(None, [20, 20, 20, 20, 20, 20]))   # 10%
+    _seed_series(db_session, 5, _cs_months(None, [10, 10, 10, 10, 10, 10]))   # 5%
+    for hid, v in ((1, 500), (2, 200), (3, 50), (5, 500)):
+        _seed_births(db_session, hid, v)
+
+    resp = client.get("/smart/indicator-forecast/2026-06?indicator=cs_rate&hospital_ids=1,2,3,5&horizon=1")
+    assert resp.status_code == 200
+    by_id = {h["hospital_id"]: h for h in resp.json()["hospitals"]}
+    # الملكية: 1 و2 و5 حكومي (23/15/5) — رتبة تنازلية ومئين صاعد بمعدل 33.3
+    pp = {h: by_id[h]["peer_percentiles"]["ownership"] for h in (1, 2, 5)}
+    assert (pp[1]["rank"], pp[1]["total"], pp[1]["percentile"]) == (1, 3, 100.0)
+    assert (pp[2]["rank"], pp[2]["total"], pp[2]["percentile"]) == (2, 3, 66.7)
+    assert (pp[5]["rank"], pp[5]["total"], pp[5]["percentile"]) == (3, 3, 33.3)
+    # الشرائح: ثالثات كمية على متوسط «6» => كبير/متوسط/صغير
+    assert by_id[1]["peer_percentiles"]["size"]["peer_label_ar"] == "كبير"
+    assert by_id[2]["peer_percentiles"]["size"]["peer_label_ar"] == "متوسط"
+    assert by_id[3]["peer_percentiles"]["size"]["peer_label_ar"] == "صغير"
+    # 3 بلا ملكية => مجموعة الملكية غير متاحة لها بالسبب
+    assert by_id[3]["peer_percentiles"]["ownership"]["available"] is False
+
+
+def test_percentiles_computed_over_all_active_hospitals_not_only_selected(client, db_session):
+    pub, _prv = _seed_ownership_and_sizes(db_session)
+    from app.models import Hospital
+    # 3 يدخل مجموعة حكومي (ليصبح المجتمع 1 و2 و3) و4 يبقى خاصاً
+    db_session.query(Hospital).filter(Hospital.id == 3).update(
+        {"facility_ownership_id": pub.id}, synchronize_session=False)
+    db_session.commit()
+    _seed_series(db_session, 1, _cs_months(None, [40, 50, 60, 64, 70, 76]))
+    _seed_series(db_session, 2, _cs_months(None, [30, 30, 30, 30, 30, 30]))
+    # 3 و4 غير مختارين لكن بياناتهما تشارك في مجموعات النظراء
+    _seed_series(db_session, 3, _cs_months(None, [10, 10, 10, 10, 10, 10]))
+    _seed_series(db_session, 4, _cs_months(None, [60, 60, 60, 60, 60, 60]))
+    for hid in (1, 2, 3, 4):
+        _seed_births(db_session, hid, 300)
+
+    resp = client.get("/smart/indicator-forecast/2026-06?indicator=cs_rate&hospital_ids=1&horizon=1")
+    h = resp.json()["hospitals"][0]
+    own = h["peer_percentiles"]["ownership"]
+    sz = h["peer_percentiles"]["size"]
+    assert own["total"] == 3   # حكومي فقط (1 و2 و3) — 4 خاص مستبعد
+    assert own["rank"] == 1 and own["percentile"] == pytest.approx(100.0)
+    assert sz["total"] == 4 and sz["rank"] == 1  # قيم «6» متساوية => شريحة واحدة للجميع
+
+
+def test_peer_group_skips_hospitals_without_base_month_value(client, db_session):
+    pub, _prv = _seed_ownership_and_sizes(db_session)
+    from app.models import Hospital
+    # 3 يدخل مجموعة حكومي أيضاً ليبقى بعد استبعاد 2 نظيران اثنان
+    db_session.query(Hospital).filter(Hospital.id == 3).update(
+        {"facility_ownership_id": pub.id}, synchronize_session=False)
+    db_session.commit()
+    _seed_series(db_session, 1, _cs_months(None, [40, 50, 60, 64, 70, 76]))
+    # 2 له تاريخ حتى 2026-04 فقط — بلا قيمة عند الأساس 2026-06 فيستبعد من النظراء
+    _seed_series(db_session, 2, {m: {"2": 200, "5": 30} for m in _M6[:4]})
+    _seed_series(db_session, 3, _cs_months(None, [20, 20, 20, 20, 20, 20]))
+    resp = client.get("/smart/indicator-forecast/2026-06?indicator=cs_rate&hospital_ids=1&horizon=1")
+    own = resp.json()["hospitals"][0]["peer_percentiles"]["ownership"]
+    assert (own["rank"], own["total"]) == (1, 2)

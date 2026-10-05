@@ -38,6 +38,9 @@ MAX_INDICATOR_FORECAST_HOSPITALS = 12
 
 _DISCLAIMER = "تقدير إحصائي لا تنبؤ مؤكد."
 
+# تسمية شرائح الحجم بالعربية (الشريحة 0 = الأصغر)
+_SIZE_TIER_LABELS_AR = ("صغير", "متوسط", "كبير")
+
 # ── تعريفات المؤشرات المتاحة للتنبؤ (المفاتيح منطق المحرك، القيم صيغ SQL/ORM) ──
 # numerator/denominator: رموز مؤشرات DB. join للمراهقات (2.c + 2.d).
 # per-unit: 100 (نسبة) أو 1000 (لكل ألف مولود حي).
@@ -333,6 +336,96 @@ def forecast_indicator_trajectory(
     }
 
 
+def peer_percentiles_for_indicator(
+    values: Dict[str, float],
+    ownership_of: Dict[str, Optional[str]],
+    size_tier_of: Optional[Dict[str, int]] = None,
+) -> Dict[str, Dict[str, Dict]]:
+    """مئين موقع كل مستشفى بين نظرائه حسب الملكية وحسب شريحة الحجم.
+
+    - values: {اسم المستشفى: قيمة المؤشر عند الشهر الأساس} لكل المستشفيات
+      النشطة ذات قيمة صالحة (لا المختارين فقط).
+    - ownership_of: {اسم المستشفى: اسم الملكية أو None إذا غير محددة}.
+    - size_tier_of: {اسم المستشفى: رقم الشريحة 0=الأصغر} — يُشتق عادةً عبر
+      size_tiers_for_indicator بنفس منهجية _size_tiers (ثلاثيات كمية على متوسط
+      المواليد الأحياء «6»). عند غيابه لا مقارنة حجم (بلا صفر صامت).
+
+    الترتيب تنازلي بالقيمة (الرتبة 1 = الأعلى قيمة) وكسر التعادل بالاسم حتمياً،
+    والمئين صاعد: الرتبة 1 → 100. المجموعة الوحيدة/القيمة المفقودة تعني
+    "غير متاح" بالسبب — بلا صفر صامت. بلا أي تغيير في مخطط DB.
+    """
+    from app.engine.comparative.advanced_comparison import _risk_label
+
+    def _percentile_for_group(names: List[str]) -> Dict[str, Dict]:
+        # ترتيب تنازلي بالقيمة، وكسر تعادل حتمي بالاسم (نفس عرف compare_peers)
+        ordered = sorted(names, key=lambda n: (-values[n], n))
+        total = len(ordered)
+        out: Dict[str, Dict] = {}
+        for rank, name in enumerate(ordered, 1):
+            pct = round(100.0 * (total - rank + 1) / total, 1)
+            out[name] = {
+                "available": True,
+                "percentile": pct,
+                "rank": rank,
+                "total": total,
+                "risk_label": _risk_label(pct, "ar"),
+            }
+        return out
+
+    # مجموعات الملكية: المستشفيات بلا ملكية مستبعدة من المقارنة (بلا صفر صامت)
+    own_groups: Dict[str, List[str]] = {}
+    for name, own in ownership_of.items():
+        if name in values and own:
+            own_groups.setdefault(own, []).append(name)
+    own_res = {}
+    for own, names in own_groups.items():
+        own_res.update(_percentile_for_group(names))
+
+    # مجموعات الحجم: شريحة واحدة كثيراً ما تعني نقص نظراء حقيقيين
+    size_res: Dict[str, Dict] = {}
+    if size_tier_of:
+        tier_groups: Dict[int, List[str]] = {}
+        for name, tier in size_tier_of.items():
+            if name in values:
+                tier_groups.setdefault(tier, []).append(name)
+        for tier, names in tier_groups.items():
+            if len(names) < 2:
+                continue
+            size_res.update(_percentile_for_group(names))
+
+    result: Dict[str, Dict[str, Dict]] = {}
+    for name in values:
+        own_info = own_res.get(name)
+        size_info = size_res.get(name)
+        result[name] = {
+            "ownership": own_info if own_info else {
+                "available": False,
+                "reason": ("الملكية غير محددة للمستشفى — عيّن الملكية من إدارة المستشفيات."
+                           if ownership_of.get(name) is None
+                           else "لا توجد مستشفيات نظراء كافية في مجموعة الملكية."),
+            },
+            "size": size_info if size_info else {
+                "available": False,
+                "reason": ("قيم الحجم (المواليد الأحياء) غير متوفرة لاشتقاق الشريحة."
+                           if not size_tier_of
+                           else "لا توجد مستشفيات نظراء كافية في شريحة الحجم."),
+            },
+        }
+    return result
+
+
+def size_tiers_for_indicator(session) -> Dict[int, int]:
+    """شرائح حجم المستشفيات من متوسط المواليد الأحياء (إعادة استخدام _size_tiers).
+
+    نفس المنهجية المرجعية في advanced_comparison.py: متوسط قيمة المؤشر «6»
+    عبر كل الأشهر لكل مستشفى، ثم ثلاثيات كمية (0 = الأصغر). بلا أي تغيير في
+    المخطط، وشرائح موحدة عند نقص البيانات.
+    """
+    from app.engine.comparative.advanced_comparison import _size_tiers
+
+    return _size_tiers(session, "")
+
+
 def run_indicator_forecast(
     session,
     month: str,
@@ -347,6 +440,9 @@ def run_indicator_forecast(
     - كل مستشفى مختار يظهر إما في hospitals (مساره) أو unavailable (السبب).
     - متوسط النظراء للمزيج: متوسط آخر قيمة للمستشفيات المختارة الأخرى ذات
       التاريخ الكافي.
+    - مقارنة النظراء: مئين موقع كل مستشفى (قيمته عند الشهر الأساس) بين نظراء
+      ملكيته وبين نظراء شريحة حجمه المشتقة — على كل المستشفيات النشطة ذات
+      القيمة الصالحة لا المختارين فقط، وغير المتاح بالسبب لا صفر صامت.
     """
     if indicator not in INDICATOR_DEFS:
         raise ValueError(f"مؤشر غير معروف: {indicator}")
@@ -400,6 +496,46 @@ def run_indicator_forecast(
         f"تنبؤ {d['label_ar']} لأفق {horizon} شهر لعدة مستشفيات مختارة — "
         f"كل المسارات تقديرات إحصائية لا تنبؤ مؤكد، والنطاق يتسع مع الأفق. {_DISCLAIMER}"
     )
+    # ── مقارنة النظراء: الملكية + شريحة الحجم لكل المستشفيات النشطة ──
+    # قيمة كل مستشفى عند الشهر الأساس (المختارون ضمنها؛ البقية للمقارنة فقط)
+    base_values: Dict[str, float] = {}
+    ownership_of: Dict[str, Optional[str]] = {}
+    for hid, name in id_to_name.items():
+        pts = [(m, v) for m, v in (series.get(name) or []) if m <= base]
+        if pts and pts[-1][0] == base:
+            base_values[name] = pts[-1][1]
+    if base_values:
+        from app.models import FacilityOwnership
+
+        own_map = {o.id: o.name for o in session.query(FacilityOwnership).all()}
+        hosp_rows = session.query(
+            Hospital.id, Hospital.name, Hospital.facility_ownership_id).filter(
+            Hospital.is_active).all()
+        for hid2, name2, oid in hosp_rows:
+            if name2 in base_values:
+                ownership_of[name2] = own_map.get(oid) if oid is not None else None
+        tiers = size_tiers_for_indicator(session)
+        tier_of = {}
+        name_to_id = {name2: hid2 for hid2, name2, _ in hosp_rows}
+        for name2 in base_values:
+            hid2 = name_to_id.get(name2)
+            if hid2 is not None and hid2 in tiers:
+                tier_of[name2] = tiers[hid2]
+        peer_map = peer_percentiles_for_indicator(base_values, ownership_of, tier_of)
+        # التسمية العربية للشريحة تُبنى بعد الحساب (0=الأصغر → صغير/متوسط/كبير)
+        tiers_present = sorted({t for t in tier_of.values()})
+        for row in hospitals_out:
+            info = peer_map.get(row["hospital_name"], {})
+            size_info = dict(info.get("size") or {"available": False, "reason": "غير متاح."})
+            # تسمية الشريحة تظهر حتى لو كانت المجموعة منفردة (متاحة=False)
+            t = tier_of.get(row["hospital_name"])
+            if t is not None:
+                size_info["peer_label_ar"] = _SIZE_TIER_LABELS_AR[t if t < 2 else 2]
+            row["peer_percentiles"] = {
+                "ownership": info.get("ownership"),
+                "size": size_info,
+            }
+            row["ownership_ar"] = ownership_of.get(row["hospital_name"])
     return {
         "month": month,
         "base_month": base,
