@@ -240,6 +240,42 @@ def test_forecast_accuracy_and_timeline_renderers_exist():
     assert "renderForecastAccuracy(pl.forecast_accuracy, pl.peer_percentile)" in js
 
 
+def test_indicator_forecast_section_wired_end_to_end():
+    """المرحلة 4: تنبؤ مؤشر واحد لعدة مستشفيات — حاوية HTML، اختيار مؤشر +
+    متعدد مستشفيات، endpoint بمعطيات معرّفات المستشفيات، وإخلاء مسؤولية إحصائي."""
+    import os
+    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    with open(html_path, encoding="utf-8") as f:
+        html = f.read()
+    assert "smart-indicator-select" in html
+    assert "smart-indicator-hospitals" in html
+    assert "smart-indicator-forecast-output" in html
+    assert "Indicator forecast" in html
+
+    adv_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
+    with open(adv_path, encoding="utf-8") as f:
+        adv = f.read()
+    assert "export async function initIndicatorForecast" in adv
+    assert "export function renderIndicatorForecast" in adv
+    assert "/smart/indicator-catalog" in adv
+    assert "/smart/indicator-forecast/${month}" in adv
+    assert "hospital_ids=" in adv
+    assert "All forecasts are statistical estimates" in adv
+
+    api_path = os.path.join(os.path.dirname(__file__), "..", "app", "api", "smart_analytics.py")
+    with open(api_path, encoding="utf-8") as f:
+        api = f.read()
+    assert '"/indicator-forecast/{month}"' in api
+    assert '"/indicator-catalog"' in api
+
+    i18n_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js")
+    with open(i18n_path, encoding="utf-8") as f:
+        i18n = f.read()
+    for key in ("Indicator forecast", "Select hospitals to forecast", "base month",
+                "Blended (30/30/40)", "rising", "falling", "stable"):
+        assert f"'{key}':" in i18n, key
+
+
 def test_horizon_select_wired_in_tab_and_init():
     """مُختار الأفق موجود في HTML وملفوف بالتهيئة ويعيد تحميل التبويب."""
     import os

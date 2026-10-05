@@ -142,6 +142,8 @@ export function loadXGBoostTab(month) {
       return;
     }
     renderXGBoost(d.xgboost || {}, { ...d, signals: sig });
+    // تهيئة قسم تنبؤ المؤشر (مرة واحدة) مع كل تحميل للتبويب
+    initIndicatorForecast().catch(() => {});
   });
 }
 
@@ -208,6 +210,131 @@ export function initHorizonSelect() {
   if (!sel || sel.dataset.bound) return;
   sel.dataset.bound = '1';
   sel.addEventListener('change', () => loadXGBoostTab(smartState.month));
+}
+
+// ── تنبؤ مؤشر واحد لعدة مستشفيات يختارها المستخدم (المرحلة 4) ──
+
+let _indicatorCatalog = null;
+let _indicatorHospitals = null;
+
+export async function initIndicatorForecast() {
+  const sel = document.getElementById('smart-indicator-select');
+  const hosp = document.getElementById('smart-indicator-hospitals');
+  const btn = document.getElementById('smart-indicator-forecast-run');
+  if (!sel || !hosp || !btn) return;
+  if (!sel.dataset.bound) {
+    sel.dataset.bound = '1';
+    try {
+      _indicatorCatalog = await apiSmartGet('/smart/indicator-catalog');
+    } catch (e) { _indicatorCatalog = []; }
+    if (!Array.isArray(_indicatorCatalog) || !_indicatorCatalog.length) {
+      sel.innerHTML = `<option value="">—</option>`;
+    } else {
+      sel.innerHTML = _indicatorCatalog.map(i =>
+        `<option value="${_smartEscapeHtml(i.key)}">${_smartEscapeHtml(smartState.lang === 'ar' ? i.label_ar : i.label_en)}</option>`).join('');
+    }
+  }
+  if (!hosp.dataset.bound) {
+    hosp.dataset.bound = '1';
+    try {
+      _indicatorHospitals = await apiSmartGet('/smart/hospitals');
+    } catch (e) { _indicatorHospitals = []; }
+    hosp.innerHTML = (_indicatorHospitals || []).map(h =>
+      `<option value="${h.id}">${_smartEscapeHtml(h.name)}</option>`).join('');
+  }
+  if (!btn.dataset.bound) {
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      const ids = Array.from(hosp.selectedOptions || []).map(o => o.value);
+      const indicator = sel.value;
+      const horizon = document.getElementById('smart-horizon-select')?.value || '1';
+      const out = document.getElementById('smart-indicator-forecast-output');
+      if (!out) return;
+      if (!indicator) { out.innerHTML = `<div class="smart-empty-state">${_t('Select an indicator')}</div>`; return; }
+      if (!ids.length) { out.innerHTML = `<div class="smart-empty-state">${_t('Select at least one hospital')}</div>`; return; }
+      const month = smartState.month;
+      if (!month) return;
+      out.innerHTML = `<div class="smart-empty-state">${_t('Computing...')}</div>`;
+      apiSmartGet(`/smart/indicator-forecast/${month}?indicator=${encodeURIComponent(indicator)}&hospital_ids=${ids.join(',')}&horizon=${horizon}`)
+        .then(d => { if (d && !d._error && !d.empty) renderIndicatorForecast(d); else out.innerHTML = `<div class="smart-empty-state">${_smartEscapeHtml((d && d.detail) || _t('Failed to load'))}</div>`; })
+        .catch(e => { out.innerHTML = `<div class="smart-empty-state">${_smartEscapeHtml(e.message || _t('Network error. Please try again.'))}</div>`; });
+    });
+  }
+}
+
+export function renderIndicatorForecast(d) {
+  const out = document.getElementById('smart-indicator-forecast-output');
+  if (!out) return;
+  const indLabel = smartState.lang === 'ar' ? (d.indicator_ar || d.indicator) : (d.indicator_en || d.indicator);
+  let html = `<h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.8rem 0 0.4rem;">${_t('Indicator forecast')} — ${_smartEscapeHtml(indLabel)} (${_smartEscapeHtml(d.unit || '')}) · ${_t('base month')}: ${_smartEscapeHtml(d.base_month)}${d.fallback_used ? ' (' + _t('latest available') + ')' : ''} · ${_t('Forecast horizon')}: ${d.horizon}</h4>`;
+  const rows = d.hospitals || [];
+  if (rows.length) {
+    html += `<div class="smart-table-wrap"><table><thead><tr>
+      <th>${_t('Hospital')}</th><th>${_t('Current')}</th><th>${_t('Direction')}</th><th>${_t('Expected')}: ${_smartEscapeHtml(rows[0]?.points?.[rows[0].points.length - 1]?.month || '')}</th>
+      <th>${_t('Range')}</th><th>${_t('Blended (30/30/40)')}</th><th>${_t('Confidence')}</th><th>${_t('Model')}</th></tr></thead><tbody>` +
+      rows.map(h => {
+        const last = (h.points || [])[h.points.length - 1] || {};
+        const dir = h.direction === 'rising' ? '↑ ' + _t('rising') : h.direction === 'falling' ? '↓ ' + _t('falling') : '→ ' + _t('stable');
+        const b = h.blended || {};
+        const blendTxt = b.available ? `${b.forecast} (${b.lower}–${b.upper})` : '—';
+        const model = h.model === 'linear' ? _t('linear trend') : h.model === 'moving_average' ? _t('moving average') : '—';
+        return `<tr>
+        <td>${_smartEscapeHtml(h.hospital_name)}</td>
+        <td style="text-align:center;">${h.current ?? '—'}</td>
+        <td style="text-align:center;">${dir}</td>
+        <td style="text-align:center;font-weight:600;">${last.value ?? '—'}</td>
+        <td style="text-align:center;font-size:0.72rem;direction:ltr;">${last.lower ?? '—'}–${last.upper ?? '—'}</td>
+        <td style="text-align:center;font-size:0.72rem;direction:ltr;">${blendTxt}</td>
+        <td style="text-align:center;">${Math.round((h.confidence || 0) * 100)}%</td>
+        <td style="font-size:0.72rem;">${_smartEscapeHtml(model)}</td>
+      </tr>`;
+      }).join('') + `</tbody></table></div>`;
+  }
+  const un = d.unavailable || [];
+  if (un.length) {
+    html += `<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.4rem;">${_t('No data for')}: ` +
+      un.map(u => _smartEscapeHtml(u.hospital_name || ('#' + u.hospital_id))).join(', ') + `</div>`;
+  }
+  if (!rows.length && !un.length) html += `<div class="smart-empty-state">${_t('No data for this period. Upload data and try again.')}</div>`;
+  // خطوط المسار لكل المستشفيات المختارة على رسم واحد
+  if (rows.some(h => (h.points || []).length)) {
+    html += `<div id="smart-indicator-forecast-plot" style="min-height:280px;margin-top:0.5rem;"></div>`;
+  }
+  html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem;">${_smartEscapeHtml(d.note || '')}</div>`;
+  html += `<div class="smart-empty-state" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.3rem;">${_t('All forecasts are statistical estimates, not certain predictions')}</div>`;
+  out.innerHTML = html;
+  if (rows.some(h => (h.points || []).length)) {
+    const palette = ['#6366f1', '#ef4444', '#22c55e', '#f59e0b', '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#84cc16', '#3b82f6', '#94a3b8'];
+    const traces = rows.filter(h => (h.points || []).length).map((h, i) => {
+      const months = (h.series || []).map(s => s.month).concat(h.points.map(p => p.month));
+      const vals = (h.series || []).map(s => s.value).concat(h.points.map(p => p.value));
+      const nHist = (h.series || []).length;
+      const split = Math.max(1, nHist - 1);
+      return {
+        type: 'scatter', mode: 'lines+markers', x: months, y: vals,
+        name: h.hospital_name,
+        line: { color: palette[i % palette.length], width: 2 },
+        marker: { size: 5 },
+        // الفاصل التاريخ/توقع: نقطة صلبة للتاريخ، مفرغة للتوقع عبر وضعين
+        text: months.map((m, j) => `${h.hospital_name}<br>${m}<br>${_t('Expected')}: ${vals[j]}`),
+        hovertemplate: '%{text}<extra></extra>',
+        _split: split,
+      };
+    });
+    // أول مقطع تاريخي (خط متصل) ثم توقع (خط متقطع) لكل مستشفى
+    const finalTraces = [];
+    traces.forEach(t => {
+      const histN = (t._split || 0) + 1;
+      finalTraces.push({ ...t, x: t.x.slice(0, histN), y: t.y.slice(0, histN), mode: 'lines+markers', line: { ...t.line, dash: 'solid' }, showlegend: true });
+      finalTraces.push({ ...t, x: t.x.slice(Math.max(0, histN - 1)), y: t.y.slice(Math.max(0, histN - 1)), mode: 'lines+markers', line: { ...t.line, dash: 'dot' }, showlegend: false });
+    });
+    renderPlot('smart-indicator-forecast-plot', finalTraces, {
+      margin: { t: 15, b: 40, l: 55, r: 15 }, height: 280,
+      xaxis: { tickfont: { size: 9 } },
+      yaxis: { title: { text: indLabel, font: { size: 9 } }, gridcolor: '#f0f0f0' },
+      showlegend: true, legend: { font: { size: 9 } },
+    });
+  }
 }
 
 function _forecastDisclaimer() {

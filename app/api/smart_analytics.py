@@ -566,6 +566,68 @@ def get_forecast_signals(month: str, horizon: int = Query(3, description="أفق
     })
 
 
+@router.get("/indicator-catalog")
+@safe_endpoint("خطأ في كتالوج مؤشرات التنبؤ")
+def get_indicator_catalog(db: Session = Depends(get_db)):
+    """كتالوج المؤشرات المتاحة للتنبؤ (مفتاح + تسمية عربية/إنجليزية + وحدة).
+
+    ثابت الترتيب وبلا أي استعلام DB — الواجهة تستخدمه لملء مُختار المؤشر.
+    """
+    from app.engine.smart.indicator_forecast import available_indicators
+    return _sanitize(available_indicators())
+
+
+@router.get("/indicator-forecast/{month}")
+@safe_endpoint("خطأ في تنبؤ المؤشر", cache_keys=["smart_overview_{month}"])
+def get_indicator_forecast(
+    month: str,
+    indicator: str = Query(..., description="مفتاح المؤشر (من /smart/indicator-catalog)"),
+    hospital_ids: str = Query(..., description="معرّفات المستشفيات المختارة مفصولة بفواصل"),
+    horizon: int = Query(1, description="أفق التنبؤ بالأشهر (1/3/6)"),
+    db: Session = Depends(get_db),
+):
+    """تنبؤ بمؤشر واحد لعدة مستشفيات يختارها المستخدم خلال أفق زمني صريح.
+
+    لكل مستشفى مختار: سلسلته التاريخية + مسار شهري (خطي/متوسط متحرك) بنطاق
+    يتسع مع الأفق + مزيج 30/30/40 للقيمة النهائية + ثقة وإخلاء مسؤولية إحصائي.
+    المستشفى بلا بيانات كافية يظهر في unavailable بالسبب — بلا صفر صامت.
+    بلا أي تغيير في مخطط قاعدة البيانات.
+    """
+    from app.engine.smart.indicator_forecast import (
+        MAX_INDICATOR_FORECAST_HOSPITALS,
+        INDICATOR_DEFS,
+        run_indicator_forecast,
+    )
+
+    if indicator not in INDICATOR_DEFS:
+        raise HTTPException(status_code=422, detail="مؤشر غير معروف — راجع /smart/indicator-catalog")
+    if horizon not in (1, 3, 6):
+        raise HTTPException(status_code=422, detail="horizon must be 1, 3 or 6")
+
+    ids: list = []
+    for part in (hospital_ids or "").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            ids.append(int(part))
+        except ValueError:
+            raise HTTPException(status_code=422, detail=f"معرّف مستشفى غير صالح: {part}")
+    if not ids:
+        raise HTTPException(status_code=422, detail="يلزم اختيار مستشفى واحد على الأقل")
+    if len(ids) > MAX_INDICATOR_FORECAST_HOSPITALS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"سقف المستشفيات المختارة هو {MAX_INDICATOR_FORECAST_HOSPITALS} في الطلب الواحد",
+        )
+
+    try:
+        result = run_indicator_forecast(db, month, indicator, ids, horizon)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return _sanitize(result)
+
+
 def _hospital_rate_series(db: Session, hosp_names: Dict[int, str]) -> Dict[str, list]:
     """سلسلة معدل القيصارية الشهرية لكل مستشفى (5/2×100) من قيم المؤشرات.
 
