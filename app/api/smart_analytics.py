@@ -15,6 +15,7 @@ from app.engine.smart.schemas import SmartAnalyticsResult
 import threading
 from app.core.deps import require_permission
 from app.core.error_handler import safe_endpoint
+from app.models import Hospital, Indicator, IndicatorValue, QualityScore
 from app.engine.smart.trajectory import run_forecast_trajectory
 from app.engine.smart.xgboost_predictor import compute_forecast_accuracy
 from app.engine.comparative.advanced_comparison import compare_peers
@@ -476,17 +477,16 @@ def get_lag_analysis(month: str, db: Session = Depends(get_db)):
 
 @router.get("/forecast-signals/{month}")
 @safe_endpoint("خطأ في إشارات التنبؤ والإنذار المبكر", cache_keys=["smart_overview_{month}"])
-def get_forecast_signals(month: str, horizon: int = Query(3, description="أفق الإشارة بالأشهر (1/3/6)"), db: Session = Depends(get_db)):
+def get_forecast_signals(month: str, horizon: int = Query(3, description="أفق الإشارة بالأشهر (1/3/6/9/12)"), db: Session = Depends(get_db)):
     """إشارات الإنذار المبكر + الأهداف الديناميكية + المزيج متعدد المصادر
     + علاقات المؤشرات — كلها بأفق صريح وإخلاء مسؤولية إحصائي."""
-    if horizon not in (1, 3, 6):
-        raise HTTPException(status_code=422, detail="horizon must be 1, 3 or 6")
+    if horizon not in (1, 3, 6, 9, 12):
+        raise HTTPException(status_code=422, detail="horizon must be 1, 3, 6, 9 or 12")
 
     from app.engine.smart.early_warning import (
         compute_early_warning_signals, rank_forecast_targets,
         blended_indicator_forecast, indicator_relationships,
     )
-    from app.models import QualityScore, Hospital, IndicatorValue, Indicator
 
     envelope = _get_envelope_or_empty(db, month)
     if "empty" in envelope or "computing" in envelope:
@@ -583,7 +583,7 @@ def get_indicator_forecast(
     month: str,
     indicator: str = Query(..., description="مفتاح المؤشر (من /smart/indicator-catalog)"),
     hospital_ids: str = Query(..., description="معرّفات المستشفيات المختارة مفصولة بفواصل"),
-    horizon: int = Query(1, description="أفق التنبؤ بالأشهر (1/3/6)"),
+    horizon: int = Query(1, description="أفق التنبؤ بالأشهر (1/3/6/9/12)"),
     db: Session = Depends(get_db),
 ):
     """تنبؤ بمؤشر واحد لعدة مستشفيات يختارها المستخدم خلال أفق زمني صريح.
@@ -601,8 +601,8 @@ def get_indicator_forecast(
 
     if indicator not in INDICATOR_DEFS:
         raise HTTPException(status_code=422, detail="مؤشر غير معروف — راجع /smart/indicator-catalog")
-    if horizon not in (1, 3, 6):
-        raise HTTPException(status_code=422, detail="horizon must be 1, 3 or 6")
+    if horizon not in (1, 3, 6, 9, 12):
+        raise HTTPException(status_code=422, detail="horizon must be 1, 3, 6, 9 or 12")
 
     ids: list = []
     for part in (hospital_ids or "").split(","):
@@ -658,16 +658,16 @@ def _hospital_rate_series(db: Session, hosp_names: Dict[int, str]) -> Dict[str, 
 
 @router.get("/xgboost/{month}")
 @safe_endpoint("خطأ في تحليل التنبؤات", cache_keys=["smart_overview_{month}"])
-def get_xgboost(month: str, horizon: int = Query(1, description="أفق التنبؤ بالأشهر (1/3/6)"), db: Session = Depends(get_db)):
+def get_xgboost(month: str, horizon: int = Query(1, description="أفق التنبؤ بالأشهر (1/3/6/9/12)"), db: Session = Depends(get_db)):
     from types import SimpleNamespace
 
+    if horizon not in (1, 3, 6, 9, 12):
+        raise HTTPException(status_code=422, detail="horizon must be 1, 3, 6, 9 or 12")
     envelope = _get_smart_data(db, month)
     xgb = (envelope.get("data") or {}).get("xgboost")
     if not xgb or not xgb.get("predictions"):
         return {"month": month, "empty": True,
                 "message": "Not enough data for predictions this month", "xgboost": None}
-    if horizon not in (1, 3, 6):
-        raise HTTPException(status_code=422, detail="horizon must be 1, 3 or 6")
 
     # ── الدقة لكل مستشفى من سجلات الطيات المحفوظة في الكاش — بلا إعادة حساب ──
     accuracy = None

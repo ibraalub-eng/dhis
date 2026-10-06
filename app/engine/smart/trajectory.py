@@ -27,8 +27,8 @@ import numpy as np
 from app.engine.smart.anomaly import FEATURE_KEYS
 from app.engine.smart.xgboost_predictor import _score_to_severity
 
-# عامل الثقة لكل أفق: m+1 كاملة، 3 أشهر ×0.85، 6 أشهر ×0.7 (الخطة 1.1)
-HORIZON_FACTORS = {1: 1.0, 3: 0.85, 6: 0.7}
+# عامل الثقة لكل أفق: m+1 كاملة، 3 أشهر ×0.85، 6 أشهر ×0.7، 9 أشهر ×0.6، 12 شهراً ×0.5 (الخطة 1.1 + تمديد الآفاق)
+HORIZON_FACTORS = {1: 1.0, 3: 0.85, 6: 0.7, 9: 0.6, 12: 0.5}
 
 # الحد الأدنى لأشهر backtest الأفق (الخطة 1.1: «يتطلب ≥ 6 أشهر وإلا غير متاح»)
 BACKTEST_MIN_MONTHS = 6

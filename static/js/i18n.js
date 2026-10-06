@@ -823,6 +823,8 @@
             'Next month (m+1)': 'الشهر التالي (m+1)',
             'Within 3 months': 'خلال 3 أشهر',
             'Within 6 months': 'خلال 6 أشهر',
+            'Within 9 months': 'خلال 9 أشهر',
+            'Within 12 months': 'خلال 12 شهراً',
             'P10–P90 range': 'نطاق P10–P90',
             'Predicted trajectory': 'المسار المتوقع',
             'Expected': 'المتوقع',
