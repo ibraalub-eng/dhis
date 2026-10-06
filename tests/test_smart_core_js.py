@@ -663,3 +663,21 @@ def test_i18n_key_matches_visible_english_text():
                     f"match displayed text {first!r} — English users would see the raw key"
                 )
     assert checked > 50
+
+
+def test_extended_horizons_available_and_translated():
+    """الآفاق الممتدة (9/12) متاحة في المُختار ومترجمة ومقبولة في endpoints الثلاثة."""
+    import os
+    base = os.path.join(os.path.dirname(__file__), "..")
+    with open(os.path.join(base, "static", "tabs", "smart-analytics.html"), encoding="utf-8") as f:
+        html = f.read()
+    assert '<option value="9"' in html and '<option value="12"' in html
+    assert 'data-i18n="Within 9 months"' in html
+    assert 'data-i18n="Within 12 months"' in html
+    with open(os.path.join(base, "static", "js", "i18n.js"), encoding="utf-8") as f:
+        i18n = f.read()
+    assert "'Within 9 months':" in i18n and "'Within 12 months':" in i18n
+    sa = (os.path.join(base, "app", "api", "smart_analytics.py"))
+    with open(sa, encoding="utf-8") as f:
+        api = f.read()
+    assert api.count("if horizon not in (1, 3, 6, 9, 12):") == 3

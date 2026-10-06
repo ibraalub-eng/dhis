@@ -480,3 +480,46 @@ def test_peer_group_skips_hospitals_without_base_month_value(client, db_session)
     resp = client.get("/smart/indicator-forecast/2026-06?indicator=cs_rate&hospital_ids=1&horizon=1")
     own = resp.json()["hospitals"][0]["peer_percentiles"]["ownership"]
     assert (own["rank"], own["total"]) == (1, 2)
+
+# ── 5) الآفاق الممتدة (9 و12 شهراً): طلب تمديد التنبؤ لأكثر من 6 أشهر ─
+
+EXTENDED_HORIZONS = (9, 12)
+
+
+class TestExtendedHorizons:
+    def test_confidence_decreases_for_extended_horizons(self):
+        h = _hist([20, 21, 22, 23, 24, 25, 26, 27])
+        confs = [forecast_indicator_trajectory(h, k)["confidence"]
+                 for k in (1, 3, 6, 9, 12)]
+        assert confs == sorted(confs, reverse=True)
+        assert confs[-1] == pytest.approx(0.9 * 0.5)
+
+    def test_linear_horizon_9_extends_trend_and_crosses_year(self):
+        out = forecast_indicator_trajectory(_hist([20, 21, 22, 23, 24, 25, 26, 27]), 9)
+        assert out["available"] is True
+        assert out["model"] == "linear"
+        assert len(out["points"]) == 9
+        assert [p["month"] for p in out["points"]][:3] == ["2026-09", "2026-10", "2026-11"]
+        assert out["points"][-1]["month"] == "2027-05"
+        assert out["points"][-1]["value"] == pytest.approx(36.0, abs=0.05)  # ميل +1
+
+    def test_band_widens_at_12_months(self):
+        out = forecast_indicator_trajectory(
+            _hist([20, 22, 19, 23, 21, 24, 20, 25]), 12)
+        w1 = out["points"][0]["upper"] - out["points"][0]["lower"]
+        w12 = out["points"][-1]["upper"] - out["points"][-1]["lower"]
+        assert w12 > w1
+
+    def test_endpoint_horizon_9_and_12_ok(self, client, db_session):
+        _seed_series(db_session, 1, _cs_months(None, [40, 50, 60, 64, 70, 76]))
+        for horizon in EXTENDED_HORIZONS:
+            resp = client.get(
+                f"/smart/indicator-forecast/2026-06?indicator=cs_rate&hospital_ids=1&horizon={horizon}")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["horizon"] == horizon
+            assert len(data["hospitals"][0]["points"]) == horizon
+        up12 = client.get(
+            "/smart/indicator-forecast/2026-06?indicator=cs_rate&hospital_ids=1&horizon=12"
+        ).json()["hospitals"][0]
+        assert up12["points"][-1]["month"] == "2027-06"

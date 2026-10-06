@@ -110,7 +110,7 @@ class TestIntervalWidensWithHorizon:
 
 class TestConfidenceDecays:
     def test_factors_match_plan(self):
-        assert HORIZON_FACTORS == {1: 1.0, 3: 0.85, 6: 0.7}
+        assert HORIZON_FACTORS == {1: 1.0, 3: 0.85, 6: 0.7, 9: 0.6, 12: 0.5}
 
     def test_confidence_decays_with_horizon(self):
         for h in (1, 3, 6):
@@ -325,3 +325,45 @@ class TestRunForecastTrajectory:
             assert "تقدير إحصائي لا تنبؤ مؤكد" in result["note"]
         finally:
             session.close()
+
+# ── 10) الآفاق الممتدة (9 و12 شهراً): طلب تمديد التنبؤ لأكثر من 6 أشهر ─
+
+EXTENDED_HORIZONS = (9, 12)
+
+
+class TestExtendedHorizons:
+    def test_horizon_factors_extended(self):
+        """العوامل تمتد بنمط متناقص: 9 أشهر ×0.6 و12 شهراً ×0.5."""
+        assert HORIZON_FACTORS[9] == 0.6
+        assert HORIZON_FACTORS[12] == 0.5
+        assert HORIZON_FACTORS == {1: 1.0, 3: 0.85, 6: 0.7, 9: 0.6, 12: 0.5}
+
+    def test_confidence_decays_across_all_horizons(self):
+        base = _hist([0.4, 0.42, 0.44, 0.46, 0.48, 0.5])
+        for h in EXTENDED_HORIZONS:
+            traj = compute_risk_trajectory("H", base, "2026-06", h, base_confidence=0.8)
+            assert traj.confidence == pytest.approx(0.8 * HORIZON_FACTORS[h])
+        confs = [compute_risk_trajectory("H", base, "2026-06", h).confidence
+                 for h in (1, 3, 6, 9, 12)]
+        assert confs == sorted(confs, reverse=True)  # تناقص صارم عبر كل الآفاق
+
+    def test_extended_horizon_points_cross_year(self):
+        """12 شهراً من 2026-06 تعبر نهاية السنة إلى 2027."""
+        traj = compute_risk_trajectory(
+            "H", _hist([0.4, 0.42, 0.44, 0.46, 0.48, 0.5]), "2026-06", 12,
+        )
+        assert len(traj.points) == 12
+        months = [p.month for p in traj.points]
+        assert months[0] == "2026-07"
+        assert months[8] == "2027-03"
+        assert months[-1] == "2027-06"
+        assert len(set(months)) == 12
+
+    def test_extended_horizon_band_widens(self):
+        traj = compute_risk_trajectory(
+            "H", _hist([0.4, 0.42, 0.44, 0.46, 0.48, 0.5]), "2026-06", 12,
+            fold_errors=[0.01, 0.02, 0.03, 0.04, 0.05],
+        )
+        w1 = traj.points[0].upper - traj.points[0].lower
+        w12 = traj.points[-1].upper - traj.points[-1].lower
+        assert w12 > w1

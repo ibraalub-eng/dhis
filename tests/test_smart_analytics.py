@@ -521,3 +521,65 @@ def test_timeline_reuses_per_month_memo(mock_run, client, db_session):
     before = mock_run.call_count
     client.get("/smart/anomaly-timeline")
     assert mock_run.call_count == before + 1  # شهر واحد جديد فقط (2027-02)
+
+
+class TestHorizonValidation:
+    """الآفاق الممتدة (9/12) تقبَل في كل endpoints التنبؤ، وغير المدرجة تبقى 422."""
+
+    @pytest.mark.parametrize("horizon", [9, 12])
+    def test_forecast_signals_accepts_extended_horizons(self, client, db_session, horizon):
+        _seed_computed("2026-06")
+        resp = client.get(f"/smart/forecast-signals/2026-06?horizon={horizon}")
+        assert resp.status_code == 200
+        assert resp.json()["horizon"] == horizon
+
+    @pytest.mark.parametrize("horizon", [5, 13])
+    def test_forecast_signals_rejects_unlisted_horizons(self, client, db_session, horizon):
+        _seed_computed("2026-06")
+        resp = client.get(f"/smart/forecast-signals/2026-06?horizon={horizon}")
+        assert resp.status_code == 422
+
+    @pytest.mark.parametrize("horizon", [1, 6, 9, 12])
+    def test_forecast_signals_real_path_with_computed_envelope(self, client, db_session, horizon):
+        """المسار الحقيقي بمغلف محسوب: إشارات + أهداف + ملاحظة تحمل الأفق — 200 لا 500."""
+        from app.models import Indicator, IndicatorValue
+        _seed_computed("2026-06")
+
+        def _ind(code, name):
+            ind = db_session.query(Indicator).filter(Indicator.code == code).first()
+            if not ind:
+                ind = Indicator(code=code, name=name)
+                db_session.add(ind)
+                db_session.flush()
+            return ind
+
+        cs = _ind("5", "cesarean")
+        base = _ind("2", "deliveries")
+        db_session.commit()
+        for k in range(1, 7):
+            db_session.add(IndicatorValue(
+                hospital_id=1, month=f"2026-0{k}", indicator_id=cs.id, value=40.0 + k))
+            db_session.add(IndicatorValue(
+                hospital_id=1, month=f"2026-0{k}", indicator_id=base.id, value=200.0))
+        db_session.commit()
+        resp = client.get(f"/smart/forecast-signals/2026-06?horizon={horizon}")
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["horizon"] == horizon
+        assert body["month"] == "2026-06"
+        assert str(horizon) in body["note"]
+
+    @pytest.mark.parametrize("horizon", [9, 12])
+    def test_xgboost_accepts_extended_horizons(self, client, db_session, horizon):
+        _seed_computed("2026-06")
+        resp = client.get(f"/smart/xgboost/2026-06?horizon={horizon}")
+        assert resp.status_code == 200
+        body = resp.json()
+        # بلا تنبؤات XGBoost مخزّنة => استجابة الفراغ (لا تُصدّ مفاتيح الأفق)
+        assert body.get("empty") is True
+
+    @pytest.mark.parametrize("horizon", [5, 13])
+    def test_xgboost_rejects_unlisted_horizons(self, client, db_session, horizon):
+        _seed_computed("2026-06")
+        resp = client.get(f"/smart/xgboost/2026-06?horizon={horizon}")
+        assert resp.status_code == 422
