@@ -52,6 +52,15 @@
             }).catch(() => {});
         }
 
+        // Standard normal CDF (Zelen & Severo, like jStat.normal.cdf) — used
+        // for the display p-value hint on the Hospital Comparison rows.
+        function _normCdf(z) {
+            const t = 1 / (1 + 0.2316419 * Math.abs(z));
+            const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+            const pdf = Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI);
+            return z >= 0 ? 1 - pdf * poly : pdf * poly;
+        }
+
         // ── Governorates Tab ────
         function initGovTab() {
             _populateMonthSelect('govMonthSelect', () => {
@@ -86,7 +95,7 @@
                     const trendColor = trend === 'improving' ? 'var(--accent-green)' : trend === 'declining' ? 'var(--accent-red)' : 'var(--text-muted)';
                     const avgQ = g.avg_quality_score != null ? Number(g.avg_quality_score).toFixed(1) : '-';
                     const avgA = g.avg_anomaly_score != null ? Number(g.avg_anomaly_score).toFixed(3) : '-';
-                    return '<tr><td style="font-weight:600;">' + esc(g.governorate) + '</td><td>' + (g.hospital_count || 0) + '</td><td>' + avgQ + '</td><td>' + avgA + '</td><td>' + (g.outlier_count || 0) + '</td><td style="font-size:0.78rem;">' + esc(topIssue) + '</td><td style="color:' + trendColor + ';font-weight:600;">' + trendIcon + ' ' + trend + '</td></tr>';
+                    return '<tr><td style="font-weight:600;">' + esc(g.governorate) + '</td><td>' + (g.hospital_count || 0) + '</td><td>' + avgQ + '</td><td>' + avgA + '</td><td>' + (g.outlier_count || 0) + '</td><td style="font-size:0.78rem;">' + esc(topIssue) + '</td><td style="color:' + trendColor + ';font-weight:600;">' + trendIcon + ' ' + trend + '</td><td><button type="button" class="btn btn-link" style="padding:2px 6px;font-size:0.75rem;color:var(--accent-blue,#1565c0);border:none;background:none;cursor:pointer;" onclick="window.showWhyPopup(\'governorate_row\',\'' + esc(g.governorate || '') + '\',\'' + esc(document.getElementById('govMonthSelect').value) + '\')" title="' + __('Why? — how this governorate average was computed') + '">❓</button></td></tr>';
                 }).join('');
                 // Bar chart
                 renderGovChart(govs);
@@ -110,10 +119,10 @@
                     labels: govs.map(g => g.governorate),
                     datasets: [{
                         label: 'Avg Quality Score',
-                        data: govs.map(g => g.avg_quality_score != null ? Number(g.avg_quality_score).toFixed(1) : 0),
+                        data: govs.map(g => g.avg_quality_score != null ? Number(g.avg_quality_score).toFixed(1) : null),
                         backgroundColor: govs.map(g => {
-                            const v = g.avg_quality_score || 0;
-                            return v >= 80 ? '#2e7d32' : v >= 50 ? '#e65100' : '#c62828';
+                            const v = g.avg_quality_score;
+                            return v != null ? (v >= 80 ? '#2e7d32' : v >= 50 ? '#e65100' : '#c62828') : 'rgba(120,120,120,0.4)';
                         }),
                         borderRadius: 4,
                     }]
@@ -170,7 +179,7 @@
                     const max = Math.max(...vals);
                     const stdDev = Math.sqrt(vals.reduce((s, v) => s + (v - avg) ** 2, 0) / vals.length);
                     const coverage = ((vals.length / totalHospitals) * 100).toFixed(0);
-                    return '<tr><td style="font-weight:600;">' + esc(name) + '</td><td>' + avg.toFixed(2) + '</td><td>' + min.toFixed(2) + '</td><td>' + max.toFixed(2) + '</td><td>' + stdDev.toFixed(2) + '</td><td style="font-size:0.78rem;">' + esc(a.worst.name) + '</td><td style="font-size:0.78rem;">' + esc(a.best.name) + '</td><td>' + coverage + '%</td></tr>';
+                    return '<tr><td style="font-weight:600;">' + esc(name) + '</td><td>' + avg.toFixed(2) + '</td><td>' + min.toFixed(2) + '</td><td>' + max.toFixed(2) + '</td><td>' + stdDev.toFixed(2) + '</td><td style="font-size:0.78rem;">' + esc(a.worst.name) + '</td><td style="font-size:0.78rem;">' + esc(a.best.name) + '</td><td>' + coverage + '%</td><td><button type="button" class="btn btn-link" style="padding:2px 6px;font-size:0.75rem;color:var(--accent-blue,#1565c0);border:none;background:none;cursor:pointer;" onclick="window.showWhyPopup(\'indicator_aggregate\',\'' + esc(name) + '\',\'' + esc(document.getElementById('indMonthSelect').value) + '\')" title="' + __('Why? — how this indicator breakdown was computed') + '">❓</button></td></tr>';
                 }).join('');
             } catch(e) {
                 document.getElementById('indLoading').classList.add('hidden');
@@ -208,7 +217,7 @@
                 tbody.innerHTML = scores.map((s, i) => {
                     const change = i > 0 ? (s.score - scores[i-1].score) : null;
                     const changeHtml = change !== null ? '<span style="color:' + (change >= 0 ? 'var(--accent-green)' : 'var(--accent-red)') + ';font-weight:600;">' + (change >= 0 ? '+' : '') + change.toFixed(1) + '</span>' : '-';
-                    return '<tr><td style="font-weight:600;">' + s.month + '</td><td>' + (s.score != null ? s.score.toFixed(1) : '-') + '</td><td>' + (s.completeness != null ? s.completeness.toFixed(1) : '-') + '</td><td>' + (s.rule_compliance != null ? s.rule_compliance.toFixed(1) : '-') + '</td><td>' + (s.consistency != null ? s.consistency.toFixed(1) : '-') + '</td><td>' + (s.outlier_penalty != null ? s.outlier_penalty.toFixed(2) : '-') + '</td><td>' + changeHtml + '</td></tr>';
+                    return '<tr><td style="font-weight:600;">' + s.month + '</td><td>' + (s.score != null ? s.score.toFixed(1) : '-') + '</td><td>' + (s.completeness != null ? s.completeness.toFixed(1) : '-') + '</td><td>' + (s.rule_compliance != null ? s.rule_compliance.toFixed(1) : '-') + '</td><td>' + (s.consistency != null ? s.consistency.toFixed(1) : '-') + '</td><td>' + (s.outlier_penalty != null ? s.outlier_penalty.toFixed(2) : '-') + '</td><td>' + changeHtml + '</td><td><button type="button" class="btn btn-link" style="padding:2px 6px;font-size:0.75rem;color:var(--accent-blue,#1565c0);border:none;background:none;cursor:pointer;" onclick="window.showWhyPopup(\'time_period_point\',' + hid + ',\'' + esc(s.month) + '\')" title="' + __('Why? — formula, components and inputs for this month') + '">❓</button></td></tr>';
                 }).join('');
                 // Line chart
                 renderTpChart(scores);
@@ -292,7 +301,7 @@
                         t.hospitals.map(h => {
                             const dir = h.trend_direction === 'up' ? '&#9650;' : h.trend_direction === 'down' ? '&#9660;' : '&#9654;';
                             const dirColor = h.trend_direction === 'up' ? 'var(--accent-green)' : h.trend_direction === 'down' ? 'var(--accent-red)' : 'var(--text-muted)';
-                            return '<tr style="border-bottom:1px solid var(--border-default);"><td style="padding:0.3rem;font-weight:500;">' + esc(h.name || h.hospital) + '</td><td style="padding:0.3rem;text-align:right;font-weight:700;color:' + t.color + ';">' + h.avg_score + '</td><td style="padding:0.3rem;text-align:right;color:' + dirColor + ';">' + dir + ' ' + (h.trend_direction || 'stable') + '</td></tr>';
+                            return '<tr style="border-bottom:1px solid var(--border-default);"><td style="padding:0.3rem;font-weight:500;">' + esc(h.name || h.hospital) + '</td><td style="padding:0.3rem;text-align:right;font-weight:700;color:' + t.color + ';">' + h.avg_score + '</td><td style="padding:0.3rem;text-align:right;color:' + dirColor + ';">' + dir + ' ' + (h.trend_direction || 'stable') + '</td><td style="padding:0.3rem;text-align:right;"><button type="button" class="btn btn-link" style="padding:2px 6px;font-size:0.72rem;color:var(--accent-blue,#1565c0);border:none;background:none;cursor:pointer;" onclick="window.showWhyPopup(\'ranking_entry\',' + h.id + ',\'\')" title="' + __('Why? — how the average, rank and direction were computed') + '">❓</button></td></tr>';
                         }).join('') +
                         '</tbody></table></div>';
                 }).join('');
@@ -555,7 +564,9 @@
                 const sevBadge = '<span class="badge badge-' + t.trend_severity.toLowerCase() + '">' + t.trend_severity + '</span>';
                 const sparkline = '<span class="trend-indicator">' + renderSparkline(t.values) + '</span>';
                 const findings = t.findings.length ? t.findings.slice(0,2).join('; ') : '-';
-                tbody.innerHTML += '<tr><td>' + t.rate_name + '<br>' + sparkline + '</td><td>' + dirBadge + '</td><td>' + sevBadge + '</td><td>' + (t.slope_pct >= 0 ? '+' : '') + t.slope_pct.toFixed(1) + '%</td><td>' + t.cv.toFixed(1) + '%</td><td>' + (t.last_vs_mean_pct_change >= 0 ? '+' : '') + t.last_vs_mean_pct_change.toFixed(1) + '%</td><td>' + t.consecutive_count + ' ' + t.consecutive_direction + '</td><td style="font-size:0.8rem;max-width:200px;">' + findings + '</td></tr>';
+                const hid = (typeof window._qualityTrendData === 'object' && window._qualityTrendData && window._qualityTrendData.hospital_id) ? window._qualityTrendData.hospital_id : null;
+                const trendWhyBtn = '<button type="button" class="btn btn-link" style="padding:2px 6px;font-size:0.75rem;color:var(--accent-blue,#1565c0);border:none;background:none;cursor:pointer;" onclick="window.showWhyPopup(\'trend_row\',' + (hid || 'null') + ',\'' + esc(String(t.months[t.months.length - 1] || '')) + '\',\'' + esc(t.rate_name || '') + '\')" title="' + __('Why? — how this trend was computed') + '">❓</button>';
+                tbody.innerHTML += '<tr><td>' + t.rate_name + '<br>' + sparkline + '</td><td>' + dirBadge + '</td><td>' + sevBadge + '</td><td>' + (t.slope_pct >= 0 ? '+' : '') + t.slope_pct.toFixed(1) + '%</td><td>' + t.cv.toFixed(1) + '%</td><td>' + (t.last_vs_mean_pct_change >= 0 ? '+' : '') + t.last_vs_mean_pct_change.toFixed(1) + '%</td><td>' + t.consecutive_count + ' ' + t.consecutive_direction + '</td><td style="font-size:0.8rem;max-width:200px;">' + findings + '</td><td>' + trendWhyBtn + '</td></tr>';
             });
             makeSortable('trendTable', { numericColumns: [3, 4, 5, 6] });
         }
@@ -617,6 +628,28 @@
                     + rates.map(r => '<option value="' + r.replace(/"/g, '&quot;') + '">' + r + '</option>').join('');
                 if (currentVal) filter.value = currentVal;
                 window._compareData = data;
+                // p-value is computed by the engine (≥3 hospitals) but stripped
+                // by the response schema — surface it as a hint column in the
+                // Why popup row instead of altering the endpoint schema.
+                const ratePeers = {};
+                data.forEach(d => {
+                    (ratePeers[d.rate_name] = ratePeers[d.rate_name] || []).push(d);
+                });
+                data.forEach(d => {
+                    const rows = ratePeers[d.rate_name] || [];
+                    d.peer_count = rows.length;
+                    const otherRates = rows.filter(x => x.hospital !== d.hospital).map(x => x.value);
+                    if (rows.length >= 3 && otherRates.length >= 2 && new Set(otherRates).size > 1) {
+                        const n1 = 1, n2 = otherRates.length;
+                        const m2 = otherRates.reduce((s, v) => s + v, 0) / n2;
+                        const v2 = otherRates.reduce((s, v) => s + (v - m2) ** 2, 0) / (n2 - 1);
+                        const m1 = d.value;
+                        const se = Math.sqrt(v2 / n1 + v2 / n2);
+                        d.p_value = se > 0 ? 2 * (1 - _normCdf(Math.abs(m1 - m2) / se)) : null;
+                    } else {
+                        d.p_value = null;
+                    }
+                });
                 filterComparison();
             } catch(e) {
                 document.getElementById('compareLoading').classList.add('hidden');
@@ -635,7 +668,11 @@
                 }
                 const c = data.ml_clustering;
                 const colors = ['#2e7d32','#f57f17','#c62828','#1565c0','#6a1b9a','#00838f','#4e342e','#37474f','#558b2f','#e65100'];
-                let html = '<div class="card" style="padding:0.8rem;"><h3 style="font-size:0.9rem;margin:0 0 0.4rem;">Performance Clusters <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;">(silhouette: ' + (c.silhouette_score ?? 0).toFixed(2) + ', k=' + c.k + ')</span></h3>';
+                // silhouette_score is null when the clustering is not valid
+                // (too few/one-point clusters) — show "n/a", never a fake 0.00.
+                const _sil = (typeof c.silhouette_score === 'number' && isFinite(c.silhouette_score))
+                    ? c.silhouette_score.toFixed(2) : 'n/a';
+                let html = '<div class="card" style="padding:0.8rem;"><h3 style="font-size:0.9rem;margin:0 0 0.4rem;">Performance Clusters <span style="font-size:0.75rem;color:var(--text-muted);font-weight:400;">(silhouette: ' + _sil + ', k=' + c.k + ')</span></h3>';
 
                 const pcaCoords = c.pca_coordinates;
                 if (pcaCoords && Object.keys(pcaCoords).length > 0) {
@@ -742,7 +779,8 @@
             tbody.innerHTML = '';
             data.forEach(c => {
                 const labelClass = c.comparison_label.includes('critically') ? 'badge-critical' : c.comparison_label.includes('significantly') ? 'badge-high' : c.comparison_label.includes('above') ? 'badge-medium' : c.comparison_label.includes('below') ? 'badge-low' : 'badge-pass';
-                tbody.innerHTML += '<tr><td>' + c.hospital + '</td><td>' + c.rate_name + '</td><td>' + c.value.toFixed(2) + '</td><td>' + c.benchmark.toFixed(2) + '</td><td>' + (c.deviation_pct >= 0 ? '+' : '') + c.deviation_pct.toFixed(1) + '%</td><td>' + c.percentile_rank.toFixed(0) + '</td><td><span class="badge ' + labelClass + '">' + c.comparison_label + '</span></td></tr>';
+                const pHint = (typeof c.p_value === 'number' && isFinite(c.p_value)) ? '<div style="font-size:0.62rem;color:var(--text-muted);">p=' + c.p_value.toFixed(3) + '</div>' : '';
+                tbody.innerHTML += '<tr><td>' + c.hospital + '</td><td>' + c.rate_name + '</td><td>' + c.value.toFixed(2) + '</td><td>' + c.benchmark.toFixed(2) + '</td><td>' + (c.deviation_pct >= 0 ? '+' : '') + c.deviation_pct.toFixed(1) + '%</td><td>' + c.percentile_rank.toFixed(0) + '</td><td><span class="badge ' + labelClass + '">' + c.comparison_label + '</span>' + pHint + '</td><td><button type="button" class="btn btn-link" style="padding:2px 6px;font-size:0.75rem;color:var(--accent-blue,#1565c0);border:none;background:none;cursor:pointer;" onclick="window.showWhyPopup(\'comparison_row\',\'' + esc(c.hospital || '') + '|' + esc(c.rate_name || '') + '\',\'' + esc(document.getElementById('compareMonthSelect').value) + '\')" title="' + __('Why? — formula, inputs, reproduction for this comparison') + '">❓</button></td></tr>';
             });
             makeSortable('compareTable', { numericColumns: [2, 3, 4, 5] });
         }

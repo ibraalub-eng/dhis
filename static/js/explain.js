@@ -133,6 +133,48 @@ function _renderAuditScreenLink() {
         '</div>';
 }
 
+// The rules that actually FAILED for this hospital-month. The score only
+// carries a rule-compliance percentage, so without this section a hospital
+// can read "all components meet their targets" while rules are failing.
+// Each code re-opens the popup on kind=rule (its own calculation).
+function _renderFailedRules(p) {
+    const rows = p.failed_rules || [];
+    if (!rows.length) return '';
+    const colors = { CRITICAL: '#b71c1c', HIGH: '#c62828', MEDIUM: '#e65100', LOW: '#1565c0' };
+    const icons = { CRITICAL: '\u26a0', HIGH: '\u26a0', MEDIUM: '\u26a1', LOW: '\u2139' };
+    const hid = p.hospital_id !== undefined && p.hospital_id !== null ? p.hospital_id : 'null';
+    let html = _sectionTitle(__('Failed rules') + ' (' + rows.length + ')');
+    html += rows.slice(0, 10).map(function (r) {
+        const sev = (r.severity || '').toUpperCase();
+        const col = colors[sev] || '#888';
+        const ico = icons[sev] || '\u2139';
+        const code = String(r.rule_code || '');
+        // Aggregate digests (month overview) carry the failing hospital on the
+        // row itself; hospital-level digests use the popup's own hospital.
+        const rowHid = (r.hospital_id !== undefined && r.hospital_id !== null) ? Number(r.hospital_id) : Number(hid);
+        const chip = code
+            ? '<span style="background:' + col + ';color:#fff;padding:1px 5px;border-radius:3px;font-size:0.58rem;font-weight:700;cursor:pointer;flex-shrink:0;" ' +
+                'onclick="window.showWhyPopup(\'rule\',' + rowHid + ',\'' + esc(String(p.month || '')) + '\',null,\'' +
+                code.replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\')" ' +
+                'title="' + __('Why? — formula, inputs, reproduction for this rule') + '">' + esc(code) + '</span>'
+            : '';
+        return '<div style="padding:0.3rem 0.5rem;margin:0.15rem 0;background:var(--bg-elevated,#f5f5f5);border-radius:4px;">' +
+            '<div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">' +
+            '<span style="color:' + col + ';font-weight:700;flex-shrink:0;">' + ico + '</span>' + chip +
+            (r.hospital ? '<span style="font-size:0.66rem;color:var(--text-muted,#888);font-weight:600;">' + esc(r.hospital) + '</span>' : '') +
+            '<span style="font-size:0.74rem;line-height:1.45;overflow-wrap:anywhere;">' +
+            esc(r.rule_name || r.rule_description || code) + '</span></div>' +
+            (r.details ? '<div style="font-size:0.72rem;color:var(--text-secondary,#555);margin-top:0.15rem;line-height:1.5;overflow-wrap:anywhere;">' +
+                esc(r.details) + '</div>' : '') +
+            '</div>';
+    }).join('');
+    if (rows.length > 10) {
+        html += '<div style="font-size:0.72rem;color:var(--text-muted,#888);margin:0.15rem 0 0;">' +
+            __('... and {n} more').replace('{n}', rows.length - 10) + '</div>';
+    }
+    return html;
+}
+
 // Anomaly context: the hospital's own recent score trend as an inline
 // sparkline — a drop/jump/drift is only meaningful against this baseline.
 // Same-epoch data, rendered inline so no extra request is needed.
@@ -201,11 +243,21 @@ function _renderPayload(p) {
         html += '<div style="background:rgba(230,81,0,0.06);border-left:3px solid var(--accent-orange,#e65100);padding:0.45rem 0.6rem;border-radius:0 4px 4px 0;line-height:1.55;overflow-wrap:anywhere;">' + esc(p.why) + '</div>';
     }
 
+    html += _renderFailedRules(p);
+
     if (p.data_problems && p.data_problems.length) {
         // Digest: at most 3 examples — the FULL sweep lives on the Audit
         // screen (Data Auditor section), one press away via the footer.
         html += _sectionTitle(__('Data problems in the source values'));
-        const _dp = p.data_problems;
+        // The digest shows 3 of them, so a stale benchmark (the anomaly row no
+        // longer matching the uploaded data) must not be pushed out by the
+        // month's 30 missing cells — it is the one that changes the verdict.
+        const _prio = function (d) {
+            return d.kind === 'stale_benchmark' ? 0
+                : d.severity === 'critical' ? 1
+                : d.severity === 'high' ? 2 : 3;
+        };
+        const _dp = (p.data_problems || []).slice().sort(function (a, b) { return _prio(a) - _prio(b); });
         html += _dp.slice(0, 3).map(function (d) {
             const sevIcon = d.severity === 'critical' ? '❌' : d.severity === 'high' ? '🔧' : '⚠️';
             return '<div style="padding:0.25rem 0.5rem;margin:0.15rem 0;background:var(--bg-elevated,#f5f5f5);border-radius:4px;font-size:0.74rem;">' +
@@ -274,7 +326,9 @@ export function showWhyPopup(optsOrKind, hospitalId, month, rateName, ruleCode) 
     let q = '?kind=' + encodeURIComponent(opts.kind);
     // Month-overview digests (trend point with "All Hospitals") send no
     // hospital_id at all — the dispatcher routes them to explain_month_overview.
-    if (opts.hospitalId !== undefined && opts.hospitalId !== null) {
+    // The Comparative Analysis kinds pass a string context here instead of
+    // a number ('Hospital|Rate', a governorate or a rate name).
+    if (opts.hospitalId !== undefined && opts.hospitalId !== null && opts.hospitalId !== 'null') {
         q += '&hospital_id=' + encodeURIComponent(opts.hospitalId);
     }
     if (opts.month) q += '&month=' + encodeURIComponent(opts.month);
@@ -299,8 +353,33 @@ export function showWhyPopup(optsOrKind, hospitalId, month, rateName, ruleCode) 
 
 // Global hook so inline onclick handlers in table rows / heatmap cells can
 // open the popup without needing the module import in scope.
-window.showWhyPopup = function (kind, hospitalId, month, rateName, ruleCode, mode) {
-    showWhyPopup({ kind: kind, hospitalId: hospitalId, month: month, rateName: rateName, ruleCode: ruleCode, mode: mode });
+/**
+ * Global alias of showWhyPopup for the Comparative Analysis sub-tabs: they
+ * are rendered by validation.js, whose module namespace does not import
+ * explain.js — the app.js _bind('showWhyPopup2') would warn about a missing
+ * export. Wrapping the same global keeps theWhy buttons on those sub-tabs
+ * functional without duplicating the popup logic.
+ */
+window.showWhyPopup2 = function (kindOrOpts, hospitalId, month, rateName, ruleCode, mode) {
+    return window.showWhyPopup(kindOrOpts, hospitalId, month, rateName, ruleCode, mode);
+};
+
+window.showWhyPopup = function (kindOrOpts, hospitalId, month, rateName, ruleCode, mode) {
+    // Accept BOTH call styles: the positional signature above and the object
+    // form inline onclick handlers use (e.g. rules-manager.js passes
+    // {kind, hospitalId, month, component}). Passing the object through as
+    // `kind` built the request as "?kind=[object Object]", so every object-form
+    // call silently rendered "No explanation available".
+    if (kindOrOpts && typeof kindOrOpts === 'object') {
+        const o = kindOrOpts;
+        showWhyPopup({
+            kind: o.kind, hospitalId: o.hospitalId, month: o.month,
+            rateName: o.rateName, indicatorCode: o.indicatorCode,
+            ruleCode: o.ruleCode, component: o.component, mode: o.mode,
+        });
+        return;
+    }
+    showWhyPopup({ kind: kindOrOpts, hospitalId: hospitalId, month: month, rateName: rateName, ruleCode: ruleCode, mode: mode });
 };
 // Global close hook — main.js's browser-Back overlay closer (and anything
 // else outside this module) must be able to dismiss the Why popup.

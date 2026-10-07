@@ -17,9 +17,9 @@ def list_audit_summary():
 
 @router.get("/explain")
 def api_explain(
-    kind: str = Query(..., description="quality_score | anomaly | heatmap_cell | rule"),
-    hospital_id: int = Query(None, description="Omit for a month-level aggregate explanation"),
-    month: str = Query(..., description="Month YYYY-MM"),
+    kind: str = Query(..., description="quality_score | anomaly | heatmap_cell | rule | comparison_row | historical_trend | governorate_row | indicator_aggregate | ranking_entry | time_period_point | trend_row"),
+    hospital_id: str = Query(None, description="Numeric hospital id — or a string context for the Comparative Analysis kinds: 'Hospital Name|Rate Name' (comparison_row), governorate name (governorate_row), rate name (indicator_aggregate). Omit for a month-level aggregate explanation."),
+    month: str = Query(None, description="Month YYYY-MM — required for every kind except ranking_entry"),
     rate_name: str = Query(None),
     indicator_code: str = Query(None),
     rule_code: str = Query(None),
@@ -33,11 +33,18 @@ def api_explain(
     result does not exist so the popup can show a clear empty state.
     """
     if hospital_id is not None:
-        hosp = db.query(Hospital).filter(Hospital.id == hospital_id, Hospital.is_active.is_(True)).first()
+        hospital_id = hospital_id.strip() or None
+    # Numeric ids coerce to int for the hospital-level kinds; the Comparative
+    # Analysis kinds receive their string context (name / name|rate) as-is.
+    hid: int | str | None = None
+    if hospital_id is not None:
+        hid = int(hospital_id) if hospital_id.isdigit() else hospital_id
+    if isinstance(hid, int):
+        hosp = db.query(Hospital).filter(Hospital.id == hid, Hospital.is_active.is_(True)).first()
         if not hosp:
             raise HTTPException(status_code=404, detail="Hospital not found")
     result = build_explanation(
-        db, kind, hospital_id, month,
+        db, kind, hid, month,
         rate_name=rate_name, indicator_code=indicator_code, rule_code=rule_code,
         component=component,
     )

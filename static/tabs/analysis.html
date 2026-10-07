@@ -36,7 +36,7 @@
                                 <div style="font-size:0.8rem;font-weight:600;color:var(--accent-blue);margin-bottom:0.4rem;">Historical Trend Analysis <span style="font-weight:400;color:var(--text-muted);">— Detects drift, consecutive trends, and significant changes</span></div>
                                 <div id="trendSummary" style="display:flex;gap:0.5rem;margin-bottom:0.6rem;"></div>
                                 <table id="trendTable"><thead><tr>
-                                    <th>Indicator</th><th>Direction</th><th>Severity</th><th>Slope %/mo</th><th>CV %</th><th>Last vs Mean</th><th>Consecutive</th><th>Findings</th>
+                                    <th>Indicator</th><th>Direction</th><th>Severity</th><th>Slope %/mo</th><th>CV %</th><th>Last vs Mean</th><th>Consecutive</th><th>Findings</th><th>Why</th>
                                 </tr></thead><tbody id="trendTbody"></tbody></table>
                             </div>
                         </div>
@@ -62,9 +62,9 @@
                                 <div style="font-size:1.8rem;margin-bottom:0.4rem;opacity:0.35;">&#128200;</div>
                                 <p style="margin:0;font-size:0.85rem;">Select a month and click Compare.</p>
                             </div>
-                            <table id="compareTable" style="display:none;"><thead><tr>
-                                <th>Hospital</th><th>Indicator</th><th>Value</th><th>Benchmark</th><th>Deviation %</th><th>Percentile</th><th>Assessment</th>
-                            </tr></thead><tbody id="compareTbody"></tbody></table>
+                             <table id="compareTable" style="display:none;"><thead><tr>
+                                 <th>Hospital</th><th>Indicator</th><th>Value</th><th>Benchmark</th><th>Deviation %</th><th>Percentile</th><th>Assessment</th><th>Why</th>
+                             </tr></thead><tbody id="compareTbody"></tbody></table>
                         </div>
                     </div>
 
@@ -85,7 +85,7 @@
                             </div>
                             <div id="govChart" style="display:none;margin-bottom:1rem;"></div>
                             <table id="govTable" style="display:none;"><thead><tr>
-                                <th>Governorate</th><th>Hospitals</th><th>Avg Quality</th><th>Avg Anomaly</th><th>Outliers</th><th>Top Issue</th><th>Trend</th>
+                                <th>Governorate</th><th>Hospitals</th><th>Avg Quality</th><th>Avg Anomaly</th><th>Outliers</th><th>Top Issue</th><th>Trend</th><th>Why</th>
                             </tr></thead><tbody id="govTbody"></tbody></table>
                         </div>
                     </div>
@@ -107,7 +107,7 @@
                             </div>
                             <div id="indChart" style="display:none;margin-bottom:1rem;"></div>
                             <table id="indTable" style="display:none;"><thead><tr>
-                                <th>Indicator</th><th>Avg</th><th>Min</th><th>Max</th><th>Std Dev</th><th>Worst Hospital</th><th>Best Hospital</th><th>Coverage</th>
+                                <th>Indicator</th><th>Avg</th><th>Min</th><th>Max</th><th>Std Dev</th><th>Worst Hospital</th><th>Best Hospital</th><th>Coverage</th><th>Why</th>
                             </tr></thead><tbody id="indTbody"></tbody></table>
                         </div>
                     </div>
@@ -129,7 +129,7 @@
                             </div>
                             <div id="tpChart" style="display:none;margin-bottom:1rem;"></div>
                             <table id="tpTable" style="display:none;"><thead><tr>
-                                <th>Month</th><th>Quality Score</th><th>Completeness</th><th>Compliance</th><th>Consistency</th><th>Outlier Penalty</th><th>Change</th>
+                                <th>Month</th><th>Quality Score</th><th>Completeness</th><th>Compliance</th><th>Consistency</th><th>Outlier Penalty</th><th>Change</th><th>Why</th>
                             </tr></thead><tbody id="tpTbody"></tbody></table>
                         </div>
                     </div>
