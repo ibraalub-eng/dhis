@@ -1,0 +1,161 @@
+"""Central rate registry: verbatim literals, compute_rate, per-site parity."""
+from app.engine.rate_config import (
+    BUILTIN_RATE_SPECS,
+    compute_rate,
+    compute_spec_rate,
+    iter_site,
+    multiplier_for_unit,
+    zscore_spec_for,
+    zscore_specs,
+)
+
+# Exact current values of the four hardcoded sites (copied from source before
+# migration). Any drift in the registry breaks one of these assertions.
+ZSCORE_LITERALS = [
+    ("C-section rate", "5", "2", 50.0, "rate_cs"),
+    ("Maternal mortality ratio", "11", "2", 1.0, "rate_mmr"),
+    ("Neonatal mortality rate", "17", "6", 30.0, "rate_nmr"),
+    ("Preterm birth rate", "6.f", "6", 15.0, "rate_preterm"),
+    ("SMM rate", "10", "2", 10.0, "rate_smm"),
+    ("Stillbirth rate", "7", "2", 5.0, "rate_stillbirth"),
+    ("NICU admission rate", "16", "6", 20.0, "rate_nicu"),
+]
+
+# (rate_code, numerator_codes, denominator_code, multiplier, unit) — clinical
+# slice values exactly as in thresholds.py CLINICAL_THRESHOLDS (line 20-216),
+# multiplier derived by the current rule `100 if "%" in unit else 1`.
+CLINICAL_LITERALS = [
+    ("rate_cs", ("5",), "2", 100.0, "%"),
+    ("rate_mmr", ("11",), "2", 1.0, "per 100,000"),
+    ("rate_nmr", ("17",), "6", 1.0, "per 1,000"),
+    ("rate_preterm", ("6.f",), "6", 100.0, "%"),
+    ("rate_smm", ("10",), "2", 100.0, "%"),
+    ("rate_stillbirth", ("7",), "2", 1.0, "per 1,000"),
+    ("rate_nicu", ("16",), "6", 100.0, "%"),
+    ("rate_lbw", ("6.g",), "6", 100.0, "%"),
+    ("rate_bf", ("13",), "6", 100.0, "%"),
+    ("rate_avd", ("4",), "2", 100.0, "%"),
+    ("rate_smm_hemorrhage_proportion", ("10.a",), "10", 100.0, "%"),
+    ("rate_smm_hypertensive_proportion", ("10.e",), "10", 100.0, "%"),
+    ("rate_adolescent", ("2.c", "2.d"), "2", 100.0, "%"),
+    ("rate_high_risk", ("2.n",), "2", 100.0, "%"),
+    ("rate_hysterectomy", ("10.d",), "2", 1.0, "per 1,000"),
+]
+
+# forecast INDICATOR_DEFS: (key, numerator, denominator-or-None, per/unit)
+FORECAST_LITERALS = [
+    ("cs_rate", ("5",), ("2",), 100.0),
+    ("stillbirth_rate", ("7",), ("6",), 1000.0),
+    ("preterm_rate", ("6.f",), ("6",), 100.0),
+    ("lbw_rate", ("6.g",), ("6",), 100.0),
+    ("high_risk_rate", ("2.n",), ("6",), 100.0),
+    ("adolescent_rate", ("2.c", "2.d"), ("6",), 100.0),
+    ("total_births", ("6",), None, 1.0),
+]
+
+# rules R043-R050: (rule code, numerator, denominator) — R045 MMR uses
+# denominator "6" here (disagrees with zscore/clinical "2"); that disagreement
+# is the point of the per-site registry.
+RULES_LITERALS = [
+    ("R043", "6.f", "6"),
+    ("R044", "6.g", "6"),
+    ("R045", "11", "6"),
+    ("R046", "17", "6"),
+    ("R047", "7", "2"),
+    ("R048", "16", "6"),
+    ("R049", "10", "2"),
+    ("R050", "10.a", "2"),
+]
+
+
+def test_zscore_slice_matches_rate_definitions_literals():
+    specs = zscore_specs()
+    assert len(specs) == 7
+    for spec, (name, num, den, pct, code) in zip(specs, ZSCORE_LITERALS):
+        assert spec.rate_name == name
+        assert spec.numerator_codes == (num,)
+        assert spec.denominator_codes == (den,)
+        assert spec.typical_pct == pct
+        assert spec.rate_code == code
+        assert spec.rate_multiplier == 100.0  # zscore.compute_rate hardcodes x100
+        assert spec.site == "zscore"
+
+
+def test_clinical_slice_matches_threshold_literals():
+    specs = iter_site("clinical")
+    assert len(specs) == 15
+    for spec, (code, num, den, mult, unit) in zip(specs, CLINICAL_LITERALS):
+        assert spec.rate_code == code
+        assert spec.numerator_codes == num
+        assert spec.denominator_codes == (den,)
+        assert spec.rate_multiplier == mult
+        assert spec.unit == unit
+
+
+def test_forecast_slice_matches_indicator_defs_literals():
+    specs = iter_site("forecast")
+    assert len(specs) == 7
+    for spec, (key, num, den, per) in zip(specs, FORECAST_LITERALS):
+        assert spec.rate_code == key
+        assert spec.numerator_codes == num
+        assert spec.denominator_codes == (() if den is None else den)
+        assert spec.rate_multiplier == per
+    assert iter_site("forecast")[-1].is_rate is False  # total_births = count
+
+
+def test_rules_slice_matches_cross_hospital_rule_literals():
+    specs = iter_site("rules")
+    assert len(specs) == 8
+    for spec, (code, num, den) in zip(specs, RULES_LITERALS):
+        assert spec.spec_key == f"rules:{code}"
+        assert spec.numerator_codes == (num,)
+        assert spec.denominator_codes == (den,)
+        assert spec.rate_multiplier == 100.0  # rules._rate hardcodes x100
+        assert spec.site == "rules"
+
+
+def test_registry_keys_are_site_scoped():
+    keys = list(BUILTIN_RATE_SPECS)
+    assert len(keys) == len(set(keys))
+    # The known disagreements must coexist under separate keys.
+    assert BUILTIN_RATE_SPECS["zscore:Maternal mortality ratio"].denominator_codes == ("2",)
+    assert BUILTIN_RATE_SPECS["rules:R045"].denominator_codes == ("6",)
+    assert BUILTIN_RATE_SPECS["zscore:Stillbirth rate"].denominator_codes == ("2",)
+    assert BUILTIN_RATE_SPECS["forecast:stillbirth_rate"].denominator_codes == ("6",)
+
+
+def test_compute_rate_sums_codes_and_applies_multiplier():
+    values = {"5": 80.0, "2": 300.0}
+    assert compute_rate(values, ("5",), ("2",), 100.0) == 80.0 / 300.0 * 100
+
+
+def test_compute_rate_multi_code_numerator():
+    values = {"2.c": 40.0, "2.d": 20.0, "2": 300.0}
+    assert compute_rate(values, ("2.c", "2.d"), ("2",), 100.0) == 20.0
+
+
+def test_compute_rate_missing_or_zero_denominator_is_none():
+    assert compute_rate({"5": 1}, ("5",), ("2",), 100.0) is None
+    assert compute_rate({"5": 1, "2": 0}, ("5",), ("2",), 100.0) is None
+    assert compute_rate({"2": 100}, ("5",), ("2",), 100.0) is None
+
+
+def test_compute_spec_rate_uses_spec_multiplier():
+    spec = BUILTIN_RATE_SPECS["zscore:C-section rate"]
+    assert compute_spec_rate(spec, {"5": 30, "2": 300}) == 10.0
+    spec_mmr = BUILTIN_RATE_SPECS["clinical:rate_mmr"]  # x1, per 100,000
+    assert compute_spec_rate(spec_mmr, {"11": 2, "2": 300}) == 2 / 300 * 1
+
+
+def test_zscore_spec_for_lookup_and_miss():
+    spec = zscore_spec_for("5", "2")
+    assert spec is not None and spec.rate_code == "rate_cs"
+    assert zscore_spec_for("999", "2") is None
+
+
+def test_multiplier_for_unit():
+    assert multiplier_for_unit("%") == 100.0
+    assert multiplier_for_unit("per 1,000") == 1.0
+    assert multiplier_for_unit("per 100,000") == 1.0
+    assert multiplier_for_unit("") == 1.0
+    assert multiplier_for_unit(None) == 1.0
