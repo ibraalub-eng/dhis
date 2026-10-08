@@ -251,9 +251,9 @@ First match wins:
 | # | Condition | Classification |
 |---|---|---|
 | 1 | `history_ok = false` (insufficient baseline / first month) | `NORMAL`, `outlier_level = NONE`, method `insufficient_history` |
-| 2 | `raw ≥ HIGH` and `rate ≥ HIGH` and `hist ≥ HIGH` and `volume ≤ LOW` | `POSSIBLE_DATA_ENTRY_ERROR` (Scenario A) |
-| 3 | `raw ≥ HIGH` and `volume ≥ HIGH` and `rate ≤ MODERATE` | `VOLUME_DRIVEN_ANOMALY` (Scenario B) |
-| 4 | `rate ≥ HIGH` and `hist ≥ HIGH` and `volume ≤ LOW` | `CLINICAL_INVESTIGATION_REQUIRED` (Scenario C) |
+| 2 | `raw ≥ HIGH` **and** `rate ≥ HIGH` **and** `hist ≥ HIGH` **and** `volume ≤ LOW` **and** `rate change ≥ +300% vs baseline` (≥ 4× baseline — separates Scenario A's ×14 jump from Scenario C's ×2.25 jump; without this guard rules 2 and 4 are indistinguishable) | `POSSIBLE_DATA_ENTRY_ERROR` (Scenario A) |
+| 3 | `raw ≥ HIGH` **and** `volume ≥ HIGH` **and** `rate ≤ MODERATE` | `VOLUME_DRIVEN_ANOMALY` (Scenario B) |
+| 4 | `rate ≥ HIGH` **and** `hist ≥ HIGH` **and** `volume ≤ LOW` (reached only when rule 2's magnitude guard failed) | `CLINICAL_INVESTIGATION_REQUIRED` (Scenario C) |
 | 5 | `hist ≥ HIGH` alone | `HISTORICAL_ANOMALY` |
 | 6 | `peer ≥ HIGH` and `hist ≤ LOW` | `PEER_ANOMALY` — interpretation "consistently differs from peers; review case mix, referral pattern, and indicator definition" — **never** "data error" (Scenario D) |
 | 7 | `peer ≥ HIGH` and `hist ≥ MODERATE` | `PEER_ANOMALY` flagged *combined*; both deviations stated in interpretation |
