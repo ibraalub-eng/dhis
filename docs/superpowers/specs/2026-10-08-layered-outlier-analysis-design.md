@@ -37,14 +37,17 @@ Core principles:
 
 ### 3.1 New table `layered_outlier_results`
 
-One row per hospital × indicator × month. Unique constraint `(hospital_id, indicator_id, month)`.
+One row per hospital × **analysis unit** × month. Unique constraint `(hospital_id, analysis_code, month)`.
 Indexes: `(hospital_id, month)`, `(month, outlier_type)`.
+
+**Amendment (2026-10-08, approved):** rates (`rate_cs`, …) are not rows in `indicators` — only data elements are. The row key is therefore `analysis_code` (String): the data-element code for count rows, or the synthetic rate code for rate rows. `indicator_id` becomes a nullable FK (set for count rows; for rate rows it points at the numerator indicator when resolvable, else `NULL`).
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | PK | |
 | `hospital_id` | FK hospitals | |
-| `indicator_id` | FK indicators | |
+| `indicator_id` | FK indicators **nullable** | count rows: the data element; rate rows: numerator indicator or `NULL` |
+| `analysis_code` | String, indexed | data-element code or synthetic rate code — the row's analysis unit |
 | `month` | String `YYYY-MM` | |
 | `raw_value` | Float nullable | data element value for the month |
 | `previous_value` | Float nullable | prior month value |
@@ -86,48 +89,74 @@ POSSIBLE_DATA_ENTRY_ERROR
 CLINICAL_INVESTIGATION_REQUIRED
 ```
 
-### 3.2 `Indicator` table additions (central config)
+### 3.2 `Indicator` table additions — count / raw-layer config
+
+**Amendment:** numerator/denominator/multiplier moved to the `rate_config` table (§3.3) because rates have no `indicators` row. The `Indicator` table carries only raw/count-layer settings:
 
 | Column | Type | Default |
 |---|---|---|
-| `indicator_type` | String | `count` — one of `count / rate / ratio / percentage` |
-| `numerator_codes` | JSON list of indicator codes | `NULL` |
-| `denominator_codes` | JSON list | `NULL` |
-| `rate_multiplier` | Int | `100` (matches today's hardcode; per-indicator tunable, e.g. 100/1000/100000) |
-| `minimum_denominator` | Int nullable | `NULL` (no behavior change until tuned) |
+| `indicator_type` | String | `count` — one of `count / rate / ratio / percentage` (rate* rows leave it `count`; rate semantics live in `rate_config`) |
 | `minimum_history_period` | Int | `3` |
 | `outlier_method` | String | `auto` — one of `auto / zscore / iqr / rolling_median_mad / pct_change / trend_deviation` |
 | `historical_enabled` | Boolean | `True` |
 | `peer_comparison_enabled` | Boolean | `True` |
 
-Rationale: one central source (Q2-B). `hospital_indicator_config` is **not** extended.
+`hospital_indicator_config` is **not** extended.
 
-### 3.3 Migration mechanics
+### 3.3 New table `rate_config` — rate definitions & rate-layer config
 
-- One alembic revision adding the new table + `Indicator` columns (follow existing idempotent patterns in `alembic/versions/`).
+One row per rate spec. Unique `(rate_code)`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | PK | |
+| `rate_code` | String unique | synthetic code (`rate_cs`, `rate_mmr`, …) used as `analysis_code` for rate rows |
+| `rate_name` | String | display name (matches current `RATE_DEFINITIONS` names where applicable) |
+| `indicator_type` | String | `rate / ratio / percentage` |
+| `numerator_codes` | JSON list | e.g. `["5"]` |
+| `denominator_codes` | JSON list | e.g. `["2"]` |
+| `rate_multiplier` | Int | `100 / 1000 / 100000 / 1` |
+| `minimum_denominator` | Int nullable | `NULL` (no behavior change until tuned) |
+| `minimum_history_period` | Int default `3` | |
+| `outlier_method` | String default `auto` | |
+| `historical_enabled` | Boolean default `True` | |
+| `peer_comparison_enabled` | Boolean default `True` | |
+| `is_active` | Boolean default `True` | |
+
+Seed from current definitions (§4).
+
+### 3.4 Migration mechanics
+
+- One alembic revision adding `layered_outlier_results`, `rate_config`, and the `Indicator` columns (follow existing idempotent patterns in `alembic/versions/`; current head `a9c8e7d6f5b4`).
 - Register new `Indicator` columns in `app/main.py::_ensure_required_columns` self-heal.
-- Seed defaults in `scripts/seed_indicators.py` derived from current `RATE_DEFINITIONS` (see §4).
+- Seed `rate_config` rows in `scripts/seed_indicators.py` (idempotent, insert-if-missing).
 
 ## 4. Central Rate Config (`app/engine/rate_config.py`)
 
-New module, single source of truth for rate definitions.
+**Amendment (2026-10-08, approved):** the four existing sites *disagree* today (MMR denominator `2` vs `6`; stillbirth `2` vs `6`; multipliers ×1 / ×100 / ×1000). A single canonical value per conceptual rate would silently change behavior. The central config therefore guarantees a single **mechanism and location**, not a forced single value:
 
-- `RateSpec` dataclass: `indicator_code, name, indicator_type, numerator_codes, denominator_codes, rate_multiplier, minimum_denominator, minimum_history_period, outlier_method, historical_enabled, peer_comparison_enabled, typical_pct`.
-- `load_rate_specs(db)` — reads `Indicator` columns; in-process cache invalidated on indicator-config save (existing config-loader pattern). Fallback: built-in defaults equal to current `RATE_DEFINITIONS` so the system works before seeding.
-- `compute_rate(spec, values)` — replaces the ×100 hardcode in `zscore.compute_rate`; multiplier comes from the spec.
+- `RateSpec` dataclass: `spec_key, site, rate_code, rate_name, indicator_code, indicator_type, numerator_codes (JSON), denominator_codes (JSON), rate_multiplier, unit, typical_pct, minimum_denominator, minimum_history_period, outlier_method, historical_enabled, peer_comparison_enabled`.
+- `BUILTIN_RATE_SPECS: Dict[str, RateSpec]` — a **Python registry holding every spec from all 4 sites with its exact current values**, keyed per site where they disagree: `"zscore:C-section rate"`, `"clinical:rate_cs"`, `"forecast:cs_rate"`, `"rules:R043"`, … Zero numeric drift by construction; the disagreements become visible side-by-side and can be reconciled in a later, separate task.
+- `load_rate_specs(db)` — returns the layered engine's spec set: **DB `rate_config` rows (runtime tunables) merged over the builtin zscore-slice defaults**; falls back entirely to builtin when the table is empty (pre-seed operation). In-process cache, invalidated on `rate_config` save.
+- `get_spec(db, rate_code)` — single spec lookup for the layered engine.
+- `compute_rate(spec, values)` — the one rate computation: sums `numerator_codes`, sums `denominator_codes`, applies `rate_multiplier`; returns `None` on missing/zero denominator. Replaces the ×100 hardcode in `zscore.compute_rate`.
 
 ### 4.1 Migration of the 4 existing hardcoded sites
 
 | Site | Change |
 |---|---|
-| `app/engine/anomaly/zscore.py:37` `RATE_DEFINITIONS` | becomes a view built from `load_rate_specs()`, preserving the tuple shape `(rate_name, numerator_code, denominator_code, typical_pct)` so `explain.py` and existing tests keep working |
-| `app/engine/clinical/thresholds.py` `ClinicalThreshold` | built from the same specs; unit string derived from `rate_multiplier` |
-| `app/engine/smart/indicator_forecast.py:45` `RATE_SPECS` | same source; count-type indicators map to `denominator: None` |
-| `app/engine/quality/rules.py` R043–R050 | iterate specs instead of the hardcoded list |
+| `app/engine/anomaly/zscore.py:37` `RATE_DEFINITIONS` | becomes a view over the registry's `"zscore:*"` slice, preserving the tuple shape `(rate_name, numerator_code, denominator_code, typical_pct)` so `explain.py` and existing tests keep working |
+| `app/engine/clinical/thresholds.py` `ClinicalThreshold` | definitions constructed from the registry's `"clinical:*"` slice (ranges/guidelines stay in this module); `compute_rate` uses `rate_multiplier` instead of the `"% in unit"` test |
+| `app/engine/smart/indicator_forecast.py:48` `INDICATOR_DEFS` *(the spec originally called this `RATE_SPECS`; no such symbol exists)* | dict built from the registry's `"forecast:*"` slice; `denominator: None` maps to count-type |
+| `app/engine/quality/rules.py` R043–R050 | iterate the registry's `"rules:*"` slice instead of the hardcoded list |
 
 ### 4.2 Numeric parity guard
 
-Seeded values must reproduce today's numbers exactly: all 7 existing rates are ×100 today → seed `rate_multiplier=100` for them. A dedicated parity test asserts old-vs-new outputs are identical for all 7 rates across representative inputs.
+Parity is guaranteed structurally (registry = verbatim current values) and enforced by tests:
+
+- Unit parity: for each site, old-vs-new outputs identical for all its rates across representative inputs (including the ×1 / ×100 / ×1000 cases and the disagreeing denominators).
+- Seed parity: `rate_config` rows seeded from the `"zscore:*"` slice; test asserts DB seed == registry values.
+- `rate_config.rate_multiplier` seeds as `100` for the 7 zscore rates.
 
 ## 5. Layered Engine (`app/engine/anomaly/layered.py`)
 
@@ -349,5 +378,5 @@ Runner: `pytest` (per `pyproject.toml`).
 - No change to `hospital_indicator_config` semantics.
 - No rewrite of `zscore.py` peer detection or `trends.py` — they continue to produce `anomaly_results` exactly as today.
 - No removal or hiding of data under any classification.
-- No new threshold knobs beyond `zscore_threshold` and the Indicator config fields in §3.2.
+- No new threshold knobs beyond `zscore_threshold` and the config fields in §3.2/§3.3.
 - `minimum_denominator` seeds as `NULL` (no behavior change) until the user tunes it.
