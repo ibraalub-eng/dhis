@@ -182,3 +182,36 @@ def test_zscore_compute_rate_keeps_signature_and_x100_parity():
     assert compute_rate({"5": 80, "2": 0}, "5", "2") is None
     # unknown pair keeps the historical x100 default (never regresses to None)
     assert compute_rate({"99": 1, "2": 4}, "99", "2") == 25.0
+
+
+def test_clinical_thresholds_built_from_registry_slice():
+    from app.engine.clinical.thresholds import CLINICAL_THRESHOLDS
+    assert len(CLINICAL_THRESHOLDS) == 15
+    for th, (code, num, den, _mult, unit) in zip(CLINICAL_THRESHOLDS, CLINICAL_LITERALS, strict=False):
+        assert th.indicator_code == code
+        assert th.numerator_codes == list(num)
+        assert th.denominator_code == den
+        assert th.unit == unit
+
+
+def test_clinical_threshold_ranges_and_guidelines_spot_check():
+    from app.engine.clinical.thresholds import get_threshold
+    cs = get_threshold("C-Section Rate")
+    assert (cs.normal_range, cs.elevated_range, cs.high_range) == ((10, 15), (15, 25), (25, 40))
+    assert cs.critical_threshold == 40
+    assert cs.clinical_guideline == "WHO: 10-15% optimal C-section rate"
+    assert cs.higher_is_worse is True
+    bf = get_threshold("Breastfeeding within 1 Hour")
+    assert bf.normal_range == (80, 100) and bf.higher_is_worse is False
+    mmr = get_threshold("Maternal Mortality Ratio")
+    assert mmr.clinical_guideline == "WHO/SDG 3.1: <70 per 100,000 by 2030"
+    assert get_threshold("No Such Rate") is None
+
+
+def test_clinical_compute_rate_multiplier_comes_from_registry():
+    from app.engine.clinical.thresholds import compute_rate
+    assert compute_rate(80, 300, "%") == 80 / 300 * 100
+    assert compute_rate(2, 300, "per 1,000") == 2 / 300
+    assert compute_rate(2, 300, "per 100,000") == 2 / 300
+    assert compute_rate(5, 0, "%") is None
+    assert compute_rate(5, None, "%") is None
