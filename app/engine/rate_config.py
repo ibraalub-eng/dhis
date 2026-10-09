@@ -73,11 +73,11 @@ def _build_builtin() -> Dict[str, RateSpec]:
     # ── zscore slice — app/engine/anomaly/zscore.py:37 RATE_DEFINITIONS ──
     zs = [
         ("rate_cs", "C-section rate", "5", "2", 50.0, "%"),
-        ("rate_mmr", "Maternal mortality ratio", "11", "2", 1.0, "per 100,000"),
-        ("rate_nmr", "Neonatal mortality rate", "17", "6", 30.0, "per 1,000"),
+        ("rate_mmr", "Maternal mortality ratio", "11", "2", 1.0, "per 100"),
+        ("rate_nmr", "Neonatal mortality rate", "17", "6", 30.0, "per 100"),
         ("rate_preterm", "Preterm birth rate", "6.f", "6", 15.0, "%"),
         ("rate_smm", "SMM rate", "10", "2", 10.0, "%"),
-        ("rate_stillbirth", "Stillbirth rate", "7", "2", 5.0, "per 1,000"),
+        ("rate_stillbirth", "Stillbirth rate", "7", "2", 5.0, "per 100"),
         ("rate_nicu", "NICU admission rate", "16", "6", 20.0, "%"),
     ]
     for code, name, num, den, pct, unit in zs:
@@ -118,7 +118,7 @@ def _build_builtin() -> Dict[str, RateSpec]:
         ("adolescent_rate", "Adolescent share", "نسبة حالات المراهقات", ("2.c", "2.d"), ("6",), 100.0, "%"),
         ("total_births", "Total live births", "إجمالي المواليد الأحياء", ("6",), (), 1.0, "count"),
     ]
-    for key, en, ar, num, den, per, unit in fc:
+    for key, en, _ar, num, den, per, unit in fc:
         itype = "count" if not den else ("percentage" if unit == "%" else "rate")
         specs.append(_spec(SITE_FORECAST, key, key, en, itype,
                            num, den, per, unit))

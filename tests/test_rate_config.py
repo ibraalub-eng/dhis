@@ -11,14 +11,19 @@ from app.engine.rate_config import (
 
 # Exact current values of the four hardcoded sites (copied from source before
 # migration). Any drift in the registry breaks one of these assertions.
+# (name, numerator, denominator, typical_pct, rate_code, unit) — zscore slice.
+# unit for the mortality trio is the plan's "per 100" (the Task 6 inherited-base
+# assertion pins it), NOT the clinical slice's "per 100,000"/"per 1,000": the
+# zscore site has no unit field at all, so this is registry metadata, not a
+# verbatim source copy.
 ZSCORE_LITERALS = [
-    ("C-section rate", "5", "2", 50.0, "rate_cs"),
-    ("Maternal mortality ratio", "11", "2", 1.0, "rate_mmr"),
-    ("Neonatal mortality rate", "17", "6", 30.0, "rate_nmr"),
-    ("Preterm birth rate", "6.f", "6", 15.0, "rate_preterm"),
-    ("SMM rate", "10", "2", 10.0, "rate_smm"),
-    ("Stillbirth rate", "7", "2", 5.0, "rate_stillbirth"),
-    ("NICU admission rate", "16", "6", 20.0, "rate_nicu"),
+    ("C-section rate", "5", "2", 50.0, "rate_cs", "%"),
+    ("Maternal mortality ratio", "11", "2", 1.0, "rate_mmr", "per 100"),
+    ("Neonatal mortality rate", "17", "6", 30.0, "rate_nmr", "per 100"),
+    ("Preterm birth rate", "6.f", "6", 15.0, "rate_preterm", "%"),
+    ("SMM rate", "10", "2", 10.0, "rate_smm", "%"),
+    ("Stillbirth rate", "7", "2", 5.0, "rate_stillbirth", "per 100"),
+    ("NICU admission rate", "16", "6", 20.0, "rate_nicu", "%"),
 ]
 
 # (rate_code, numerator_codes, denominator_code, multiplier, unit) — clinical
@@ -71,12 +76,13 @@ RULES_LITERALS = [
 def test_zscore_slice_matches_rate_definitions_literals():
     specs = zscore_specs()
     assert len(specs) == 7
-    for spec, (name, num, den, pct, code) in zip(specs, ZSCORE_LITERALS):
+    for spec, (name, num, den, pct, code, unit) in zip(specs, ZSCORE_LITERALS, strict=False):
         assert spec.rate_name == name
         assert spec.numerator_codes == (num,)
         assert spec.denominator_codes == (den,)
         assert spec.typical_pct == pct
         assert spec.rate_code == code
+        assert spec.unit == unit
         assert spec.rate_multiplier == 100.0  # zscore.compute_rate hardcodes x100
         assert spec.site == "zscore"
 
@@ -84,7 +90,7 @@ def test_zscore_slice_matches_rate_definitions_literals():
 def test_clinical_slice_matches_threshold_literals():
     specs = iter_site("clinical")
     assert len(specs) == 15
-    for spec, (code, num, den, mult, unit) in zip(specs, CLINICAL_LITERALS):
+    for spec, (code, num, den, mult, unit) in zip(specs, CLINICAL_LITERALS, strict=False):
         assert spec.rate_code == code
         assert spec.numerator_codes == num
         assert spec.denominator_codes == (den,)
@@ -95,7 +101,7 @@ def test_clinical_slice_matches_threshold_literals():
 def test_forecast_slice_matches_indicator_defs_literals():
     specs = iter_site("forecast")
     assert len(specs) == 7
-    for spec, (key, num, den, per) in zip(specs, FORECAST_LITERALS):
+    for spec, (key, num, den, per) in zip(specs, FORECAST_LITERALS, strict=False):
         assert spec.rate_code == key
         assert spec.numerator_codes == num
         assert spec.denominator_codes == (() if den is None else den)
@@ -106,7 +112,7 @@ def test_forecast_slice_matches_indicator_defs_literals():
 def test_rules_slice_matches_cross_hospital_rule_literals():
     specs = iter_site("rules")
     assert len(specs) == 8
-    for spec, (code, num, den) in zip(specs, RULES_LITERALS):
+    for spec, (code, num, den) in zip(specs, RULES_LITERALS, strict=False):
         assert spec.spec_key == f"rules:{code}"
         assert spec.numerator_codes == (num,)
         assert spec.denominator_codes == (den,)
