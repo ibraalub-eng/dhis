@@ -215,3 +215,38 @@ def test_clinical_compute_rate_multiplier_comes_from_registry():
     assert compute_rate(2, 300, "per 100,000") == 2 / 300
     assert compute_rate(5, 0, "%") is None
     assert compute_rate(5, None, "%") is None
+
+
+def test_forecast_indicator_defs_built_from_registry_slice():
+    from app.engine.smart.indicator_forecast import INDICATOR_DEFS
+    assert list(INDICATOR_DEFS.keys()) == [
+        "cs_rate", "stillbirth_rate", "preterm_rate", "lbw_rate",
+        "high_risk_rate", "adolescent_rate", "total_births",
+    ]
+    assert INDICATOR_DEFS["cs_rate"] == {
+        "label_ar": "\u0645\u0639\u062f\u0644 \u0627\u0644\u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u0642\u064a\u0635\u0627\u0631\u064a\u0629",
+        "label_en": "C-section rate",
+        "unit": "%",
+        "numerator": ("5",),
+        "denominator": ("2",),
+        "per": 100.0,
+    }
+    assert INDICATOR_DEFS["stillbirth_rate"]["per"] == 1000.0
+    assert INDICATOR_DEFS["stillbirth_rate"]["denominator"] == ("6",)
+    assert INDICATOR_DEFS["adolescent_rate"]["numerator"] == ("2.c", "2.d")
+    assert INDICATOR_DEFS["total_births"]["denominator"] is None
+    assert INDICATOR_DEFS["total_births"]["per"] == 1.0
+
+
+def test_forecast_rate_computation_parity():
+    from app.engine.smart.indicator_forecast import available_indicators, indicator_rate_from_values
+    assert [i["key"] for i in available_indicators()] == list(
+        ["cs_rate", "stillbirth_rate", "preterm_rate", "lbw_rate",
+         "high_risk_rate", "adolescent_rate", "total_births"])
+    assert indicator_rate_from_values("cs_rate", {"5": 80, "2": 300}) == 80 / 300 * 100
+    assert indicator_rate_from_values("stillbirth_rate", {"7": 6, "6": 300}) == 6 / 300 * 1000
+    assert indicator_rate_from_values("total_births", {"6": 300}) == 300.0
+    assert indicator_rate_from_values("adolescent_rate", {"2.c": 40, "2.d": 20, "6": 300}) == 60 / 300 * 100
+    assert indicator_rate_from_values("cs_rate", {"5": 80}) is None
+    assert indicator_rate_from_values("cs_rate", {"5": 80, "2": 0}) is None
+

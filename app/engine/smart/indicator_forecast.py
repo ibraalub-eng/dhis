@@ -19,11 +19,12 @@
 قواعد الصياغة: كل المخرجات تقديرات إحصائية لا تنبؤ مؤكد، وكل رسالة تنتهي
 بإخلاء المسؤولية الإحصائي.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 import numpy as np
 
+from app.engine.rate_config import iter_site
 from app.engine.smart.trajectory import (
     HORIZON_FACTORS,
     MA_WINDOW,
@@ -41,67 +42,32 @@ _DISCLAIMER = "تقدير إحصائي لا تنبؤ مؤكد."
 # تسمية شرائح الحجم بالعربية (الشريحة 0 = الأصغر)
 _SIZE_TIER_LABELS_AR = ("صغير", "متوسط", "كبير")
 
-# ── تعريفات المؤشرات المتاحة للتنبؤ (المفاتيح منطق المحرك، القيم صيغ SQL/ORM) ──
-# numerator/denominator: رموز مؤشرات DB. join للمراهقات (2.c + 2.d).
-# per-unit: 100 (نسبة) أو 1000 (لكل ألف مولود حي).
+# ── تعريفات المؤشرات المتاحة للتنبؤ (المفاتيح منطق المحرك) ──
+# numerator/denominator/multiplier come from the central registry
+# (rate_config, site "forecast"); denominator None => count-type.
 # صيغ مطابقة لـ xgboost_predictor._load_multi_month_data و_compute_derived_features.
+
+# Arabic display labels — keyed by the registry's forecast rate_code.
+_FORECAST_LABEL_AR = {
+    "cs_rate": "معدل العمليات القيصارية",
+    "stillbirth_rate": "معدل الولادات الميتة",
+    "preterm_rate": "معدل الولادات المبكرة",
+    "lbw_rate": "معدل نقص وزن الولادة",
+    "high_risk_rate": "نسبة حالات الخطر العالي",
+    "adolescent_rate": "نسبة حالات المراهقات",
+    "total_births": "إجمالي المواليد الأحياء",
+}
+
 INDICATOR_DEFS: Dict[str, Dict] = {
-    "cs_rate": {
-        "label_ar": "معدل العمليات القيصارية",
-        "label_en": "C-section rate",
-        "unit": "%",
-        "numerator": ("5",),
-        "denominator": ("2",),
-        "per": 100.0,
-    },
-    "stillbirth_rate": {
-        "label_ar": "معدل الولادات الميتة",
-        "label_en": "Stillbirth rate",
-        "unit": "per 1000",
-        "numerator": ("7",),
-        "denominator": ("6",),
-        "per": 1000.0,
-    },
-    "preterm_rate": {
-        "label_ar": "معدل الولادات المبكرة",
-        "label_en": "Preterm birth rate",
-        "unit": "%",
-        "numerator": ("6.f",),
-        "denominator": ("6",),
-        "per": 100.0,
-    },
-    "lbw_rate": {
-        "label_ar": "معدل نقص وزن الولادة",
-        "label_en": "Low birth weight rate",
-        "unit": "%",
-        "numerator": ("6.g",),
-        "denominator": ("6",),
-        "per": 100.0,
-    },
-    "high_risk_rate": {
-        "label_ar": "نسبة حالات الخطر العالي",
-        "label_en": "High-risk share",
-        "unit": "%",
-        "numerator": ("2.n",),
-        "denominator": ("6",),
-        "per": 100.0,
-    },
-    "adolescent_rate": {
-        "label_ar": "نسبة حالات المراهقات",
-        "label_en": "Adolescent share",
-        "unit": "%",
-        "numerator": ("2.c", "2.d"),
-        "denominator": ("6",),
-        "per": 100.0,
-    },
-    "total_births": {
-        "label_ar": "إجمالي المواليد الأحياء",
-        "label_en": "Total live births",
-        "unit": "count",
-        "numerator": ("6",),
-        "denominator": None,
-        "per": 1.0,
-    },
+    s.rate_code: {
+        "label_ar": _FORECAST_LABEL_AR[s.rate_code],
+        "label_en": s.rate_name,
+        "unit": s.unit,
+        "numerator": s.numerator_codes,
+        "denominator": s.denominator_codes or None,
+        "per": s.rate_multiplier,
+    }
+    for s in iter_site("forecast")
 }
 
 
@@ -378,7 +344,7 @@ def peer_percentiles_for_indicator(
         if name in values and own:
             own_groups.setdefault(own, []).append(name)
     own_res = {}
-    for own, names in own_groups.items():
+    for _own, names in own_groups.items():
         own_res.update(_percentile_for_group(names))
 
     # مجموعات الحجم: شريحة واحدة كثيراً ما تعني نقص نظراء حقيقيين
@@ -388,7 +354,7 @@ def peer_percentiles_for_indicator(
         for name, tier in size_tier_of.items():
             if name in values:
                 tier_groups.setdefault(tier, []).append(name)
-        for tier, names in tier_groups.items():
+        for _tier, names in tier_groups.items():
             if len(names) < 2:
                 continue
             size_res.update(_percentile_for_group(names))
@@ -500,7 +466,7 @@ def run_indicator_forecast(
     # قيمة كل مستشفى عند الشهر الأساس (المختارون ضمنها؛ البقية للمقارنة فقط)
     base_values: Dict[str, float] = {}
     ownership_of: Dict[str, Optional[str]] = {}
-    for hid, name in id_to_name.items():
+    for _hid, name in id_to_name.items():
         pts = [(m, v) for m, v in (series.get(name) or []) if m <= base]
         if pts and pts[-1][0] == base:
             base_values[name] = pts[-1][1]
@@ -511,7 +477,7 @@ def run_indicator_forecast(
         hosp_rows = session.query(
             Hospital.id, Hospital.name, Hospital.facility_ownership_id).filter(
             Hospital.is_active).all()
-        for hid2, name2, oid in hosp_rows:
+        for _hid2, name2, oid in hosp_rows:
             if name2 in base_values:
                 ownership_of[name2] = own_map.get(oid) if oid is not None else None
         tiers = size_tiers_for_indicator(session)
@@ -523,7 +489,6 @@ def run_indicator_forecast(
                 tier_of[name2] = tiers[hid2]
         peer_map = peer_percentiles_for_indicator(base_values, ownership_of, tier_of)
         # التسمية العربية للشريحة تُبنى بعد الحساب (0=الأصغر → صغير/متوسط/كبير)
-        tiers_present = sorted({t for t in tier_of.values()})
         for row in hospitals_out:
             info = peer_map.get(row["hospital_name"], {})
             size_info = dict(info.get("size") or {"available": False, "reason": "غير متاح."})
