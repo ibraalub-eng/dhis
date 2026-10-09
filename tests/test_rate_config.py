@@ -165,3 +165,20 @@ def test_multiplier_for_unit():
     assert multiplier_for_unit("per 100,000") == 1.0
     assert multiplier_for_unit("") == 1.0
     assert multiplier_for_unit(None) == 1.0
+
+
+def test_rate_definitions_is_a_view_over_the_zscore_slice():
+    from app.engine.anomaly.zscore import RATE_DEFINITIONS
+    expected = [(name, num, den, pct)
+                for (name, num, den, pct, _code, _unit) in ZSCORE_LITERALS]
+    assert RATE_DEFINITIONS == expected
+
+
+def test_zscore_compute_rate_keeps_signature_and_x100_parity():
+    from app.engine.anomaly.zscore import compute_rate
+    assert compute_rate({"5": 80, "2": 300}, "5", "2") == 80 / 300 * 100
+    assert compute_rate({"11": 3, "2": 300}, "11", "2") == 3 / 300 * 100
+    assert compute_rate({"5": 80}, "5", "2") is None
+    assert compute_rate({"5": 80, "2": 0}, "5", "2") is None
+    # unknown pair keeps the historical x100 default (never regresses to None)
+    assert compute_rate({"99": 1, "2": 4}, "99", "2") == 25.0

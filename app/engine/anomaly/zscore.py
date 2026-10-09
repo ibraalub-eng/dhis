@@ -1,7 +1,11 @@
+from dataclasses import dataclass
+from typing import Any, Dict, List, Optional
+
 import numpy as np
 from scipy import stats as scipy_stats
-from typing import List, Dict, Optional, Any
-from dataclasses import dataclass
+
+from app.engine.rate_config import compute_rate as _registry_compute_rate
+from app.engine.rate_config import zscore_spec_for, zscore_specs
 
 
 @dataclass
@@ -27,21 +31,16 @@ class AnomalyResultData:
 
 
 def compute_rate(values: Dict[str, float], numerator_code: str, denominator_code: str) -> Optional[float]:
-    num = values.get(numerator_code)
-    den = values.get(denominator_code)
-    if num is None or den is None or den == 0:
-        return None
-    return (num / den) * 100
+    spec = zscore_spec_for(numerator_code, denominator_code)
+    multiplier = spec.rate_multiplier if spec else 100.0
+    return _registry_compute_rate(values, (numerator_code,), (denominator_code,), multiplier)
 
 
+# View over the registry's "zscore:*" slice — tuple shape kept so explain.py
+# (line 497-501), trends.py, comparison.py and confidence.py keep working.
 RATE_DEFINITIONS = [
-    ("C-section rate", "5", "2", 50.0),
-    ("Maternal mortality ratio", "11", "2", 1.0),
-    ("Neonatal mortality rate", "17", "6", 30.0),
-    ("Preterm birth rate", "6.f", "6", 15.0),
-    ("SMM rate", "10", "2", 10.0),
-    ("Stillbirth rate", "7", "2", 5.0),
-    ("NICU admission rate", "16", "6", 20.0),
+    (s.rate_name, s.numerator_codes[0], s.denominator_codes[0], s.typical_pct)
+    for s in zscore_specs()
 ]
 
 
@@ -53,7 +52,7 @@ def detect_anomalies(
 ) -> List[AnomalyResultData]:
     results = []
     z_thresh = (config or {}).get("zscore_threshold", 2.5)
-    for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
+    for rate_name, num_code, den_code, _typical_pct in RATE_DEFINITIONS:
         rates = {}
         for hosp_name, hosp_values in all_hospital_data.items():
             rate = compute_rate(hosp_values, num_code, den_code)
@@ -108,7 +107,7 @@ def detect_monthly_trend(
     z_thresh = (config or {}).get("zscore_threshold", 2.5)
     if len(historical_months) < 2:
         return results
-    for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
+    for rate_name, num_code, den_code, _typical_pct in RATE_DEFINITIONS:
         current_rate = compute_rate(current_values, num_code, den_code)
         if current_rate is None:
             continue
