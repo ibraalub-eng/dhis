@@ -1,8 +1,11 @@
 import json
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
 from enum import Enum
+from typing import Dict, List, Optional
+
 from sqlalchemy.orm import Session
+
+from app.engine.rate_config import iter_site
 
 from .definitions import _RULES_CONFIG, RULE_REF_CODES
 
@@ -480,14 +483,22 @@ def _build_rules():
 
     ALL_RULES.append(lambda ctx: _benchmark_rate("5", "2", _RULES_CONFIG["cs_rate_threshold"], "R041", "C-section rate > 80%", Severity.HIGH, ctx))
     ALL_RULES.append(lambda ctx: _rate_low("3", "2", _RULES_CONFIG["nvd_rate_threshold"], "R042", "Normal Vaginal Delivery Rate < 10%", Severity.HIGH, RuleType.BENCHMARK, ctx))
-    ALL_RULES.append(lambda ctx: _cross_hospital_rate("6.f", "6", _RULES_CONFIG["zscore_threshold"], "R043", "Preterm Birth Rate outlier across hospitals", Severity.MEDIUM, ctx))
-    ALL_RULES.append(lambda ctx: _cross_hospital_rate("6.g", "6", _RULES_CONFIG["zscore_threshold"], "R044", "Low Birth Weight Rate outlier across hospitals", Severity.MEDIUM, ctx))
-    ALL_RULES.append(lambda ctx: _cross_hospital_rate("11", "6", _RULES_CONFIG["zscore_threshold"], "R045", "Maternal Mortality Ratio outlier across hospitals", Severity.HIGH, ctx))
-    ALL_RULES.append(lambda ctx: _cross_hospital_rate("17", "6", _RULES_CONFIG["zscore_threshold"], "R046", "Neonatal Mortality Rate outlier across hospitals", Severity.HIGH, ctx))
-    ALL_RULES.append(lambda ctx: _cross_hospital_rate("7", "2", _RULES_CONFIG["zscore_threshold"], "R047", "Stillbirth Rate outlier across hospitals", Severity.MEDIUM, ctx))
-    ALL_RULES.append(lambda ctx: _cross_hospital_rate("16", "6", _RULES_CONFIG["zscore_threshold"], "R048", "NICU Admission Rate outlier across hospitals", Severity.MEDIUM, ctx))
-    ALL_RULES.append(lambda ctx: _cross_hospital_rate("10", "2", _RULES_CONFIG["zscore_threshold"], "R049", "SMM Rate outlier across hospitals", Severity.HIGH, ctx))
-    ALL_RULES.append(lambda ctx: _cross_hospital_rate("10.a", "2", _RULES_CONFIG["zscore_threshold"], "R050", "Hemorrhage Rate outlier across hospitals", Severity.HIGH, ctx))
+    # Numerator/denominator pairs live in the central registry (rate_config,
+    # site "rules"); code/description/severity are rule metadata and stay here.
+    _rule_rate_meta = [
+        ("R043", "Preterm Birth Rate outlier across hospitals", Severity.MEDIUM),
+        ("R044", "Low Birth Weight Rate outlier across hospitals", Severity.MEDIUM),
+        ("R045", "Maternal Mortality Ratio outlier across hospitals", Severity.HIGH),
+        ("R046", "Neonatal Mortality Rate outlier across hospitals", Severity.HIGH),
+        ("R047", "Stillbirth Rate outlier across hospitals", Severity.MEDIUM),
+        ("R048", "NICU Admission Rate outlier across hospitals", Severity.MEDIUM),
+        ("R049", "SMM Rate outlier across hospitals", Severity.HIGH),
+        ("R050", "Hemorrhage Rate outlier across hospitals", Severity.HIGH),
+    ]
+    for spec, (code, desc, sev) in zip(iter_site("rules"), _rule_rate_meta, strict=True):
+        ALL_RULES.append(lambda ctx, s=spec, c=code, d=desc, v=sev:
+                         _cross_hospital_rate(s.numerator_codes[0], s.denominator_codes[0],
+                                              _RULES_CONFIG["zscore_threshold"], c, d, v, ctx))
 
     ALL_RULES.append(lambda ctx: _month_over("2", ctx.historical_data, _RULES_CONFIG["month_over_factor"], "R051", "Deliveries > 2x previous month", Severity.HIGH, ctx))
     ALL_RULES.append(lambda ctx: _month_under("2", ctx.historical_data, _RULES_CONFIG["month_under_factor"], "R052", "Deliveries < 50% of previous month", Severity.HIGH, ctx))
@@ -557,7 +568,7 @@ def _iter_sum_rules(session: Session = None):
                 if parent and children:
                     yield (rule.expression_type, parent, children)
             return
-    for code, expr, parent, children, *_ in SUM_RULE_SPECS:
+    for _code, expr, parent, children, *_ in SUM_RULE_SPECS:
         yield (expr, parent, children)
 
 

@@ -250,3 +250,35 @@ def test_forecast_rate_computation_parity():
     assert indicator_rate_from_values("cs_rate", {"5": 80}) is None
     assert indicator_rate_from_values("cs_rate", {"5": 80, "2": 0}) is None
 
+
+def _quality_ctx(values, all_hospital_data, month="2026-01"):
+    from app.engine.quality import ValidationContext
+    return ValidationContext(
+        values=values,
+        hospital_name="General Hospital",
+        month=month,
+        all_hospital_data=all_hospital_data,
+        historical_data={},
+        disabled_codes=set(),
+    )
+
+
+def test_r043_to_r050_exist_and_use_registry_rates():
+    """R045 (MMR) must use denominator "6" — the rules-site value that
+    disagrees with zscore/clinical "2" — proving the loop reads the registry."""
+    from app.engine.quality import run_all_rules
+    values = {"11": 6, "6": 300, "2": 100, "7": 3, "10": 4, "10.a": 2,
+              "16": 8, "17": 5, "6.f": 20, "6.g": 30}
+    peers = {
+        "General Hospital": dict(values),
+        "Central Medical": dict(values, **{"11": 12, "6": 600}),
+        "Community Clinic": dict(values, **{"11": 3, "6": 150}),
+    }
+    results = run_all_rules(_quality_ctx(values, peers))
+    by_code = {r.rule_code: r for r in results}
+    for code in ("R043", "R044", "R045", "R046", "R047", "R048", "R049", "R050"):
+        assert code in by_code, code
+    # R045: 6/300*100 = 2.0 with the rules denominator "6"
+    # (the zscore/clinical denominator "2" would give 6.0).
+    assert "Rate=2.0%" in by_code["R045"].details, by_code["R045"].details
+
