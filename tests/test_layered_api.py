@@ -13,6 +13,7 @@ from app.models import (
     AnomalyResult,
     Hospital,
     Indicator,
+    IndicatorValue,
     LayeredOutlierResult,
     Permission,
     Role,
@@ -260,3 +261,95 @@ def test_layered_endpoints_enforce_analysis_read(db_session, client, real_auth):
                       headers={"Authorization": f"Bearer {ok_token}"})
     assert resp.status_code == 200
     assert "data" in resp.json()
+
+
+# ───────────────────────── explain (kind=layered_outlier) ─────────────────────
+
+def _add_history_values(db, hospital_id, months, code="2", value=100.0):
+    """Prior-month values so get_historical_months finds a real baseline."""
+    ind = db.query(Indicator).filter(Indicator.code == str(code)).first()
+    assert ind is not None, f"seeded indicator {code} missing"
+    for m in months:
+        db.add(IndicatorValue(
+            hospital_id=hospital_id, indicator_id=ind.id, month=m, value=value,
+        ))
+    db.commit()
+
+
+def test_explain_layered_outlier_contract(db_session, client):
+    """Spec §9: full contract payload; stored scores + current history
+    reproduce rule 4's clinical classification."""
+    h = db_session.query(Hospital).first()
+    _add_history_values(db_session, h.id, ["2027-03", "2027-04", "2027-05"])
+    _add_layered(db_session, h.id, "2027-06")
+
+    resp = client.get(
+        f"/audit/explain?kind=layered_outlier&hospital_id={h.id}"
+        "&month=2027-06&indicator_code=rate_cs"
+    )
+    assert resp.status_code == 200, resp.text
+    p = resp.json()
+    assert p["kind"] == "layered_outlier"
+    assert p["data_epoch"]
+    for key in ("what", "where", "why", "how", "reproduce", "chain", "classification"):
+        assert key in p, f"contract key {key!r} missing"
+    assert p["what"]
+    assert p["classification"] == "CLINICAL_INVESTIGATION_REQUIRED"
+    assert p["where"]["analysis_code"] == "rate_cs"
+    assert p["where"]["indicator_name"] == "C-section rate"
+    # Full-precision inputs behind every displayed number.
+    inputs = p["how"]["inputs"]
+    assert inputs["raw_value"] == 25.0
+    assert inputs["raw_change_percent"] == 150.0
+    assert inputs["denominator"] == 100.0
+    assert inputs["scores"]["rate"] == 1.0
+    assert inputs["scores"]["volume"] == 0.0
+    assert p["how"]["thresholds"]["minimum_history_period"] == 3
+    # 3 prior months >= minimum_history_period → history_ok; the re-run over
+    # the stored scores reproduces rule 4 (rate HIGH + history HIGH + volume LOW).
+    assert p["reproduce"]["history_ok"] is True
+    assert p["reproduce"]["verified"] is True
+    assert p["rule_number"] == 4
+    # §9 dashboard block: one entry per layer, engine order.
+    assert [lay["key"] for lay in p["layers"]] == ["raw", "rate", "historical", "volume", "peer"]
+    assert p["layers"][2]["score"] == 1.0 and p["layers"][2]["level"] == "VERY_HIGH"
+    # The stored interpretation is the conclusion paragraph.
+    assert "Rate and history both exceed their thresholds." in p["why"]
+    assert any("/analysis/layered" in (n.get("endpoint") or "") for n in p["chain"])
+
+
+def test_explain_layered_outlier_missing_row_404s(db_session, client):
+    h = db_session.query(Hospital).first()
+
+    resp = client.get(
+        f"/audit/explain?kind=layered_outlier&hospital_id={h.id}"
+        "&month=2027-06&indicator_code=rate_cs"
+    )
+    assert resp.status_code == 404
+    assert "layered outlier row" in resp.json()["detail"]
+
+    # The analysis unit travels on the existing indicator_code parameter.
+    resp = client.get(
+        f"/audit/explain?kind=layered_outlier&hospital_id={h.id}&month=2027-06"
+    )
+    assert resp.status_code == 404
+    assert "indicator_code" in resp.json()["detail"]
+
+
+def test_explain_layered_outlier_flags_changed_history(db_session, client):
+    """Row written under a different history → honest 'recalculate' note,
+    stored classification still displayed, no invented rule number."""
+    h = db_session.query(Hospital).first()
+    _add_layered(db_session, h.id, "2027-06")     # no IndicatorValue history
+
+    resp = client.get(
+        f"/audit/explain?kind=layered_outlier&hospital_id={h.id}"
+        "&month=2027-06&indicator_code=rate_cs"
+    )
+    assert resp.status_code == 200, resp.text
+    p = resp.json()
+    assert p["classification"] == "CLINICAL_INVESTIGATION_REQUIRED"
+    assert p["reproduce"]["history_ok"] is False
+    assert p["reproduce"]["verified"] is False
+    assert p["rule_number"] is None
+    assert "recalculate" in p["why"]

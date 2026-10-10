@@ -1,9 +1,16 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.models import Hospital
-from app.engine.audit import get_calculation_steps, get_benchmark, get_data_audit, generate_audit_report, build_explanation
+
 from app.core.deps import require_permission
+from app.database import get_db
+from app.engine.audit import (
+    build_explanation,
+    generate_audit_report,
+    get_benchmark,
+    get_calculation_steps,
+    get_data_audit,
+)
+from app.models import Hospital
 
 router = APIRouter(prefix="/audit", tags=["audit"], dependencies=[Depends(require_permission("audit.read"))])
 
@@ -17,7 +24,7 @@ def list_audit_summary():
 
 @router.get("/explain")
 def api_explain(
-    kind: str = Query(..., description="quality_score | anomaly | heatmap_cell | rule | comparison_row | historical_trend | governorate_row | indicator_aggregate | ranking_entry | time_period_point | trend_row"),
+    kind: str = Query(..., description="quality_score | anomaly | layered_outlier | heatmap_cell | rule | comparison_row | historical_trend | governorate_row | indicator_aggregate | ranking_entry | time_period_point | trend_row"),
     hospital_id: str = Query(None, description="Numeric hospital id — or a string context for the Comparative Analysis kinds: 'Hospital Name|Rate Name' (comparison_row), governorate name (governorate_row), rate name (indicator_aggregate). Omit for a month-level aggregate explanation."),
     month: str = Query(None, description="Month YYYY-MM — required for every kind except ranking_entry"),
     rate_name: str = Query(None),

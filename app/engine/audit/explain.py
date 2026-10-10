@@ -47,6 +47,7 @@ from app.models import (
     Hospital,
     Indicator,
     IndicatorValue,
+    LayeredOutlierResult,
     QualityScore,
     Rule,
     ValidationResult,
@@ -1095,7 +1096,6 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
     response model strips from the table JSON — shown here with an honest
     note about the single-vs-many t-test's sample-size caveat.
     """
-    import numpy as np
 
     from app.engine.anomaly.comparison import compare_hospitals
     from app.engine.pipeline import get_all_hospital_data_for_month
@@ -1570,10 +1570,10 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
     x = list(range(n))
     mx = sum(x) / n
     my = mean_val
-    slope = sum((xi - mx) * (yi - my) for xi, yi in zip(x, vals)) / sum((xi - mx) ** 2 for xi in x)
+    slope = sum((xi - mx) * (yi - my) for xi, yi in zip(x, vals, strict=False)) / sum((xi - mx) ** 2 for xi in x)
     intercept = my - slope * mx
     ss_tot = sum((yi - my) ** 2 for yi in vals)
-    ss_res = sum((yi - (intercept + slope * xi)) ** 2 for xi, yi in zip(x, vals))
+    ss_res = sum((yi - (intercept + slope * xi)) ** 2 for xi, yi in zip(x, vals, strict=False))
     r_squared = 1 - ss_res / ss_tot if ss_tot else 0.0
     slope_pct = (slope / mean_val * 100) if mean_val else 0.0
     last_val = vals[-1]
@@ -1590,7 +1590,7 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
 
     inputs = [
         {"input": f"Rate {m}", "value": v, "role": "monthly rate used by the regression"}
-        for m, v in zip(row.months, vals)
+        for m, v in zip(row.months, vals, strict=False)
     ] + [
         {"input": "Mean of rates", "value": row.mean, "role": "mean over the months above"},
         {"input": "Std of rates", "value": row.std, "role": "population std-dev over those months"},
@@ -1659,6 +1659,260 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
         ],
     }
 
+
+def explain_layered_outlier(db: Session, hospital_id: int, month: str,
+                            analysis_code: str) -> dict:
+    """Layered-outlier row explanation (design spec §9).
+
+    The persisted row is the source of truth for type/level/route/
+    interpretation — exactly what the dashboards show. The rule NUMBER is
+    not persisted, so it is recovered by re-running the pure classification
+    function over the stored layer scores; when the re-run no longer matches
+    the row (history changed since the analysis ran) the payload says so
+    instead of inventing a rule."""
+    from app.engine.anomaly.classify import RULE2_MIN_CHANGE_PERCENT, classify_layered
+    from app.engine.anomaly.layered import LEVEL_NONE, build_analysis_specs, level_for_score, prior_months
+    from app.engine.pipeline import get_historical_months
+
+    row = (
+        db.query(LayeredOutlierResult)
+        .filter(
+            LayeredOutlierResult.hospital_id == hospital_id,
+            LayeredOutlierResult.month == month,
+            LayeredOutlierResult.analysis_code == analysis_code,
+        )
+        .first()
+    )
+    if row is None:
+        return {"error": (f"No layered outlier row for hospital {hospital_id}, "
+                          f"{month}, {analysis_code!r}")}
+
+    spec = {s.analysis_code: s for s in build_analysis_specs(db)}.get(analysis_code)
+    if spec is None:
+        return {"error": f"Unknown analysis code: {analysis_code!r}"}
+
+    hosp = _hospital(db, hospital_id)
+
+    # Same pair, same threshold the engine used (prior_months splits off the
+    # current month; get_historical_months excludes it — plan Task 12).
+    history = get_historical_months(db, hospital_id, month)
+    prior = prior_months(history, month)
+    history_ok = len(prior) >= spec.minimum_history_period
+    den_ok = (row.denominator is not None and row.denominator > 0) if spec.is_rate else True
+
+    recomputed = classify_layered(
+        spec,
+        raw_score=row.raw_value_outlier_score,
+        rate_score=row.rate_outlier_score,
+        hist_score=row.historical_outlier_score,
+        volume_score=row.volume_anomaly_score,
+        peer_score=row.peer_outlier_score,
+        den_ok=den_ok,
+        history_ok=history_ok,
+        change_percent=row.historical_change_percent,
+        denominator=row.denominator,
+    )
+    verified = (recomputed.outlier_type == row.outlier_type
+                and recomputed.outlier_level == row.outlier_level)
+    rule_number = recomputed.rule_number if verified else None
+
+    raw_change_percent = None
+    if row.raw_value is not None and row.previous_value:
+        raw_change_percent = ((float(row.raw_value) - float(row.previous_value))
+                              / float(row.previous_value) * 100.0)
+    den_change_percent = None
+    if spec.is_rate and row.denominator is not None and row.previous_denominator:
+        den_change_percent = ((float(row.denominator) - float(row.previous_denominator))
+                              / float(row.previous_denominator) * 100.0)
+    rate_change_percent = None
+    if spec.is_rate and row.rate is not None and row.previous_value is not None and row.previous_denominator:
+        previous_rate = float(row.previous_value) / float(row.previous_denominator) * spec.rate_multiplier
+        if previous_rate:
+            rate_change_percent = (float(row.rate) - previous_rate) / previous_rate * 100.0
+
+    inputs = {
+        "raw_value": row.raw_value,
+        "previous_value": row.previous_value,
+        "raw_change_percent": raw_change_percent,
+        "rate": row.rate,
+        "rate_change_percent": rate_change_percent,
+        "denominator": row.denominator,
+        "previous_denominator": row.previous_denominator,
+        "denominator_change_percent": den_change_percent,
+        "historical_mean": row.historical_mean,
+        "historical_median": row.historical_median,
+        "historical_std": row.historical_std,
+        "historical_z_score": row.historical_z_score,
+        "historical_change_percent": row.historical_change_percent,
+        "peer_mean": row.peer_mean,
+        "peer_count": row.peer_count,
+        "recorded_method": row.outlier_method,
+        "scores": {
+            "raw": row.raw_value_outlier_score,
+            "rate": row.rate_outlier_score,
+            "historical": row.historical_outlier_score,
+            "volume": row.volume_anomaly_score,
+            "peer": row.peer_outlier_score,
+        },
+    }
+
+    if spec.is_rate:
+        num = " + ".join(spec.numerator_codes)
+        den = " + ".join(spec.denominator_codes)
+        formula = f"({num}) / ({den}) × {spec.rate_multiplier:g}"
+        formula_readable = f"{spec.name} = ({num}) / ({den}) × {spec.rate_multiplier:g}"
+    else:
+        formula = f"count({analysis_code})"
+        formula_readable = f"{spec.name} = count of indicator {analysis_code}"
+
+    def _layer(key, name, value, score, detail):
+        return {
+            "key": key,
+            "name": name,
+            "value": value,
+            "score": score,
+            "level": LEVEL_NONE if score is None else level_for_score(score),
+            "detail": detail,
+        }
+
+    if row.raw_value is None:
+        raw_value_text = "not computable"
+    elif row.previous_value:
+        raw_value_text = (f"{row.raw_value:g} (previous {row.previous_value:g}, "
+                          f"{raw_change_percent:+.1f}%)")
+    else:
+        raw_value_text = f"{row.raw_value:g}"
+
+    if not spec.is_rate:
+        rate_value_text = "not applicable (count indicator)"
+        volume_value_text = "not applicable (count indicator)"
+    elif row.rate is None or not den_ok:
+        rate_value_text = "not computable (denominator missing or zero)"
+        volume_value_text = "not computable (denominator missing or zero)"
+    else:
+        rate_value_text = f"{row.rate:g}{(' ' + spec.unit) if spec.unit else ''}"
+        if row.previous_denominator and den_change_percent is not None:
+            volume_value_text = (f"{row.denominator:g} (previous "
+                                 f"{row.previous_denominator:g}, {den_change_percent:+.1f}%)")
+        else:
+            volume_value_text = f"{row.denominator:g}"
+
+    if row.historical_mean is None:
+        historical_value_text = "insufficient history"
+    elif row.historical_change_percent is not None:
+        historical_value_text = (f"{row.historical_change_percent:+.1f}% vs baseline "
+                                 f"mean {row.historical_mean:g}")
+    else:
+        historical_value_text = f"{row.historical_mean:g}"
+
+    if row.peer_mean is not None and row.peer_count:
+        peer_value_text = f"{row.peer_mean:g} across {row.peer_count} peer hospitals"
+    else:
+        peer_value_text = "no peer tier with at least 2 hospitals"
+
+    layers = [
+        _layer("raw", "Raw value", raw_value_text, row.raw_value_outlier_score,
+               "this month's analysis value vs its own recent distribution"),
+        _layer("rate", "Rate", rate_value_text, row.rate_outlier_score,
+               "rate vs its own recent distribution" if spec.is_rate
+               else "count indicators have no separate rate layer"),
+        _layer("historical", "Historical baseline", historical_value_text,
+               row.historical_outlier_score,
+               f"{len(prior)} prior months against a {spec.minimum_history_period}-month minimum"),
+        _layer("volume", "Patient volume", volume_value_text, row.volume_anomaly_score,
+               "denominator change guards against volume-driven spikes" if spec.is_rate
+               else "count indicators have no denominator layer"),
+        _layer("peer", "Peer comparison", peer_value_text, row.peer_outlier_score,
+               "first tier (type → ownership → governorate → all) with ≥ 2 hospitals"),
+    ]
+
+    if row.raw_value is not None and raw_change_percent is not None:
+        what = (f"{spec.name} {row.raw_value:g} vs {row.previous_value:g} previous "
+                f"({raw_change_percent:+.0f}%) — {row.outlier_type} "
+                f"({row.outlier_level} level)")
+    else:
+        what = f"{spec.name} — {row.outlier_type} ({row.outlier_level} level)"
+
+    if verified and rule_number is not None:
+        why = (f"Rule {rule_number} of the layered rule table fired → "
+               f"{row.outlier_type}. {row.interpretation}")
+    else:
+        why = ("The stored classification no longer matches the current history "
+               f"(recomputed: {recomputed.outlier_type}) — recalculate this month. "
+               f"Stored interpretation: {row.interpretation}")
+
+    reproduce = {
+        "inputs": inputs,
+        "history_ok": history_ok,
+        "history_months": len(prior),
+        "rule_number": rule_number,
+        "recomputed_type": recomputed.outlier_type,
+        "recomputed_level": recomputed.outlier_level,
+        "verified": verified,
+        "note": ("Stored layer scores and the current history reproduce the "
+                 "stored classification."
+                 if verified else
+                 "Re-running the rule table over the stored scores with the "
+                 "CURRENT history gives a different result — the history "
+                 "changed since this row was written; recalculate this month."),
+    }
+
+    return {
+        "kind": "layered_outlier",
+        "data_epoch": _data_epoch(),
+        "hospital_id": hospital_id,
+        "hospital": hosp.name if hosp else str(hospital_id),
+        "month": month,
+        "what": what,
+        "where": {
+            "hospital_id": hospital_id,
+            "hospital": hosp.name if hosp else str(hospital_id),
+            "month": month,
+            "analysis_code": analysis_code,
+            "indicator_name": spec.name,
+            "indicator_type": spec.indicator_type,
+            "outlier_type": row.outlier_type,
+        },
+        "why": why,
+        "how": {
+            "formula": formula,
+            "formula_readable": formula_readable,
+            "thresholds": {
+                "peer_z_threshold": _zscore_threshold(db),
+                "minimum_history_period": spec.minimum_history_period,
+                "minimum_denominator": spec.minimum_denominator,
+                "outlier_method": spec.outlier_method,
+                "rule2_min_change_percent": RULE2_MIN_CHANGE_PERCENT,
+            },
+            "inputs": inputs,
+        },
+        "reproduce": reproduce,
+        "classification": row.outlier_type,
+        "outlier_level": row.outlier_level,
+        "investigation_required": bool(row.investigation_required),
+        "investigation_route": row.investigation_route,
+        "rule_number": rule_number,
+        "layers": layers,
+        "chain": [
+            {"step": "Source Data",
+             "detail": f"Uploaded indicator values for {month}",
+             "endpoint": f"/audit/data-auditor/{hospital_id}?month={month}"},
+            {"step": "Layer computation",
+             "detail": ("raw → rate/volume → historical → peer "
+                        f"(recorded method: {row.outlier_method})"),
+             "endpoint": f"/audit/benchmark/{hospital_id}?month={month}"},
+            {"step": "Classification",
+             "detail": (f"Rule {rule_number if rule_number is not None else '—'}: "
+                        f"{row.outlier_type} at {row.outlier_level}, route "
+                        f"{row.investigation_route}"),
+             "endpoint": f"/analysis/outliers?hospital_id={hospital_id}&month={month}"},
+            {"step": "Finding",
+             "detail": f"layered_outlier_results row #{row.id}",
+             "endpoint": f"/analysis/layered?hospital={hospital_id}&month={month}"},
+        ],
+    }
+
+
 def build_explanation(
     db: Session,
     kind: str,
@@ -1696,6 +1950,12 @@ def build_explanation(
         return explain_quality_score(db, hospital_id, month, component=component or "quality_score")
     if kind == "anomaly":
         return explain_anomaly(db, hospital_id, month, rate_name=rate_name, indicator_code=indicator_code)
+    if kind == "layered_outlier":
+        # The analysis unit rides on indicator_code for this kind — no new
+        # query param (spec §8.4: extend the dispatcher, not the API).
+        if not indicator_code:
+            return {"error": "kind=layered_outlier requires indicator_code (the row's analysis_code)"}
+        return explain_layered_outlier(db, hospital_id, month, indicator_code)
     if kind == "heatmap_cell":
         return explain_heatmap_cell(db, hospital_id, month)
     if kind == "rule":
