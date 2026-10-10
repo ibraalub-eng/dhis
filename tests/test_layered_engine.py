@@ -4,6 +4,19 @@ import math
 
 import pytest
 
+from app.engine.anomaly.classify import (
+    TYPE_CLINICAL_INVESTIGATION_REQUIRED,
+    TYPE_HISTORICAL_ANOMALY,
+    TYPE_NORMAL,
+    TYPE_PEER_ANOMALY,
+    TYPE_POSSIBLE_DATA_ENTRY_ERROR,
+    TYPE_RATE_ANOMALY,
+    TYPE_RAW_VALUE_ANOMALY,
+    TYPE_VOLUME_DRIVEN_ANOMALY,
+    InterpretationNumbers,
+    build_interpretation,
+    classify_layered,
+)
 from app.engine.anomaly.layered import (
     LEVELS,
     METHOD_AUTO,
@@ -508,3 +521,176 @@ def test_peer_layer_missing_current_value():
     layer = compute_peer_layer(spec, self_id=3, current_value=None, peer_tiers=tiers)
     assert layer.score is None
     assert layer.method == METHOD_INSUFFICIENT_HISTORY
+
+
+# ── Classification (spec §6) ───────────────────────────────────────────────
+
+def _classify(**kw):
+    defaults = dict(spec=_rate_spec(), raw_score=None, rate_score=None,
+                    hist_score=None, volume_score=None, peer_score=None,
+                    den_ok=True, history_ok=True)
+    defaults.update(kw)
+    return classify_layered(**defaults)
+
+
+def test_classification_rule1_insufficient_history_is_first_match():
+    c = _classify(history_ok=False, raw_score=0.95, hist_score=0.95)
+    assert c.rule_number == 1
+    assert c.outlier_type == TYPE_NORMAL
+    assert c.outlier_level == "NONE"
+    assert c.method == METHOD_INSUFFICIENT_HISTORY
+    assert c.investigation_required is False
+    assert c.investigation_route == "none"
+    assert "Not enough history" in c.interpretation
+    assert "3 prior months" in c.interpretation
+
+
+def test_classification_rule2_possible_data_entry_error():
+    c = _classify(raw_score=0.95, rate_score=0.95, hist_score=0.95,
+                  volume_score=0.10, change_percent=1300.0,
+                  rate_method="pct_change")
+    assert c.rule_number == 2
+    assert c.outlier_type == TYPE_POSSIBLE_DATA_ENTRY_ERROR
+    assert c.investigation_required is True
+    assert c.investigation_route == "data_quality"
+    assert c.outlier_level == "VERY_HIGH"
+    assert c.method == "pct_change"
+    assert "data-entry error" in c.interpretation
+
+
+def test_classification_rule2_magnitude_guard_boundary():
+    base = dict(raw_score=0.95, rate_score=0.95, hist_score=0.95,
+                volume_score=0.10)
+    assert _classify(**base, change_percent=300.0).rule_number == 2
+    assert _classify(**base, change_percent=299.9).rule_number == 4
+    assert _classify(**base, change_percent=None).rule_number == 4
+
+
+def test_classification_rule4_clinical_when_guard_fails():
+    c = _classify(raw_score=0.95, rate_score=0.95, hist_score=0.95,
+                  volume_score=0.10, change_percent=125.0)
+    assert c.rule_number == 4
+    assert c.outlier_type == TYPE_CLINICAL_INVESTIGATION_REQUIRED
+    assert c.investigation_required is True
+    assert c.investigation_route == "clinical"
+
+
+def test_classification_rule3_volume_driven():
+    c = _classify(raw_score=0.95, rate_score=0.40, hist_score=0.30,
+                  volume_score=0.95)
+    assert c.rule_number == 3
+    assert c.outlier_type == TYPE_VOLUME_DRIVEN_ANOMALY
+    assert c.investigation_required is False    # spec: only rules 2/4/6/7
+    assert c.investigation_route == "contextual"
+
+
+def test_classification_rule5_historical_anomaly():
+    c = _classify(raw_score=0.30, rate_score=0.30, hist_score=0.85,
+                  volume_score=0.10, peer_score=0.20, hist_method="iqr")
+    assert c.rule_number == 5
+    assert c.outlier_type == TYPE_HISTORICAL_ANOMALY
+    assert c.investigation_route == "contextual"
+    assert c.method == "iqr"
+
+
+def test_classification_rule6_peer_anomaly_never_data_error():
+    c = _classify(raw_score=0.20, hist_score=0.10, peer_score=0.95)
+    assert c.rule_number == 6
+    assert c.outlier_type == TYPE_PEER_ANOMALY
+    assert c.investigation_required is True
+    assert c.method == METHOD_PEER_ZSCORE
+    assert "case mix" in c.interpretation
+    assert "data-entry error" not in c.interpretation   # never a data-error claim
+
+
+def test_classification_rule7_peer_plus_history_combined():
+    c = _classify(raw_score=0.20, hist_score=0.60, peer_score=0.95)
+    assert c.rule_number == 7
+    assert c.outlier_type == TYPE_PEER_ANOMALY
+    assert c.investigation_required is True
+    assert "and from its own recent history" in c.interpretation
+
+
+def test_classification_rule8_raw_value_anomaly():
+    c = _classify(raw_score=0.55, hist_score=0.30, peer_score=0.20)
+    assert c.rule_number == 8
+    assert c.outlier_type == TYPE_RAW_VALUE_ANOMALY
+    assert c.outlier_level == "MODERATE"
+    assert c.investigation_route == "contextual"
+
+
+def test_classification_rule9_rate_anomaly():
+    c = _classify(rate_score=0.55, raw_score=0.30, hist_score=0.30,
+                  volume_score=0.10)
+    assert c.rule_number == 9
+    assert c.outlier_type == TYPE_RATE_ANOMALY
+    assert c.outlier_level == "MODERATE"
+
+
+def test_classification_rule10_normal_when_nothing_exceeds():
+    c = _classify(raw_score=0.10, rate_score=0.10, hist_score=0.10,
+                  volume_score=0.05, peer_score=0.10)
+    assert c.rule_number == 10
+    assert c.outlier_type == TYPE_NORMAL
+    assert c.outlier_level == "NONE"
+    assert c.investigation_required is False
+    assert c.investigation_route == "none"
+    assert "No layer exceeded its threshold" in c.interpretation
+
+
+def test_classification_count_row_volume_rule_never_fires():
+    c = _classify(spec=_count_spec(), raw_score=0.95, hist_score=0.40,
+                  peer_score=0.30)              # volume_score stays None
+    assert c.rule_number == 8                   # rule 3 needs volume >= HIGH
+    assert c.outlier_type == TYPE_RAW_VALUE_ANOMALY
+    assert c.outlier_level == "VERY_HIGH"
+
+
+def test_classification_small_denominator_caps_rate_based_types():
+    spec = _rate_spec(minimum_denominator=10)
+    c = _classify(spec=spec, raw_score=0.95, rate_score=0.95, hist_score=0.95,
+                  volume_score=0.10, change_percent=125.0, denominator=5)
+    assert c.rule_number == 4
+    assert c.outlier_level == "LOW"             # capped from VERY_HIGH
+    assert "small denominator (5 < 10)" in c.interpretation
+    assert "level capped at LOW" in c.interpretation
+
+
+def test_classification_non_rate_type_not_capped_by_small_denominator():
+    spec = _rate_spec(minimum_denominator=10)
+    c = _classify(spec=spec, raw_score=0.20, rate_score=0.10, hist_score=0.30,
+                  volume_score=0.10, peer_score=0.95, denominator=5)
+    assert c.rule_number == 6                   # PEER_ANOMALY: not rate-based
+    assert c.outlier_level == "VERY_HIGH"        # cap does not apply
+
+
+def test_classification_missing_denominator_disclosed_not_computable():
+    c = _classify(den_ok=False, raw_score=0.30, denominator=None)
+    assert c.rule_number == 10
+    assert c.outlier_type == TYPE_NORMAL         # computable layers are low
+    assert "denominator missing or zero" in c.interpretation
+    assert "not computable" in c.interpretation
+
+
+def test_interpretation_composed_from_actual_numbers():
+    numbers = InterpretationNumbers(
+        raw_value=25.0, previous_value=10.0, raw_change_percent=150.0,
+        rate=375.0, denominator=900.0, denominator_change_percent=11.0,
+        historical_mean=26.7, historical_change_percent=1300.0,
+        peer_mean=12.1, peer_count=18)
+    c = _classify(raw_score=0.95, rate_score=0.95, hist_score=0.95,
+                  volume_score=0.10, change_percent=1300.0, numbers=numbers)
+    text = c.interpretation
+    assert "+1300% above baseline mean 26.7" in text
+    assert "rate 375.0%" in text
+    assert "peer average 12.1 across 18 hospitals" in text
+    assert "C-section rate 25 vs 10 (+150% vs previous month)" in text
+    assert "denominator 900 (+11% vs previous)" in text
+
+
+def test_build_interpretation_below_baseline_direction():
+    numbers = InterpretationNumbers(historical_mean=50.0,
+                                    historical_change_percent=-40.0)
+    text = build_interpretation(_rate_spec(), TYPE_NORMAL, 10, den_ok=True,
+                                numbers=numbers)
+    assert "+40% below baseline mean 50" in text
