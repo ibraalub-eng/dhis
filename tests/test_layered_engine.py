@@ -7,20 +7,28 @@ import pytest
 from app.engine.anomaly.layered import (
     LEVELS,
     METHOD_AUTO,
+    METHOD_INSUFFICIENT_HISTORY,
     METHOD_IQR,
     METHOD_PCT_CHANGE,
     METHOD_ROLLING_MEDIAN_MAD,
+    METHOD_TREND_DEVIATION,
     METHOD_ZSCORE,
     RARE_EVENT_MEAN_MAX,
     AnalysisSpec,
     Thresholds,
     coefficient_of_variation,
+    compute_historical_layer,
+    compute_raw_layer,
+    denominator_analysis_value,
     level_for_score,
     level_gte,
     max_level,
     median,
     percent_change,
+    prior_months,
     quartiles,
+    rate_analysis_value,
+    raw_analysis_value,
     score_from_iqr,
     score_from_mad,
     score_from_pct_change,
@@ -145,3 +153,169 @@ def test_analysis_spec_defaults_and_rate_flag():
 
 def test_thresholds_default_matches_appconfig():
     assert Thresholds().peer_z_threshold == 2.5
+
+
+# ── Input helpers (Task 8) ─────────────────────────────────────────────────
+
+def test_prior_months_sorted_and_strictly_before_current():
+    history = {"2026-04": {}, "2026-02": {}, "2026-01": {}, "2026-03": {}}
+    assert prior_months(history, "2026-03") == ["2026-01", "2026-02"]
+    assert prior_months(history, "2026-01") == []
+    assert prior_months({}, "2026-03") == []
+
+
+def test_analysis_value_helpers_split_rate_and_count_rows():
+    rate_spec = AnalysisSpec(analysis_code="rate_cs", name="C-section rate",
+                             indicator_type="percentage", numerator_codes=("5",),
+                             denominator_codes=("2",), rate_multiplier=100.0, unit="%")
+    count_spec = AnalysisSpec(analysis_code="5", name="C-sections")
+    values = {"5": 80.0, "2": 300.0, "6": 250.0}
+    assert raw_analysis_value(rate_spec, values) == 80.0          # numerator
+    assert rate_analysis_value(rate_spec, values) == pytest.approx(80 / 300 * 100)
+    assert denominator_analysis_value(rate_spec, values) == 300.0
+    assert raw_analysis_value(count_spec, values) == 80.0         # the element itself
+    assert rate_analysis_value(count_spec, values) is None
+    assert denominator_analysis_value(count_spec, values) is None
+    assert raw_analysis_value(count_spec, {"2": 1}) is None
+
+
+# ── Layer 1: raw value (spec §5) ──────────────────────────────────────────
+
+def _count_spec(**kw):
+    return AnalysisSpec(analysis_code="5", name="C-sections", **kw)
+
+
+def test_raw_layer_normal_series_is_none_band():
+    layer = compute_raw_layer(_count_spec(), prior=[10.0, 10.0, 10.0, 10.0],
+                              current=10.0, history_ok=True)
+    assert layer.method == METHOD_PCT_CHANGE      # CV = 0 < 0.5
+    assert layer.score == 0.0
+    assert layer.level == "NONE"
+    assert layer.previous == 10.0
+    assert layer.change_percent == 0.0
+    assert layer.value == 10.0
+
+
+def test_raw_layer_jump_is_very_high_and_records_method():
+    layer = compute_raw_layer(_count_spec(), prior=[10.0, 10.0, 10.0, 10.0],
+                              current=25.0, history_ok=True)
+    assert layer.method == METHOD_PCT_CHANGE
+    assert layer.change_percent == 150.0
+    assert layer.score == 1.0                    # |150%| / 100 capped at 1
+    assert layer.level == "VERY_HIGH"
+
+
+def test_raw_layer_boundary_score_maps_to_moderate():
+    layer = compute_raw_layer(_count_spec(), prior=[10.0, 10.0, 10.0, 10.0],
+                              current=15.0, history_ok=True)
+    assert layer.score == 0.5                    # +50% / 100
+    assert layer.level == "MODERATE"             # 0.50 is not < 0.50
+
+
+def test_raw_layer_insufficient_history_is_not_applicable():
+    layer = compute_raw_layer(_count_spec(), prior=[10.0, 11.0], current=12.0,
+                              history_ok=False)
+    assert layer.score is None
+    assert layer.level is None
+    assert layer.method == METHOD_INSUFFICIENT_HISTORY
+    assert layer.value == 12.0 and layer.previous == 11.0   # values still reported
+
+
+def test_raw_layer_volatile_series_uses_iqr():
+    layer = compute_raw_layer(_count_spec(),
+                              prior=[10.0, 100.0, 12.0, 90.0, 15.0, 80.0],
+                              current=12.0, history_ok=True)
+    assert layer.method == METHOD_IQR
+    assert layer.score == 0.0                    # inside tukey fences
+
+
+def test_raw_layer_missing_current_value():
+    layer = compute_raw_layer(_count_spec(), prior=[10.0, 10.0, 10.0],
+                              current=None, history_ok=True)
+    assert layer.score is None and layer.value is None
+    assert layer.method == METHOD_INSUFFICIENT_HISTORY
+
+
+def test_raw_layer_zscore_method_and_shared_threshold():
+    spec = _count_spec(outlier_method="zscore")
+    layer = compute_raw_layer(spec, prior=[10.0, 12.0, 14.0, 16.0], current=20.0,
+                              history_ok=True)
+    assert layer.method == METHOD_ZSCORE
+    # mean 13, sample stdev sqrt(20/3) => z = 7 / sqrt(20/3); score = z / (2 * 2.5)
+    assert layer.score == pytest.approx(7 / math.sqrt(20 / 3) / 5.0)
+    assert layer.level == "MODERATE"
+
+
+# ── Layer 3: historical baseline (spec §5) ────────────────────────────────
+
+def test_historical_layer_window_stats_and_pct_change_vs_mean():
+    layer = compute_historical_layer(_count_spec(), prior=[10.0, 10.0, 10.0, 10.0],
+                                     current=25.0, history_ok=True)
+    assert layer.mean == 10.0 and layer.median == 10.0
+    assert layer.std == 0.0
+    assert layer.z_score is None                  # std 0 -> no z in the DB
+    assert layer.change_percent == 150.0          # vs baseline mean
+    assert layer.method == METHOD_PCT_CHANGE
+    assert layer.score == 1.0
+    assert layer.level == "VERY_HIGH"
+    assert layer.history_ok is True
+
+
+def test_historical_layer_mean_zero_change_is_none():
+    layer = compute_historical_layer(
+        _count_spec(outlier_method="zscore"), prior=[0.0, 0.0, 0.0], current=5.0,
+        history_ok=True)
+    assert layer.mean == 0.0
+    assert layer.change_percent is None           # never divide by zero
+    assert layer.z_score is None                  # std 0
+    assert layer.score == 1.0                     # std 0 but value != mean
+
+
+def test_historical_layer_rare_event_uses_mad_path():
+    spec = _count_spec()                          # count, mean < 10 => MAD
+    layer = compute_historical_layer(spec, prior=[0.0, 1.0, 0.0, 1.0, 0.0],
+                                     current=5.0, history_ok=True)
+    assert layer.method == METHOD_ROLLING_MEDIAN_MAD
+    assert layer.median == 0.0
+    assert layer.score == 1.0                     # MAD 0, value != median
+    layer_zero = compute_historical_layer(spec, prior=[0.0, 1.0, 0.0, 1.0, 0.0],
+                                          current=0.0, history_ok=True)
+    assert layer_zero.score == 0.0                # MAD 0, value == median
+
+
+def test_historical_layer_insufficient_history():
+    layer = compute_historical_layer(_count_spec(), prior=[10.0, 11.0],
+                                     current=12.0, history_ok=False)
+    assert layer.score is None
+    assert layer.method == METHOD_INSUFFICIENT_HISTORY
+    assert layer.history_ok is False
+    assert layer.mean == 10.5                     # stats still reported
+
+
+def test_historical_layer_disabled_config_keeps_stats_but_no_score():
+    spec = _count_spec(historical_enabled=False)
+    layer = compute_historical_layer(spec, prior=[10.0, 10.0, 10.0],
+                                     current=40.0, history_ok=True)
+    assert layer.score is None                    # layer suppressed by config
+    assert layer.history_ok is True               # entry waives rule 1 for it
+    assert layer.mean == 10.0
+    assert layer.change_percent == 300.0
+
+
+def test_historical_trend_deviation_blended_with_window_score():
+    spec = _count_spec(outlier_method="trend_deviation")
+    layer = compute_historical_layer(spec, prior=[10.0, 11.0, 12.0, 13.0, 14.0, 15.0],
+                                     current=40.0, history_ok=True)
+    assert layer.method == METHOD_TREND_DEVIATION
+    assert layer.trend_projected == pytest.approx(16.0)   # Theil-Sen slope 1, intercept 10
+    assert layer.trend_residual_std == pytest.approx(0.0)
+    assert layer.score == 1.0                     # max(window, trend); trend = 1
+
+
+def test_historical_trend_deviation_falls_back_below_six_points():
+    spec = _count_spec(outlier_method="trend_deviation")
+    layer = compute_historical_layer(spec, prior=[10.0, 11.0, 12.0],
+                                     current=12.5, history_ok=True)
+    assert layer.method != METHOD_TREND_DEVIATION
+    assert layer.trend_projected is None
+    assert layer.score is not None and layer.score <= 1.0

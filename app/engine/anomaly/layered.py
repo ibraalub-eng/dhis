@@ -10,7 +10,9 @@ Every layer maps a deviation to a 0-1 score which maps to a severity band:
 import math
 import statistics
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
+from scipy import stats as scipy_stats
 
 # ── Severity bands (spec §5) ───────────────────────────────────────────────
 LEVEL_NONE = "NONE"
@@ -234,3 +236,195 @@ def select_method(configured: Optional[str], series: Sequence[float],
     if n >= MIN_IQR_POINTS:
         return METHOD_IQR
     return METHOD_ZSCORE
+
+
+# ── Input helpers: month history -> per-layer series ───────────────────────
+
+def prior_months(history: Dict[str, Dict[str, float]], current_month: str) -> List[str]:
+    """Sorted months strictly before current_month."""
+    return sorted(m for m in history if m < current_month)
+
+
+def _sum_codes(values: Dict[str, float], codes: Sequence[str]) -> Optional[float]:
+    total = 0.0
+    for code in codes:
+        v = values.get(code)
+        if v is None:
+            return None
+        total += float(v)
+    return total
+
+
+def raw_analysis_value(spec: AnalysisSpec, values: Dict[str, float]) -> Optional[float]:
+    """Raw analysis value for one month: summed numerator for rate rows,
+    the indicator's own value for count rows."""
+    if spec.is_rate:
+        return _sum_codes(values, spec.numerator_codes)
+    return values.get(spec.analysis_code)
+
+
+def rate_analysis_value(spec: AnalysisSpec, values: Dict[str, float]) -> Optional[float]:
+    if not spec.is_rate:
+        return None
+    num = _sum_codes(values, spec.numerator_codes)
+    den = _sum_codes(values, spec.denominator_codes)
+    if num is None or den is None or den == 0:
+        return None
+    return (num / den) * float(spec.rate_multiplier)
+
+
+def denominator_analysis_value(spec: AnalysisSpec, values: Dict[str, float]) -> Optional[float]:
+    if not spec.is_rate:
+        return None
+    return _sum_codes(values, spec.denominator_codes)
+
+
+def _score_window(method: str, series: Sequence[float], current: float,
+                  previous: Optional[float], threshold: float) -> Optional[float]:
+    """Score `current` against the prior window with the chosen method."""
+    if method == METHOD_PCT_CHANGE:
+        pct = percent_change(current, previous if previous is not None else mean(series))
+        return None if pct is None else score_from_pct_change(pct)
+    if method == METHOD_ROLLING_MEDIAN_MAD:
+        return score_from_mad(current, median(series), mad(series))
+    if method == METHOD_IQR:
+        q1, _q2, q3 = quartiles(series)
+        return score_from_iqr(current, q1, q3)
+    # zscore (and any unknown value) — one shared threshold knob
+    center = mean(series)
+    sigma = std(series)
+    if sigma is None:
+        return score_from_mad(current, center, mad(series))
+    if sigma == 0:
+        return 0.0 if current == center else 1.0
+    return score_from_z((current - center) / sigma, threshold)
+
+
+def _theil_sen(series: Sequence[float]) -> Optional[Tuple[float, float, float]]:
+    """(slope, projected_next, residual_std) via Theil-Sen; None below
+    MIN_TREND_POINTS. Residual std is 0 for a perfect line."""
+    if len(series) < MIN_TREND_POINTS:
+        return None
+    x = list(range(len(series)))
+    theil = getattr(scipy_stats, "theil_slopes", scipy_stats.theilslopes)
+    slope, intercept, _, _ = theil(list(series), x)
+    residuals = [y - (intercept + slope * i) for i, y in enumerate(series)]
+    rstd = statistics.pstdev(residuals) if len(residuals) >= 2 else 0.0
+    projected = intercept + slope * len(series)
+    return float(slope), float(projected), float(rstd)
+
+
+# ── Layer 1: raw value (spec §5) ──────────────────────────────────────────
+
+@dataclass
+class RawLayer:
+    value: Optional[float]            # current raw analysis value
+    previous: Optional[float]         # most recent non-None prior value
+    change_percent: Optional[float]   # vs previous
+    score: Optional[float]            # None = not applicable / not computable
+    method: str
+
+    @property
+    def level(self) -> Optional[str]:
+        return level_for_score(self.score)
+
+
+def compute_raw_layer(spec: AnalysisSpec, prior: Sequence[Optional[float]],
+                      current: Optional[float], history_ok: bool,
+                      threshold: float = PEER_Z_THRESHOLD_DEFAULT) -> RawLayer:
+    """Layer 1 on the raw analysis value (numerator for rate rows).
+
+    Not computable (history_ok False or current None) => score None and
+    method insufficient_history; values are still reported for the row.
+    """
+    values = [float(v) for v in prior if v is not None]
+    previous = values[-1] if values else None
+    change = percent_change(current, previous)
+    if not history_ok or current is None:
+        return RawLayer(value=current, previous=previous, change_percent=change,
+                        score=None, method=METHOD_INSUFFICIENT_HISTORY)
+    if not values:
+        return RawLayer(value=current, previous=None, change_percent=None,
+                        score=None, method=METHOD_INSUFFICIENT_HISTORY)
+    method = select_method(spec.outlier_method, values, spec.indicator_type)
+    score = _score_window(method, values, float(current), previous, threshold)
+    return RawLayer(value=current, previous=previous, change_percent=change,
+                    score=score, method=method)
+
+
+# ── Layer 3: historical baseline (spec §5) ────────────────────────────────
+
+@dataclass
+class HistoricalLayer:
+    history_ok: bool
+    series: List[float]               # baseline series (rate series for rate rows)
+    current: Optional[float]
+    mean: Optional[float]
+    median: Optional[float]
+    std: Optional[float]
+    z_score: Optional[float]          # None when std is None/0 (never inf)
+    change_percent: Optional[float]   # current vs baseline mean
+    score: Optional[float]
+    method: str
+    trend_slope: Optional[float] = None
+    trend_projected: Optional[float] = None
+    trend_residual_std: Optional[float] = None
+
+    @property
+    def level(self) -> Optional[str]:
+        return level_for_score(self.score)
+
+
+def compute_historical_layer(spec: AnalysisSpec, prior: Sequence[float],
+                             current: Optional[float], history_ok: bool,
+                             threshold: float = PEER_Z_THRESHOLD_DEFAULT) -> HistoricalLayer:
+    """Layer 3 over the baseline series: window stats + method score, with
+    optional Theil-Sen trend_deviation blending (spec §5 Layer 3)."""
+    series = [float(v) for v in prior if v is not None]
+    win_mean = statistics.fmean(series) if series else None
+    win_median = statistics.median(series) if series else None
+    win_std = std(series)
+    z: Optional[float] = None
+    if win_std not in (None, 0) and current is not None and win_mean is not None:
+        z = (float(current) - win_mean) / win_std
+    change = percent_change(current, win_mean)
+
+    if not spec.historical_enabled:
+        return HistoricalLayer(history_ok=history_ok, series=series, current=current,
+                               mean=win_mean, median=win_median, std=win_std,
+                               z_score=z, change_percent=change, score=None,
+                               method=METHOD_INSUFFICIENT_HISTORY)
+    if not history_ok or current is None or not series:
+        return HistoricalLayer(history_ok=history_ok, series=series, current=current,
+                               mean=win_mean, median=win_median, std=win_std,
+                               z_score=z, change_percent=change, score=None,
+                               method=METHOD_INSUFFICIENT_HISTORY)
+
+    window_method = select_method(spec.outlier_method, series, spec.indicator_type)
+    window_score = _score_window(window_method, series, float(current),
+                                 series[-1], threshold)
+    method, score = window_method, window_score
+
+    if spec.outlier_method == METHOD_TREND_DEVIATION:
+        trend = _theil_sen(series)
+        if trend is not None:
+            _slope, projected, rstd = trend
+            trend_score = score_from_trend(float(current), projected, rstd)
+            score = max(window_score if window_score is not None else 0.0, trend_score)
+            return HistoricalLayer(
+                history_ok=history_ok, series=series, current=current,
+                mean=win_mean, median=win_median, std=win_std, z_score=z,
+                change_percent=change, score=score,
+                method=METHOD_TREND_DEVIATION,
+                trend_slope=_slope, trend_projected=projected,
+                trend_residual_std=rstd)
+        # < MIN_TREND_POINTS: window stats only (documented fallback)
+        window_method = select_method(METHOD_AUTO, series, spec.indicator_type)
+        method = window_method
+        score = _score_window(window_method, series, float(current),
+                              series[-1], threshold)
+
+    return HistoricalLayer(history_ok=history_ok, series=series, current=current,
+                           mean=win_mean, median=win_median, std=win_std,
+                           z_score=z, change_percent=change, score=score,
+                           method=method)
