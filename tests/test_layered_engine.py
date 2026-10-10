@@ -10,6 +10,7 @@ from app.engine.anomaly.layered import (
     METHOD_INSUFFICIENT_HISTORY,
     METHOD_IQR,
     METHOD_PCT_CHANGE,
+    METHOD_PEER_ZSCORE,
     METHOD_ROLLING_MEDIAN_MAD,
     METHOD_TREND_DEVIATION,
     METHOD_ZSCORE,
@@ -18,6 +19,7 @@ from app.engine.anomaly.layered import (
     Thresholds,
     coefficient_of_variation,
     compute_historical_layer,
+    compute_peer_layer,
     compute_rate_layer,
     compute_raw_layer,
     compute_volume_layer,
@@ -429,3 +431,80 @@ def test_small_denominator_guard_predicate():
     assert is_small_denominator(strict, None) is False
     dormant = _rate_spec()                         # minimum_denominator None
     assert is_small_denominator(dormant, 0) is False   # guard dormant
+
+
+# ── Layer 5: peer comparison (spec §5) ────────────────────────────────────
+
+def test_peer_layer_excludes_self_and_scores_z():
+    spec = _count_spec()
+    tiers = [("type:general", {1: 8.0, 2: 12.0, 3: 16.0})]     # 3 = self
+    layer = compute_peer_layer(spec, self_id=3, current_value=16.0, peer_tiers=tiers)
+    assert layer.method == METHOD_PEER_ZSCORE
+    assert layer.tier == "type:general"
+    assert layer.peer_count == 2
+    # others [8, 12]: mean 10, stdev sqrt(8) ~= 2.8284271, z = 6/2.8284271 ~= 2.1213203
+    # score = z / (2 * 2.5) ~= 0.4242641 -> LOW
+    assert layer.score == pytest.approx(0.4242640687)
+    assert layer.level == "LOW"
+    assert layer.peer_mean == 10.0
+
+
+def test_peer_layer_first_sufficient_tier_wins():
+    spec = _count_spec()
+    tiers = [
+        ("type:general", {1: 10.0, 2: 10.0, 3: 16.0}),        # 2 others -> wins
+        ("all", {1: 100.0, 2: 100.0, 3: 16.0}),                # never consulted
+    ]
+    layer = compute_peer_layer(spec, self_id=3, current_value=16.0, peer_tiers=tiers)
+    assert layer.tier == "type:general"
+    assert layer.peer_mean == 10.0
+    assert layer.peer_count == 2
+    assert layer.score == 1.0                   # zero spread, value != mean
+    assert layer.level == "VERY_HIGH"
+
+
+def test_peer_layer_skips_thin_tiers():
+    spec = _count_spec()
+    tiers = [
+        ("type:general", {3: 16.0}),                               # self only
+        ("ownership:ministry", {1: 9.0, 3: 16.0}),                 # 1 other
+        ("governorate:cairo", {1: 8.0, 2: 12.0, 3: 16.0}),         # 2 others
+    ]
+    layer = compute_peer_layer(spec, self_id=3, current_value=16.0, peer_tiers=tiers)
+    assert layer.tier == "governorate:cairo"
+    assert layer.peer_count == 2
+    assert layer.score == pytest.approx(0.4242640687)
+
+
+def test_peer_layer_no_sufficient_tier_is_null():
+    spec = _count_spec()
+    tiers = [("all", {1: 10.0, 3: 16.0})]                          # 1 other only
+    layer = compute_peer_layer(spec, self_id=3, current_value=16.0, peer_tiers=tiers)
+    assert layer.score is None and layer.level is None
+    assert layer.peer_mean is None and layer.peer_count == 0
+    assert layer.tier is None
+    assert layer.method == METHOD_INSUFFICIENT_HISTORY
+
+
+def test_peer_layer_disabled_by_config():
+    spec = _count_spec(peer_comparison_enabled=False)
+    tiers = [("all", {1: 8.0, 2: 12.0, 3: 16.0})]
+    layer = compute_peer_layer(spec, self_id=3, current_value=16.0, peer_tiers=tiers)
+    assert layer.score is None and layer.peer_count == 0
+    assert layer.method == METHOD_INSUFFICIENT_HISTORY
+
+
+def test_peer_layer_zero_spread_at_mean_is_zero_score():
+    spec = _count_spec()
+    tiers = [("all", {1: 10.0, 2: 10.0, 3: 10.0})]
+    layer = compute_peer_layer(spec, self_id=3, current_value=10.0, peer_tiers=tiers)
+    assert layer.score == 0.0
+    assert layer.level == "NONE"
+
+
+def test_peer_layer_missing_current_value():
+    spec = _count_spec()
+    tiers = [("all", {1: 8.0, 2: 12.0})]
+    layer = compute_peer_layer(spec, self_id=3, current_value=None, peer_tiers=tiers)
+    assert layer.score is None
+    assert layer.method == METHOD_INSUFFICIENT_HISTORY

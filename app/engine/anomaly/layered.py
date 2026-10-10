@@ -10,7 +10,7 @@ Every layer maps a deviation to a 0-1 score which maps to a severity band:
 import math
 import statistics
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from scipy import stats as scipy_stats
 
@@ -504,3 +504,45 @@ def is_small_denominator(spec: AnalysisSpec, denominator: Optional[float]) -> bo
     if denominator is None or spec.minimum_denominator is None:
         return False
     return float(denominator) < float(spec.minimum_denominator)
+
+
+# ── Layer 5: peer comparison (spec §5) ────────────────────────────────────
+
+@dataclass
+class PeerLayer:
+    peer_mean: Optional[float]
+    peer_count: int
+    score: Optional[float]           # None = unavailable (no peers / disabled)
+    method: str
+    tier: Optional[str] = None       # tier that supplied the stats (not persisted)
+
+    @property
+    def level(self) -> Optional[str]:
+        return level_for_score(self.score)
+
+
+def compute_peer_layer(spec: AnalysisSpec, self_id: Any,
+                       current_value: Optional[float],
+                       peer_tiers: Sequence[Tuple[str, Dict[Any, Optional[float]]]],
+                       threshold: float = PEER_Z_THRESHOLD_DEFAULT) -> PeerLayer:
+    """Layer 5: z-score of this hospital's value against OTHER active
+    hospitals, first tier with >= 2 other members wins (type -> ownership ->
+    governorate -> all). Never forces an outlier from no peers."""
+    if not spec.peer_comparison_enabled or current_value is None:
+        return PeerLayer(peer_mean=None, peer_count=0, score=None,
+                         method=METHOD_INSUFFICIENT_HISTORY, tier=None)
+    for tier_name, tier_map in peer_tiers:
+        others = [float(v) for hid, v in tier_map.items()
+                  if hid != self_id and v is not None]
+        if len(others) >= 2:
+            peer_mean = statistics.fmean(others)
+            peer_std = statistics.stdev(others)      # ddof=1 per spec
+            if peer_std == 0:
+                score = 0.0 if float(current_value) == peer_mean else 1.0
+            else:
+                score = score_from_z((float(current_value) - peer_mean) / peer_std,
+                                     threshold)
+            return PeerLayer(peer_mean=peer_mean, peer_count=len(others),
+                             score=score, method=METHOD_PEER_ZSCORE, tier=tier_name)
+    return PeerLayer(peer_mean=None, peer_count=0, score=None,
+                     method=METHOD_INSUFFICIENT_HISTORY, tier=None)
