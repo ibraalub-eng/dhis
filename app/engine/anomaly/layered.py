@@ -10,9 +10,12 @@ Every layer maps a deviation to a 0-1 score which maps to a severity band:
 import math
 import statistics
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from scipy import stats as scipy_stats
+
+if TYPE_CHECKING:
+    from app.engine.anomaly.classify import Classification
 
 # ── Severity bands (spec §5) ───────────────────────────────────────────────
 LEVEL_NONE = "NONE"
@@ -546,3 +549,230 @@ def compute_peer_layer(spec: AnalysisSpec, self_id: Any,
                              score=score, method=METHOD_PEER_ZSCORE, tier=tier_name)
     return PeerLayer(peer_mean=None, peer_count=0, score=None,
                      method=METHOD_INSUFFICIENT_HISTORY, tier=None)
+
+
+# ── Entry point (spec §5) ──────────────────────────────────────────────────
+
+@dataclass
+class LayerResult:
+    """All layer outputs + classification for one hospital x spec x month."""
+    spec: AnalysisSpec
+    month: str
+    history_ok: bool
+    raw: RawLayer
+    rate: RateLayer
+    historical: HistoricalLayer
+    volume: Optional[VolumeLayer]       # None for count rows
+    peer: PeerLayer
+    classification: "Classification"
+
+
+def analyze_layered_entry(
+    spec: AnalysisSpec,
+    history: Dict[str, Dict[str, float]],
+    current_month: str,
+    peer_tiers: Sequence[Tuple[str, Dict[Any, Optional[float]]]],
+    thresholds: Thresholds,
+    *,
+    self_id: Any = None,
+) -> LayerResult:
+    """Run the sequential layer pipeline for one analysis unit.
+
+    `history` maps month -> indicator values and may include current_month
+    (prior_months splits it). Layers run raw -> rate/volume -> historical ->
+    peer -> classification (spec §5 ordering: peer never runs first).
+    """
+    # Deferred: classify.py imports this module at top level.
+    from app.engine.anomaly.classify import InterpretationNumbers, classify_layered
+
+    months = prior_months(history, current_month)
+    current_values = history.get(current_month, {})
+    history_ok = len(months) >= spec.minimum_history_period
+
+    # Layer 1 — raw analysis value (numerator for rate rows).
+    raw_series = [raw_analysis_value(spec, history[m]) for m in months]
+    raw_value = raw_analysis_value(spec, current_values)
+    raw = compute_raw_layer(spec, raw_series, raw_value, history_ok,
+                            thresholds.peer_z_threshold)
+
+    # Layers 2 + 4 — rate and denominator (rate rows only).
+    if spec.is_rate:
+        rate_series = [rate_analysis_value(spec, history[m]) for m in months]
+        current_rate = rate_analysis_value(spec, current_values)
+        rate_layer = compute_rate_layer(spec, rate_series, current_rate,
+                                        history_ok, thresholds.peer_z_threshold)
+        den_series = [denominator_analysis_value(spec, history[m])
+                      for m in months]
+        current_den = denominator_analysis_value(spec, current_values)
+        volume = compute_volume_layer(spec, den_series, current_den)
+        baseline_series, baseline_current = rate_series, current_rate
+        den_ok = volume.den_ok                 # volume is not None for rates
+        denominator_value = volume.denominator
+        denominator_change = volume.change_percent
+        rate_value = rate_layer.rate
+    else:
+        rate_layer = compute_rate_layer(spec, [], None, history_ok)
+        volume = None
+        baseline_series, baseline_current = raw_series, raw_value
+        den_ok = True
+        denominator_value = None
+        denominator_change = None
+        rate_value = None
+
+    # Layer 3 — historical baseline (rate history when the spec has a rate).
+    historical = compute_historical_layer(spec, baseline_series,
+                                          baseline_current, history_ok,
+                                          thresholds.peer_z_threshold)
+
+    # Layer 5 — peer comparison on this month's unit value.
+    unit_value = rate_value if spec.is_rate else raw_value
+    peer = compute_peer_layer(spec, self_id, unit_value, peer_tiers,
+                              thresholds.peer_z_threshold)
+
+    numbers = InterpretationNumbers(
+        raw_value=raw_value,
+        previous_value=raw.previous,
+        raw_change_percent=raw.change_percent,
+        rate=rate_value,
+        denominator=denominator_value,
+        denominator_change_percent=denominator_change,
+        historical_mean=historical.mean,
+        historical_change_percent=historical.change_percent,
+        peer_mean=peer.peer_mean,
+        peer_count=peer.peer_count,
+    )
+    classification = classify_layered(
+        spec,
+        raw_score=raw.score,
+        rate_score=rate_layer.score,
+        hist_score=historical.score,
+        volume_score=volume.score if volume else None,
+        peer_score=peer.score,
+        den_ok=den_ok,
+        history_ok=history_ok,
+        change_percent=historical.change_percent,
+        denominator=denominator_value,
+        raw_method=raw.method,
+        rate_method=rate_layer.method,
+        hist_method=historical.method,
+        numbers=numbers,
+    )
+    return LayerResult(spec=spec, month=current_month, history_ok=history_ok,
+                       raw=raw, rate=rate_layer, historical=historical,
+                       volume=volume, peer=peer, classification=classification)
+
+
+# ── Orchestration (spec §7: pipeline calls this per hospital/month) ────────
+
+_PEER_TIER_KEYS = (("type", "type"), ("ownership", "ownership"),
+                   ("governorate", "governorate"))
+
+
+def build_peer_tiers(spec: AnalysisSpec, self_id: Any,
+                     unit_values: Dict[Any, Optional[float]],
+                     peer_attributes: Dict[Any, Dict[str, Any]]
+                     ) -> List[Tuple[str, Dict[Any, Optional[float]]]]:
+    """Ordered tier list type -> ownership -> governorate -> all.
+
+    A typed tier is skipped when the hospital's own attribute is None; all
+    hospitals in unit_values belong to the 'all' tier. Returns [] when the
+    spec disables peer comparison.
+    """
+    if not spec.peer_comparison_enabled:
+        return []
+    attrs_self = peer_attributes.get(self_id, {})
+    tiers: List[Tuple[str, Dict[Any, Optional[float]]]] = []
+    for key, label in _PEER_TIER_KEYS:
+        value = attrs_self.get(key)
+        if value is None:
+            continue
+        members = {
+            hid: unit_values.get(hid)
+            for hid in unit_values
+            if peer_attributes.get(hid, {}).get(key) == value
+        }
+        tiers.append((f"{label}:{value}", members))
+    tiers.append(("all", dict(unit_values)))
+    return tiers
+
+
+def run_layered_analysis(
+    specs: Sequence[AnalysisSpec],
+    history: Dict[str, Dict[str, float]],
+    current_month: str,
+    hospital_id: Any,
+    peer_values_by_hospital: Dict[Any, Dict[str, Dict[str, float]]],
+    peer_attributes: Dict[Any, Dict[str, Any]],
+    thresholds: Thresholds,
+) -> List[LayerResult]:
+    """One LayerResult per spec for the analyzed hospital (the pipeline's
+    per-hospital model). peer_values_by_hospital supplies the current-month
+    values used to build each spec's peer tiers."""
+    results: List[LayerResult] = []
+    for spec in specs:
+        unit_values: Dict[Any, Optional[float]] = {}
+        for hid, months_values in peer_values_by_hospital.items():
+            current_values = months_values.get(current_month, {})
+            if spec.is_rate:
+                unit_values[hid] = rate_analysis_value(spec, current_values)
+            else:
+                unit_values[hid] = raw_analysis_value(spec, current_values)
+        tiers = build_peer_tiers(spec, hospital_id, unit_values,
+                                 peer_attributes)
+        results.append(analyze_layered_entry(spec, history, current_month,
+                                             tiers, thresholds,
+                                             self_id=hospital_id))
+    return results
+
+
+def should_persist(result: LayerResult) -> bool:
+    """Keep rows where something was observed this month: the raw analysis
+    value (numerator for rate rows) exists. A present numerator with a
+    missing denominator still persists (scenario 9)."""
+    return result.raw.value is not None
+
+
+def build_analysis_specs(session) -> List[AnalysisSpec]:
+    """Count specs from non-synthetic Indicator rows + rate specs from the
+    rate_config registry (Task 6)."""
+    from app.engine.rate_config import load_rate_specs
+    from app.indicators import SYNTHETIC_INDICATOR_CODES
+    from app.models import Indicator
+
+    specs: List[AnalysisSpec] = []
+    indicators = (
+        session.query(Indicator)
+        .filter(~Indicator.code.in_(SYNTHETIC_INDICATOR_CODES))
+        .order_by(Indicator.id)
+        .all()
+    )
+    for ind in indicators:
+        specs.append(AnalysisSpec(
+            analysis_code=ind.code,
+            name=ind.name,
+            indicator_type=ind.indicator_type or "count",
+            indicator_id=ind.id,
+            minimum_history_period=(ind.minimum_history_period
+                                    or DEFAULT_MINIMUM_HISTORY),
+            outlier_method=ind.outlier_method or METHOD_AUTO,
+            historical_enabled=ind.historical_enabled is not False,
+            peer_comparison_enabled=ind.peer_comparison_enabled is not False,
+        ))
+    for rs in load_rate_specs(session).values():
+        if not rs.is_active:
+            continue
+        specs.append(AnalysisSpec(
+            analysis_code=rs.rate_code,
+            name=rs.rate_name,
+            indicator_type=rs.indicator_type,
+            numerator_codes=tuple(rs.numerator_codes),
+            denominator_codes=tuple(rs.denominator_codes),
+            rate_multiplier=rs.rate_multiplier,
+            unit=rs.unit,
+            minimum_denominator=rs.minimum_denominator,
+            minimum_history_period=rs.minimum_history_period,
+            outlier_method=rs.outlier_method,
+            historical_enabled=rs.historical_enabled,
+            peer_comparison_enabled=rs.peer_comparison_enabled,
+        ))
+    return specs

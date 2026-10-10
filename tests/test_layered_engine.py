@@ -30,6 +30,9 @@ from app.engine.anomaly.layered import (
     RARE_EVENT_MEAN_MAX,
     AnalysisSpec,
     Thresholds,
+    analyze_layered_entry,
+    build_analysis_specs,
+    build_peer_tiers,
     coefficient_of_variation,
     compute_historical_layer,
     compute_peer_layer,
@@ -47,12 +50,14 @@ from app.engine.anomaly.layered import (
     quartiles,
     rate_analysis_value,
     raw_analysis_value,
+    run_layered_analysis,
     score_from_iqr,
     score_from_mad,
     score_from_pct_change,
     score_from_trend,
     score_from_z,
     select_method,
+    should_persist,
     std,
 )
 
@@ -694,3 +699,224 @@ def test_build_interpretation_below_baseline_direction():
     text = build_interpretation(_rate_spec(), TYPE_NORMAL, 10, den_ok=True,
                                 numbers=numbers)
     assert "+40% below baseline mean 50" in text
+
+
+# ── End-to-end engine scenarios (spec §11) ────────────────────────────────
+
+MONTHS5 = ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05"]
+CURRENT = "2026-06"
+
+
+def _history(prior_values, current, code="5"):
+    h = {m: {code: float(v)} for m, v in zip(MONTHS5, prior_values, strict=True)}
+    h[CURRENT] = {code: float(current)}
+    return h
+
+
+def _rate_history(prior_pairs, current_pair, num="5", den="2"):
+    h = {m: {num: float(n), den: float(d)} for m, (n, d) in zip(MONTHS5, prior_pairs, strict=True)}
+    n, d = current_pair
+    cur = {num: float(n)}
+    if d is not None:
+        cur[den] = float(d)
+    h[CURRENT] = cur
+    return h
+
+
+def _entry(spec, history, tiers=None, self_id=1, thresholds=None):
+    return analyze_layered_entry(spec, history, CURRENT,
+                                 tiers or [("all", {})],
+                                 thresholds or Thresholds(), self_id=self_id)
+
+
+def test_scenario1_normal_value_is_normal_with_low_scores():
+    result = _entry(_count_spec(), _history([10] * 5, 10))
+    assert result.classification.outlier_type == TYPE_NORMAL
+    assert result.classification.outlier_level == "NONE"
+    assert result.raw.score == 0.0
+    assert result.historical.score == 0.0
+    assert result.raw.method == METHOD_PCT_CHANGE
+    assert result.history_ok is True
+
+
+def test_scenario2_raw_value_outlier_records_high_score_and_method():
+    result = _entry(_count_spec(), _history([10] * 5, 25))
+    assert level_gte(result.raw.level, "HIGH")
+    assert result.raw.method == METHOD_PCT_CHANGE
+    assert result.raw.value == 25.0
+    assert result.raw.previous == 10.0
+    assert result.raw.change_percent == 150.0
+
+
+def test_scenario3_rate_outlier_with_stable_denominator():
+    result = _entry(_rate_spec(), _rate_history([(10, 900)] * 5, (25, 1000)))
+    assert level_gte(result.rate.level, "HIGH")
+    assert result.rate.rate == pytest.approx(2.5)
+    assert result.volume is not None
+    assert not level_gte(result.volume.level, "MODERATE")   # stable denominator
+
+
+def test_scenario4_high_numerator_and_denominator_is_volume_driven():
+    result = _entry(_rate_spec(), _rate_history([(10, 900)] * 5, (25, 2000)))
+    assert result.classification.outlier_type == TYPE_VOLUME_DRIVEN_ANOMALY
+    assert "volume" in result.classification.interpretation.lower()
+    assert level_gte(result.raw.level, "HIGH")
+    assert level_gte(result.volume.level, "HIGH")
+
+
+def test_scenario5_high_numerator_stable_denominator_is_clinical():
+    result = _entry(_rate_spec(), _rate_history([(10, 900)] * 5, (25, 1000)))
+    assert result.classification.outlier_type == TYPE_CLINICAL_INVESTIGATION_REQUIRED
+    assert result.classification.investigation_route == "clinical"
+    assert result.classification.investigation_required is True
+
+
+def test_scenario6_small_denominator_caps_level_and_keeps_row():
+    spec = _rate_spec(minimum_denominator=10)
+    result = _entry(spec, _rate_history([(1, 5)] * 5, (2, 5)))
+    assert result.classification.outlier_type == TYPE_CLINICAL_INVESTIGATION_REQUIRED
+    assert result.classification.outlier_level == "LOW"
+    assert "small denominator (5 < 10)" in result.classification.interpretation
+    assert "confidence lowered" in result.classification.interpretation
+    assert should_persist(result) is True
+
+
+def test_scenario7_historical_outlier_with_normal_peer():
+    tiers = [("type:general", {1: 25.0, 2: 24.0, 3: 25.0, 4: 26.0})]
+    result = _entry(_count_spec(), _history([10] * 5, 25), tiers=tiers)
+    assert result.classification.outlier_type == TYPE_HISTORICAL_ANOMALY
+    assert result.peer.score is not None
+    assert not level_gte(result.peer.level, "MODERATE")     # peers near self
+
+
+def test_scenario8_peer_outlier_never_says_data_error():
+    tiers = [("type:general", {1: 10.0, 2: 30.0, 3: 30.0})]
+    result = _entry(_count_spec(), _history([10] * 5, 10), tiers=tiers)
+    assert result.classification.outlier_type == TYPE_PEER_ANOMALY
+    assert result.classification.rule_number == 6
+    text = result.classification.interpretation.lower()
+    assert "differs from peers" in text
+    assert "error" not in text
+
+
+def test_scenario9_missing_denominator_rate_layers_not_computable():
+    result = _entry(_rate_spec(), _rate_history([(10, 900)] * 5, (25, None)))
+    assert result.rate.rate is None
+    assert result.rate.score is None
+    assert result.volume is not None
+    assert result.volume.den_ok is False
+    assert result.volume.score is None
+    assert result.historical.score is None
+    assert result.classification.outlier_type != TYPE_RATE_ANOMALY
+    assert "not computable" in result.classification.interpretation
+
+
+def test_scenario10_zero_denominator_no_division_by_zero():
+    result = _entry(_rate_spec(), _rate_history([(10, 900)] * 5, (25, 0)))
+    assert result.volume.denominator == 0.0
+    assert result.volume.den_ok is False
+    assert result.rate.rate is None and result.rate.score is None
+    assert "not computable" in result.classification.interpretation
+
+
+def test_scenario11_missing_historical_data_insufficient_history():
+    result = _entry(_count_spec(), {CURRENT: {"5": 10.0}})
+    assert result.history_ok is False
+    assert result.classification.rule_number == 1
+    assert result.classification.outlier_type == TYPE_NORMAL
+    assert result.classification.outlier_level == "NONE"
+    assert result.classification.method == METHOD_INSUFFICIENT_HISTORY
+    assert result.raw.method == METHOD_INSUFFICIENT_HISTORY
+    assert result.raw.score is None
+    assert should_persist(result) is True
+
+
+def test_scenario12_first_months_below_minimum_history():
+    history = {"2026-05": {"5": 10.0}, CURRENT: {"5": 25.0}}
+    result = _entry(_count_spec(), history)
+    assert result.history_ok is False
+    assert result.classification.rule_number == 1
+    assert result.classification.outlier_type == TYPE_NORMAL
+    assert result.raw.score is None            # not judged, never an outlier
+    assert result.raw.value == 25.0            # value still reported
+
+
+def test_scenario13_rare_event_indicator_uses_mad_not_z():
+    history = {m: {"5": float(v)} for m, v in zip(MONTHS5, [0, 1, 0, 1, 0], strict=True)}
+    history[CURRENT] = {"5": 1.0}
+    result = _entry(_count_spec(), history)
+    assert result.raw.method == METHOD_ROLLING_MEDIAN_MAD
+    assert result.historical.method == METHOD_ROLLING_MEDIAN_MAD
+    assert result.raw.score == 1.0             # MAD 0, value != median
+    assert result.classification.method == METHOD_ROLLING_MEDIAN_MAD
+
+
+def test_entry_splits_current_month_from_history():
+    h = _history([10] * 5, 10)
+    del h[CURRENT]
+    result = _entry(_count_spec(), h)
+    assert result.raw.value is None            # no current-month data
+    assert result.history_ok is True           # 5 priors still counted
+    assert should_persist(result) is False
+
+
+def test_scenario16_peer_fallback_tier_order_and_null_without_peers():
+    unit_values = {1: 10.0, 2: 20.0, 3: 30.0, 4: 40.0}
+    attrs = {
+        1: {"type": 1, "ownership": 7, "governorate": 100},
+        2: {"type": 2, "ownership": 7, "governorate": 100},
+        3: {"type": 2, "ownership": 8, "governorate": 101},
+        4: {"type": None, "ownership": None, "governorate": None},
+    }
+    spec = _count_spec()
+    tiers = build_peer_tiers(spec, 1, unit_values, attrs)
+    assert [n for n, _ in tiers] == ["type:1", "ownership:7", "governorate:100", "all"]
+    # typed tiers each hold only self + 1 other (<2 others) -> "all" fallback
+    layer = compute_peer_layer(spec, 1, 10.0, tiers)
+    assert layer.tier == "all"
+    assert layer.peer_count == 3
+    assert layer.peer_mean == pytest.approx(30.0)
+
+    # first sufficient tier wins: type has 2 others (mean 25, not all's 30)
+    attrs2 = {1: {"type": 1}, 2: {"type": 1}, 3: {"type": 1}, 4: {"type": 2}}
+    tiers2 = build_peer_tiers(spec, 1, unit_values, attrs2)
+    assert [n for n, _ in tiers2] == ["type:1", "all"]
+    layer2 = compute_peer_layer(spec, 1, 10.0, tiers2)
+    assert layer2.tier == "type:1"
+    assert layer2.peer_mean == pytest.approx(25.0)
+
+    # hospital with no attributes typed -> typed tiers skipped entirely
+    tiers3 = build_peer_tiers(spec, 9, {9: 10.0}, {9: {"type": 1}})
+    assert [n for n, _ in tiers3] == ["type:1", "all"]
+    layer3 = compute_peer_layer(spec, 9, 10.0, tiers3)
+    assert layer3.score is None and layer3.peer_count == 0   # <2 everywhere
+
+    disabled = _count_spec(peer_comparison_enabled=False)
+    assert build_peer_tiers(disabled, 1, unit_values, attrs) == []
+
+
+def test_run_layered_analysis_one_result_per_spec_for_analyzed_hospital():
+    spec = _count_spec()
+    history = _history([10] * 5, 10)
+    peers = {1: history, 2: {CURRENT: {"5": 10.0}}, 3: {CURRENT: {"5": 12.0}}}
+    attrs = {hid: {"type": 1, "ownership": 1, "governorate": 1} for hid in (1, 2, 3)}
+    results = run_layered_analysis([spec], history, CURRENT, 1, peers, attrs,
+                                   Thresholds())
+    assert len(results) == 1
+    r = results[0]
+    assert r.classification.outlier_type == TYPE_NORMAL
+    assert r.peer.peer_count == 2
+    assert r.peer.peer_mean == pytest.approx(11.0)
+
+
+def test_build_analysis_specs_combines_indicators_and_rate_config(db_session):
+    specs = build_analysis_specs(db_session)
+    codes = [s.analysis_code for s in specs]
+    assert "0" not in codes                    # synthetic label excluded
+    assert "rate_cs" in codes                  # rate_config seed present
+    rate = next(s for s in specs if s.analysis_code == "rate_cs")
+    assert rate.is_rate
+    assert rate.numerator_codes and rate.denominator_codes
+    count = next(s for s in specs if not s.is_rate)
+    assert count.indicator_id is not None
+    assert not count.denominator_codes
