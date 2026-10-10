@@ -1,32 +1,45 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from sqlalchemy.orm import Session, selectinload
-from sqlalchemy import case
-from typing import List, Optional
+import json
+import logging
 import threading
-from app.database import get_db, SessionLocal
-from app.tasks import create_task, run_task
+from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import case, func, or_
+from sqlalchemy.orm import Session, selectinload
+
 from app.cache import cache
-from app.models import (
-    Hospital, IndicatorValue, Indicator, QualityScore,
-    AnomalyResult, ValidationResult, ConfidenceScore,
-    HospitalIndicatorConfig, IndicatorDefaultConfig,
-)
-from app.engine.pipeline import run_full_analysis, get_enabled_values_for_hospital_month, get_all_hospital_data_for_month
-from app.engine.anomaly import detect_anomalies
+from app.core.deps import require_permission
+from app.database import SessionLocal, get_db
 from app.engine.anomaly import (
     analyze_historical_trends,
     compare_hospitals,
+    detect_anomalies,
     detect_trend_anomalies,
     generate_historical_summary,
 )
 from app.engine.clinical import run_clinical_analysis
-from pydantic import BaseModel
-from app.schemas import (
-    HistoricalAnalysisOut, HospitalComparisonOut,
+from app.engine.pipeline import (
+    get_all_hospital_data_for_month,
+    get_enabled_values_for_hospital_month,
+    run_full_analysis,
 )
-from app.core.deps import require_permission, get_user_hospital_ids
-import json
-import logging
+from app.models import (
+    AnomalyResult,
+    Hospital,
+    HospitalIndicatorConfig,
+    Indicator,
+    IndicatorDefaultConfig,
+    IndicatorValue,
+    LayeredOutlierResult,
+    QualityScore,
+    ValidationResult,
+)
+from app.schemas import (
+    HistoricalAnalysisOut,
+    HospitalComparisonOut,
+)
+from app.tasks import create_task, run_task
 
 logger = logging.getLogger(__name__)
 
@@ -328,7 +341,14 @@ def compare_all_hospitals(
         raise HTTPException(status_code=400, detail="Need at least 2 hospitals with data for comparison")
 
     comparisons = compare_hospitals(all_monthly_data, month)
-    return comparisons
+    # Enrich with hospital_ids
+    by_name = {h.name: h.id for h in all_hospitals}
+    out = []
+    for c in comparisons:
+        d = c.__dict__ if hasattr(c, '__dict__') else dict(c)
+        d['hospital_id'] = by_name.get(c.hospital)
+        out.append(d)
+    return out
 
 
 @router.get("/outliers")
@@ -340,7 +360,9 @@ def list_outliers(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    cache_key = cache.make_key("analysis:outliers_v3", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
+    # v4: layered_type/layered_level/layered_interpretation added below — a
+    # cached v3 payload would hide the classification column for up to 24h.
+    cache_key = cache.make_key("analysis:outliers_v4", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -358,9 +380,30 @@ def list_outliers(
         query = query.filter(AnomalyResult.rate_name.ilike(f"%{rate_name}%"))
     total = query.count()
     results = query.order_by(AnomalyResult.z_score.desc()).offset(skip).limit(limit).all()
+
+    layered_by_key = {}
+    rate_code_by_name = {}
+    if results:
+        from app.engine.rate_config import load_rate_specs
+
+        rate_code_by_name = {spec.rate_name: spec.rate_code for spec in load_rate_specs(db).values()}
+        layered_rows = (
+            db.query(LayeredOutlierResult)
+            .filter(
+                LayeredOutlierResult.hospital_id.in_({r.hospital_id for r in results}),
+                LayeredOutlierResult.month.in_({r.month for r in results}),
+            )
+            .all()
+        )
+        layered_by_key = {
+            (lr.hospital_id, lr.month, lr.analysis_code): lr for lr in layered_rows
+        }
+
     output = []
     for r in results:
         hosp = r.hospital
+        layered_code = rate_code_by_name.get(r.rate_name) or r.indicator_code
+        lr = layered_by_key.get((r.hospital_id, r.month, layered_code))
         output.append({
             "id": r.id,
             "hospital_id": r.hospital_id,
@@ -380,8 +423,167 @@ def list_outliers(
             "peer_max": r.peer_max,
             "peer_median": r.peer_median,
             "peers_detail": r.peers_detail,
+            # Layered classification (application-level LEFT JOIN — None when
+            # no layered row exists for this hospital/month/analysis unit).
+            "layered_type": lr.outlier_type if lr else None,
+            "layered_level": lr.outlier_level if lr else None,
+            "layered_interpretation": lr.interpretation if lr else None,
         })
     result = {"total": total, "skip": skip, "limit": limit, "data": output}
+    cache.set(cache_key, result)
+    return result
+
+
+@router.get("/layered")
+def list_layered(
+    month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),
+    hospital: Optional[int] = Query(None, description="Filter by hospital ID"),
+    indicator: Optional[str] = Query(None, description="Filter by analysis code (indicator or rate code)"),
+    classification: Optional[str] = Query(None, description="Filter by outlier_type"),
+    level: Optional[str] = Query(None, description="Filter by outlier_level (NONE..VERY_HIGH)"),
+    investigation: Optional[str] = Query(None, description="Filter by investigation_route (none|data_quality|clinical|contextual)"),
+    sort: str = Query("month", description="Sort key: month | level | type | raw_value | rate | denominator"),
+    order: str = Query("desc", description="Sort direction: asc | desc"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Persisted layered-outlier rows, paged (design spec 2026-10-08 §8.1)."""
+    from app.engine.anomaly.layered import LEVELS, build_analysis_specs
+
+    cache_key = cache.make_key(
+        "analysis:layered_v1",
+        month=month,
+        hospital=hospital,
+        indicator=indicator,
+        classification=classification,
+        level=level,
+        investigation=investigation,
+        sort=sort,
+        order=order,
+        page=page,
+        page_size=page_size,
+    )
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    query = (
+        db.query(LayeredOutlierResult)
+        .options(selectinload(LayeredOutlierResult.hospital))
+        .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
+        .filter(Hospital.is_active.is_(True))
+    )
+    if month:
+        query = query.filter(LayeredOutlierResult.month == month)
+    if hospital:
+        query = query.filter(LayeredOutlierResult.hospital_id == hospital)
+    if indicator:
+        query = query.filter(LayeredOutlierResult.analysis_code == indicator)
+    if classification:
+        query = query.filter(LayeredOutlierResult.outlier_type == classification)
+    if level:
+        query = query.filter(LayeredOutlierResult.outlier_level == level)
+    if investigation:
+        query = query.filter(LayeredOutlierResult.investigation_route == investigation)
+
+    total = query.count()
+
+    sort_columns = {
+        "month": LayeredOutlierResult.month,
+        "raw_value": LayeredOutlierResult.raw_value,
+        "rate": LayeredOutlierResult.rate,
+        "denominator": LayeredOutlierResult.denominator,
+        "type": LayeredOutlierResult.outlier_type,
+        # Rank NONE < LOW < MODERATE < HIGH < VERY_HIGH for ordering.
+        "level": case({name: i for i, name in enumerate(LEVELS)}, value=LayeredOutlierResult.outlier_level),
+    }
+    sort_column = sort_columns.get(sort, LayeredOutlierResult.month)
+    direction = sort_column.asc() if order == "asc" else sort_column.desc()
+    rows = (
+        query.order_by(direction, LayeredOutlierResult.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    spec_meta = {spec.analysis_code: (spec.name, spec.indicator_type)
+                 for spec in build_analysis_specs(db)}
+    output = []
+    for r in rows:
+        row = {c.name: getattr(r, c.name) for c in LayeredOutlierResult.__table__.columns}
+        row.pop("created_at", None)
+        name, itype = spec_meta.get(r.analysis_code, (None, None))
+        row["hospital"] = r.hospital.name if r.hospital else "Unknown"
+        row["indicator_name"] = name
+        row["indicator_type"] = itype
+        output.append(row)
+
+    result = {"total": total, "page": page, "page_size": page_size, "data": output}
+    cache.set(cache_key, result)
+    return result
+
+
+@router.get("/layered/summary")
+def layered_summary(
+    month: Optional[str] = Query(None, description="Month YYYY-MM (all months when omitted)"),
+    db: Session = Depends(get_db),
+):
+    """Classification counts + per-hospital rollup for the Layered tab chips
+    (design spec 2026-10-08 §8.2)."""
+    cache_key = cache.make_key("analysis:layered_summary_v1", month=month)
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    query = (
+        db.query(LayeredOutlierResult)
+        .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
+        .filter(Hospital.is_active.is_(True))
+    )
+    if month:
+        query = query.filter(LayeredOutlierResult.month == month)
+
+    groups = (
+        query.with_entities(
+            LayeredOutlierResult.hospital_id,
+            LayeredOutlierResult.outlier_type,
+            func.count(LayeredOutlierResult.id),
+        )
+        .group_by(LayeredOutlierResult.hospital_id, LayeredOutlierResult.outlier_type)
+        .all()
+    )
+
+    by_classification = {}
+    by_hospital_counts = {}
+    total = 0
+    for hosp_id, otype, count in groups:
+        count = int(count)
+        total += count
+        otype = otype or "UNKNOWN"
+        by_classification[otype] = by_classification.get(otype, 0) + count
+        by_hospital_counts[hosp_id] = by_hospital_counts.get(hosp_id, 0) + count
+
+    hospital_names = {}
+    if by_hospital_counts:
+        hospital_names = dict(
+            db.query(Hospital.id, Hospital.name)
+            .filter(Hospital.id.in_(by_hospital_counts))
+            .all()
+        )
+
+    result = {
+        "month": month,
+        "total": total,
+        "by_classification": [
+            {"outlier_type": t, "count": c}
+            for t, c in sorted(by_classification.items(), key=lambda kv: (-kv[1], kv[0]))
+        ],
+        "by_hospital": [
+            {"hospital_id": hid, "hospital": hospital_names.get(hid, "Unknown"), "count": c}
+            for hid, c in sorted(by_hospital_counts.items(), key=lambda kv: (-kv[1], kv[0]))
+        ],
+    }
     cache.set(cache_key, result)
     return result
 
@@ -392,9 +594,9 @@ def get_ml_analysis(
     db: Session = Depends(get_db),
 ):
     """Run ML analysis (clustering, anomaly detection, PCA) for a given month."""
-    from app.engine.pipeline import _build_ml_config
-    from app.engine.ml import run_ml_analysis
     from app.config_utils import get_config_dict
+    from app.engine.ml import run_ml_analysis
+    from app.engine.pipeline import _build_ml_config
 
     ml_config_flat = get_config_dict(db, "ml")
     ml_config = _build_ml_config(ml_config_flat)
@@ -462,11 +664,14 @@ def list_rule_failures(
     severity: Optional[str] = Query(None, description="Filter by severity HIGH/MEDIUM/LOW"),
     rule_type: Optional[str] = Query(None, description="Filter by rule type LOGIC/CLINICAL/STATISTICAL/TREND"),
     rule_code: Optional[str] = Query(None, description="Filter by rule code"),
+    q: Optional[str] = Query(None, description="Free-text search over hospital name, rule code, description and details"),
+    sort_by: Optional[str] = Query(None, description="Sort column: severity (default) | hospital | month | rule | type | description | details"),
+    order: str = Query("asc", description="Sort direction for sort_by (asc | desc)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    cache_key = cache.make_key("analysis:rule-failures_v2", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, skip=skip, limit=limit)
+    cache_key = cache.make_key("analysis:rule-failures_v3", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, q=q, sort_by=sort_by, order=order, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -486,6 +691,20 @@ def list_rule_failures(
         query = query.filter(ValidationResult.rule_type == rule_type.upper())
     if rule_code:
         query = query.filter(ValidationResult.rule_code == rule_code.upper())
+    if q and q.strip():
+        # One search box must reach every column the user can see: hospital
+        # name (Arabic included), rule code, description and the failure
+        # details. Month is searched too — "2026-08" is what people paste.
+        needle = f"%{q.strip()}%"
+        query = query.filter(
+            or_(
+                Hospital.name.ilike(needle),
+                ValidationResult.rule_code.ilike(needle),
+                ValidationResult.rule_description.ilike(needle),
+                ValidationResult.details.ilike(needle),
+                ValidationResult.month.ilike(needle),
+            )
+        )
     total = query.count()
     sev_order = case(
         (ValidationResult.severity == "CRITICAL", 0),
@@ -494,7 +713,40 @@ def list_rule_failures(
         (ValidationResult.severity == "LOW", 3),
         else_=4,
     )
-    results = query.order_by(sev_order, ValidationResult.rule_code).offset(skip).limit(limit).all()
+    desc = (order or "asc").lower() == "desc"
+    # Allowlist: an unknown sort_by used to leave `column` unbound and blow up
+    # with UnboundLocalError (HTTP 500) on the first row fetch. Unknown values
+    # now fall back to the default severity ordering.
+    sort_col = (sort_by or "").lower()
+    _SORTS = {
+        "hospital": lambda: Hospital.name,
+        # YYYY-MM sorts correctly as text; a numeric sort would collapse every
+        # month of a year into the same value (2026-08 parses to 2026).
+        "month": lambda: ValidationResult.month,
+        "rule": lambda: ValidationResult.rule_code,
+        "rule_code": lambda: ValidationResult.rule_code,
+        # Severity sorts by RANK, not alphabetically, so the user's asc/desc
+        # applies to the case() and the tie-breaks stay ascending below.
+        "severity": lambda: sev_order.desc() if desc else sev_order.asc(),
+        "type": lambda: ValidationResult.rule_type,
+        "rule_type": lambda: ValidationResult.rule_type,
+        "description": lambda: ValidationResult.rule_description,
+        "details": lambda: ValidationResult.details,
+    }
+    column = None
+    if sort_col in _SORTS:
+        column = _SORTS[sort_col]()
+    else:
+        sort_col = ""
+    if sort_col and sort_col != "severity":
+        column = column.desc() if desc else column.asc()
+    if sort_col:
+        # Stable tie-breaks so equal keys never shuffle between requests.
+        query = query.order_by(column, ValidationResult.hospital_id, ValidationResult.month.desc(), ValidationResult.rule_code)
+    else:
+        # Default: worst severity first, then rule code.
+        query = query.order_by(sev_order.asc(), ValidationResult.rule_code.asc())
+    results = query.offset(skip).limit(limit).all()
     output = []
     for r in results:
         hosp = r.hospital
@@ -541,8 +793,8 @@ def list_months_with_data(db: Session = Depends(get_db)):
 
 def get_enabled_months(db: Session, hospital_id: int = None) -> list:
     """Get list of months enabled for analysis (filters out disabled months)."""
-    from app.models import SystemSetting
     from app.api.config_api import MONTH_SETTINGS_PREFIX
+    from app.models import SystemSetting
     all_months = list_months_with_data(db)
     if hospital_id is not None:
         prefix = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_"
@@ -693,8 +945,8 @@ def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: S
     # Queried fresh — NOT via get_enabled_months, whose month list comes from
     # a 24h-cached endpoint and would reintroduce the staleness this endpoint
     # just had removed.
-    from app.models import SystemSetting
     from app.api.config_api import MONTH_SETTINGS_PREFIX
+    from app.models import SystemSetting
     all_months = {r[0] for r in db.query(IndicatorValue.month).distinct().all()}
     disabled_rows = db.query(SystemSetting).filter(
         SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
