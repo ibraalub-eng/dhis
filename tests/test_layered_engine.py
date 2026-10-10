@@ -18,8 +18,11 @@ from app.engine.anomaly.layered import (
     Thresholds,
     coefficient_of_variation,
     compute_historical_layer,
+    compute_rate_layer,
     compute_raw_layer,
+    compute_volume_layer,
     denominator_analysis_value,
+    is_small_denominator,
     level_for_score,
     level_gte,
     max_level,
@@ -319,3 +322,110 @@ def test_historical_trend_deviation_falls_back_below_six_points():
     assert layer.method != METHOD_TREND_DEVIATION
     assert layer.trend_projected is None
     assert layer.score is not None and layer.score <= 1.0
+
+
+# ── Layer 2: rate (spec §5) ───────────────────────────────────────────────
+
+def _rate_spec(**kw):
+    return AnalysisSpec(analysis_code="rate_cs", name="C-section rate",
+                        indicator_type="percentage",
+                        numerator_codes=("5",), denominator_codes=("2",),
+                        rate_multiplier=100.0, unit="%", **kw)
+
+
+def test_rate_layer_null_for_count_rows():
+    layer = compute_rate_layer(_count_spec(), prior_rates=[10.0, 11.0],
+                               current_rate=12.0, history_ok=True)
+    assert layer.rate is None and layer.score is None
+    assert layer.method == METHOD_INSUFFICIENT_HISTORY
+
+
+def test_rate_layer_normal_series_is_none_band():
+    layer = compute_rate_layer(_rate_spec(), prior_rates=[26.7, 26.7, 26.7, 26.7],
+                               current_rate=26.7, history_ok=True)
+    assert layer.method == METHOD_PCT_CHANGE       # CV = 0 < 0.5
+    assert layer.score == 0.0
+    assert layer.level == "NONE"
+    assert layer.rate == 26.7
+
+
+def test_rate_layer_jump_is_very_high():
+    layer = compute_rate_layer(_rate_spec(), prior_rates=[26.7, 26.7, 26.7, 26.7],
+                               current_rate=375.0, history_ok=True)
+    assert layer.score == 1.0                      # +1300% capped at 1
+    assert layer.level == "VERY_HIGH"
+
+
+def test_rate_layer_still_reports_rate_when_history_insufficient():
+    gated = compute_rate_layer(_rate_spec(), prior_rates=[26.7, 26.7],
+                               current_rate=40.0, history_ok=False)
+    assert gated.rate == 40.0                      # value stored for the row
+    assert gated.score is None
+    assert gated.method == METHOD_INSUFFICIENT_HISTORY
+    missing = compute_rate_layer(_rate_spec(), prior_rates=[26.7, 26.7],
+                                 current_rate=None, history_ok=True)
+    assert missing.rate is None and missing.score is None
+    assert missing.method == METHOD_INSUFFICIENT_HISTORY
+
+
+def test_rate_layer_respects_configured_zscore_method():
+    layer = compute_rate_layer(_rate_spec(outlier_method="zscore"),
+                               prior_rates=[20.0, 22.0, 24.0, 26.0],
+                               current_rate=30.0, history_ok=True)
+    assert layer.method == METHOD_ZSCORE
+    # mean 23, stdev sqrt(20/3) ~= 2.5819889 => z ~= 2.7110886; score = z / (2 * 2.5)
+    assert layer.score == pytest.approx(7 / math.sqrt(20 / 3) / 5.0)
+
+
+# ── Layer 4: volume / denominator (spec §5) ───────────────────────────────
+
+def test_volume_layer_is_none_for_count_rows():
+    assert compute_volume_layer(_count_spec(), prior_denominators=[900.0],
+                                current_denominator=1000.0) is None
+
+
+def test_volume_layer_missing_and_zero_denominator_are_not_ok():
+    missing = compute_volume_layer(_rate_spec(), prior_denominators=[900.0],
+                                   current_denominator=None)
+    assert missing.den_ok is False and missing.score is None
+    assert missing.denominator is None
+    zero = compute_volume_layer(_rate_spec(), prior_denominators=[900.0],
+                                current_denominator=0.0)
+    assert zero.den_ok is False and zero.score is None
+    assert zero.denominator == 0.0                 # actual value reported
+
+
+def test_volume_layer_stable_denominator_is_none_band():
+    layer = compute_volume_layer(_rate_spec(), prior_denominators=[900.0],
+                                 current_denominator=1000.0)
+    assert layer.den_ok is True
+    assert layer.previous == 900.0
+    assert layer.change_percent == pytest.approx(11.1111, rel=1e-4)
+    assert layer.score == pytest.approx(1.0 / 9.0)   # 11.111...% / 100
+    assert layer.level == "NONE"
+
+
+def test_volume_layer_exploding_denominator_is_very_high():
+    layer = compute_volume_layer(_rate_spec(), prior_denominators=[100.0],
+                                 current_denominator=2000.0)
+    assert layer.change_percent == 1900.0
+    assert layer.score == 1.0                      # +1900% capped at 1
+    assert layer.level == "VERY_HIGH"
+
+
+def test_volume_layer_without_previous_denominator():
+    layer = compute_volume_layer(_rate_spec(), prior_denominators=[],
+                                 current_denominator=900.0)
+    assert layer.den_ok is True                    # denominator itself is fine
+    assert layer.previous is None
+    assert layer.change_percent is None and layer.score is None
+
+
+def test_small_denominator_guard_predicate():
+    strict = _rate_spec(minimum_denominator=10)
+    assert is_small_denominator(strict, 5) is True
+    assert is_small_denominator(strict, 10) is False   # equal passes the guard
+    assert is_small_denominator(strict, 900) is False
+    assert is_small_denominator(strict, None) is False
+    dormant = _rate_spec()                         # minimum_denominator None
+    assert is_small_denominator(dormant, 0) is False   # guard dormant

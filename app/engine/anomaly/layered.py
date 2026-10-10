@@ -428,3 +428,79 @@ def compute_historical_layer(spec: AnalysisSpec, prior: Sequence[float],
                            mean=win_mean, median=win_median, std=win_std,
                            z_score=z, change_percent=change, score=score,
                            method=method)
+
+
+# ── Layer 2: rate (spec §5) ───────────────────────────────────────────────
+
+@dataclass
+class RateLayer:
+    rate: Optional[float]            # observed rate for the month (always stored)
+    score: Optional[float]           # None = not applicable / not computable
+    method: str
+
+    @property
+    def level(self) -> Optional[str]:
+        return level_for_score(self.score)
+
+
+def compute_rate_layer(spec: AnalysisSpec, prior_rates: Sequence[Optional[float]],
+                       current_rate: Optional[float], history_ok: bool,
+                       threshold: float = PEER_Z_THRESHOLD_DEFAULT) -> RateLayer:
+    """Layer 2: score the current rate against the hospital's own historical
+    rates with the same method-selection logic as Layer 1. NULL layer for
+    count rows; missing rate / insufficient history => score None."""
+    if not spec.is_rate:
+        return RateLayer(rate=None, score=None, method=METHOD_INSUFFICIENT_HISTORY)
+    series = [float(v) for v in prior_rates if v is not None]
+    if not history_ok or current_rate is None or not series:
+        return RateLayer(rate=current_rate, score=None,
+                         method=METHOD_INSUFFICIENT_HISTORY)
+    method = select_method(spec.outlier_method, series, spec.indicator_type)
+    score = _score_window(method, series, float(current_rate), series[-1], threshold)
+    return RateLayer(rate=current_rate, score=score, method=method)
+
+
+# ── Layer 4: volume / denominator (spec §5) ───────────────────────────────
+
+@dataclass
+class VolumeLayer:
+    denominator: Optional[float]
+    previous: Optional[float]       # most recent prior month with a denominator
+    change_percent: Optional[float]
+    score: Optional[float]
+    den_ok: bool                    # denominator present and > 0
+
+    @property
+    def level(self) -> Optional[str]:
+        return level_for_score(self.score)
+
+
+def compute_volume_layer(spec: AnalysisSpec,
+                         prior_denominators: Sequence[Optional[float]],
+                         current_denominator: Optional[float]) -> Optional[VolumeLayer]:
+    """Layer 4: severity of the denominator shift. Returns None for count
+    rows (no denominator concept — the entry records NULL and den_ok=True).
+    Missing/zero denominator => den_ok False, score None: rate-dependent
+    layers are not computable (never normal, never an outlier)."""
+    if not spec.is_rate:
+        return None
+    series = [float(v) for v in prior_denominators if v is not None]
+    previous = series[-1] if series else None
+    if current_denominator is None:
+        return VolumeLayer(denominator=None, previous=previous,
+                           change_percent=None, score=None, den_ok=False)
+    if float(current_denominator) <= 0:
+        return VolumeLayer(denominator=float(current_denominator), previous=previous,
+                           change_percent=None, score=None, den_ok=False)
+    change = percent_change(float(current_denominator), previous)
+    score = score_from_pct_change(change) if change is not None else None
+    return VolumeLayer(denominator=float(current_denominator), previous=previous,
+                       change_percent=change, score=score, den_ok=True)
+
+
+def is_small_denominator(spec: AnalysisSpec, denominator: Optional[float]) -> bool:
+    """Spec §5 small-denominator guard predicate. Dormant (False) until a
+    minimum_denominator is configured on the spec."""
+    if denominator is None or spec.minimum_denominator is None:
+        return False
+    return float(denominator) < float(spec.minimum_denominator)
