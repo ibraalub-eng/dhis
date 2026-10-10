@@ -13,6 +13,7 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -102,6 +103,17 @@ class Indicator(Base):
     # _ensure_required_columns() self-heal path; the backfill is 'Required'
     # so existing scores are preserved exactly.
     requirement_type = Column(String(10), nullable=False, server_default="Required", default="Required")
+
+    # Layered-outlier analysis config (design spec 2026-10-08 §3.2): count /
+    # raw-layer settings only — numerator/denominator/multiplier live in the
+    # rate_config table. All nullable + server-defaulted so the startup
+    # _ensure_required_columns() self-heal path can add them safely, and so
+    # rows predating the migration read the same defaults.
+    indicator_type = Column(String(20), nullable=True, server_default="count", default="count")
+    minimum_history_period = Column(Integer, nullable=True, server_default="3", default=3)
+    outlier_method = Column(String(30), nullable=True, server_default="auto", default="auto")
+    historical_enabled = Column(Boolean, nullable=True, server_default=text("true"), default=True)
+    peer_comparison_enabled = Column(Boolean, nullable=True, server_default=text("true"), default=True)
 
     parent = relationship("Indicator", remote_side=[id], backref="children")
     values = relationship("IndicatorValue", back_populates="indicator")
@@ -294,6 +306,85 @@ class AnomalyResult(Base):
     __table_args__ = (
         Index("ix_ar_hosp_month", "hospital_id", "month"),
         Index("ix_ar_outlier", "is_outlier"),
+    )
+
+
+class RateConfig(Base):
+    """Rate definitions & layered-engine tuning (design spec 2026-10-08 §3.3).
+
+    Rows are seeded insert-if-missing from the registry's zscore slice
+    (scripts/seed_indicators.py::seed_rate_config) and merged over the
+    builtin defaults by app/engine/rate_config.py::load_rate_specs.
+    """
+    __tablename__ = "rate_config"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rate_code = Column(String(50), nullable=False, index=True)
+    rate_name = Column(String(200), nullable=True)
+    indicator_type = Column(String(20), nullable=True)          # rate | ratio | percentage
+    numerator_codes = Column(JSON, nullable=True)               # ["5"]
+    denominator_codes = Column(JSON, nullable=True)             # ["2"]
+    rate_multiplier = Column(Integer, nullable=True)            # 100 / 1000 / 1
+    minimum_denominator = Column(Integer, nullable=True)        # NULL = guard dormant (§12)
+    minimum_history_period = Column(Integer, nullable=True, server_default="3")
+    outlier_method = Column(String(30), nullable=True, server_default="auto")
+    historical_enabled = Column(Boolean, nullable=True, server_default=text("true"))
+    peer_comparison_enabled = Column(Boolean, nullable=True, server_default=text("true"))
+    is_active = Column(Boolean, nullable=True, server_default=text("true"))
+
+    __table_args__ = (
+        UniqueConstraint("rate_code", name="uq_rate_config_code"),
+    )
+
+
+class LayeredOutlierResult(Base):
+    """One row per hospital x analysis unit x month (design spec 2026-10-08 §3.1).
+
+    analysis_code is the row's analysis unit: the data-element code for count
+    rows, the synthetic rate code (rate_cs, ...) for rate rows. Written by
+    app/engine/pipeline.py::_save_layered_results; never mutated afterwards.
+    """
+    __tablename__ = "layered_outlier_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=False, index=True)
+    indicator_id = Column(Integer, ForeignKey("indicators.id"), nullable=True)
+    analysis_code = Column(String(50), nullable=False, index=True)
+    month = Column(String(7), nullable=False, index=True)
+    raw_value = Column(Float, nullable=True)
+    previous_value = Column(Float, nullable=True)
+    numerator = Column(Float, nullable=True)
+    denominator = Column(Float, nullable=True)
+    rate = Column(Float, nullable=True)
+    previous_denominator = Column(Float, nullable=True)
+    denominator_change_percent = Column(Float, nullable=True)
+    historical_mean = Column(Float, nullable=True)
+    historical_median = Column(Float, nullable=True)
+    historical_std = Column(Float, nullable=True)
+    historical_z_score = Column(Float, nullable=True)
+    historical_change_percent = Column(Float, nullable=True)
+    raw_value_outlier_score = Column(Float, nullable=True)
+    rate_outlier_score = Column(Float, nullable=True)
+    historical_outlier_score = Column(Float, nullable=True)
+    volume_anomaly_score = Column(Float, nullable=True)
+    peer_outlier_score = Column(Float, nullable=True)
+    peer_mean = Column(Float, nullable=True)
+    peer_count = Column(Integer, nullable=True)
+    outlier_level = Column(String(20), nullable=True)           # NONE/LOW/MODERATE/HIGH/VERY_HIGH
+    outlier_type = Column(String(40), nullable=True)            # classification enum (§3.1)
+    outlier_method = Column(String(30), nullable=True)
+    interpretation = Column(Text, nullable=True)
+    investigation_required = Column(Boolean, nullable=True, server_default=text("false"))
+    investigation_route = Column(String(20), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    hospital = relationship("Hospital")
+    indicator = relationship("Indicator")
+
+    __table_args__ = (
+        UniqueConstraint("hospital_id", "analysis_code", "month", name="uq_layered_hosp_code_month"),
+        Index("ix_lr_hosp_month", "hospital_id", "month"),
+        Index("ix_lr_month_type", "month", "outlier_type"),
     )
 
 

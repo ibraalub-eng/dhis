@@ -2,12 +2,13 @@
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from app.database import Base, get_db
+
 from app.core.deps import get_current_user
+from app.database import Base, get_db
 from app.models import Hospital
-from scripts.seed_indicators import seed_indicators
-from scripts.seed_rules import seed_rules
+from scripts.seed_indicators import seed_indicators, seed_rate_config
 from scripts.seed_menu import seed_menu  # noqa: E402
+from scripts.seed_rules import seed_rules
 
 
 @pytest.fixture(autouse=True)
@@ -30,6 +31,7 @@ def _isolate_production_db(db_session, monkeypatch):
        teardown (best-effort, never fails the test).
     """
     import os
+
     from app import database as _database
 
     test_sessionmaker = sessionmaker(bind=db_session.get_bind())
@@ -184,6 +186,7 @@ def db_session():
     session = Session()
     try:
         seed_indicators(session)
+        seed_rate_config(session)
         _seed_hospitals(session)
         seed_rules(session)
         seed_menu(session)
@@ -203,6 +206,17 @@ def _seed_hospitals(session):
     for h in hospitals:
         session.add(h)
     session.flush()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_specs_cache():
+    """load_rate_specs caches the DB-merged spec set in-process; reset it
+    around every test so one test's rate_config rows can never leak into the
+    next test (each test gets its own SQLite file, the cache does not)."""
+    from app.engine.rate_config import invalidate_rate_specs_cache
+    invalidate_rate_specs_cache()
+    yield
+    invalidate_rate_specs_cache()
 
 
 @pytest.fixture

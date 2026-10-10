@@ -196,3 +196,82 @@ def compute_spec_rate(spec: RateSpec, values: Dict[str, float]) -> Optional[floa
         return None
     return compute_rate(values, spec.numerator_codes, spec.denominator_codes,
                         spec.rate_multiplier)
+
+
+# ── DB layer (design spec §4): rate_config rows merged over builtin ──────────
+
+_RATE_SPECS_CACHE: Optional[Dict[str, RateSpec]] = None
+
+
+def invalidate_rate_specs_cache() -> None:
+    """Drop the DB-merged spec cache (seed_rate_config and any future
+    rate_config save call this; tests reset it around every test)."""
+    global _RATE_SPECS_CACHE
+    _RATE_SPECS_CACHE = None
+
+
+def _pick(value, fallback):
+    return fallback if value is None else value
+
+
+def _spec_from_rate_config_row(row, base: Optional[RateSpec]) -> RateSpec:
+    """DB row over its builtin base. unit/typical_pct are not stored in the
+    table (spec §3.3) — inherited from the builtin zscore-slice spec with the
+    same rate_code; unknown rate_codes get empty unit."""
+    numerator = tuple(row.numerator_codes or ())
+    denominator = tuple(row.denominator_codes or ())
+    multiplier = row.rate_multiplier if row.rate_multiplier is not None else (
+        base.rate_multiplier if base else 1.0)
+    return RateSpec(
+        spec_key=f"db:{row.rate_code}",
+        site=SITE_ZSCORE,
+        rate_code=row.rate_code,
+        rate_name=row.rate_name or (base.rate_name if base else row.rate_code),
+        indicator_code=numerator[0] if numerator else (base.indicator_code if base else ""),
+        indicator_type=row.indicator_type or (base.indicator_type if base else "rate"),
+        numerator_codes=numerator,
+        denominator_codes=denominator,
+        rate_multiplier=float(multiplier),
+        unit=base.unit if base else "",
+        typical_pct=base.typical_pct if base else None,
+        minimum_denominator=row.minimum_denominator,
+        minimum_history_period=_pick(
+            row.minimum_history_period,
+            base.minimum_history_period if base else 3),
+        outlier_method=row.outlier_method or (base.outlier_method if base else "auto"),
+        historical_enabled=_pick(
+            row.historical_enabled,
+            base.historical_enabled if base else True),
+        peer_comparison_enabled=_pick(
+            row.peer_comparison_enabled,
+            base.peer_comparison_enabled if base else True),
+        is_active=_pick(row.is_active, True),
+    )
+
+
+def load_rate_specs(db) -> Dict[str, RateSpec]:
+    """The layered engine's spec set, keyed by rate_code: DB rate_config rows
+    (runtime tunables) merged over the builtin zscore-slice defaults.
+
+    Falls back entirely to the builtin slice when the table is empty
+    (pre-seed operation) or unreadable. In-process cache — call
+    invalidate_rate_specs_cache() after seeding/saving rate_config rows.
+    """
+    global _RATE_SPECS_CACHE
+    if _RATE_SPECS_CACHE is not None:
+        return _RATE_SPECS_CACHE
+    specs: Dict[str, RateSpec] = {s.rate_code: s for s in zscore_specs()}
+    try:
+        from app.models import RateConfig  # local: this module stays leaf-importable
+        rows = db.query(RateConfig).order_by(RateConfig.rate_code).all()
+    except Exception as exc:
+        logger.warning("rate_config unreadable (%s); using builtin zscore slice", exc)
+        rows = []
+    for row in rows:
+        specs[row.rate_code] = _spec_from_rate_config_row(row, specs.get(row.rate_code))
+    _RATE_SPECS_CACHE = specs
+    return specs
+
+
+def get_spec(db, rate_code: str) -> Optional[RateSpec]:
+    return load_rate_specs(db).get(rate_code)

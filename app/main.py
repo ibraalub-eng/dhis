@@ -57,7 +57,7 @@ from app.monitoring import (  # noqa: E402
 )
 from app.tasks import get_task  # noqa: E402
 from scripts.seed_hospital_metadata import seed_hospital_metadata  # noqa: E402
-from scripts.seed_indicators import seed_indicators  # noqa: E402
+from scripts.seed_indicators import seed_indicators, seed_rate_config  # noqa: E402
 from scripts.seed_menu import seed_menu  # noqa: E402
 from scripts.seed_rules import seed_rules  # noqa: E402
 
@@ -626,7 +626,8 @@ async def lifespan(app: FastAPI):
                     print("[startup] Migrations complete.")
                 except Exception as e:
                     print(f"[startup] Migration error (non-fatal): {e}")
-                    import traceback; traceback.print_exc()
+                    import traceback
+                    traceback.print_exc()
                 # Fresh session after DDL changes
                 session.close()
                 session = SessionLocal()
@@ -642,7 +643,8 @@ async def lifespan(app: FastAPI):
                     print("[startup] Migrations and seeding complete.")
                 except Exception as e:
                     print(f"[startup] Reference data error (non-fatal): {e}")
-                    import traceback; traceback.print_exc()
+                    import traceback
+                    traceback.print_exc()
 
             # Always ensure auth tables exist (migration may have partially failed)
             # Create a fresh session in case DDL changes were made
@@ -667,6 +669,17 @@ async def lifespan(app: FastAPI):
                     print(f"[startup] Menu backfilled: {', '.join(backfilled)}")
             except Exception as e:
                 print(f"[startup] Menu backfill error (non-fatal): {e}")
+
+            # Seed layered rate_config rows from the central registry
+            # (idempotent insert-if-missing — same every-startup pattern as
+            # the menu backfill above). The engine falls back to the builtin
+            # registry when the table is empty, so a seed failure is non-fatal.
+            try:
+                seeded = seed_rate_config(session)
+                if seeded:
+                    print(f"[startup] Rate config seeded: {seeded} rows.")
+            except Exception as e:
+                print(f"[startup] Rate config seed error (non-fatal): {e}")
 
             # Apply hospital metadata (OrgUnit ID, Ownership, Governorate, Type)
             # from scripts/hospital_metadata.json - safe to run every startup.
@@ -708,7 +721,8 @@ async def lifespan(app: FastAPI):
     # the app ran left the app serving a day of phantom months/hospitals/
     # scores from stale files.
     try:
-        from app.cache import get_data_epoch, cache as _epoch_cache
+        from app.cache import cache as _epoch_cache
+        from app.cache import get_data_epoch
         _epoch_cache.sweep_stale_epochs(get_data_epoch())
     except Exception as _epoch_exc:
         print(f"[startup] Cache epoch sweep skipped: {_epoch_exc}")
@@ -766,6 +780,7 @@ app.include_router(menu_router.router)
 
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from sqlalchemy import func as _sa_func  # noqa: E402
+
 from app.cache import get_data_epoch  # noqa: E402
 
 
