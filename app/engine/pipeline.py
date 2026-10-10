@@ -1,22 +1,36 @@
-import re
-from typing import List, Dict
-from app.engine.quality import ValidationContext, run_all_rules, run_rules_from_db, RuleResult, set_rules_config, calculate_quality_score, get_covered_child_codes
-from app.engine.anomaly import detect_anomalies, detect_monthly_trend, set_trends_config
-
-from app.engine.confidence import calculate_confidence, build_indicator_rule_map
-from app.engine.ml import run_ml_analysis
-
-from app.models import (
-    Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig,
-    IndicatorDefaultConfig,
-    ValidationResult, AnomalyResult, QualityScore, ConfidenceScore,
-    ClinicalInsight,
-)
-from sqlalchemy.orm import Session
 import json
-
-from app.indicators import PARENT_CHILD_MAP, INDICATOR_CODE_TO_NAME, SYNTHETIC_INDICATOR_CODES
 import logging
+import re
+from typing import Dict, List
+
+from sqlalchemy.orm import Session
+
+from app.engine.anomaly import detect_anomalies, detect_monthly_trend, set_trends_config
+from app.engine.confidence import build_indicator_rule_map, calculate_confidence
+from app.engine.ml import run_ml_analysis
+from app.engine.quality import (
+    RuleResult,
+    ValidationContext,
+    calculate_quality_score,
+    get_covered_child_codes,
+    run_all_rules,
+    run_rules_from_db,
+    set_rules_config,
+)
+from app.indicators import INDICATOR_CODE_TO_NAME, PARENT_CHILD_MAP, SYNTHETIC_INDICATOR_CODES
+from app.models import (
+    AnomalyResult,
+    ClinicalInsight,
+    ConfidenceScore,
+    Hospital,
+    HospitalIndicatorConfig,
+    Indicator,
+    IndicatorDefaultConfig,
+    IndicatorValue,
+    LayeredOutlierResult,
+    QualityScore,
+    ValidationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +339,10 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
                 ConfidenceScore.hospital_id == hospital_id,
                 ConfidenceScore.month == month,
             ).delete(synchronize_session=False)
+            session.query(LayeredOutlierResult).filter(
+                LayeredOutlierResult.hospital_id == hospital_id,
+                LayeredOutlierResult.month == month,
+            ).delete(synchronize_session=False)
             session.commit()
         return {
             "hospital": hospital.name,
@@ -460,6 +478,23 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
         except Exception:
             logger.exception("Saving confidence score failed for %s/%s", hospital.name, month)
 
+    try:
+        _run_and_save_layered_results(
+            session, hospital_id, month, values,
+            historical if historical else {},
+            all_hospital_data,
+            anomaly_config["zscore_threshold"],
+        )
+    except Exception:
+        # Layered rows are additive (spec §7): never discard the quality/
+        # validation/anomaly results already committed above, and never trip
+        # run_full_analysis's zero-score fallback report.
+        session.rollback()
+        logger.exception(
+            "Layered analysis failed for %s/%s; continuing without layered results",
+            hospital.name, month,
+        )
+
     outliers = []
     for a in anomaly_results:
         if a.is_outlier:
@@ -590,6 +625,7 @@ def purge_derived_results(session: Session, hospital_id: int, month: str = None)
         ("anomaly_results", AnomalyResult),
         ("confidence_scores", ConfidenceScore),
         ("clinical_insights", ClinicalInsight),
+        ("layered_outlier_results", LayeredOutlierResult),
     ):
         query = session.query(model).filter(model.hospital_id == hospital_id)
         if month is not None:
@@ -678,6 +714,115 @@ def _save_anomaly_results(session: Session, hospital_id: int, month: str, result
             peers_detail=getattr(a, "peers_detail", None),
         )
         session.add(ar)
+    session.commit()
+
+
+def _run_and_save_layered_results(session: Session, hospital_id: int, month: str,
+                                  values: Dict, historical: Dict,
+                                  all_hospital_data: Dict,
+                                  zscore_threshold: float) -> None:
+    """Run the layered outlier pipeline (spec §7) for the analyzed hospital
+    and persist the resulting rows.
+
+    get_historical_months() excludes the current month (pipeline.py:262), so
+    the current month's enabled values are merged in — analyze_layered_entry
+    splits history itself. peer inputs arrive name-keyed from
+    get_all_hospital_data_for_month() and are re-keyed by hospital id here;
+    tier attributes come straight from the Hospital columns.
+    """
+    from app.engine.anomaly.layered import (
+        Thresholds,
+        build_analysis_specs,
+        run_layered_analysis,
+        should_persist,
+    )
+
+    specs = build_analysis_specs(session)
+    hospitals = (
+        session.query(
+            Hospital.id, Hospital.name, Hospital.hospital_type_id,
+            Hospital.facility_ownership_id, Hospital.governorate_id,
+        )
+        .filter(Hospital.is_active.is_(True))
+        .all()
+    )
+    peer_values_by_hospital = {
+        h.id: {month: all_hospital_data.get(h.name, {})}
+        for h in hospitals
+    }
+    peer_attributes = {
+        h.id: {
+            "type": h.hospital_type_id,
+            "ownership": h.facility_ownership_id,
+            "governorate": h.governorate_id,
+        }
+        for h in hospitals
+    }
+    history = dict(historical)
+    history[month] = values
+
+    results = run_layered_analysis(
+        specs, history, month, hospital_id,
+        peer_values_by_hospital, peer_attributes,
+        Thresholds(peer_z_threshold=float(zscore_threshold)),
+    )
+    _save_layered_results(
+        session, hospital_id, month,
+        [r for r in results if should_persist(r)],
+    )
+
+
+def _save_layered_results(session: Session, hospital_id: int, month: str, results: list):
+    session.query(LayeredOutlierResult).filter(
+        LayeredOutlierResult.hospital_id == hospital_id,
+        LayeredOutlierResult.month == month,
+    ).delete()
+    for r in results:
+        c = r.classification
+        session.add(LayeredOutlierResult(
+            hospital_id=hospital_id,
+            indicator_id=r.spec.indicator_id,
+            analysis_code=r.spec.analysis_code,
+            month=month,
+            raw_value=float(r.raw.value) if r.raw.value is not None else None,
+            previous_value=float(r.raw.previous) if r.raw.previous is not None else None,
+            numerator=float(r.raw.value) if (r.spec.is_rate and r.raw.value is not None) else None,
+            denominator=(float(r.volume.denominator)
+                         if r.volume and r.volume.denominator is not None else None),
+            rate=float(r.rate.rate) if r.rate.rate is not None else None,
+            previous_denominator=(float(r.volume.previous)
+                                  if r.volume and r.volume.previous is not None else None),
+            denominator_change_percent=(float(r.volume.change_percent)
+                                        if r.volume and r.volume.change_percent is not None else None),
+            historical_mean=(float(r.historical.mean)
+                             if r.historical.mean is not None else None),
+            historical_median=(float(r.historical.median)
+                               if r.historical.median is not None else None),
+            historical_std=(float(r.historical.std)
+                            if r.historical.std is not None else None),
+            historical_z_score=(float(r.historical.z_score)
+                                if r.historical.z_score is not None else None),
+            historical_change_percent=(float(r.historical.change_percent)
+                                       if r.historical.change_percent is not None else None),
+            raw_value_outlier_score=(float(r.raw.score)
+                                     if r.raw.score is not None else None),
+            rate_outlier_score=(float(r.rate.score)
+                                if r.rate.score is not None else None),
+            historical_outlier_score=(float(r.historical.score)
+                                      if r.historical.score is not None else None),
+            volume_anomaly_score=(float(r.volume.score)
+                                  if r.volume and r.volume.score is not None else None),
+            peer_outlier_score=(float(r.peer.score)
+                                if r.peer.score is not None else None),
+            peer_mean=float(r.peer.peer_mean) if r.peer.peer_mean is not None else None,
+            peer_count=r.peer.peer_count,
+            outlier_level=c.outlier_level,
+            outlier_type=c.outlier_type,
+            outlier_method=c.method,
+            interpretation=c.interpretation,
+            investigation_required=c.investigation_required,
+            investigation_route=c.investigation_route,
+        ))
     session.commit()
 
 

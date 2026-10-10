@@ -231,6 +231,7 @@ def remove_data(body: dict = Body(...), db: Session = Depends(get_db)):
     totals = {
         "indicator_values": 0, "quality_scores": 0, "validation_results": 0,
         "anomaly_results": 0, "confidence_scores": 0, "clinical_insights": 0,
+        "layered_outlier_results": 0,
     }
     # Copy the raw rows aside before deleting them so the client can undo the
     # removal for a short window instead of having to re-upload the file.
