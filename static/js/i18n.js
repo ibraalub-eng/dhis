@@ -357,6 +357,11 @@
             'Denominator (Δ%)': 'المقام (Δ%)',
             'Peer': 'النظراء',
             'No layered findings for the selected criteria.': 'لا توجد نتائج متدرجة للمعايير المحددة.',
+            'Raw value trend across months': 'اتجاه القيمة الخام عبر الأشهر',
+            'Raw value': 'القيمة الخام',
+            'Select an indicator to view the trend.': 'اختر مؤشراً لعرض الاتجاه.',
+            'Hide': 'إخفاء',
+            'Show': 'إظهار',
 
             // Audit & Verification Tab
             'Audit & Verification': 'التدقيق والتحقق',

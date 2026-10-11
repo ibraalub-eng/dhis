@@ -353,3 +353,105 @@ def test_explain_layered_outlier_flags_changed_history(db_session, client):
     assert p["reproduce"]["verified"] is False
     assert p["rule_number"] is None
     assert "recalculate" in p["why"]
+
+
+# ───────────────────────────────────────────── trend endpoint (Layer trend chart)
+
+def test_layered_trend_one_series_per_hospital(db_session, client):
+    """For a chosen indicator, the trend plots one series per hospital with its
+    points across the sorted months — the same unit across the series."""
+    h1, h2 = db_session.query(Hospital).order_by(Hospital.id).limit(2).all()
+    _add_layered(db_session, h1.id, "2027-06", analysis_code="rate_cs", raw_value=20.0)
+    _add_layered(db_session, h1.id, "2027-05", analysis_code="rate_cs", raw_value=10.0)
+    _add_layered(db_session, h2.id, "2027-06", analysis_code="rate_cs", raw_value=99.0)
+
+    resp = client.get("/analysis/layered/trend?indicator=rate_cs")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["months"] == ["2027-05", "2027-06"]
+    series = {s["key"]: s for s in body["series"]}
+    assert set(series) == {str(h1.id), str(h2.id)}
+    assert series[str(h1.id)]["name"] == h1.name
+    assert [p["month"] for p in series[str(h1.id)]["points"]] == ["2027-05", "2027-06"]
+    assert [p["raw_value"] for p in series[str(h1.id)]["points"]] == [10.0, 20.0]
+    assert [p["month"] for p in series[str(h2.id)]["points"]] == ["2027-06"]
+
+
+def test_layered_trend_single_line_for_hospital_and_indicator(db_session, client):
+    """Hospital + indicator selected → exactly one series across the months."""
+    h = db_session.query(Hospital).first()
+    _add_layered(db_session, h.id, "2027-05", analysis_code="rate_cs", raw_value=10.0)
+    _add_layered(db_session, h.id, "2027-06", analysis_code="rate_cs", raw_value=20.0)
+
+    body = client.get(
+        f"/analysis/layered/trend?hospital={h.id}&indicator=rate_cs"
+    ).json()
+    assert len(body["series"]) == 1
+    assert body["series"][0]["name"] == h.name
+    assert [p["raw_value"] for p in body["series"][0]["points"]] == [10.0, 20.0]
+
+
+def test_layered_trend_honors_every_filter(db_session, client):
+    """The chart is a filter-driven view: classification/level/month narrow the
+    points exactly like the table (design decision: honor all table filters)."""
+    h = db_session.query(Hospital).first()
+    _add_layered(db_session, h.id, "2027-05", analysis_code="rate_cs",
+                 raw_value=10.0, outlier_type="NORMAL", outlier_level="NONE")
+    _add_layered(db_session, h.id, "2027-06", analysis_code="rate_cs",
+                 raw_value=20.0, outlier_type="CLINICAL_INVESTIGATION_REQUIRED",
+                 outlier_level="VERY_HIGH")
+
+    only_normal = client.get(
+        f"/analysis/layered/trend?hospital={h.id}&indicator=rate_cs&classification=NORMAL"
+    ).json()
+    pts = only_normal["series"][0]["points"]
+    assert [p["month"] for p in pts] == ["2027-05"]
+
+    only_june = client.get(
+        f"/analysis/layered/trend?hospital={h.id}&indicator=rate_cs&month=2027-06"
+    ).json()
+    assert only_june["months"] == ["2027-06"]
+
+    # Every point carries the classification so the chart can color outliers.
+    full = client.get(f"/analysis/layered/trend?hospital={h.id}&indicator=rate_cs").json()
+    pt = full["series"][0]["points"][1]
+    assert pt["outlier_type"] == "CLINICAL_INVESTIGATION_REQUIRED"
+    assert pt["outlier_level"] == "VERY_HIGH"
+    assert "rate" in pt
+
+
+def test_layered_trend_empty(db_session, client):
+    resp = client.get("/analysis/layered/trend?indicator=rate_cs")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["months"] == []
+    assert body["series"] == []
+
+
+def test_layered_trend_enforces_analysis_read(db_session, client, real_auth):
+    perm = db_session.query(Permission).filter_by(codename="analysis.read").first()
+    if perm is None:
+        perm = Permission(codename="analysis.read")
+        db_session.add(perm)
+        db_session.flush()
+    reader_role = Role(name="trend_reader")
+    reader_role.permissions.append(perm)
+    db_session.add(reader_role)
+    db_session.add_all([
+        User(username="trend_noperm", email="trend_np@test.local",
+             full_name="No Perm", password_hash=hash_password("test123")),
+        User(username="trend_reader", email="trend_r@test.local",
+             full_name="Reader", password_hash=hash_password("test123"),
+             roles=[reader_role]),
+    ])
+    db_session.commit()
+
+    no_perm_token = _login(client, "trend_noperm")
+    resp = client.get("/analysis/layered/trend",
+                      headers={"Authorization": f"Bearer {no_perm_token}"})
+    assert resp.status_code == 403
+
+    ok_token = _login(client, "trend_reader")
+    resp = client.get("/analysis/layered/trend",
+                      headers={"Authorization": f"Bearer {ok_token}"})
+    assert resp.status_code == 200

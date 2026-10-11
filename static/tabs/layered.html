@@ -5,6 +5,16 @@
     </div>
     <div id="layeredSummary" style="display:flex;gap:0.4rem;flex-wrap:wrap;"></div>
 </div>
+<div class="card" id="layeredTrendCard" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+        <h3 style="margin:0;font-size:0.9rem;" data-i18n="Raw value trend across months">Raw value trend across months</h3>
+        <button id="layeredTrendToggle" onclick="layeredTrendToggle()" type="button" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="Hide">Hide</button>
+    </div>
+    <div id="layeredTrendBody" style="margin-top:0.5rem;">
+        <div id="layeredTrendHint" style="font-size:0.8rem;color:var(--text-muted);" data-i18n="Select an indicator to view the trend.">Select an indicator to view the trend.</div>
+        <div id="layeredTrendChart" style="height:320px;width:100%;"></div>
+    </div>
+</div>
 <div class="card" style="padding:0.6rem 0.8rem;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
         <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">

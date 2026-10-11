@@ -148,6 +148,87 @@ function _renderSummary(sum) {
     ).join('');
 }
 
+// ── Trend chart: raw value across months, adaptive to the filter ─────
+// A raw value is only comparable within one indicator (one unit), so the
+// chart needs a specific indicator and then plots the hospitals month by month
+// (a single line when a hospital is also selected). Rendered with the global
+// Plotly (loaded in index.html) to avoid importing smart/core.js, which
+// installs document-level listeners on load.
+let _trendCollapsed = false;
+
+const _TREND_COLORS = {
+    NORMAL: '#22c55e',
+    POSSIBLE_DATA_ENTRY_ERROR: '#ef4444',
+    CLINICAL_INVESTIGATION_REQUIRED: '#f59e0b',
+    PEER_ANOMALY: '#3b82f6',
+    VOLUME_DRIVEN_ANOMALY: '#d97706',
+    RAW_VALUE_ANOMALY: '#f97316',
+    RATE_ANOMALY: '#f97316',
+    HISTORICAL_ANOMALY: '#a855f7',
+};
+
+function _trendHint(msgKey) {
+    const hint = document.getElementById('layeredTrendHint');
+    const chart = document.getElementById('layeredTrendChart');
+    if (hint) { hint.textContent = __(msgKey); hint.classList.remove('hidden'); }
+    if (chart) {
+        chart.style.display = 'none';
+        if (window.Plotly) { try { Plotly.purge(chart); } catch (e) { /* noop */ } }
+    }
+}
+
+function _renderLayeredTrend(body) {
+    const hint = document.getElementById('layeredTrendHint');
+    const chart = document.getElementById('layeredTrendChart');
+    if (!chart || !window.Plotly) return;
+    const series = (body && body.series) || [];
+    if (!series.length) { _trendHint('No layered findings for the selected criteria.'); return; }
+    if (hint) hint.classList.add('hidden');
+    chart.style.display = '';
+    const months = (body && body.months) || [];
+    const traces = series.map(s => ({
+        x: s.points.map(p => p.month),
+        y: s.points.map(p => p.raw_value),
+        name: s.name,
+        type: 'scatter',
+        mode: 'lines+markers',
+        line: { width: 2 },
+        marker: {
+            size: 7,
+            color: s.points.map(p => _TREND_COLORS[p.outlier_type] || '#6b7280'),
+            line: { width: 1, color: '#ffffff' },
+        },
+        hovertemplate: '%{x}<br>%{y:.2f}<extra>' + s.name + '</extra>',
+    }));
+    Plotly.react(chart, traces, {
+        margin: { l: 48, r: 16, t: 12, b: 40 },
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' },
+        xaxis: { type: 'category', categoryorder: 'array', categoryarray: months },
+        yaxis: { title: __('Raw value') },
+    }, { responsive: true, displaylogo: false });
+}
+
+export async function loadLayeredTrend() {
+    const ind = document.getElementById('layeredIndicatorFilter').value;
+    if (!ind) { _trendHint('Select an indicator to view the trend.'); return; }
+    try {
+        const body = await apiGet('/analysis/layered/trend?' + _filterQuery());
+        _renderLayeredTrend(body);
+    } catch (err) {
+        console.warn('Layered trend failed:', err);
+    }
+}
+
+export function layeredTrendToggle() {
+    _trendCollapsed = !_trendCollapsed;
+    const bodyEl = document.getElementById('layeredTrendBody');
+    const btn = document.getElementById('layeredTrendToggle');
+    if (bodyEl) bodyEl.style.display = _trendCollapsed ? 'none' : '';
+    if (btn) btn.textContent = _trendCollapsed ? __('Show') : __('Hide');
+}
+
 // Server-side sort: header click -> sort/order state -> re-query. First click
 // on Month = newest first, first click elsewhere = asc (rule-failures idiom).
 function wireLayeredSort() {
@@ -184,6 +265,7 @@ export function layeredPage(delta) {
 
 export async function loadLayered() {
     _initFilters();   // fire-and-forget; selections are read independently
+    loadLayeredTrend();   // filter-driven chart; fire-and-forget
     const loadingEl = document.getElementById('layeredLoading');
     if (loadingEl) loadingEl.classList.remove('hidden');
     const tbody = document.getElementById('layeredTbody');

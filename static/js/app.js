@@ -66,6 +66,7 @@ window.loadLayered = _stub('loadLayered');
 window.layeredFilterChange = _stub('layeredFilterChange');
 window.layeredPage = _stub('layeredPage');
 window.exportLayeredCSV = _stub('exportLayeredCSV');
+window.layeredTrendToggle = _stub('layeredTrendToggle');
 window.loadAlerts = _stub('loadAlerts');
 window.updateAlertBadge = _stub('updateAlertBadge');
 window.refreshSavedFiles = _stub('refreshSavedFiles');
@@ -245,6 +246,7 @@ function _bindAll(mod, label) {
     case 'layered':
       _bind(mod, 'loadLayered'); _bind(mod, 'layeredFilterChange');
       _bind(mod, 'layeredPage'); _bind(mod, 'exportLayeredCSV');
+      _bind(mod, 'layeredTrendToggle');
       break;
     case 'alerts':
       _bind(mod, 'loadAlerts'); _bind(mod, 'updateAlertBadge');

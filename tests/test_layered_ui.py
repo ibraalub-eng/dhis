@@ -194,3 +194,44 @@ def test_layered_i18n_keys_exist():
     for key in ("'Layered Analysis'", "'Raw value (Δ%)'", "'Rate (Δ%)'",
                 "'Denominator (Δ%)'", "'Peer'", "'No layered findings for the selected criteria.'"):
         assert f"{key}:" in i18n, key
+
+
+# ── Trend chart: raw value across months, adaptive to the filter ─────
+
+def test_layered_trend_card_elements_and_keys():
+    """The chart card sits above the table with its own plot + hint nodes."""
+    html = _read("tabs", "layered.html")
+    for el_id in ("layeredTrendCard", "layeredTrendChart", "layeredTrendHint",
+                  "layeredTrendToggle"):
+        assert f'id="{el_id}"' in html, el_id
+    assert 'data-i18n="Raw value trend across months"' in html
+    # The card precedes the filter/table card in the DOM.
+    assert html.index('id="layeredTrendCard"') < html.index('id="layeredTbody"')
+
+
+def test_layered_js_trend_requires_indicator():
+    """A raw-value trend is only meaningful for one indicator (one shared
+    unit): the chart asks for an indicator, then plots the hospitals for it
+    month by month."""
+    js = _read("js", "layered.js")
+    assert "'/analysis/layered/trend?'" in js
+    assert "loadLayeredTrend" in js
+    assert "layeredTrendChart" in js
+    assert "Plotly" in js
+    assert "layeredTrendHint" in js
+    # No indicator chosen → hint instead of a misleading mixed-unit plot.
+    assert "Select an indicator to view the trend." in js
+    assert "layeredIndicatorFilter" in js
+    # Still the authenticated apiGet only (never raw fetch).
+    assert "fetch(" not in js
+    # The chart reuses global Plotly; it must not pull in the smart module
+    # (whose core.js installs document-level listeners on import).
+    assert "smart/charts" not in js
+
+
+def test_layered_js_trend_i18n_keys_exist():
+    i18n = _read("js", "i18n.js")
+    for key in ("'Raw value trend across months'",
+                "'Select an indicator to view the trend.'",
+                "'Hide'", "'Show'"):
+        assert f"{key}:" in i18n, key

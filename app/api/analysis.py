@@ -588,6 +588,85 @@ def layered_summary(
     return result
 
 
+@router.get("/layered/trend")
+def layered_trend(
+    month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),
+    hospital: Optional[int] = Query(None, description="Filter by hospital ID"),
+    indicator: Optional[str] = Query(None, description="Filter by analysis code (indicator or rate code)"),
+    classification: Optional[str] = Query(None, description="Filter by outlier_type"),
+    level: Optional[str] = Query(None, description="Filter by outlier_level (NONE..VERY_HIGH)"),
+    investigation: Optional[str] = Query(None, description="Filter by investigation_route (none|data_quality|clinical|contextual)"),
+    db: Session = Depends(get_db),
+):
+    """Monthly raw-value series for the Layered tab trend chart.
+
+    A raw value is only comparable within one indicator, so each series is one
+    hospital's points for the chosen indicator across the sorted months. Every
+    filter the table honors also narrows the points here, so the chart is a
+    filter-driven view; a single hospital id collapses it to one line."""
+    cache_key = cache.make_key(
+        "analysis:layered_trend_v1",
+        month=month,
+        hospital=hospital,
+        indicator=indicator,
+        classification=classification,
+        level=level,
+        investigation=investigation,
+    )
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    query = (
+        db.query(LayeredOutlierResult)
+        .options(selectinload(LayeredOutlierResult.hospital))
+        .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
+        .filter(Hospital.is_active.is_(True))
+    )
+    if month:
+        query = query.filter(LayeredOutlierResult.month == month)
+    if hospital:
+        query = query.filter(LayeredOutlierResult.hospital_id == hospital)
+    if indicator:
+        query = query.filter(LayeredOutlierResult.analysis_code == indicator)
+    if classification:
+        query = query.filter(LayeredOutlierResult.outlier_type == classification)
+    if level:
+        query = query.filter(LayeredOutlierResult.outlier_level == level)
+    if investigation:
+        query = query.filter(LayeredOutlierResult.investigation_route == investigation)
+
+    rows = query.order_by(
+        LayeredOutlierResult.month.asc(), LayeredOutlierResult.id.asc()
+    ).all()
+
+    series_map: dict = {}
+    for r in rows:
+        key = str(r.hospital_id)
+        series = series_map.get(key)
+        if series is None:
+            series = {
+                "key": key,
+                "name": r.hospital.name if r.hospital else "Unknown",
+                "points": [],
+            }
+            series_map[key] = series
+        series["points"].append({
+            "month": r.month,
+            "raw_value": r.raw_value,
+            "rate": r.rate,
+            "outlier_type": r.outlier_type,
+            "outlier_level": r.outlier_level,
+        })
+
+    result = {
+        "months": sorted({r.month for r in rows}),
+        "series": list(series_map.values()),
+    }
+    cache.set(cache_key, result)
+    return result
+
+
 @router.get("/ml")
 def get_ml_analysis(
     month: str = Query(..., description="Month YYYY-MM"),
