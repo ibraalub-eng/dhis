@@ -349,6 +349,15 @@
             'Classification': 'التصنيف',
             '— layered verdict for this row (raw value → rate → history → volume → peer layers); an outlier alone is never proof of a data error.': '— الحكم متعدد الطبقات لهذا الصف (القيمة الخام ← المعدل ← التاريخ ← الحجم ← النظراء)؛ الشذوذ وحده ليس دليلاً على خطأ في البيانات.',
 
+            // Layered Analysis Tab
+            'Layered Analysis': 'التحليل المتدرج',
+            'Every signal is a question, not a verdict: raw value, rate, history, volume, then peers.': 'كل إشارة سؤال لا حكم مسبق: القيمة الخام، النسبة، التاريخ، الحجم، ثم الأقران.',
+            'Raw value (Δ%)': 'القيمة الخام (Δ%)',
+            'Rate (Δ%)': 'النسبة (Δ%)',
+            'Denominator (Δ%)': 'المقام (Δ%)',
+            'Peer': 'الأقران',
+            'No layered findings for the selected criteria.': 'لا توجد نتائج متدرجة للمعايير المحددة.',
+
             // Audit & Verification Tab
             'Audit & Verification': 'التدقيق والتحقق',
             'Step-by-step calculation verification and data integrity checks': 'تحقق خطوة بخطوة من الحسابات وفحوصات سلامة البيانات',

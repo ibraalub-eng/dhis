@@ -62,6 +62,10 @@ window.loadOutliers = _stub('loadOutliers');
 window.loadRuleFailures = _stub('loadRuleFailures');
 window.exportOutliersCSV = _stub('exportOutliersCSV');
 window.exportRuleFailuresCSV = _stub('exportRuleFailuresCSV');
+window.loadLayered = _stub('loadLayered');
+window.layeredFilterChange = _stub('layeredFilterChange');
+window.layeredPage = _stub('layeredPage');
+window.exportLayeredCSV = _stub('exportLayeredCSV');
 window.loadAlerts = _stub('loadAlerts');
 window.updateAlertBadge = _stub('updateAlertBadge');
 window.refreshSavedFiles = _stub('refreshSavedFiles');
@@ -189,6 +193,7 @@ async function _loadModules() {
   const mods = [
     ['upload',      () => import('./upload.js')],
     ['outliers',    () => import('./outliers.js')],
+    ['layered',    () => import('./layered.js')],
     ['alerts',      () => import('./alerts.js')],
     ['savedFiles',  () => import('./saved_files.js')],
     ['settings',    () => import('./settings.js')],
@@ -236,6 +241,10 @@ function _bindAll(mod, label) {
       _bind(mod, 'loadOutliers'); _bind(mod, 'loadRuleFailures');
       _bind(mod, 'exportOutliersCSV'); _bind(mod, 'exportRuleFailuresCSV');
       _bind(mod, 'outlierLegend'); _bind(mod, 'togglePeerPopover');
+      break;
+    case 'layered':
+      _bind(mod, 'loadLayered'); _bind(mod, 'layeredFilterChange');
+      _bind(mod, 'layeredPage'); _bind(mod, 'exportLayeredCSV');
       break;
     case 'alerts':
       _bind(mod, 'loadAlerts'); _bind(mod, 'updateAlertBadge');

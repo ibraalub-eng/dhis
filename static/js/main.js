@@ -236,6 +236,7 @@
             if (name === 'quality') _tryInit('loadQualityReports', 10);
             if (name === 'alerts') { _tryInit('loadAlerts', 10); _tryInit('loadRuleFailures', 10); }
             if (name === 'outliers') _tryInit('loadOutliers', 10);
+            if (name === 'layered') _tryInit('loadLayered', 10);
             if (name === 'settings') { _tryInit('loadAllSettings', 10); _tryInit('initSystemInfo', 10); }
             if (name === 'root-cause') _tryInit('initRootCause', 10);
             if (name === 'analysis') _tryInit('initAnalysis', 10);
@@ -263,13 +264,13 @@
         window.skeletonCard=skeletonCard;window.skeletonTable=skeletonTable;window.skeletonChart=skeletonChart;
 
         // -- Breadcrumb Navigation --
-        var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', analysis: 'Comparative Analysis', clinical: 'Clinical Intelligence', outliers: 'Outliers', alerts: 'Alerts', 'indicator-tree': 'Indicator Tree', 'indicator-groups': 'Indicator Groups', 'rules-manager': 'Rules Manager', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', settings: 'System Settings', 'smart-analytics': 'Smart Analytics' };
-        var _tabIcons = { dashboard: '📊', upload: '📤', quality: '⭐', analysis: '📈', clinical: '🩺', outliers: '⚠', alerts: '🔔', 'indicator-tree': '🌳', 'indicator-groups': '🗂️', 'rules-manager': '📝', 'root-cause': '🔍', audit: '📋', admin: '🛡', settings: '⚙', 'smart-analytics': '🧠' };
+        var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', analysis: 'Comparative Analysis', clinical: 'Clinical Intelligence', outliers: 'Outliers', layered: 'Layered Analysis', alerts: 'Alerts', 'indicator-tree': 'Indicator Tree', 'indicator-groups': 'Indicator Groups', 'rules-manager': 'Rules Manager', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', settings: 'System Settings', 'smart-analytics': 'Smart Analytics' };
+        var _tabIcons = { dashboard: '📊', upload: '📤', quality: '⭐', analysis: '📈', clinical: '🩺', outliers: '⚠', layered: '🧱', alerts: '🔔', 'indicator-tree': '🌳', 'indicator-groups': '🗂️', 'rules-manager': '📝', 'root-cause': '🔍', audit: '📋', admin: '🛡', settings: '⚙', 'smart-analytics': '🧠' };
         export function updateBreadcrumb(tabName) { var el = document.getElementById('bcCurrent'); if (!el) return; el.textContent = (_tabIcons[tabName]||'')+' '+(_tabLabels[tabName]||tabName); }
         window.updateBreadcrumb = updateBreadcrumb;
 
         // -- Global Search (Ctrl+K) --
-        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'analysis',kw:'analysis comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outliers anomalies'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'rules-manager',kw:'rules validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'} ];
+        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'analysis',kw:'analysis comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outliers anomalies'},{tab:'layered',kw:'layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'rules-manager',kw:'rules validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'} ];
         var _searchIdx = 0;
         function openSearch() { var ov=document.getElementById('searchOverlay'); var inp=document.getElementById('searchInput'); if(!ov||!inp)return; ov.classList.add('active'); inp.value=''; inp.focus(); _showSearchResults(''); }
         function closeSearch() { var ov=document.getElementById('searchOverlay'); if(ov)ov.classList.remove('active'); }

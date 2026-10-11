@@ -151,6 +151,7 @@ function _renderFallback() {
         {id:'fb-4', name:'Oversight', icon:'🛡️', items:[
             {tab_key:'quality', label:'Quality Reports', icon:'✅', permission:'quality.read'},
             {tab_key:'outliers', label:'Outliers', icon:'⚠️', permission:'outliers.read'},
+            {tab_key:'layered', label:'Layered Analysis', icon:'🧱', permission:'analysis.read'},
             {tab_key:'alerts', label:'Alerts', icon:'🔔', permission:'alerts.read'},
             {tab_key:'audit', label:'Audit Log', icon:'📝', permission:'audit.read'},
         ]},

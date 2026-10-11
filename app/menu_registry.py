@@ -13,6 +13,7 @@ TAB_REGISTRY = OrderedDict([
     ("quality",         {"label": "Quality Reports",      "icon": "✅", "permission": "quality.read"}),
     ("clinical",        {"label": "Clinical Intelligence","icon": "🏥", "permission": "clinical.read"}),
     ("outliers",        {"label": "Outliers",              "icon": "⚠️", "permission": "outliers.read"}),
+    ("layered",         {"label": "Layered Analysis",      "icon": "🧱", "permission": "analysis.read"}),
     ("alerts",          {"label": "Alerts",                "icon": "🔔", "permission": "alerts.read"}),
     ("audit",           {"label": "Audit Log",             "icon": "📝", "permission": "audit.read"}),
     ("admin",           {"label": "System Control",       "icon": "⚙️", "permission": "system.manage_users", "superadmin_only": True}),
@@ -23,6 +24,6 @@ DEFAULT_GROUPS = [
     {"name": "Home",      "icon": "🏠", "items": ["dashboard"]},
     {"name": "Data",      "icon": "📊", "items": ["upload", "indicator-tree", "indicator-groups", "rules-manager"]},
     {"name": "Analysis",  "icon": "📈", "items": ["analysis", "smart-analytics", "clinical", "root-cause"]},
-    {"name": "Oversight", "icon": "🛡️", "items": ["quality", "outliers", "alerts", "audit"]},
+    {"name": "Oversight", "icon": "🛡️", "items": ["quality", "outliers", "layered", "alerts", "audit"]},
     {"name": "System",    "icon": "⚙️", "items": ["admin", "settings"]},
 ]

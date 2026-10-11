@@ -1,0 +1,73 @@
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+    <div>
+        <h2 style="margin:0;" data-i18n="Layered Analysis">Layered Analysis</h2>
+        <span style="font-size:0.82rem;color:var(--text-muted);" data-i18n="Every signal is a question, not a verdict: raw value, rate, history, volume, then peers.">Every signal is a question, not a verdict: raw value, rate, history, volume, then peers.</span>
+    </div>
+    <div id="layeredSummary" style="display:flex;gap:0.4rem;flex-wrap:wrap;"></div>
+</div>
+<div class="card" style="padding:0.6rem 0.8rem;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
+        <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+            <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
+            <select id="layeredHospitalFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+            <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
+            <select id="layeredMonthFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+            <label style="font-size:0.75rem;color:var(--text-secondary);">Indicator:</label>
+            <select id="layeredIndicatorFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+            <label style="font-size:0.75rem;color:var(--text-secondary);">Classification:</label>
+            <select id="layeredClassificationFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+                <option value="">All</option>
+                <option value="NORMAL">NORMAL</option>
+                <option value="RAW_VALUE_ANOMALY">RAW_VALUE_ANOMALY</option>
+                <option value="RATE_ANOMALY">RATE_ANOMALY</option>
+                <option value="HISTORICAL_ANOMALY">HISTORICAL_ANOMALY</option>
+                <option value="VOLUME_DRIVEN_ANOMALY">VOLUME_DRIVEN_ANOMALY</option>
+                <option value="PEER_ANOMALY">PEER_ANOMALY</option>
+                <option value="POSSIBLE_DATA_ENTRY_ERROR">POSSIBLE_DATA_ENTRY_ERROR</option>
+                <option value="CLINICAL_INVESTIGATION_REQUIRED">CLINICAL_INVESTIGATION_REQUIRED</option>
+            </select>
+            <label style="font-size:0.75rem;color:var(--text-secondary);">Level:</label>
+            <select id="layeredLevelFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+                <option value="">All</option>
+                <option value="NONE">NONE</option>
+                <option value="LOW">LOW</option>
+                <option value="MODERATE">MODERATE</option>
+                <option value="HIGH">HIGH</option>
+                <option value="VERY_HIGH">VERY_HIGH</option>
+            </select>
+            <label style="font-size:0.75rem;color:var(--text-secondary);">Investigation:</label>
+            <select id="layeredInvestigationFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+                <option value="">All</option>
+                <option value="none">none</option>
+                <option value="data_quality">data_quality</option>
+                <option value="clinical">clinical</option>
+                <option value="contextual">contextual</option>
+            </select>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.4rem;">
+            <span id="layeredCount" style="font-size:0.75rem;color:var(--text-muted);"></span>
+            <span id="layeredLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
+            <button onclick="layeredPage(-1)" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">&#8249; Prev</button>
+            <span id="layeredPageInfo" style="font-size:0.75rem;color:var(--text-muted);"></span>
+            <button onclick="layeredPage(1)" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Next &#8250;</button>
+            <button id="layeredExportBtn" onclick="exportLayeredCSV()" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Export CSV</button>
+        </div>
+    </div>
+    <div style="max-height:500px;overflow-y:auto;">
+        <table id="layeredTable">
+            <thead><tr>
+                <th data-i18n="Hospital">Hospital</th>
+                <th class="sortable" data-col="month" data-i18n="Month">Month</th>
+                <th data-i18n="Indicator">Indicator</th>
+                <th class="sortable" data-col="raw_value" data-i18n="Raw value (Δ%)">Raw value (Δ%)</th>
+                <th class="sortable" data-col="rate" data-i18n="Rate (Δ%)">Rate (Δ%)</th>
+                <th class="sortable" data-col="denominator" data-i18n="Denominator (Δ%)">Denominator (Δ%)</th>
+                <th data-i18n="Peer">Peer</th>
+                <th class="sortable" data-col="level" data-i18n="Level">Level</th>
+                <th class="sortable" data-col="type" data-i18n="Classification">Classification</th>
+                <th data-i18n="Why">Why</th>
+            </tr></thead>
+            <tbody id="layeredTbody"></tbody>
+        </table>
+    </div>
+</div>

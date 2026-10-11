@@ -487,6 +487,7 @@
     'tab-analysis': 'analysis.read',
     'tab-quality': 'quality.read',
     'tab-outliers': 'outliers.read',
+    'tab-layered': 'analysis.read',
     'tab-clinical': 'clinical.read',
     'tab-alerts': 'alerts.read',
     'tab-hospitals': 'hospitals.read',
