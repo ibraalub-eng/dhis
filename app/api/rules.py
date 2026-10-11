@@ -4,6 +4,7 @@ import time
 from typing import List, Union
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_permission
@@ -97,6 +98,149 @@ def _record_rule_history(
         pass
 
 
+# ── Stored-score invalidation ─────────────────────────────────
+# ValidationResult and QualityScore are *persisted snapshots*. Every
+# score-based screen (hospital dashboard "Validation rule", reports, the
+# Alerts screen, the admin radar) reads those rows, not the live evaluation
+# /rules/impact performs. Editing a rule therefore leaves the whole app
+# showing pre-edit numbers: a rule enabled or re-pointed at new indicators
+# could show "100% validation" on the hospital card while the Rules Manager
+# showed it failing.
+#
+# Only the LATEST month is recomputed, mirroring /rules/impact's own
+# latest-month scope. Earlier months stay as they were recorded, so historical
+# alerts remain the history the user actually saw at the time.
+_latest_recompute = {"running": False, "task_id": None, "pending": False}
+_LATEST_RECOMPUTE_LOCK = threading.Lock()
+
+
+def _latest_month_with_data(db: Session):
+    row = (db.query(IndicatorValue.month).distinct()
+           .order_by(IndicatorValue.month.desc()).first())
+    return row[0] if row and row[0] else None
+
+
+def _run_latest_month_recompute(task_id: str, month: str, hospital_ids: List[int]) -> dict:
+    """Background worker: re-run the engine for one month across hospitals."""
+    from app.database import SessionLocal
+    from app.engine.pipeline import recompute_hospital_months
+    from app.tasks import set_progress
+
+    bg_db = SessionLocal()
+    done = failed = 0
+    try:
+        total = max(len(hospital_ids), 1)
+        for h_id in hospital_ids:
+            try:
+                recompute_hospital_months(bg_db, h_id, [month], force=True)
+                done += 1
+            except Exception:
+                failed += 1
+                try:
+                    bg_db.rollback()
+                except Exception:
+                    pass
+            try:
+                set_progress(task_id, int((done + failed) / total * 100))
+            except Exception:
+                pass
+        return {"month": month, "recomputed": done, "failed": failed}
+    finally:
+        bg_db.close()
+        with _LATEST_RECOMPUTE_LOCK:
+            _latest_recompute["running"] = False
+            # A rule changed WHILE this pass ran: it may have been read after
+            # this pass already evaluated the hospitals, so this pass cannot be
+            # trusted to include the change. Flag a follow-up and run it below
+            # (outside the lock) so the last edit always reaches the scores.
+            _rerun = bool(_latest_recompute.get("pending"))
+            _latest_recompute["pending"] = False
+        if _rerun:
+            threading.Thread(
+                target=_schedule_latest_month_recompute, daemon=True
+            ).start()
+
+
+def _schedule_latest_month_recompute(background_tasks=None) -> str | None:
+    """Kick off the latest-month recompute after a rule mutation.
+
+    Never raises and never blocks the save: a failure here must not turn a
+    successful rule edit into an error response.
+    """
+    try:
+        from app.database import SessionLocal
+        probe = SessionLocal()
+        try:
+            month = _latest_month_with_data(probe)
+            if not month:
+                return None
+            hospital_ids = [h.id for h in probe.query(Hospital)
+                            .filter(Hospital.is_active.is_(True))
+                            .order_by(Hospital.id).all()]
+        finally:
+            probe.close()
+        if not hospital_ids:
+            return None
+
+        with _LATEST_RECOMPUTE_LOCK:
+            if _latest_recompute["running"]:
+                # Coalesce: never start a second engine pass in parallel, but do
+                # remember that this change still has to be applied — the pass
+                # already running may have read the rules before this edit.
+                _latest_recompute["pending"] = True
+                return _latest_recompute["task_id"]
+            _latest_recompute["running"] = True
+
+        from app.tasks import create_task, run_task
+        task_id = create_task("Rule change - refreshing %s scores" % month, lambda: None)
+        _latest_recompute["task_id"] = task_id
+
+        def _run(tid):
+            return _run_latest_month_recompute(tid, month, hospital_ids)
+
+        if background_tasks is not None:
+            background_tasks.add_task(run_task, task_id, _run, task_id)
+        else:
+            threading.Thread(target=run_task, args=(task_id, _run, task_id),
+                             daemon=True).start()
+        return task_id
+    except Exception:
+        with _LATEST_RECOMPUTE_LOCK:
+            _latest_recompute["running"] = False
+            # Nothing ran, so nothing is outstanding either.
+            _latest_recompute["pending"] = False
+        return None
+
+
+@router.get("/recompute-status")
+def rule_recompute_status():
+    """Lets the UI tell the user their edit is still being applied to the
+    stored quality scores, instead of leaving a stale 100% on screen."""
+    with _LATEST_RECOMPUTE_LOCK:
+        running = _latest_recompute["running"]
+        task_id = _latest_recompute["task_id"]
+    if not running or not task_id:
+        return {"running": False}
+    try:
+        from app.tasks import get_task
+        task = get_task(task_id) or {}
+        return {"running": True, "progress": task.get("progress", 0),
+                "status": task.get("status"), "result": task.get("result")}
+    except Exception:
+        return {"running": True}
+
+
+@router.post("/recompute-latest")
+def force_recompute_latest(background_tasks=None):
+    """Manual trigger for the same refresh (Admin > Recalculate, or after a
+    bulk rule import) when the automatic pass is not wanted."""
+    task_id = _schedule_latest_month_recompute(background_tasks)
+    if not task_id:
+        raise HTTPException(status_code=400,
+                            detail="Nothing to recompute: no indicator data found")
+    return {"message": "Recomputing the latest month", "task_id": task_id}
+
+
 @router.get("/impact")
 def rules_impact(
     refresh: bool = False,
@@ -129,6 +273,8 @@ def rules_impact(
                 "params": _safe_params(r.params),
                 "ref_codes": [], "ref_names": [],
                 "failure_count": 0, "hospitals_affected": [], "month": None,
+                "enabled": bool(r.enabled),
+                "alert_count": 0, "alert_hospitals": 0, "last_alert_month": None,
             }
             for r in db.query(Rule).order_by(Rule.code).all()
         ]
@@ -163,6 +309,29 @@ def rules_impact(
         )
 
     # ── evaluate each rule ──────────────────────────────────────
+    # Historical FAIL alerts per rule. The live pass below only reflects the
+    # latest month, so without this a rule that failed repeatedly in earlier
+    # months looked identical to one that never failed at all.
+    alert_stats = (
+        db.query(
+            ValidationResult.rule_code,
+            func.count().label("cnt"),
+            func.count(func.distinct(ValidationResult.hospital_id)).label("hospitals"),
+            func.max(ValidationResult.month).label("last_month"),
+        )
+        .filter(ValidationResult.status == "FAIL")
+        .group_by(ValidationResult.rule_code)
+        .all()
+    )
+    alerts_by_code = {
+        row.rule_code: {
+            "alert_count": int(row.cnt),
+            "alert_hospitals": int(row.hospitals),
+            "last_alert_month": row.last_month,
+        }
+        for row in alert_stats
+    }
+
     result = []
     for r in rules:
         params = _safe_params(r.params)
@@ -175,22 +344,28 @@ def rules_impact(
             severity=r.severity, expression_type=r.expression_type,
             params=json.dumps(params),
         )
-        if r.enabled:
-            for h in hospitals:
-                ctx = hospital_contexts.get(h.id)
-                if ctx is None:
-                    continue
-                try:
-                    res = dispatch_rule(rule_obj, ctx)
-                except Exception:
-                    continue
-                if res is not None and res.status.value == "FAIL":
-                    affected.append({
-                        "id": h.id,
-                        "name": h.name,
-                        "details": res.details,
-                    })
-                    fail_count += 1
+        # Disabled rules are evaluated here as well. The Rules Manager is where
+        # a rule gets tuned before it is switched on, and skipping disabled
+        # rules reported a hard 0 that the UI rendered as "no hospitals
+        # affected" — indistinguishable from a clean pass, so editing the
+        # definition looked like it had no effect. `enabled` travels with the
+        # entry so the UI can label the number instead of implying it is live.
+        for h in hospitals:
+            ctx = hospital_contexts.get(h.id)
+            if ctx is None:
+                continue
+            try:
+                res = dispatch_rule(rule_obj, ctx)
+            except Exception:
+                continue
+            if res is not None and res.status.value == "FAIL":
+                affected.append({
+                    "id": h.id,
+                    "name": h.name,
+                    "details": res.details,
+                })
+                fail_count += 1
+        stats = alerts_by_code.get(r.code, {"alert_count": 0, "alert_hospitals": 0, "last_alert_month": None})
         result.append({
             "id": r.id,
             "code": r.code,
@@ -204,6 +379,8 @@ def rules_impact(
             "failure_count": fail_count,
             "hospitals_affected": affected,
             "month": latest_month,
+            "enabled": bool(r.enabled),
+            **stats,
         })
 
     with _impact_cache["lock"]:
@@ -512,6 +689,7 @@ def save_rules_enabled(body: dict, db: Session = Depends(get_db)):
     db.commit()
     # Invalidate caches that depend on rule enabled states
     _invalidate_impact_cache()
+    _schedule_latest_month_recompute()
     return {"message": f"Saved enabled state for {count} rule(s)"}
 
 
@@ -583,6 +761,7 @@ def import_rules(body: Union[dict, List[dict]] = Body(...), db: Session = Depend
             created += 1
     db.commit()
     _invalidate_impact_cache()
+    _schedule_latest_month_recompute()
     return {
         "message": f"Imported {len(items)} rule(s): {created} created, {updated} updated, {len(skipped)} skipped",
         "created": created,
@@ -658,6 +837,7 @@ def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_rule)
     _invalidate_impact_cache()
+    _schedule_latest_month_recompute()
     return db_rule
 
 
@@ -676,6 +856,7 @@ def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_db)):
     db.refresh(db_rule)
     if changed:
         _invalidate_impact_cache()
+        _schedule_latest_month_recompute()
     return db_rule
 
 
@@ -691,6 +872,7 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     _record_rule_history(db, None, "deleted", [], rule_id=None, rule_code=code, snapshot=snap)
     db.commit()
     _invalidate_impact_cache()
+    _schedule_latest_month_recompute()
     return {"message": f"Rule {code} deleted"}
 
 
@@ -718,6 +900,8 @@ def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
     _record_rule_history(db, rule, "enabled" if rule.enabled else "disabled", ["enabled"])
     db.commit()
     db.refresh(rule)
+    _invalidate_impact_cache()
+    _schedule_latest_month_recompute()
     return {
         "id": rule.id,
         "code": rule.code,

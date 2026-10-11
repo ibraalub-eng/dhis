@@ -57,12 +57,13 @@ def _calc_rule_compliance(rule_results: List[RuleResult]) -> float:
     return passed / total
 
 
-def _calc_completeness(values: Dict[str, float], active_indicator_count: int, covered_codes: set = None) -> float:
-    if active_indicator_count <= 0:
+def _calc_completeness(values: Dict[str, float], active_indicator_count: int = None, covered_codes: set = None, required_count: int = None) -> float:
+    denom_base = required_count if required_count is not None else active_indicator_count
+    if denom_base is None or denom_base <= 0:
         return 0.0
     filled = sum(1 for v in values.values() if v is not None)
     covered = covered_codes or set()
-    active = max(1, active_indicator_count - len(covered))
+    active = max(1, denom_base - len(covered))
     return min(1.0, filled / active)
 
 

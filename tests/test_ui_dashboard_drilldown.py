@@ -19,8 +19,15 @@ def _read_js():
 
 
 def _fn_src(js, marker, span):
+    """Slice a region of the file starting at `marker`. A fixed character
+    budget silently stopped covering later blocks every time the function grew,
+    so the drilldown is sized by its own end marker when one exists."""
     start = js.index(marker)
-    return js[start:start + span]
+    try:
+        end = js.index("window.applyDashboardFilter", start)
+    except ValueError:
+        end = start + span
+    return js[start:end]
 
 
 def test_kpi_drilldown_sends_month_range_on_all_fetches():
@@ -157,8 +164,10 @@ def test_affected_hospital_row_has_direct_audit_screen_jump():
     'Audit' button must NOT be duplicated on the row itself."""
     js = _read_js()
     drill = _fn_src(js, "window.openKPIDrilldown = function", 64000)
-    # Why popup is the row's single entry point...
-    assert "window.showWhyPopup(\\'quality_score\\'" in drill
+    # Why popup is the row's single entry point... (object form so the digest
+    # can be told WHICH component's worst month to explain)
+    assert "window.showWhyPopup({kind:" in drill
+    assert "component:" in drill
     # ...and no second Audit button on the row
     assert "\\u2696" not in drill
     # the shared jump helper still exists globally (popup footer + DA causes use it)

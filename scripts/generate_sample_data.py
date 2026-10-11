@@ -141,7 +141,6 @@ def generate_sample_excel(output_path: str = None, num_hospitals: int = 5):
             row["Maternal Deaths"] = maternal_deaths
             row["In-hospital deaths"] = int(maternal_deaths * np.random.uniform(0.50, 0.80))
             row["Referred cases"] = int(np.random.randint(0, 2))
-            row["Community deaths"] = max(maternal_deaths - row["In-hospital deaths"] - row["Referred cases"], 0)
 
             row["Breastfeeding within first hour"] = int(live_births * np.random.uniform(0.50, 0.80))
             row["STIs treated cases"] = int(np.random.randint(10, 50))

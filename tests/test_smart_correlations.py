@@ -113,7 +113,6 @@ def test_correlations_serialized_as_plain_dicts(sample_data, default_config):
 
 def test_correlations_serialization_sanitizes_nan():
     """القيم غير المنتهية داخل pearson_r تُنظف إلى 0.0 بدل التسريب كـ NaN."""
-    import math
     from app.api.smart_analytics import _correlations_to_dict
     from app.engine.smart.schemas import (
         SmartCorrelationResult, CorrelationPair, FeatureImportance, ImportanceEntry,
@@ -132,5 +131,10 @@ def test_correlations_serialization_sanitizes_nan():
     )
     serialized = _correlations_to_dict(result)
     pair = serialized["strong_correlations"][0]
-    assert pair["pearson_r"] == 0.0
-    assert not math.isnan(pair["pearson_r"])
+    # pearson_r could not be computed (zero-variance series → 0/0). Reporting
+    # that as a 0.0 correlation claims "no linear relationship exists", which
+    # the data never supported — so it must serialize as null, never as a
+    # measured zero, and still be strict JSON (no NaN literal).
+    import json
+    assert pair["pearson_r"] is None
+    json.dumps(serialized, allow_nan=False)

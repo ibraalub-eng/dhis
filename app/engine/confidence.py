@@ -120,7 +120,7 @@ class HospitalConfidenceResult:
 
 def _extract_codes_from_params(expr_type: str, params: dict) -> List[str]:
     codes = []
-    if expr_type in ("ge", "eq", "gt", "ge_factor"):
+    if expr_type in ("ge", "eq", "gt", "ge_factor", "parent_le"):
         codes.append(params.get("parent", ""))
         codes.extend(params.get("children", []))
     elif expr_type in ("le", "lt"):

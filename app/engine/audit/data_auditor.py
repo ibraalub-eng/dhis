@@ -92,6 +92,7 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
             "severity": r.severity,
             "severity_weight": sev_weight,
             "details": r.details or "",
+            "hospital_id": r.hospital_id,
         })
 
     conf = db.query(ConfidenceScore).filter(
@@ -153,6 +154,7 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
         }
 
     return {
+        "hospital_id": hospital_id,
         "hospital": hospital.name,
         "month": month,
         "completeness": {

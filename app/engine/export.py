@@ -32,7 +32,11 @@ def _sanitize(obj: Any) -> Any:
         except (ValueError, AttributeError, TypeError):
             pass
     if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
-        return 0.0
+        # JSON has no NaN/Infinity literal, but "this could not be computed"
+        # must not be exported as 0.0: downstream consumers read 0.0 as a
+        # measured value and would rank/aggregate a missing number against a
+        # real one. null is both JSON-compliant and honest.
+        return None
     if hasattr(obj, "__dict__") and not isinstance(obj, (int, float, str, bool)):
         return _sanitize(vars(obj))
     return obj

@@ -504,7 +504,10 @@ function renderAudit() {
         html += subLabel(__('Rule Failures'));
         da.rule_failures.items.slice(0, 10).forEach(r => {
             html += '<div style="padding:0.2rem 0.5rem;border-left:2px solid ' + riskColor(r.severity) + ';margin:0.15rem 0;background:' + riskColor(r.severity) + '06;border-radius:2px;font-size:0.74rem;">';
-            html += '<div style="display:flex;justify-content:space-between;"><span><strong>' + esc(r.rule_code) + '</strong> - ' + esc(r.description) + '</span>' + sevClass(r.severity) + '</div>';
+            html += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.4rem;"><span style="overflow-wrap:anywhere;"><strong>' + esc(r.rule_code) + '</strong> - ' + esc(r.description) + '</span>' + sevClass(r.severity);
+            // Make rule code clickable to open Why popup for this rule
+            html += ' <button type="button" class="btn btn-link" style="padding:0 4px;font-size:0.72rem;font-weight:700;color:var(--accent-blue,#1565c0);border:none;background:none;cursor:pointer;" onclick="window.showWhyPopup({kind:\'rule\',hospitalId:' + (r.hospital_id != null ? r.hospital_id : (da.hospital_id || 'null')) + ',month:\'' + esc(da.month || '') + '\',ruleCode:\'' + esc(r.rule_code || '') + '\'})" title="' + __('Why this rule failed?') + '">❓ ' + __('Why') + '</button>';
+            html += '</div>';
             if (r.details) html += '<div style="font-size:0.7rem;color:var(--text-secondary);">' + esc(r.details) + '</div>';
             html += '</div>';
         });

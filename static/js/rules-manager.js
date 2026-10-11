@@ -1453,6 +1453,19 @@ function loadHospitalsSettings() {
         function renderKpiCards(hid) {
             const dr = window._dashboardDateRange;
             const yr = document.getElementById('dashYear').value;
+            const container = document.getElementById('dashKpiCards');
+            if (container) {
+                container.innerHTML = Array(4).fill(0).map(() => 
+                    '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:var(--bg-surface);border:1px dashed var(--border-default);opacity:0.6;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;">' +
+                    '<div style="height:0.75rem;width:40%;background:var(--bg-surface-hover);border-radius:3px;"></div>' +
+                    '<div style="height:1.1rem;width:25%;background:var(--bg-surface-hover);border-radius:3px;"></div>' +
+                    '</div>' +
+                    '<div style="height:0.65rem;width:60%;background:var(--bg-surface-hover);border-radius:3px;margin-bottom:4px;"></div>' +
+                    '<div style="height:5px;width:100%;background:var(--bg-surface-hover);border-radius:3px;"></div>' +
+                    '</div>'
+                ).join('');
+            }
             let url = '/dashboard/kpi?';
             if (hid) url += 'hospital_id=' + hid + '&';
             if (dr && dr.from) url += 'month_from=' + dr.from + '&';
@@ -1477,7 +1490,12 @@ function loadHospitalsSettings() {
                 }
                 container.innerHTML = (data.kpis || []).map(k => {
                     const hasTarget = k.target != null;
-                    const pct = hasTarget ? Math.min(k.value / k.target, 1) : 0.5;
+                    // No analyzed data in the selected window: the API sends a
+                    // null value, which must read "no data" — rendering it as 0
+                    // claimed a catastrophic score for a month that was never
+                    // analyzed (and its drilldown had nothing to explain).
+                    const _noData = (k.value == null);
+                    const pct = (hasTarget && !_noData) ? Math.min(k.value / k.target, 1) : 0.5;
                     const bg = hasTarget
                         ? (k.higher_is_better ? (pct >= 1 ? 'var(--severity-success-bg)' : pct >= 0.75 ? 'var(--severity-warning-bg)' : 'var(--severity-critical-bg)') : (pct <= 1 ? 'var(--severity-success-bg)' : 'var(--severity-critical-bg)'))
                         : 'var(--bg-surface-hover)';
@@ -1502,7 +1520,7 @@ function loadHospitalsSettings() {
                     // window, so a manager can tell a real problem from a
                     // network-wide norm.
                     var _bench = '';
-                    if (k.network_value != null && hid) {
+                    if (k.network_value != null && hid && !_noData) {
                         var _behind = (k.value - k.network_value) * (k.higher_is_better === false ? -1 : 1);
                         var _bc = Math.abs(_behind) < 0.05 ? 'var(--text-muted)' : (_behind > 0 ? 'var(--accent-green)' : 'var(--accent-orange)');
                         var _sign = _behind >= 0 ? '+' : '\u2212';
@@ -1514,13 +1532,15 @@ function loadHospitalsSettings() {
                     return '<div class="card" style="text-align:left;padding:0.8rem 1rem;background:' + bg + ';' + (_noDrill ? '' : 'cursor:pointer;') + '"' + (_noDrill ? '' : ' onclick="window.openKPIDrilldown(\'' + k.id + '\')"') + '>' +
                         '<div style="display:flex;justify-content:space-between;align-items:baseline;">' +
                         '<span style="font-size:0.75rem;color:var(--text-secondary);font-weight:500;">' + k.label + '</span>' +
-                        '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? ' <span style="font-size:0.7rem;">' + k.unit + '</span>' : '') + '</span></div>' +
-                        _delta +
-                        _bench +
-                        (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + (pct >= 1 ? 'var(--accent-green)' : pct >= 0.75 ? 'var(--accent-yellow)' : 'var(--accent-red)') + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:var(--text-muted);">target ' + k.target + '</span></div>' : '') +
+                        (_noData
+                            ? '<span style="font-size:1.1rem;font-weight:700;color:var(--text-muted);">' + esc(__('No data')) + '</span>'
+                            : '<span style="font-size:1.1rem;font-weight:700;color:' + valColor + ';">' + k.value + (k.unit ? ' <span style="font-size:0.7rem;">' + k.unit + '</span>' : '') + '</span>') + '</div>' +
+                        (_noData ? '<div style="font-size:0.63rem;margin-top:2px;color:var(--text-muted);">' +
+                            esc(__('No analyzed data in this period')) + (k.network_value != null ? ' · ' + esc(__('Network') + ': ' + k.network_value + (k.unit || '')) : '') + '</div>' : (_delta + _bench)) +
+                        (_noData ? '' : (k.target ? '<div style="margin-top:4px;display:flex;align-items:center;gap:4px;"><div style="flex:1;height:5px;background:var(--border-default);border-radius:3px;"><div style="width:' + barPct + '%;height:5px;background:' + (pct >= 1 ? 'var(--accent-green)' : pct >= 0.75 ? 'var(--accent-yellow)' : 'var(--accent-red)') + ';border-radius:3px;transition:width 0.4s;"></div></div><span style="font-size:0.65rem;color:var(--text-muted);">target ' + k.target + '</span></div>' : '')) +
                         '</div>';
                 }).join('');
-            }).catch(() => {});
+            });
         }
 
         let _dashMonthsCache = null;
@@ -1767,10 +1787,17 @@ function loadHospitalsSettings() {
 
                 // KPI value + target
                 if (kpi) {
+                    // null value = no analyzed rows in this window (ghost
+                    // month / never-imported data): say so instead of "null %".
+                    var _kpiValTxt = (kpi.value == null)
+                        ? esc(__('No data'))
+                        : kpi.value + (kpi.unit ? ' ' + kpi.unit : '');
                     html += '<div class="scorecard-kpi-bar">' +
                         '<div class="scorecard-kpi-item" style="border-top-color:var(--accent-blue);background:var(--bg-elevated);">' +
                         '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">' + label + '</div>' +
-                        '<div style="font-size:1.5rem;font-weight:700;color:var(--accent-blue);">' + kpi.value + (kpi.unit ? ' ' + kpi.unit : '') + '</div></div>';
+                        '<div style="font-size:1.5rem;font-weight:700;color:' + (kpi.value == null ? 'var(--text-muted)' : 'var(--accent-blue)') + ';">' + _kpiValTxt + '</div>' +
+                        (kpi.value == null ? '<div style="font-size:0.65rem;color:var(--text-muted);margin-top:2px;">' + esc(__('No analyzed data in this period')) + '</div>' : '') +
+                        '</div>';
                     if (kpi.target != null) {
                         html += '<div class="scorecard-kpi-item">' +
                             '<div style="font-size:0.65rem;color:var(--text-muted);text-transform:uppercase;">Target</div>' +
@@ -1968,13 +1995,31 @@ function loadHospitalsSettings() {
                                         }
                                         html += '<span style="flex-shrink:0;font-size:0.7rem;font-weight:700;color:' + hCol + ';"><span dir="ltr">' + avgNum + '%</span></span>';
                                         if (h.hospital_id != null && problemMonths.length) {
-                                            // "Why?" — jump straight to the calculation for the
-                                            // hospital's worst problem month. (The audit jump is
-                                            // deliberately NOT repeated here: the Why popup's footer
-                                            // already carries "Open in audit screen" — one jump per
-                                            // row keeps the header compact.)
-                                            var _wm = problemMonths.slice().sort()[0];
-                                            html += '<button onclick="event.stopPropagation();window.showWhyPopup(\'quality_score\',' + Number(h.hospital_id) + ',\'' + _wm + '\')" '
+                                            // "Why?" — open the calculation for the hospital's
+                                            // WORST month for THIS component (the tab the row
+                                            // sits in), not merely its oldest problem month:
+                                            // a Completeness card with problems in 2026-01 and
+                                            // 2026-08 must explain the month that bottomed out,
+                                            // and the popup's trend must plot that same
+                                            // component instead of the overall score. Falls back
+                                            // to the earliest problem month when the per-hospital
+                                            // series is missing. (The audit jump is deliberately
+                                            // NOT repeated here: the Why popup's footer already
+                                            // carries "Open in audit screen" — one jump per row
+                                            // keeps the header compact.)
+                                            var _pm = problemMonths.slice().sort();
+                                            var _hm = (c && c.hosp_monthly && c.hosp_monthly[String(h.hospital_id)]) || null;
+                                            var _wm = _pm[0];
+                                            if (_hm && _hm.length) {
+                                                var _worst = null;
+                                                _hm.forEach(function(pt) {
+                                                    if (!pt || _pm.indexOf(pt.month) === -1) return;
+                                                    if (_worst == null || pt.value < _worst.value) _worst = pt;
+                                                });
+                                                if (_worst) _wm = _worst.month;
+                                            }
+                                            var _ckey = (c && String(c.key || '').match(/^[a-z_]+$/)) ? c.key : 'quality_score';
+                                            html += '<button onclick="event.stopPropagation();window.showWhyPopup({kind:\'quality_score\',hospitalId:' + Number(h.hospital_id) + ',month:\'' + _wm + '\',component:\'' + _ckey + '\'})" '
                                                 + 'title="' + __('Why? — formula, inputs, reproduction for this hospital-month') + '" '
                                                 + 'style="flex-shrink:0;background:none;border:1px solid var(--border-default);border-radius:4px;padding:1px 7px;font-size:0.65rem;cursor:pointer;color:var(--accent-blue);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button>';
                                         }
@@ -2418,6 +2463,10 @@ function loadHospitalsSettings() {
         let rankingSortAsc = false;
 
         export function loadRankingTable() {
+            const table = document.getElementById('rankingTable');
+            if (table) {
+                table.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem;color:var(--text-secondary);"><span class="spinner"></span> Loading...</div>';
+            }
             const hid = document.getElementById('dashHospital').value;
             const dr = window._dashboardDateRange;
             let url = '/dashboard/ranking?';
@@ -2672,6 +2721,15 @@ function loadHospitalsSettings() {
             const dr = window._dashboardDateRange;
             document.getElementById('dashLoading').style.display = 'inline';
 
+            // Add skeletons for summary cards
+            const sumCards = ['dashHospitals', 'dashReports', 'dashAvgScore', 'dashAlerts'];
+            sumCards.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.innerHTML = '<span style="display:inline-block;height:1.5rem;width:60%;background:var(--bg-surface-hover);border-radius:4px;animation: skelPulse 1.5s ease-in-out infinite;"></span>';
+                }
+            });
+
             let url = '/dashboard/overview?';
             if (hid) url += 'hospital_id=' + hid + '&';
             if (dr && dr.from) url += 'month_from=' + dr.from + '&';
@@ -2689,7 +2747,10 @@ function loadHospitalsSettings() {
             ]).then(([data, trendData]) => {
                 document.getElementById('dashHospitals').textContent = data.total_hospitals;
                 document.getElementById('dashReports').textContent = data.total_reports;
-                document.getElementById('dashAvgScore').textContent = data.avg_quality_score;
+                // avg_quality_score is null when the window has no analyzed
+                // reports — show a dash, never a fake 0.
+                document.getElementById('dashAvgScore').textContent = (data.avg_quality_score != null && isFinite(data.avg_quality_score))
+                    ? data.avg_quality_score : '\u2014';
                 document.getElementById('dashAlerts').textContent = data.total_alerts;
 
                 // KPI cards
@@ -2803,8 +2864,10 @@ function loadHospitalsSettings() {
                 loadHeatmap();
                 loadRankingTable();
                 loadAttentionStrip();
+            }).finally(() => {
+                const dl = document.getElementById('dashLoading');
+                if (dl) dl.style.display = 'none';
             }).catch(e => {
-                document.getElementById('dashLoading').style.display = 'none';
                 console.error('Dashboard error:', e);
             });
         }
@@ -2825,6 +2888,7 @@ function loadHospitalsSettings() {
             if (dr && dr.from) url += 'month_from=' + dr.from + '&';
             if (dr && dr.to) url += 'month_to=' + dr.to + '&';
             if (yr) url += 'year=' + yr;
+            el.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.8rem;color:var(--text-secondary);"><span class="spinner"></span> Loading...</div>';
             apiGet(url).then(att => {
                 const rows = [];
                 (att.movers || []).forEach(function (m) {
@@ -2836,7 +2900,7 @@ function loadHospitalsSettings() {
                 (att.alerts || []).forEach(function (a) {
                     rows.push({ icon: '\u26a0\ufe0f', color: 'var(--accent-orange)', hospital: a.hospital,
                         text: a.count + ' ' + __('critical/high rule failures'),
-                        month: a.month, why: a.why, ruleCode: a.top_rule_code });
+                        month: a.month, why: a.why, ruleCode: a.top_rule_code, whyCount: a.count });
                 });
                 (att.anomalies || []).forEach(function (a) {
                     var _compLabels = { quality_score: __('Quality Score'), rule_compliance: __('Validation rule'), completeness: __('Completeness'), consistency: __('Consistency'), outlier_score: __('Outlier Score') };
@@ -2858,16 +2922,23 @@ function loadHospitalsSettings() {
                     '<h2 style="margin-bottom:0.5rem;">' + __('Needs attention') +
                     (att.month ? ' <span style="font-size:0.72rem;font-weight:400;color:var(--text-muted);">' + esc(att.month) + '</span>' : '') + '</h2>' +
                     rows.slice(0, 8).map(function (r) {
+                        // Several failures in one hospital-month: open the score
+                        // digest, whose failed-rules list shows ALL of them —
+                        // opening only the top rule hid the other two behind a
+                        // digest that says "3 rule(s) failed".
+                        var _w = r.why || {};
+                        var _oneRule = _w.kind === 'rule' && !(r.whyCount > 1);
+                        var _whyBtn = '<button onclick="window.showWhyPopup({kind:\'' + (_oneRule ? _w.kind : 'quality_score') + '\',hospitalId:' + Number(_w.hospital_id) + ',month:\'' + _w.month + '\'' +
+                            (_w.component ? ",component:'" + String(_w.component).replace(/[^a-z_]/g, '') + "'" : '') +
+                            (_oneRule && r.ruleCode ? ",ruleCode:'" + String(r.ruleCode).replace(/\\/g, '').replace(/'/g, '') + "'" : '') + '})" ' +
+                            'style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:4px;padding:2px 8px;font-size:0.68rem;font-weight:700;cursor:pointer;color:var(--accent-blue);white-space:nowrap;">' +
+                            __('Why') + '</button>';
                         return '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.25rem 0;border-bottom:1px dashed var(--border-default);font-size:0.76rem;">' +
                             '<span style="color:' + r.color + ';font-weight:700;">' + r.icon + '</span>' +
                             '<span style="font-weight:600;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + esc(r.hospital) + '</span>' +
                             '<span style="color:var(--text-secondary);flex:1;">' + esc(r.text) + '</span>' +
                             '<span dir="ltr" style="color:var(--text-muted);font-size:0.68rem;">' + esc(r.month || '') + '</span>' +
-                            '<button onclick="window.showWhyPopup({kind:\'' + r.why.kind + '\',hospitalId:' + Number(r.why.hospital_id) + ',month:\'' + r.why.month + '\'' +
-                            (r.why.component ? ",component:'" + String(r.why.component).replace(/[^a-z_]/g, '') + "'" : '') +
-                            (r.ruleCode ? ",ruleCode:'" + String(r.ruleCode).replace(/\\/g, '').replace(/'/g, '') + "'" : '') + '})" ' +
-                            'style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:4px;padding:2px 8px;font-size:0.68rem;font-weight:700;cursor:pointer;color:var(--accent-blue);white-space:nowrap;">' +
-                            __('Why') + '</button></div>';
+                            _whyBtn + '</div>';
                     }).join('') + '</div>';
             }).catch(function () { el.innerHTML = ''; });
         }
@@ -2891,8 +2962,12 @@ function loadHospitalsSettings() {
         };
 
         function loadHeatmap(month) {
+            const container = document.getElementById('heatmapContainer');
+            if (container) {
+                container.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem;color:var(--text-secondary);"><span class="spinner"></span> Loading heatmap...</div>';
+            }
             // Network-wide view: the Quality Score Heatmap intentionally does
-            // NOT filter by the dashboard's selected hospital — it always
+            // NOT filter by the dashboard's selected hospital �?? it always
             // shows every active hospital so the selected facility can be
             // compared against its peers in place.
             let url = '/analysis/heatmap?';
@@ -3459,12 +3534,35 @@ function loadHospitalsSettings() {
                     let impactCell = '<span style="color:var(--text-muted);">--</span>';
                     if (imp) {
                         const affected = imp.hospitals_affected || [];
-                        if (affected.length) {
-                            const f = affected.length;
-                            const fColor = f === 0 ? 'var(--accent-green)' : f >= 20 ? 'var(--accent-red)' : 'var(--accent-orange)';
-                            impactCell = '<span style="color:' + fColor + ';font-weight:600;white-space:nowrap;" title="' + f + ' hospital(s) fail this rule right now (month ' + (imp.month || '?') + ')">' + f + '</span>';
+                        const live = affected.length;
+                        const alerts = imp.alert_count || 0;
+                        // /rules/impact now evaluates disabled rules too so this
+                        // number always reflects the saved definition. Without the
+                        // flag a disabled rule showed "0" and read as "clean".
+                        const isDisabled = imp.enabled === false || r.enabled === false;
+                        if (live) {
+                            const fColor = live >= 20 ? 'var(--accent-red)' : 'var(--accent-orange)';
+                            const liveTip = live + ' hospital(s) fail this rule right now (month ' + (imp.month || '?') + ')'
+                                + (isDisabled ? ' — the rule is disabled, so these are not being alerted' : '');
+                            impactCell = '<span style="color:' + fColor + ';font-weight:600;white-space:nowrap;" title="' + liveTip + '">' + live + '</span>';
                         } else {
-                            impactCell = '<span style="color:var(--accent-green);font-weight:600;" title="No failures recorded">0</span>';
+                            const cleanTip = isDisabled
+                                ? 'Rule is disabled — nothing is being evaluated or alerted for it'
+                                : 'No hospital fails this rule in the latest month (' + (imp.month || '?') + ')';
+                            impactCell = '<span style="color:' + (isDisabled ? 'var(--text-muted)' : 'var(--accent-green)') + ';font-weight:600;" title="' + cleanTip + '">0</span>';
+                        }
+                        if (isDisabled) {
+                            impactCell += '<br><span class="rule-alert-hist" style="color:var(--text-muted);" title="' +
+                                __('This rule is disabled. Its impact is still shown so you can tune it, but it produces no alerts.') + '">' +
+                                __('disabled') + '</span>';
+                        }
+                        // Historical FAIL alerts. A rule can pass in the latest month
+                        // and still have failed repeatedly earlier (e.g. R060), which
+                        // used to be invisible here and looked like "never failed".
+                        if (alerts > 0) {
+                            const tip = alerts + ' logged alert(s) across ' + (imp.alert_hospitals || 0) +
+                                ' hospital(s), last in ' + (imp.last_alert_month || '?');
+                            impactCell += '<br><span class="rule-alert-hist" title="' + tip + '">⚠ ' + alerts + ' logged</span>';
                         }
                     }
                     html += '<tr class="rule-row" data-id="' + r.id + '" data-code="' + esc(r.code) + '" data-cat="' + esc(cat) + '" style="background:var(--bg-surface);cursor:pointer;">' +
@@ -3585,7 +3683,7 @@ function loadHospitalsSettings() {
         // the drawer can show referenced indicators even without an impact
         // entry. Preference order elsewhere: impact map → fallback mirror.
         function _drawerRefCodes(expr, params) {
-            if (["ge", "eq", "gt", "ge_factor"].indexOf(expr) !== -1) {
+            if (["ge", "eq", "gt", "ge_factor", "parent_le"].indexOf(expr) !== -1) {
                 return [params.parent].concat(params.children || []).filter(Boolean);
             }
             if (expr === "le_sum") {
@@ -3601,7 +3699,7 @@ function loadHospitalsSettings() {
                 return [params.code].filter(Boolean);
             }
             if (["neg_check", "decimal_check"].indexOf(expr) !== -1) return params.codes || [];
-            if (expr === "all_zero") return ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"];
+            if (expr === "all_zero") return (params.codes && params.codes.length) ? params.codes : ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"];
             if (expr === "formula") {
                 const codes = (String(params.formula || "").match(/\{([^}]+)\}/g) || []).map(c => c.slice(1, -1));
                 return codes.concat(params.target ? [params.target] : []).filter(Boolean);
@@ -3638,7 +3736,7 @@ function loadHospitalsSettings() {
             const row = function(label, valueHtml) {
                 rows.push('<dt>' + __(label) + '</dt><dd>' + valueHtml + '</dd>');
             };
-            if (["ge", "gt", "eq"].indexOf(expr) !== -1) {
+            if (["ge", "gt", "eq", "parent_le"].indexOf(expr) !== -1) {
                 row("Parent", codeName(params.parent)); row("Children", childrenList(params.children));
             } else if (expr === "ge_factor") {
                 row("Parent", codeName(params.parent)); row("Children", childrenList(params.children));
@@ -3782,7 +3880,11 @@ function loadHospitalsSettings() {
             const affected = imp.hospitals_affected || [];
             let affectedHtml;
             if (!affected.length) {
-                affectedHtml = '<em style="color:var(--text-muted);">' + __('No hospitals affected in the latest month.') + '</em>';
+                const ruleDisabled = imp.enabled === false || rule.enabled === false;
+                affectedHtml = '<em style="color:var(--text-muted);">' +
+                    (ruleDisabled
+                        ? __('Rule is disabled, so it is not alerting. Its impact is still evaluated below.')
+                        : __('No hospitals affected in the latest month.')) + '</em>';
             } else {
                 affectedHtml = affected.slice(0, 50).map(h =>
                     '<div style="padding:2px 0;border-bottom:1px solid var(--border-default);" title="' + esc(h.details || '') + '">' +
@@ -3790,6 +3892,25 @@ function loadHospitalsSettings() {
                     (h.details ? '<div style="font-size:0.72rem;color:var(--text-muted);">' + esc(h.details) + '</div>' : '') +
                     '</div>'
                 ).join('') + (affected.length > 50 ? '<div style="color:var(--text-muted);padding:0.25rem 0;">+ ' + (affected.length - 50) + ' ' + __('more') + '</div>' : '');
+            }
+
+            // Historical FAIL alerts. The section above only covers the latest
+            // month, so without this a rule that passed recently but failed in
+            // earlier months looked like it had never failed at all.
+            const alertCount = imp.alert_count || 0;
+            let alertHtml = '';
+            if (alertCount > 0) {
+                const sevOfRule = rule.severity || '';
+                const sevColor = sevClass[sevOfRule] || 'badge-low';
+                alertHtml = '<div class="rule-drawer-section"><h3>' + __('Logged alerts (all months)') + '</h3>' +
+                    '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">' +
+                    '<span class="badge ' + sevColor + '">' + alertCount + ' ' + __('alerts') + '</span>' +
+                    '<span class="rule-ref-chip">' + (imp.alert_hospitals || 0) + ' ' + __('hospitals') + '</span>' +
+                    (imp.last_alert_month ? '<span class="rule-ref-chip">' + __('last') + ' ' + esc(imp.last_alert_month) + '</span>' : '') +
+                    '</div>' +
+                    '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;">' +
+                    esc(__('These are historical alerts and remain listed on the Alerts screen even if the rule now passes.')) + '</div>' +
+                    '</div>';
             }
 
             titleEl.innerHTML = '<code>' + esc(rule.code) + '</code> — ' + esc(rule.name);
@@ -3808,6 +3929,7 @@ function loadHospitalsSettings() {
                 '<div class="rule-drawer-params" style="margin-top:0.3rem;">' + esc(rawJson) + '</div></details></div>' +
                 '<div class="rule-drawer-section"><h3>' + __('Referenced indicators') + '</h3><div>' + refChips + '</div></div>' +
                 '<div class="rule-drawer-section"><h3>' + __('Affected hospitals') + (imp.month ? ' (' + esc(imp.month) + ')' : '') + '</h3><div>' + affectedHtml + '</div></div>' +
+                alertHtml +
                 '<div class="rule-drawer-section" style="display:flex;gap:0.4rem;flex-wrap:wrap;"><h3 style="flex-basis:100%;">' + __('Actions') + '</h3>' +
                 '<button class="btn btn-sm" onclick="_drawerEditRule(' + rule.id + ')" style="font-size:0.72rem;">' + __('Edit rule') + '</button>' +
                 '<button class="btn btn-sm btn-outline" onclick="_drawerTestRule(' + rule.id + ')" style="font-size:0.72rem;color:var(--accent-blue);border-color:var(--accent-blue);">' + __('Test rule') + '</button>' +
@@ -4227,6 +4349,7 @@ function loadHospitalsSettings() {
             'le': {title: 'child <= parent', text: 'FAILs when child value exceeds parent value. Use for subset checks like Emergency C/S <= Total C-sections.'},
             'lt': {title: 'child < parent', text: 'FAILs when the child value is greater than or equal to the parent value. Strict version of le — equality does not pass. Use when the child must be strictly below the parent.'},
             'le_sum': {title: 'child >= sum(children)', text: 'FAILs when child value is less than sum of its sub-children. Reverse of ge — use when a parent should be >= its breakdown.'},
+            'parent_le': {title: 'parent <= sum(children)', text: 'FAILs when the parent value is greater than the sum of its children. True reverse of ge — use when the children must account for at least the whole parent. Example params: {"parent":"10.a.1","children":["10.a.1.1","10.a.1.2"]}'},
             'benchmark_rate': {title: 'FAIL if (num/den*100) > threshold', text: 'Flags when a calculated rate exceeds a fixed threshold. Example: C/S rate > 80%. Requires num_code (numerator indicator), den_code (denominator), threshold (percentage).'},
             'benchmark_low_rate': {title: 'FAIL if (num/den*100) < threshold', text: 'Flags when a rate drops below a minimum threshold. Example: NVD rate < 10%. Same params as benchmark_rate.'},
             'cross_hospital_rate': {title: 'FAIL if |z-score| > z_threshold', text: 'Compares a hospital\'s rate against all other hospitals for the same month. FAIL if the hospital is a statistical outlier (|z| > threshold). Requires num_code, den_code, z_threshold.'},

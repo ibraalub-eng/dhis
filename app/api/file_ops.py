@@ -616,6 +616,12 @@ def _process_preview_worker(file_path: str) -> dict:
             "hospitals": [{"id": h.id, "name": h.name} for h in hospitals_list],
             "months": sorted(all_months),
             "rows_imported": total_rows,
+            # Indicator creation/renaming is decided by the uploaded file's
+            # headers, so the uploader has to be told what changed: the worker
+            # used to drop both lists, leaving a renamed indicator catalog
+            # silently rewritten with no trace in the UI or the logs.
+            "new_indicators": result.get("new_indicators", []),
+            "renamed_indicators": result.get("renamed_indicators", []),
             "quality_reports": quality_reports,
             "trend_analyses": trend_analyses,
             "hospital_comparisons": comparisons_dict,

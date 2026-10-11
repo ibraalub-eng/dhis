@@ -139,7 +139,10 @@ def test_kpi_cards_render_benchmark_line(app, db_session, ux_data):
     /dashboard/kpi. The user-facing label is descriptive (never the bare
     word "network") in both languages — see docs/ARABIC-TERMINOLOGY.md."""
     js = (Path(__file__).resolve().parent.parent / "static" / "js" / "rules-manager.js").read_text(encoding="utf-8")
-    cards = js[js.index("function renderKpiCards"):js.index("function renderKpiCards") + 4800]
+    # Slice to the end of the function, not an arbitrary char budget: a fixed
+    # window silently stopped covering the benchmark labels.
+    start = js.index("function renderKpiCards")
+    cards = js[start:js.index("let _dashMonthsCache", start)]
     assert "network_value" in cards
     assert "vs other hospitals" in cards
     assert "Other hospitals average" in cards
@@ -152,10 +155,13 @@ def test_attention_why_button_passes_rule_code_in_correct_slot(app, db_session, 
     (404). Object keys can never swap by position."""
     js = (Path(__file__).resolve().parent.parent / "static" / "js" / "rules-manager.js").read_text(encoding="utf-8")
     strip = js[js.index("function loadAttentionStrip"):js.index("window.applyDashboardFilter")]
-    btn = strip[strip.index("window.showWhyPopup"):strip.index("window.showWhyPopup") + 700]
+    btn = strip[strip.index("window.showWhyPopup"):]
     assert "kind:" in btn and "hospitalId:" in btn and "month:" in btn
     assert "ruleCode:" in btn, "rule code must be passed as a named key"
-    assert "r.why.component" in btn, "component anomalies must pass their component"
+    assert "_w.component" in btn, "component anomalies must pass their component"
+    # Several failures in one hospital-month: the digest must list all of them
+    # rather than only the top rule.
+    assert "whyCount" in strip
 
 
 def test_attention_lists_declining_movers_first(app, db_session, ux_data):

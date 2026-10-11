@@ -42,7 +42,14 @@ def list_reports(
             file_subs,
             (QualityScore.hospital_id == file_subs.c.hospital_id) & (QualityScore.month == file_subs.c.month),
         )
-    cache_key = cache.make_key("reports:list_v2", month=month, source_file=source_file, skip=skip, limit=limit)
+    cache_key = cache.make_key(
+        "reports:list_v2",
+        month=month,
+        source_file=source_file,
+        skip=skip,
+        limit=limit,
+        hospital_id=hospital_id,
+    )
     cached = cache.get(cache_key)
     if cached:
         return cached

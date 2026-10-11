@@ -134,8 +134,173 @@ def test_import_auto_registers_new_indicators(db_session, tmp_path):
         IndicatorValue.indicator_id == child.id).count() == 1
 
 
+# ── Uploads are authoritative for indicator names ────────────────────────────
+
+def _write_renamed_indicator_csv(tmp_path, filename="renamed.csv",
+                                 label="Cardiac Disorders Requiring CCU or ICU admission"):
+    data = (
+        "organisationunitname,month,"
+        f"SRH IPD (10.h) {label}\n"
+        "Hospital A,2026-04,4\n"
+    )
+    path = tmp_path / filename
+    path.write_text(data, encoding="utf-8")
+    return str(path)
+
+
+def test_display_name_from_colname_strips_code_and_dataset_prefix():
+    from app.utils.excel_parser import _display_name_from_colname
+    got = _display_name_from_colname(
+        "SRH IPD (10.h) Cardiac Disorders Requiring CCU or ICU admission", "10.h")
+    assert got == "Cardiac Disorders Requiring CCU or ICU admission"
+
+
+def test_display_name_returns_none_when_header_has_no_label():
+    """A header that is only a code carries no wording; returning None stops a
+    good stored name from being overwritten with the bare code."""
+    from app.utils.excel_parser import _display_name_from_colname
+    assert _display_name_from_colname("SRH IPD (10.h)", "10.h") is None
+    assert _display_name_from_colname("(10.h)", "10.h") is None
+    assert _display_name_from_colname("10.h", "10.h") is None
+
+
+def test_rename_detected_for_known_code(tmp_path):
+    """The bug: a known code whose header wording changed must register a
+    rename instead of silently keeping the catalog name."""
+    df = parse_excel(_write_renamed_indicator_csv(tmp_path))
+    assert "10.h" in df.columns
+    renamed = df.attrs["renamed_indicators"]
+    assert renamed["10.h"] == "Cardiac Disorders Requiring CCU or ICU admission"
+    # A known code must not be treated as a brand-new indicator.
+    assert "10.h" not in (df.attrs["new_indicators"] or {})
+
+
+def test_no_rename_when_header_matches_stored_name(tmp_path):
+    df = parse_excel(
+        _write_renamed_indicator_csv(tmp_path, filename="same.csv",
+                                     label="Cardiac ICU admission"))
+    assert "10.h" not in (df.attrs["renamed_indicators"] or {})
+
+
+def test_upload_applies_indicator_rename(db_session, tmp_path):
+    """End-to-end: after upload, Indicator.name reflects the file's wording."""
+    from app.models import Indicator
+    from app.utils.excel_parser import process_excel_upload
+
+    result = process_excel_upload(_write_renamed_indicator_csv(tmp_path), db_session)
+    renamed = {r["code"]: r for r in result["renamed_indicators"]}
+    assert "10.h" in renamed
+    assert renamed["10.h"]["name"] == "Cardiac Disorders Requiring CCU or ICU admission"
+    assert renamed["10.h"]["previous_name"] == "Cardiac ICU admission"
+
+    stored = db_session.query(Indicator).filter(Indicator.code == "10.h").first()
+    assert stored.name == "Cardiac Disorders Requiring CCU or ICU admission"
+
+
+def test_rename_does_not_disturb_values_or_other_indicators(db_session, tmp_path):
+    """A rename must only touch the label — values and sibling names hold."""
+    from app.models import Indicator, IndicatorValue
+    from app.utils.excel_parser import process_excel_upload
+
+    before_2 = db_session.query(Indicator).filter(Indicator.code == "2").first()
+    name_before = before_2.name
+    process_excel_upload(_write_renamed_indicator_csv(tmp_path), db_session)
+
+    assert db_session.query(Indicator).filter(Indicator.code == "2").first().name == name_before
+    ind_h = db_session.query(Indicator).filter(Indicator.code == "10.h").first()
+    assert db_session.query(IndicatorValue).filter(
+        IndicatorValue.indicator_id == ind_h.id).count() == 1
+
+
+def test_upload_worker_result_carries_indicator_renames(db_session, tmp_path,
+                                                       monkeypatch):
+    """The endpoint the upload screen actually calls must report the rename.
+
+    `process_excel_upload` returns `renamed_indicators`, but
+    /analysis/process-preview's worker built its own result dict and dropped
+    both it and `new_indicators` — so the catalog was rewritten (every report,
+    tree and drilldown then shows the new label) with nothing in the API
+    response, the UI, or the logs to show that it happened.
+    """
+    import app.api.file_ops as file_ops
+
+    def _fake_process(file_path, db):
+        return {
+            "filename": "renamed.csv", "rows_imported": 1, "months": ["2026-04"],
+            "hospitals": [], "new_indicators": [{"code": "99.z", "name": "Brand new"}],
+            "renamed_indicators": [
+                {"code": "10.h", "previous_name": "Cardiac ICU admission",
+                 "name": "Cardiac Disorders Requiring CCU or ICU admission"},
+            ],
+        }
+
+    monkeypatch.setattr(file_ops, "process_excel_upload", _fake_process)
+    monkeypatch.setattr(file_ops, "_get_hospitals_from_ids", lambda db, ids: [])
+    monkeypatch.setattr(file_ops, "_run_quality_reports", lambda *a, **k: [])
+    monkeypatch.setattr(file_ops, "_run_trend_analyses", lambda *a, **k: [])
+    monkeypatch.setattr(file_ops, "_run_hospital_comparisons", lambda *a, **k: {})
+    monkeypatch.setattr(file_ops, "_run_clinical_analyses", lambda *a, **k: {})
+
+    out = file_ops._process_preview_worker("renamed.csv")
+    assert out["renamed_indicators"] == [
+        {"code": "10.h", "previous_name": "Cardiac ICU admission",
+         "name": "Cardiac Disorders Requiring CCU or ICU admission"},
+    ]
+    assert out["new_indicators"] == [{"code": "99.z", "name": "Brand new"}]
+
+
+def test_upload_status_summarises_catalog_changes():
+    """The rename must reach the uploader's screen: a silent catalog rewrite
+    (or a typo'd header) is not auditable afterwards."""
+    import json
+    import os
+    import subprocess
+    import tempfile
+
+    with open(os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "static", "js", "upload.js"),
+            encoding="utf-8") as f:
+        js = f.read()
+    start = js.index("function _catalogChangeSummary(")
+    src = js[start:]
+    i = src.index("{")
+    depth = 0
+    for j in range(i, len(src)):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                src = src[:j + 1]
+                break
+
+    def _summary(result):
+        script = ("function __(s){return s;}\n" + src + "\n"
+                  "process.stdout.write(JSON.stringify(_catalogChangeSummary("
+                  + json.dumps(result) + ")));")
+        with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8",
+                                         delete=False) as fh:
+            fh.write(script)
+            path = fh.name
+        try:
+            res = subprocess.run(["node", path], capture_output=True, text=True,
+                                 encoding="utf-8")
+        finally:
+            os.unlink(path)
+        assert res.returncode == 0, res.stderr
+        return json.loads(res.stdout)
+
+    # nothing changed → the success message stays exactly as it was
+    assert _summary({"renamed_indicators": [], "new_indicators": []}) == ""
+    text = _summary({"renamed_indicators": [
+        {"code": "10.h", "previous_name": "Cardiac ICU admission",
+         "name": "Cardiac Disorders Requiring CCU or ICU admission"}],
+        "new_indicators": []})
+    assert "10.h" in text and "Cardiac ICU admission" in text
+    assert "Cardiac Disorders Requiring CCU or ICU admission" in text
+
+
 def test_year_column_not_registered_as_indicator(tmp_path):
-    """A bare 4-digit year column must not be treated as an indicator code."""
     p = tmp_path / "with_year.csv"
     p.write_text(
         "organisationunitname,month,2026,Total Deliveries\n"

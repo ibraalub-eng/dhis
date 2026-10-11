@@ -280,7 +280,7 @@
                                 // year, and dashboard dropdowns until a hard refresh.
                                 clearApiCache();
                                 updateStep(4);
-                                setStatus('ok', result.message + ' ' + __('View results in Dashboard tab.'));
+                                setStatus('ok', result.message + ' ' + __('View results in Dashboard tab.') + _catalogChangeSummary(result));
                                 displayResults(result);
                                 document.getElementById('previewArea').style.display = 'none';
                                 previewFilePath = null;
@@ -341,6 +341,32 @@
 
 
         let allQualityReports = [];
+
+        // The uploaded file is authoritative for indicator labels: a header
+        // "SRH IPD (10.h) Cardiac Disorders Requiring CCU or ICU admission"
+        // renames 10.h in the catalog. That rewrite reaches every report and
+        // every screen, so the uploader must be told which labels changed —
+        // silently renaming an indicator (or a typo'd header) is the kind of
+        // change nobody can audit afterwards.
+        function _catalogChangeSummary(result) {
+            const renamed = result.renamed_indicators || [];
+            const created = result.new_indicators || [];
+            const parts = [];
+            if (renamed.length) {
+                const shown = renamed.slice(0, 5).map(r =>
+                    r.code + ': "' + (r.previous_name || '?') + '" → "' + (r.name || '?') + '"'
+                ).join('; ');
+                const more = renamed.length > 5 ? ' (+' + (renamed.length - 5) + ')' : '';
+                parts.push(renamed.length + ' ' + __('indicator name(s) updated from the file') +
+                           ' — ' + shown + more);
+            }
+            if (created.length) {
+                parts.push(created.length + ' ' + __('new indicator(s) added') + ' — ' +
+                           created.slice(0, 5).map(i => i.code + (i.name ? ' (' + i.name + ')' : '')).join('; '));
+            }
+            return parts.length ? ' ' + parts.join(' | ') : '';
+        }
+        window._catalogChangeSummary = _catalogChangeSummary;
 
         export function displayResults(result) {
             const section = document.getElementById('resultsSection');

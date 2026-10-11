@@ -40,7 +40,11 @@ def _sanitize(obj):
         return int(obj)
     if isinstance(obj, (float, np.floating)):
         v = float(obj)
-        return 0.0 if (math.isnan(v) or math.isinf(v)) else v
+        # NaN/Inf mean "not computable" (empty/one-row population, zero
+        # variance). JSON cannot carry them, and coercing to 0.0 would report a
+        # measured zero — e.g. silhouette 0.00 instead of "clustering invalid",
+        # which the UI would then display and rank as a real result.
+        return None if (math.isnan(v) or math.isinf(v)) else v
     if isinstance(obj, dict):
         return {k: _sanitize(v) for k, v in obj.items()}
     if isinstance(obj, list):

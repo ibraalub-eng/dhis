@@ -405,4 +405,5 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
         months=months,
         reports=reports,
         new_indicators=result.get("new_indicators", []),
+        renamed_indicators=result.get("renamed_indicators", []),
     )

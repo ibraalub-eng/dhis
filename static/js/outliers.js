@@ -43,15 +43,75 @@
             downloadCSV('outliers_' + todayStr() + '.csv', headers, rows);
         }
 
-        export function exportRuleFailuresCSV() {
-            const data = window._lastRuleFailureData;
+        function _ruleFailureFilterQuery() {
+            let q = '';
+            const hosp = document.getElementById('ruleFailHospitalFilter')?.value;
+            const mon = document.getElementById('ruleFailMonthFilter')?.value;
+            const sev = document.getElementById('ruleFailSeverityFilter')?.value;
+            const typ = document.getElementById('ruleFailTypeFilter')?.value;
+            const search = (document.getElementById('ruleFailSearch')?.value || '').trim();
+            if (hosp) q += 'hospital_id=' + hosp + '&';
+            if (mon) q += 'month=' + encodeURIComponent(mon) + '&';
+            if (sev) q += 'severity=' + encodeURIComponent(sev) + '&';
+            if (typ) q += 'rule_type=' + encodeURIComponent(typ) + '&';
+            // The CSV must reflect exactly what the table shows.
+            if (search) q += 'q=' + encodeURIComponent(search) + '&';
+            const sort = (document.getElementById('ruleFailSort')?.value || '');
+            if (sort) {
+                const [col, dir] = sort.split(':');
+                q += 'sort_by=' + encodeURIComponent(col) + '&order=' + encodeURIComponent(dir || 'asc') + '&';
+            }
+            return q;
+        }
+
+        // Typing re-queries on a debounce so a 6-character term costs one
+        // request, not six. Enter (or the Clear button) skips the wait.
+        let _ruleFailSearchTimer = null;
+        window.onRuleFailSearch = function (immediate) {
+            if (_ruleFailSearchTimer) { clearTimeout(_ruleFailSearchTimer); _ruleFailSearchTimer = null; }
+            const clearBtn = document.getElementById('ruleFailSearchClear');
+            const has = (document.getElementById('ruleFailSearch')?.value || '').trim().length > 0;
+            if (clearBtn) clearBtn.style.display = has ? 'inline-block' : 'none';
+            if (immediate) { loadRuleFailures(); return; }
+            _ruleFailSearchTimer = setTimeout(function () { _ruleFailSearchTimer = null; loadRuleFailures(); }, 300);
+        };
+        window.clearRuleFailSearch = function () {
+            const input = document.getElementById('ruleFailSearch');
+            if (input) input.value = '';
+            window.onRuleFailSearch(true);
+        };
+
+        export async function exportRuleFailuresCSV() {
+            // Re-query with the active filters and the endpoint's max page size:
+            // the table only holds the first page (limit=100), so exporting
+            // window._lastRuleFailureData alone silently truncated the CSV.
+            let data = window._lastRuleFailureData;
+            const btn = document.getElementById('ruleFailExportBtn');
+            const label = btn ? btn.textContent : null;
+            try {
+                if (btn) { btn.disabled = true; btn.textContent = __('Exporting data...'); }
+                const resp = await apiGet('/analysis/rule-failures?' + _ruleFailureFilterQuery() + 'limit=1000');
+                const fetched = resp.data || resp;
+                if (fetched.length) data = fetched;
+            } catch (err) {
+                console.warn('Rule failure export: full fetch failed, exporting loaded rows', err);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = label || 'Export CSV'; }
+            }
             if (!data || !data.length) return;
-            const headers = ['Hospital', 'Rule Code', 'Description', 'Severity', 'Indicator', 'Failed Months'];
+            // Every field the /analysis/rule-failures endpoint returns, so the
+            // CSV can be pivoted by month/hospital without re-querying.
+            // The previous header row mislabelled rule_type as "Indicator" and
+            // details as "Failed Months".
+            const headers = ['Hospital ID', 'Hospital', 'Month', 'Rule Code', 'Description', 'Status', 'Severity', 'Type', 'Details'];
             const rows = data.map(d => {
                 return [
+                    d.hospital_id !== undefined && d.hospital_id !== null ? d.hospital_id : '',
                     d.hospital || '',
+                    d.month || '',
                     d.rule_code || '',
                     d.rule_description || '',
+                    d.status || '',
                     d.severity || '',
                     d.rule_type || '',
                     d.details || ''
@@ -250,17 +310,53 @@
         }
 
         let ruleFailSortCol = null, ruleFailSortAsc = true;
+        // Header click → the Sort select → a server-side re-query. Sorting the
+        // loaded page in the DOM silently ordered only the first 100 rows, and
+        // a month column compared as a NUMBER ("2026-08" → 2026) so every month
+        // of a year tied. The server sorts the whole filtered result set.
+        const RULE_FAIL_SORT_KEY = { hospital: 'hospital', month: 'month', rule_code: 'rule_code', severity: 'severity', rule_type: 'type', rule_description: 'description', details: 'details' };
+        function _setRuleFailSort(col, asc, label) {
+            const sel = document.getElementById('ruleFailSort');
+            if (!sel) return;
+            const key = RULE_FAIL_SORT_KEY[col] || col;
+            const dir = asc ? 'asc' : 'desc';
+            const value = key + ':' + dir;
+            if (!Array.from(sel.options).some(o => o.value === value)) {
+                // Header-driven sort on a column the select does not list yet
+                // (Description, Details): append it, labelled from the header so
+                // the drop-down reads the same as the table.
+                const opt = document.createElement('option');
+                opt.value = value;
+                opt.textContent = (label || col) + (dir === 'desc' ? ' ↓' : ' ↑');
+                sel.appendChild(opt);
+            }
+            sel.value = value;
+        }
+        function _syncRuleFailSortArrows() {
+            const sel = document.getElementById('ruleFailSort');
+            const cur = (sel && sel.value) ? sel.value : '';
+            const [col, dir] = cur.split(':');
+            document.querySelectorAll('#ruleFailTable th.sortable').forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
+                if (!col) return;
+                // "severity:asc" means critical-first on the server (rank order).
+                const asc = col === 'severity' ? dir === 'asc' : dir !== 'desc';
+                if (h.dataset.col === col) h.classList.add(asc ? 'sort-asc' : 'sort-desc');
+            });
+        }
         function wireRuleFailSort() {
             document.querySelectorAll('#ruleFailTable th.sortable').forEach(th => {
                 th.onclick = function() {
                     const col = this.dataset.col;
                     if (ruleFailSortCol === col) ruleFailSortAsc = !ruleFailSortAsc;
-                    else { ruleFailSortCol = col; ruleFailSortAsc = true; }
-                    document.querySelectorAll('#ruleFailTable th.sortable').forEach(h => { h.classList.remove('sort-asc','sort-desc'); });
-                    this.classList.add(ruleFailSortAsc ? 'sort-asc' : 'sort-desc');
-                    sortTableRows('ruleFailTbody', col, ruleFailSortAsc);
+                    // First click on Month means "newest first" — the useful
+                    // default for a chronological table.
+                    else { ruleFailSortCol = col; ruleFailSortAsc = col !== 'month'; }
+                    _setRuleFailSort(col, ruleFailSortAsc, this.textContent.trim());
+                    loadRuleFailures();
                 };
             });
+            _syncRuleFailSortArrows();
         }
         let outlierSortCol = null, outlierSortAsc = true;
         function wireOutlierSort() {
@@ -299,6 +395,9 @@
             const mon = document.getElementById('ruleFailMonthFilter').value;
             const sev = document.getElementById('ruleFailSeverityFilter').value;
             const typ = document.getElementById('ruleFailTypeFilter').value;
+            const search = (document.getElementById('ruleFailSearch')?.value || '').trim();
+            const sortVal = (document.getElementById('ruleFailSort')?.value || '');
+            const [sortBy, sortOrder] = sortVal ? sortVal.split(':') : [null, 'asc'];
             const loading = document.getElementById('ruleFailLoading');
             if (loading) loading.classList.remove('hidden');
             tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading rule failures...</td></tr>';
@@ -307,16 +406,18 @@
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
             if (sev) url += 'severity=' + encodeURIComponent(sev) + '&';
             if (typ) url += 'rule_type=' + encodeURIComponent(typ) + '&';
+            if (search) url += 'q=' + encodeURIComponent(search) + '&';
+            if (sortBy) url += 'sort_by=' + encodeURIComponent(sortBy) + '&order=' + encodeURIComponent(sortOrder || 'asc') + '&';
             apiGet(url).then(data => {
                 if (loading) loading.classList.add('hidden');
-                updateRuleFailUI(data, hosp, mon);
+                updateRuleFailUI(data, hosp, mon, search);
             }).catch(err => {
                 if (loading) loading.classList.add('hidden');
                 tbody.innerHTML = '<tr><td colspan="8" style="color:red;text-align:center;">Error loading rule failures: ' + err.message + '</td></tr>';
             });
         }
 
-        function updateRuleFailUI(resp, currentHosp, currentMon) {
+        function updateRuleFailUI(resp, currentHosp, currentMon, currentSearch) {
             const data = resp.data || resp;
             window._lastRuleFailureData = data;
             const total = resp.total || data.length;
@@ -335,24 +436,35 @@
                 '<span style="' + rfPill + 'background:#e6510011;border:1px solid #e6510044;"><span style="font-weight:700;color:#e65100;">' + (topSev[0] ? topSev[0][0] : '--') + '</span><span style="color:#e6510066;">Top Severity</span></span>' +
                 '<span style="' + rfPill + 'background:#1565c011;border:1px solid #1565c044;"><span style="font-weight:700;color:#1565c0;">' + new Set(data.map(d => d.hospital)).size + '</span><span style="color:#1565c066;">Hospitals</span></span>' +
                 '<span style="' + rfPill + 'background:#2e7d3211;border:1px solid #2e7d3244;"><span style="font-weight:700;color:#2e7d32;">' + new Set(data.map(d => d.rule_code)).size + '</span><span style="color:#2e7d3266;">Rules</span></span>';
-            // Populate filters (hospital by ID so hospital_id filter works)
+            // Populate filters (hospital by ID so hospital_id filter works).
+            // While a search is active the rows are already narrowed, so
+            // rebuilding these lists from them would delete the very hospitals
+            // the user still needs to switch to.
             const hospSel = document.getElementById('ruleFailHospitalFilter');
             const monSel = document.getElementById('ruleFailMonthFilter');
             const prevHosp = hospSel.value;
-            const hospMap = {};
-            data.forEach(d => { if (d.hospital_id && d.hospital) hospMap[d.hospital_id] = d.hospital; });
-            hospSel.innerHTML = '<option value="">All</option>';
-            Object.entries(hospMap).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
-                const opt = document.createElement('option');
-                opt.value = id; opt.textContent = name;
-                hospSel.appendChild(opt);
-            });
-            hospSel.value = currentHosp && hospMap[currentHosp] ? currentHosp : (prevHosp && hospMap[prevHosp] ? prevHosp : '');
-            populateSelectOptions(monSel, [...new Set(data.map(d => d.month))], currentMon);
+            if (!currentSearch) {
+                const hospMap = {};
+                data.forEach(d => { if (d.hospital_id && d.hospital) hospMap[d.hospital_id] = d.hospital; });
+                hospSel.innerHTML = '<option value="">All</option>';
+                Object.entries(hospMap).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
+                    const opt = document.createElement('option');
+                    opt.value = id; opt.textContent = name;
+                    hospSel.appendChild(opt);
+                });
+                hospSel.value = currentHosp && hospMap[currentHosp] ? currentHosp : (prevHosp && hospMap[prevHosp] ? prevHosp : '');
+                populateSelectOptions(monSel, [...new Set(data.map(d => d.month))], currentMon);
+            }
             // Render
             const tbody = document.getElementById('ruleFailTbody');
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">No rule failures found.</td></tr>';
+                // Distinguish "nothing failed" from "your search matched nothing"
+                // — otherwise a working search reads as an empty screen.
+                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">' +
+                    (currentSearch
+                        ? 'No rule failures match &quot;' + esc(currentSearch) + '&quot;.'
+                        : 'No rule failures found.') +
+                    '</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(d => {

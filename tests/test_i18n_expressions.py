@@ -10,6 +10,7 @@ _NEW_BUILDER_KEYS = [
     "parent > sum(children)",
     "parent \\u00d7 factor \\u2265 sum(children)",
     "child < parent",
+    "parent \\u2264 sum(children)",
 ]
 
 # Pre-existing builder keys (translated now for consistency)
@@ -29,6 +30,7 @@ _DROPDOWN_KEYS = [
     "le — child <= parent",
     "lt — child < parent",
     "le_sum — child >= sum(children)",
+    "parent_le — parent <= sum(children)",
 ]
 
 # EXPR_EXPLANATIONS titles
@@ -40,6 +42,7 @@ _EXPLANATION_TITLES = [
     "child <= parent",
     "child < parent",
     "child >= sum(children)",
+    "parent <= sum(children)",
 ]
 
 
@@ -103,6 +106,7 @@ def test_explanation_texts_have_arabic():
         "multiplied by a factor",
         "sum of its child indicators",
         "reverse ge",
+        "True reverse of ge",
     ]
     for frag in fragments:
         pattern = re.compile(r"'((?:[^'\\]|\\.)*" + re.escape(frag) + r"(?:[^'\\]|\\.)*)'\s*:\s*'((?:[^'\\]|\\.)*)'")

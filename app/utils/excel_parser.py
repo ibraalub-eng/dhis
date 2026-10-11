@@ -45,6 +45,22 @@ HEADER_KEYWORDS = [
     "facility", "hospital", "healthfacility", "health facility",
 ]
 
+# A column whose header *resolves to a real indicator* is never the facility
+# column, however many hospital-ish words its label contains. The DHIS exports
+# use headers such as "SRH IPD (11.a) Maternal deaths at the hospital" and
+# "SRH IPD (2.k) Deliveries happened at the hospital" — the bare
+# HEADER_KEYWORDS substring test used to claim those as organisationunitname,
+# and df.columns.duplicated() then silently dropped them, so 2.k/2.l/11.a/11.b
+# lost every value on import. Resolve the indicator first; only fall back to the
+# keyword test when the header is not an indicator at all.
+def _resolves_to_indicator(col: str, code_to_name_lower: Dict[str, str]) -> bool:
+    extracted = _extract_code_from_colname(col)
+    if extracted and code_to_name_lower.get(extracted.lower()):
+        return True
+    if col in INDICATOR_NAME_TO_CODE:
+        return True
+    return _fuzzy_match_indicator(col) is not None
+
 
 def _extract_month_from_text(text: str) -> Optional[str]:
     month_map = {
@@ -227,6 +243,37 @@ CODE_ALIAS_MAP = {
 }
 
 
+def _display_name_from_colname(col_name: str, indicator_code: str) -> Optional[str]:
+    """Extract the human-readable label from a header like
+    'SRH IPD (10.h) Cardiac Disorders Requiring CCU or ICU admission'.
+
+    Returns 'Cardiac Disorders Requiring CCU or ICU admission', or None when the
+    header carries no usable text beyond the code (so we never overwrite a good
+    stored name with a bare code or an empty string).
+    """
+    # Drop the parenthesised code and any leading dataset/report prefix
+    # ("SRH IPD", "SRH", "IPD", ...) that precedes it.
+    without_code = re.sub(r"\([^)]*\)", " ", col_name)
+    parts = [p for p in re.split(r"\s*\(\s*\w[\w.]*\s*\)\s*", " " + without_code) if p.strip()]
+    label = parts[-1] if parts else ""
+    # Strip a leading dataset token sequence (SRH IPD, SRH, IPD, ...) left of the
+    # code. Matched conservatively: only known report prefixes, never a word that
+    # is part of the actual indicator name.
+    label = re.sub(
+        r"^\s*(?:SRH\s+IPD|SRH\s+OPD|SRH|IPD|OPD|IPD\s+SUMMARY|SUMMARY)\b[\s:,-]*",
+        "",
+        label,
+        flags=re.IGNORECASE,
+    )
+    label = re.sub(r"\s+", " ", label).strip(" \t:-–—,")
+    if not label:
+        return None
+    # A label that is just the code carries no information.
+    if label.lower() == (indicator_code or "").lower():
+        return None
+    return label
+
+
 def _extract_code_from_colname(col_name: str) -> Optional[str]:
     """Extract indicator code from column names like 'SRH IPD (10.a.2) Antepartum hemorrhage'.
     Returns the code string (e.g. '10.a.2') or None."""
@@ -276,9 +323,17 @@ def _rename_columns(
     mapped_codes = set()
     # Indicator codes found in the file that are not in the catalog yet.
     new_indicators: Dict[str, str] = {}
+    # Existing indicator codes whose label in the uploaded file differs from the
+    # stored name — the file is authoritative for wording.
+    renamed_indicators: Dict[str, str] = {}
 
     # Build code-to-name lookup (case-insensitive), including DB-only codes
     code_to_name_lower = _known_code_lookup(known_code_to_name)
+
+    # Lowercased code -> current stored display name, used to detect a rename.
+    code_to_name: Dict[str, str] = {ind["code"].lower(): ind["name"] for ind in INDICATOR_FLAT_LIST}
+    for code, name in (known_code_to_name or {}).items():
+        code_to_name[str(code).lower()] = name
 
     def _try_map(col: str, indicator_code: str) -> bool:
         """Map a column to an indicator code if not already taken. Returns True if mapped."""
@@ -295,12 +350,8 @@ def _rename_columns(
         if "deleted" in cl or "(na)" in cl:
             continue
 
-        # 1. Hospital name column
-        if any(kw in cl for kw in HEADER_KEYWORDS):
-            col_map[col] = "organisationunitname"
-            continue
-
-        # 2. Month/period column
+        # 1. Month/period column (never ambiguous: period labels carry no
+        #    indicator code)
         if any(cl == kw or cl == kw.replace("_", "").replace(" ", "") for kw in MONTH_COL_KEYWORDS):
             col_map[col] = "month"
             month_found = True
@@ -310,6 +361,13 @@ def _rename_columns(
             month_found = True
             continue
 
+        # 2. Hospital name column — but only if this header is not itself an
+        #    indicator. See _resolves_to_indicator.
+        if any(kw in cl for kw in HEADER_KEYWORDS) \
+                and not _resolves_to_indicator(col, code_to_name_lower):
+            col_map[col] = "organisationunitname"
+            continue
+
         # 3. Try to extract indicator code from parenthesized number, e.g. (10.a.2)
         extracted_code = _extract_code_from_colname(col)
         if extracted_code:
@@ -317,6 +375,14 @@ def _rename_columns(
             matched = code_to_name_lower.get(extracted_code.lower())
             if matched:
                 if _try_map(col, matched):
+                    # The header can carry a label newer than the stored name
+                    # ("SRH IPD (10.h) Cardiac Disorders Requiring CCU or ICU
+                    # admission"). Record it so the name follows the uploaded
+                    # file instead of staying frozen at the catalog default.
+                    label = _display_name_from_colname(col, matched)
+                    current = code_to_name.get(matched.lower(), "")
+                    if label and label.lower() != str(current).strip().lower():
+                        renamed_indicators[matched] = label
                     continue
 
         # 4. Exact name match
@@ -342,13 +408,28 @@ def _rename_columns(
                 candidate = CODE_ALIAS_MAP.get(token, token)
         if candidate and candidate.lower() not in code_to_name_lower and candidate not in mapped_codes:
             if _try_map(col, candidate):
-                display = re.sub(r'\([^)]*\)', '', col).strip() if embedded else candidate
+                display = _display_name_from_colname(col, candidate) if embedded else None
                 new_indicators[candidate] = display or candidate
                 continue
 
     df = df.rename(columns=col_map)
+    # Renaming can still collide (two distinct headers resolving to one code).
+    # de-duplicating is required, but it must never be silent: a dropped column
+    # means an indicator silently loses every value for the month.
+    collided = [c for c in df.columns[df.columns.duplicated()].unique()]
+    if collided:
+        logger.warning(
+            "Column rename collision — dropping %d duplicate column(s): %s",
+            int(df.columns.duplicated().sum()), collided,
+        )
     df = df.loc[:, ~df.columns.duplicated()]
     df.attrs["new_indicators"] = new_indicators
+    df.attrs["renamed_indicators"] = renamed_indicators
+    if renamed_indicators:
+        logger.info(
+            "Indicator name changes from file (%d): %s",
+            len(renamed_indicators), sorted(renamed_indicators.items()),
+        )
     if not month_found and default_month:
         df["month"] = default_month
         logger.info(f"Added month column from title row: {default_month}")
@@ -467,7 +548,8 @@ def import_data_to_db(
     session: Session,
     source_file: str = "",
     new_indicator_names: Optional[Dict[str, str]] = None,
-) -> Tuple[int, int, List[Dict]]:
+    renamed_indicator_names: Optional[Dict[str, str]] = None,
+) -> Tuple[int, int, List[Dict], List[Dict]]:
     import re as _re
     hospitals_cache = {}  # name -> id
     org_id_cache = {}     # org_id -> id
@@ -477,8 +559,35 @@ def import_data_to_db(
         indicators_cache[ind.code] = ind.id
 
     new_indicator_names = new_indicator_names or {}
+    renamed_indicator_names = renamed_indicator_names or {}
     created_indicators: List[Dict] = []
     max_sort = session.query(func.max(Indicator.sort_order)).scalar() or 0
+
+    def _apply_indicator_renames() -> List[Dict]:
+        """Update existing indicator names to the wording used in the upload.
+
+        The uploaded file is authoritative for indicator labels: the header
+        "SRH IPD (10.h) Cardiac Disorders Requiring CCU or ICU admission" means
+        10.h is *named* that, not merely that it resolves to a known code.
+        Without this, uploading a renamed sheet silently kept the old label.
+        """
+        applied = []
+        if not renamed_indicator_names:
+            return applied
+        for code, name in renamed_indicator_names.items():
+            if not name or not str(name).strip():
+                continue
+            ind = session.query(Indicator).filter(Indicator.code == code).first()
+            if ind is None:
+                continue
+            new_name = str(name).strip()
+            if not new_name or new_name.lower() == str(ind.name or "").strip().lower():
+                continue
+            previous = ind.name
+            ind.name = new_name
+            applied.append({"code": code, "previous_name": previous, "name": new_name})
+            logger.info("Renamed indicator %s: %r -> %r", code, previous, new_name)
+        return applied
 
     def _ensure_indicator(code: str, name: Optional[str] = None) -> int:
         """Create the indicator (and any missing ancestors); return its id.
@@ -584,8 +693,9 @@ def import_data_to_db(
             )
             session.add(iv)
         processed += 1
+    renamed = _apply_indicator_renames()
     session.commit()
-    return new_hospitals, processed, created_indicators
+    return new_hospitals, processed, created_indicators, renamed
 
 
 def process_excel_upload(file_path: str, session: Session) -> Dict:
@@ -614,8 +724,13 @@ def process_excel_upload(file_path: str, session: Session) -> Dict:
             "real facility names from the SRMNH registry, then try again."
         )
     new_indicator_names = df.attrs.get("new_indicators") or {}
-    new_hospitals, new_values, new_indicators = import_data_to_db(
-        records, session, source_file=filename, new_indicator_names=new_indicator_names
+    renamed_indicator_names = df.attrs.get("renamed_indicators") or {}
+    new_hospitals, new_values, new_indicators, renamed_indicators = import_data_to_db(
+        records,
+        session,
+        source_file=filename,
+        new_indicator_names=new_indicator_names,
+        renamed_indicator_names=renamed_indicator_names,
     )
 
     hospital_names = sorted(set(r["hospital_name"] for r in records))
@@ -634,6 +749,7 @@ def process_excel_upload(file_path: str, session: Session) -> Dict:
         "rows_imported": new_values,
         "new_hospitals": new_hospitals,
         "new_indicators": new_indicators,
+        "renamed_indicators": renamed_indicators,
         "message": f"Processed {new_values} indicator values for {len(hospital_names)} hospitals",
         "hospitals": hospitals_list,
         "months": months,

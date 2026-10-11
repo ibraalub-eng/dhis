@@ -1096,9 +1096,13 @@ def test_disabled_month_excluded_from_kpi_entirely(db_session, client):
     kh2 = {x["id"]: x["value"] for x in client.get("/dashboard/kpi", params={"hospital_id": 2}).json()["kpis"]}
     assert k["quality_score"] == 90.0
     assert k["completeness"] == kh2["completeness"]
-    # Per-hospital: the disabled month is gone entirely — no score rows left.
+    # Per-hospital: the disabled month is gone entirely — no score rows left,
+    # so there is NO DATA to average. The cards read null ("—" in the UI), not
+    # 0.0%: a zero reading would claim catastrophic performance for a month
+    # that is switched off (and its drilldown has nothing to explain).
     kh = {x["id"]: x["value"] for x in client.get("/dashboard/kpi", params={"hospital_id": 1}).json()["kpis"]}
-    assert kh["quality_score"] == 0.0 and kh["completeness"] == 0.0
+    assert kh["quality_score"] is None and kh["completeness"] is None
+    assert all(v is None for v in kh.values())
     assert kh_cp_before >= 0  # sanity: the before-state was populated
     # Ranking: hospital 1's only month is disabled → it drops out entirely;
     # hospital 2 remains with its 90.0.

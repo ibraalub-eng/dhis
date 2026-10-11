@@ -223,6 +223,7 @@ class IndicatorValue(Base):
     __table_args__ = (
         Index("ix_iv_hosp_month_ind", "hospital_id", "month", "indicator_id"),
         Index("ix_iv_month", "month"),
+        UniqueConstraint("hospital_id", "indicator_id", "month", name="uq_indicator_value_hosp_ind_month"),
     )
 
 

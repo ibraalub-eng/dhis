@@ -242,11 +242,12 @@ def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
 
 @router.get("/database/preview")
 @safe_endpoint("Error previewing database")
-def preview_database_tables(db: Session = Depends(get_db)):
+def preview_database_tables(db: Session = Depends(get_db), user=Depends(require_permission("system.read_audit"))):
     """List all tables with column info, row counts, and first 5 rows of preview data."""
     from sqlalchemy import inspect as sa_inspect, text
     inspector = sa_inspect(db.get_bind())
     tables = []
+    SENSITIVE_COLS = {"password_hash", "refresh_tokens", "token", "secret", "api_key", "access_token"}
     for table_name in sorted(inspector.get_table_names()):
         # Handle both dict-style and string-style column metadata
         raw_cols = inspector.get_columns(table_name)
@@ -267,6 +268,8 @@ def preview_database_tables(db: Session = Depends(get_db)):
                 for row in rows:
                     row_dict = {}
                     for i, col in enumerate(columns):
+                        if col.lower() in SENSITIVE_COLS:
+                            continue
                         val = row[i] if i < len(row) else None
                         # Convert non-serializable types to string
                         if val is not None and not isinstance(val, (int, float, str, bool, type(None))):
@@ -277,7 +280,7 @@ def preview_database_tables(db: Session = Depends(get_db)):
                 logger.warning("Failed to preview table %s: %s", table_name, e)
         tables.append({
             "name": table_name,
-            "columns": columns,
+            "columns": [c for c in columns if c.lower() not in SENSITIVE_COLS],
             "primary_keys": pk_cols,
             "row_count": count,
             "preview": preview,
@@ -287,11 +290,11 @@ def preview_database_tables(db: Session = Depends(get_db)):
 
 @router.get("/database/export")
 @safe_endpoint("Error exporting database")
-def export_database(db: Session = Depends(get_db)):
+def export_database(db: Session = Depends(get_db), user=Depends(require_permission("system.export_data"))):
     """Export all tables and all data as JSON."""
     from sqlalchemy import inspect as sa_inspect, text
     from fastapi.responses import StreamingResponse
-    import json, datetime
+    import io, json, datetime
     inspector = sa_inspect(db.get_bind())
     export = {
         "exported_at": datetime.datetime.utcnow().isoformat() + "Z",
@@ -299,6 +302,7 @@ def export_database(db: Session = Depends(get_db)):
         "tables": {},
     }
     total_rows = 0
+    SENSITIVE_COLS = {"password_hash", "refresh_tokens", "token", "secret", "api_key", "access_token"}
     for table_name in sorted(inspector.get_table_names()):
         raw_cols = inspector.get_columns(table_name)
         columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
@@ -310,13 +314,15 @@ def export_database(db: Session = Depends(get_db)):
         for row in rows:
             row_dict = {}
             for i, col in enumerate(columns):
+                if col.lower() in SENSITIVE_COLS:
+                    continue
                 val = row[i] if i < len(row) else None
                 if val is not None and not isinstance(val, (int, float, str, bool, type(None))):
                     val = str(val)
                 row_dict[col] = val
             data.append(row_dict)
         export["tables"][table_name] = {
-            "columns": columns,
+            "columns": [c for c in columns if c.lower() not in SENSITIVE_COLS],
             "row_count": len(data),
             "rows": data,
         }
@@ -327,7 +333,7 @@ def export_database(db: Session = Depends(get_db)):
     content_str = json.dumps(export, ensure_ascii=False, indent=2, default=str)
     filename = "database_export_{}.json".format(datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S"))
     return StreamingResponse(
-        iter([content_str]),
+        io.BytesIO(content_str.encode("utf-8")),
         media_type="application/json",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )

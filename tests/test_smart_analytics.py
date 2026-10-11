@@ -523,6 +523,32 @@ def test_timeline_reuses_per_month_memo(mock_run, client, db_session):
     assert mock_run.call_count == before + 1  # شهر واحد جديد فقط (2027-02)
 
 
+def test_envelope_reports_uncomputable_numbers_as_null_not_zero():
+    """NaN/Inf reach the UI through _sanitize.
+
+    Coercing them to 0.0 made an invalid statistic look like a measured zero
+    (silhouette 0.00 = "clusters have no structure" instead of "clustering is
+    not valid"), and any average computed downstream silently absorbed it.
+    JSON carries neither, so the API must say null — the UI is responsible for
+    rendering that as "n/a".
+    """
+    import json
+    import math
+    import numpy as np
+    from app.api.smart_analytics import _sanitize
+
+    out = _sanitize({
+        "silhouette_score": np.float64("nan"),
+        "slope": float("inf"),
+        "real": np.float64(0.42),
+        "count": np.int64(3),
+    })
+    assert out["silhouette_score"] is None
+    assert out["slope"] is None
+    assert out["real"] == 0.42
+    assert out["count"] == 3 and isinstance(out["count"], int)
+    json.dumps(out, allow_nan=False)  # strict JSON: no NaN literal leaks out
+
 class TestHorizonValidation:
     """الآفاق الممتدة (9/12) تقبَل في كل endpoints التنبؤ، وغير المدرجة تبقى 422."""
 

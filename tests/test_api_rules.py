@@ -4,9 +4,11 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from sqlalchemy import func
+
 from app.database import get_db
 from app.main import app
-from app.models import Rule
+from app.models import Hospital, Indicator, IndicatorValue, Rule, ValidationResult
 
 
 @pytest.fixture
@@ -246,6 +248,166 @@ class TestRuleFailures:
         assert resp.status_code == 200
 
 
+class TestRuleFailureSearchAndSort:
+    """Alerts screen: one search box over the whole row, and sorting that
+    actually orders the result set (the old DOM sort only touched the loaded
+    page, and months compared as numbers)."""
+
+    @pytest.fixture(autouse=True)
+    def _rows(self, db_session, client):
+        from app.cache import cache as _cache
+        _cache._cache.clear()
+        self.hospitals = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).limit(3).all()
+        assert len(self.hospitals) >= 3, "fixture needs at least three active hospitals"
+        # Deterministic, deliberately unsorted: hospital order != month order.
+        for i, h in enumerate(self.hospitals):
+            h.name = f"Hosp-{3 - i}"
+            db_session.commit()
+            for month, code, sev in (
+                ("2026-01", "R_BBB", "HIGH"),
+                ("2026-03", "R_AAA", "CRITICAL"),
+                ("2026-08", "R_CCC", "LOW"),
+            ):
+                db_session.add(ValidationResult(
+                    hospital_id=h.id, month=month, rule_code=code,
+                    rule_description=f"{code} alpha failure",
+                    status="FAIL", severity=sev, rule_type="LOGIC",
+                    details=f"{code} details needle-{i}",
+                ))
+        db_session.commit()
+        _cache._cache.clear()
+        yield
+        _cache._cache.clear()
+
+    def _codes(self, client, **params):
+        q = "&".join(f"{k}={v}" for k, v in params.items())
+        resp = client.get("/analysis/rule-failures?" + q)
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        return body, [d["rule_code"] for d in body["data"]]
+
+    def test_search_matches_rule_code(self, client):
+        body, codes = self._codes(client, q="R_AAA", limit=100)
+        assert body["total"] == 3
+        assert set(codes) == {"R_AAA"}
+
+    def test_search_matches_details_text(self, client):
+        # needle-2 is unique to one hospital → its three months, and only those.
+        body, codes = self._codes(client, q="needle-2", limit=100)
+        assert body["total"] == 3
+        assert set(codes) == {"R_AAA", "R_BBB", "R_CCC"}
+        assert {d["hospital"] for d in body["data"]} == {"Hosp-1"}
+
+    def test_search_matches_hospital_name(self, client):
+        body, _ = self._codes(client, q="Hosp-1", limit=100)
+        assert body["total"] == 3
+
+    def test_search_matches_month(self, client):
+        body, _ = self._codes(client, q="2026-03", limit=100)
+        assert body["total"] == 3
+
+    def test_search_is_case_insensitive_and_ignores_blanks(self, client):
+        body, _ = self._codes(client, q="r_aaa", limit=100)
+        assert body["total"] == 3
+        assert self._codes(client, q="   ", limit=100)[0]["total"] == 9
+
+    def test_search_without_match_is_empty_not_error(self, client):
+        body, codes = self._codes(client, q="zzz-no-such-thing", limit=100)
+        assert body["total"] == 0
+        assert codes == []
+
+    def test_search_combines_with_existing_filters(self, client):
+        body, codes = self._codes(client, q="R_", month="2026-01", limit=100)
+        assert body["total"] == 3
+        assert set(codes) == {"R_BBB"}
+
+    def test_sort_by_hospital_name(self, client):
+        body, _ = self._codes(client, sort_by="hospital", order="asc", limit=100)
+        names = [d["hospital"] for d in body["data"]]
+        assert names == sorted(names)
+
+    def test_sort_by_hospital_name_desc(self, client):
+        body, _ = self._codes(client, sort_by="hospital", order="desc", limit=100)
+        names = [d["hospital"] for d in body["data"]]
+        assert names == sorted(names, reverse=True)
+
+    def test_sort_by_month_is_chronological_not_numeric(self, client):
+        """The bug this pins: parseFloat('2026-08') = 2026, so every month of a
+        year tied and 'newest first' came back in arbitrary order."""
+        body, _ = self._codes(client, sort_by="month", order="desc", limit=100)
+        months = [d["month"] for d in body["data"]]
+        assert months == sorted(months, reverse=True)
+        assert months[0] == "2026-08"
+
+        body, _ = self._codes(client, sort_by="month", order="asc", limit=100)
+        months = [d["month"] for d in body["data"]]
+        assert months == sorted(months)
+        assert months[0] == "2026-01"
+
+    def test_sort_by_severity_uses_rank_not_alphabet(self, client):
+        body, _ = self._codes(client, sort_by="severity", order="asc", limit=100)
+        order = [d["severity"] for d in body["data"]]
+        assert order == ["CRITICAL"] * 3 + ["HIGH"] * 3 + ["LOW"] * 3
+        body, _ = self._codes(client, sort_by="severity", order="desc", limit=100)
+        assert [d["severity"] for d in body["data"]][:3] == ["LOW"] * 3
+
+    def test_default_sort_is_worst_severity_first(self, client):
+        body, _ = self._codes(client, limit=100)
+        assert [d["severity"] for d in body["data"]][:3] == ["CRITICAL"] * 3
+
+    def test_unknown_sort_by_falls_back_instead_of_500(self, client):
+        """An unrecognised column used to leave the SQLAlchemy sort expression
+        unbound and raise UnboundLocalError on the first row fetch."""
+        body, _ = self._codes(client, sort_by="nonsense", limit=100)
+        assert body["total"] == 9
+        assert [d["severity"] for d in body["data"]][:3] == ["CRITICAL"] * 3
+
+    def test_sort_by_aliases(self, client):
+        body, codes = self._codes(client, sort_by="rule_code", order="asc", limit=100)
+        assert codes == sorted(codes)
+        resp = client.get("/analysis/rule-failures?sort_by=rule_type&order=asc&limit=100")
+        assert resp.status_code == 200, resp.text
+        types = [d["rule_type"] for d in resp.json()["data"]]
+        assert types == sorted(types)
+
+    def test_search_and_sort_hit_different_cache_entries(self, client):
+        _, plain = self._codes(client, limit=100)
+        _, searched = self._codes(client, q="R_AAA", limit=100)
+        assert len(plain) == 9 and len(searched) == 3
+
+
+_PROBE_PARENT = "2"
+_PROBE_CHILD = "2.a"   # seeded high -> ge FAILs while the rule points at it
+_PROBE_OTHER = "2.b"   # seeded low  -> ge PASSes when the rule points here
+
+
+def _seed_impact_data(db_session, parent_value=42.0, child_value=50.0,
+                      other_value=0.0, month="2026-08"):
+    """Give /rules/impact something to evaluate.
+
+    The endpoint live-evaluates every rule against the single LATEST month that
+    has indicator data, and returns an all-zero map when no data exists at all.
+    Tests that assert on failure counts must therefore seed that month for every
+    active hospital. Returns the month that became the latest one.
+    """
+    hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).all()
+    if not hosp:
+        hosp = [Hospital(name="General Hospital", region="Region A", is_active=True)]
+        db_session.add_all(hosp)
+        db_session.flush()
+    values = {_PROBE_PARENT: parent_value,
+              _PROBE_CHILD: child_value,
+              _PROBE_OTHER: other_value}
+    for code, val in values.items():
+        ind = db_session.query(Indicator).filter(Indicator.code == code).first()
+        assert ind is not None, f"seeded indicator {code} missing"
+        for h in hosp:
+            db_session.add(IndicatorValue(
+                hospital_id=h.id, indicator_id=ind.id, month=month, value=val))
+    db_session.commit()
+    return month
+
+
 class TestRuleImpact:
     def test_impact_shape(self, client):
         resp = client.get("/rules/impact")
@@ -280,6 +442,281 @@ class TestRuleImpact:
         resp = client.get("/rules/impact")
         assert resp.status_code == 200
         assert resp.json() != []
+
+    def test_impact_carries_historical_alert_counts(self, client):
+        """failure_count only reflects the latest month, so a rule that failed in
+        earlier months (e.g. R060) looked permanently clean. Every entry must
+        carry its all-months alert totals."""
+        resp = client.get("/rules/impact")
+        assert resp.status_code == 200
+        for r in resp.json():
+            assert "alert_count" in r
+            assert "alert_hospitals" in r
+            assert "last_alert_month" in r
+            assert isinstance(r["alert_count"], int)
+            assert isinstance(r["alert_hospitals"], int)
+
+    def test_impact_alert_counts_match_stored_failures(self, client, db_session):
+        resp = client.get("/rules/impact")
+        by_code = {r["code"]: r for r in resp.json()}
+        expected = dict(
+            db_session.query(ValidationResult.rule_code, func.count())
+            .filter(ValidationResult.status == "FAIL")
+            .group_by(ValidationResult.rule_code)
+            .all()
+        )
+        for code, entry in by_code.items():
+            assert entry["alert_count"] == expected.get(code, 0), f"{code} alert_count mismatch"
+
+    def test_impact_alert_hospitals_are_distinct(self, client, db_session):
+        """alert_hospitals counts distinct facilities, not FAIL rows — one
+        hospital failing six months must report 1, not 6."""
+        resp = client.get("/rules/impact")
+        by_code = {r["code"]: r for r in resp.json()}
+        expected = dict(
+            db_session.query(
+                ValidationResult.rule_code,
+                func.count(func.distinct(ValidationResult.hospital_id)),
+            )
+            .filter(ValidationResult.status == "FAIL")
+            .group_by(ValidationResult.rule_code)
+            .all()
+        )
+        for code, entry in by_code.items():
+            assert entry["alert_hospitals"] == expected.get(code, 0), f"{code} alert_hospitals mismatch"
+
+    def test_impact_last_alert_month_is_max(self, client, db_session):
+        resp = client.get("/rules/impact")
+        by_code = {r["code"]: r for r in resp.json()}
+        expected = dict(
+            db_session.query(ValidationResult.rule_code, func.max(ValidationResult.month))
+            .filter(ValidationResult.status == "FAIL")
+            .group_by(ValidationResult.rule_code)
+            .all()
+        )
+        for code, entry in by_code.items():
+            assert entry["last_alert_month"] == expected.get(code), f"{code} last_alert_month mismatch"
+
+    def test_impact_evaluates_disabled_rules(self, client, db_session):
+        """A disabled rule is still live-evaluated so the Rules Manager reflects
+        the saved definition while it is being tuned.
+
+        Regression: disabled rules were skipped, so the impact column reported a
+        hard 0 and the UI rendered it as "no hospitals affected" — identical to a
+        clean pass, which made editing a disabled rule look like it had no effect.
+        """
+        month = _seed_impact_data(db_session)
+        rule = db_session.query(Rule).filter(Rule.code == "R061").first()
+        rule.enabled = False
+        rule.expression_type = "ge"
+        rule.params = json.dumps({"parent": _PROBE_PARENT, "children": [_PROBE_CHILD]})
+        db_session.commit()
+
+        entry = {r["code"]: r for r in client.get("/rules/impact?refresh=true").json()}[rule.code]
+        assert entry["month"] == month
+        assert entry["enabled"] is False
+        assert entry["failure_count"] >= 1, "disabled rule must still be evaluated"
+        assert entry["hospitals_affected"], "disabled rule must still report affected hospitals"
+
+    def test_impact_enabled_flag_present(self, client):
+        """Every entry carries `enabled` so the UI can label the impact number
+        instead of implying a disabled rule is passing."""
+        for r in client.get("/rules/impact").json():
+            assert "enabled" in r
+            assert isinstance(r["enabled"], bool)
+
+    def test_impact_update_then_reflects_new_params(self, client, db_session):
+        """The full loop the user hit: change the definition, refetch with
+        ?refresh=true, and the affected-hospitals figure must follow."""
+        _seed_impact_data(db_session)
+        rule = db_session.query(Rule).filter(Rule.code == "R061").first()
+        rule.enabled = True
+        rule.expression_type = "ge"
+        rule.params = json.dumps({"parent": _PROBE_PARENT, "children": [_PROBE_CHILD]})
+        db_session.commit()
+
+        before = {r["code"]: r for r in client.get("/rules/impact?refresh=true").json()}[rule.code]
+        assert before["failure_count"] >= 1, "children sum above the parent must fail"
+
+        # Repoint the rule at the low-valued indicator: the figure must follow.
+        res = client.put(f"/rules/{rule.id}", json={"params": json.dumps(
+            {"parent": _PROBE_PARENT, "children": [_PROBE_OTHER]})})
+        assert res.status_code == 200
+
+        after = {r["code"]: r for r in client.get("/rules/impact?refresh=true").json()}[rule.code]
+        assert after["failure_count"] == 0, "repointed rule must pass immediately"
+        assert after["hospitals_affected"] == []
+
+    def test_impact_passed_rule_still_reports_old_alerts(self, client, db_session):
+        """The exact confusion this fixes: a rule passing in the latest month
+        while carrying FAIL rows from earlier months."""
+        rule = db_session.query(Rule).filter(Rule.code == "R049").first()
+        hosp = db_session.query(Hospital).first()
+        db_session.add(ValidationResult(
+            hospital_id=hosp.id, month="2020-01", rule_code=rule.code,
+            rule_description=rule.name, status="FAIL",
+            severity=rule.severity, rule_type=rule.rule_type,
+            details="historical failure",
+        ))
+        db_session.commit()
+
+        entry = {r["code"]: r for r in client.get("/rules/impact?refresh=true").json()}[rule.code]
+        assert entry["alert_count"] >= 1
+        assert entry["last_alert_month"] == "2020-01"
+
+
+class TestStoredScoreRefresh:
+    """ValidationResult / QualityScore are persisted snapshots. A rule edit must
+    refresh them, otherwise the hospital card keeps showing a pre-edit score
+    while the Rules Manager shows the rule failing."""
+
+    def test_recompute_updates_stored_quality_score(self, client, db_session):
+        from app.api.rules import _run_latest_month_recompute
+        from app.models import QualityScore
+
+        month = _seed_impact_data(db_session)
+        hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+
+        # A rule that fails: children sum above the parent.
+        rule = db_session.query(Rule).filter(Rule.code == "R061").first()
+        rule.enabled = True
+        rule.expression_type = "ge"
+        rule.params = json.dumps({"parent": _PROBE_PARENT, "children": [_PROBE_CHILD]})
+        db_session.commit()
+
+        _run_latest_month_recompute("test-task", month, [hosp.id])
+
+        qs = db_session.query(QualityScore).filter(
+            QualityScore.hospital_id == hosp.id, QualityScore.month == month).first()
+        assert qs is not None, "recompute must write a QualityScore row"
+        assert qs.rule_compliance < 100.0, (
+            "a failing rule must pull the stored compliance below 100")
+        fails = db_session.query(ValidationResult).filter(
+            ValidationResult.hospital_id == hosp.id,
+            ValidationResult.month == month,
+            ValidationResult.status == "FAIL").all()
+        # Other rules legitimately fail on this sparse fixture (only 3 indicators
+        # are seeded); what matters is that R061's FAIL was persisted.
+        assert rule.code in [v.rule_code for v in fails]
+
+    def test_recompute_status_is_quiet_when_idle(self, client):
+        resp = client.get("/rules/recompute-status")
+        assert resp.status_code == 200
+        assert resp.json() == {"running": False}
+
+    def test_second_rule_edit_during_a_running_pass_is_re_applied(
+            self, client, db_session, monkeypatch):
+        """Two edits in quick succession must BOTH reach the stored scores.
+
+        The scheduler never runs two engine passes at once, so the second edit
+        is coalesced into the pass already running — but that pass may have read
+        the rules before the second edit landed, and it reports "done" to the
+        UI either way. The change would then be silently lost: the manager sees
+        a finished refresh and a score that ignores their edit. A coalesced
+        edit must therefore queue exactly one follow-up pass.
+        """
+        import types
+        import threading as real_threading
+        import app.api.rules as rules_mod
+        import app.engine.pipeline as pipeline_mod
+
+        month = _seed_impact_data(db_session)
+        hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+
+        # isolate the module-level scheduler state for this test
+        monkeypatch.setattr(
+            rules_mod, "_latest_recompute",
+            {"running": False, "task_id": None, "pending": False},
+        )
+        threads = []
+
+        class _FakeThread:
+            def __init__(self, target=None, args=(), **kwargs):
+                threads.append((target, args))
+
+            def start(self):
+                pass
+
+        monkeypatch.setattr(
+            rules_mod, "threading",
+            types.SimpleNamespace(Thread=_FakeThread, Lock=real_threading.Lock),
+        )
+        ran = []
+        monkeypatch.setattr(
+            pipeline_mod, "recompute_hospital_months",
+            lambda db, hid, months, force=False: ran.append((hid, list(months), force)),
+        )
+
+        # A pass is already running when the user's second edit is saved.
+        rules_mod._latest_recompute["running"] = True
+        rules_mod._latest_recompute["task_id"] = "first-pass"
+
+        task_id = rules_mod._schedule_latest_month_recompute()
+        # the in-flight pass is reused, not duplicated …
+        assert task_id == "first-pass"
+        assert threads == [], "a second pass must not run in parallel"
+        # … and the edit is remembered for a follow-up.
+        assert rules_mod._latest_recompute["pending"] is True
+
+        # When the running pass finishes it must schedule that follow-up.
+        result = rules_mod._run_latest_month_recompute(
+            "first-pass", month, [hosp.id])
+        assert result["month"] == month
+        assert ran == [(hosp.id, [month], True)]
+        assert len(threads) == 1, "the coalesced edit must queue a follow-up pass"
+        assert rules_mod._latest_recompute["pending"] is False, (
+            "the follow-up is consumed exactly once")
+        assert rules_mod._latest_recompute["running"] is False
+
+    def test_recompute_latest_rejects_when_no_data(self, client, db_session):
+        db_session.query(IndicatorValue).delete()
+        db_session.commit()
+        resp = client.post("/rules/recompute-latest")
+        assert resp.status_code == 400
+
+    @pytest.mark.parametrize("method,path,body", [
+        ("put", "/rules/{rid}", {"description": "changed"}),
+        ("put", "/rules/{rid}/toggle", None),
+        ("delete", "/rules/{rid}", None),
+    ])
+    def test_mutations_schedule_a_recompute(self, client, db_session, monkeypatch,
+                                            method, path, body):
+        """Every rule mutation must refresh the stored scores, not just the
+        in-memory impact cache."""
+        import app.api.rules as rules_mod
+        calls = []
+        monkeypatch.setattr(rules_mod, "_schedule_latest_month_recompute",
+                            lambda *a, **k: calls.append(1))
+        rule = db_session.query(Rule).filter(Rule.code == "R061").first()
+        url = path.format(rid=rule.id)
+        fn = getattr(client, method)
+        if body is None:
+            fn(url)
+        else:
+            fn(url, json=body)
+        assert calls, f"{method.upper()} {url} did not schedule a recompute"
+
+    def test_toggle_invalidates_impact_cache(self, client, db_session):
+        """toggle_rule never dropped the impact memo, so enabling a rule left
+        the Rules Manager showing the old figure for up to 5 minutes."""
+        import app.api.rules as rules_mod
+        calls = []
+        original = rules_mod._invalidate_impact_cache
+
+        def spy():
+            calls.append(1)
+            return original()
+
+        rules_mod._invalidate_impact_cache = spy
+        try:
+            rule = db_session.query(Rule).filter(Rule.code == "R061").first()
+            before = rule.enabled
+            client.put(f"/rules/{rule.id}/toggle")
+            assert calls, "toggle must invalidate the impact cache"
+            db_session.refresh(rule)
+            assert rule.enabled != before
+        finally:
+            rules_mod._invalidate_impact_cache = original
 
 
 class TestRuleValidate:

@@ -418,11 +418,6 @@ INDICATOR_TREE = {
                     "id": "11.b",
                     "name": "Referred cases",
                     "children": []
-                },
-                {
-                    "id": "11.c",
-                    "name": "Community deaths",
-                    "children": []
                 }
             ]
         },
@@ -1098,13 +1093,6 @@ INDICATOR_FLAT_LIST = [
     "group_name": "SRMNH Inpatient Indicators"
   },
   {
-    "code": "11.c",
-    "name": "Community deaths",
-    "parent_id": "11",
-    "level": 1,
-    "group_name": "SRMNH Inpatient Indicators"
-  },
-  {
     "code": "12",
     "name": "ICU admission for obstetric causes",
     "parent_id": None,
@@ -1364,8 +1352,7 @@ PARENT_CHILD_MAP = {
   ],
   "11": [
     "11.a",
-    "11.b",
-    "11.c"
+    "11.b"
   ],
   "17": [
     "17.a",
@@ -1460,7 +1447,6 @@ INDICATOR_CODE_TO_NAME = {
   "11": "Maternal Deaths",
   "11.a": "In-hospital deaths",
   "11.b": "Referred cases",
-  "11.c": "Community deaths",
   "12": "ICU admission for obstetric causes",
   "13": "Breastfeeding within first hour",
   "14": "STIs treated cases",
@@ -1564,7 +1550,6 @@ INDICATOR_NAME_TO_CODE = {
   "Maternal Deaths": "11",
   "In-hospital deaths": "11.a",
   "Referred cases": "11.b",
-  "Community deaths": "11.c",
   "ICU admission for obstetric causes": "12",
   "Breastfeeding within first hour": "13",
   "STIs treated cases": "14",

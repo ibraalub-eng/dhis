@@ -72,7 +72,12 @@
         export function updateAlertBadge(data) {
             const badge = document.getElementById('alertBadge');
             if (!badge) return;
-            const total = (data.by_severity.CRITICAL?.count || 0) + (data.by_severity.HIGH?.count || 0);
+            // Match the Alerts page headline ("Total"), which counts every
+            // severity. Summing only CRITICAL+HIGH here made the badge disagree
+            // with the page it links to.
+            const total = data.total_alerts != null
+                ? data.total_alerts
+                : (data.by_severity.CRITICAL?.count || 0) + (data.by_severity.HIGH?.count || 0);
             if (total > 0) {
                 badge.textContent = total > 99 ? '99+' : total;
                 badge.style.display = 'inline';

@@ -1,9 +1,10 @@
-from typing import List, Dict, Optional
 from dataclasses import dataclass
+from typing import Dict, List, Optional
+
 import numpy as np
 from scipy import stats as scipy_stats
 
-from .zscore import compute_rate, RATE_DEFINITIONS
+from .zscore import RATE_DEFINITIONS, compute_rate
 
 
 @dataclass
@@ -17,6 +18,7 @@ class HospitalComparison:
     percentile_rank: float
     comparison_label: str
     comparison_p_value: Optional[float] = None
+    hospital_id: Optional[int] = None
 
 
 def compare_hospitals(
@@ -24,7 +26,7 @@ def compare_hospitals(
     month: str,
 ) -> List[HospitalComparison]:
     results = []
-    for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
+    for rate_name, num_code, den_code, _typical_pct in RATE_DEFINITIONS:
         rates = {}
         for hosp_name, monthly_data in all_hospital_data.items():
             if month in monthly_data:
@@ -79,6 +81,7 @@ def compare_hospitals(
                 percentile_rank=round(percentile, 1),
                 comparison_label=label,
                 comparison_p_value=_p_value,
+                hospital_id=None,
             ))
 
     return results

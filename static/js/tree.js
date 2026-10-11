@@ -640,7 +640,7 @@ const btn = document.getElementById('treeSaveBtn');
                     valHtml = ' <span class="tree-val tree-val-null">—</span>';
                 }
                 summary.insertAdjacentHTML('beforeend', '<span class="tree-code">' + esc(node.code) + '</span> ' +
-                    '<span class="tree-name">' + esc(node.name) + '</span>' + valHtml +
+                    '<span class="tree-name">' + esc(node.name) + ' (' + esc(node.code) + ')</span>' + valHtml +
                     ' <span class="tree-branch-badge">branch</span>');
                 if (isDefault && node.per_hospital) summary.insertAdjacentHTML('beforeend', perHospitalHtml(node));
                 details.appendChild(summary);
@@ -657,7 +657,7 @@ const btn = document.getElementById('treeSaveBtn');
                     ? ' <span class="tree-val"' + (node.tooltip ? ' title="' + esc(node.tooltip) + '"' : '') + '>' + esc(node.value) + '</span>'
                     : ' <span class="tree-val tree-val-null">—</span>';
                 line.insertAdjacentHTML('beforeend', '<span class="tree-code">' + esc(node.code) + '</span> ' +
-                    '<span class="tree-name">' + esc(node.name) + '</span>' + leafVal);
+                    '<span class="tree-name">' + esc(node.name) + ' (' + esc(node.code) + ')</span>' + leafVal);
                 line.appendChild(_reqChip(node));
                 if (isDefault && node.per_hospital) line.insertAdjacentHTML('beforeend', perHospitalHtml(node));
                 wrapper.appendChild(line);

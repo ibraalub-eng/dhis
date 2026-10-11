@@ -667,7 +667,13 @@ def list_all_indicators(db: Session = Depends(get_db)):
     cached = cache.get(cache_key)
     if cached:
         return cached
-    result = db.query(Indicator).order_by(Indicator.sort_order, Indicator.code).all()
+    from app.indicators import SYNTHETIC_INDICATOR_CODES
+    result = (
+        db.query(Indicator)
+        .filter(~Indicator.code.in_(SYNTHETIC_INDICATOR_CODES))
+        .order_by(Indicator.sort_order, Indicator.code)
+        .all()
+    )
     cache.set(cache_key, result)
     return result
 

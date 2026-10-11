@@ -55,6 +55,147 @@ def test_kpi_ignores_ghost_months(app, db_session, ghost_data):
     assert kpis["conf_high"] == 80.0
 
 
+def test_kpi_has_no_data_window_reports_no_data_not_zero(app, db_session, ghost_data):
+    """A hospital with no analyzed month in the selected window has NO DATA.
+
+    The cards used to read 0.0 for every metric — which claims catastrophic
+    performance for a month that was never analyzed (and whose drilldown has
+    nothing to explain). They must read null with has_data=False so the UI
+    renders "—" plus "No analyzed data in this period".
+    """
+    client = TestClient(app)
+    r = client.get("/dashboard/kpi", params={"hospital_id": ghost_data,
+                                             "month": "2026-02"}).json()
+    assert r["has_data"] is False
+    assert all(k["value"] is None for k in r["kpis"])
+    # not a single metric may leak a real-looking number (outlier 100.0 in
+    # particular: a null average must never be published as a perfect score)
+    assert all(k["value"] is None for k in r["kpis"])
+
+
+def test_kpi_has_data_window_still_reports_its_metrics(app, db_session, ghost_data):
+    """The no-data guard must not swallow real windows: the analyzed month
+    keeps its values and flips has_data back on."""
+    client = TestClient(app)
+    r = client.get("/dashboard/kpi", params={"hospital_id": ghost_data,
+                                             "month": "2026-01"}).json()
+    assert r["has_data"] is True
+    kpis = {k["id"]: k["value"] for k in r["kpis"]}
+    assert kpis["quality_score"] == 90.0
+    assert kpis["conf_high"] == 80.0
+
+
+def test_kpi_month_filter_matches_confidence_filter(app, db_session, ghost_data):
+    """A single ?month= must narrow EVERY KPI input, confidence included.
+
+    The score/completeness/consistency/outlier queries all filtered on month,
+    but the confidence query only handled month_from/month_to/year, so the card
+    averaged all months' confidence next to a single month's other metrics.
+    """
+    client = TestClient(app)
+    # a second analyzed month with a different confidence level
+    db_session.add(IndicatorValue(hospital_id=ghost_data, month="2026-03",
+                                  indicator_id=db_session.query(Indicator).first().id,
+                                  value=10))
+    db_session.add(QualityScore(hospital_id=ghost_data, month="2026-03", score=70.0,
+                                rule_compliance=70.0, consistency=70.0))
+    db_session.add(ConfidenceScore(hospital_id=ghost_data, month="2026-03",
+                                   overall_confidence=40.0, level="LOW"))
+    db_session.commit()
+
+    # single month → only that month's 80.0 confidence (never the 40.0 average)
+    r = client.get("/dashboard/kpi", params={"hospital_id": ghost_data,
+                                             "month": "2026-01"}).json()
+    kpis = {k["id"]: k["value"] for k in r["kpis"]}
+    assert kpis["conf_high"] == 80.0
+    # the other single month → its own 40.0
+    r3 = client.get("/dashboard/kpi", params={"hospital_id": ghost_data,
+                                              "month": "2026-03"}).json()
+    kpis3 = {k["id"]: k["value"] for k in r3["kpis"]}
+    assert kpis3["conf_high"] == 40.0
+
+
+def test_peer_benchmark_confidence_uses_the_same_window(app, db_session, ghost_data):
+    """The peer (network) row next to each KPI must answer the same question
+    as the card itself.
+
+    The QualityScore peer query filtered on the selected window, but the peer
+    confidence query only handled month_from/month_to/year: asking about
+    2026-01 answered with every peer's confidence for every month.
+    """
+    peer = db_session.query(Hospital).offset(1).first()
+    ind = db_session.query(Indicator).first()
+    # hospital 1 already has 2026-01 (conf 80 / score 90) and 2026-03
+    # (conf 40 / score 70) — add the same two months for the peer with
+    # different numbers so "all months" cannot be mistaken for "this month".
+    for month, score, conf in (("2026-01", 50.0, 60.0), ("2026-03", 55.0, 30.0)):
+        db_session.add(IndicatorValue(hospital_id=peer.id, month=month,
+                                      indicator_id=ind.id, value=10))
+        db_session.add(QualityScore(hospital_id=peer.id, month=month, score=score,
+                                    rule_compliance=score, consistency=score))
+        db_session.add(ConfidenceScore(hospital_id=peer.id, month=month,
+                                       overall_confidence=conf, level="HIGH"))
+    db_session.commit()
+
+    client = TestClient(app)
+    kpis = {k["id"]: k for k in client.get(
+        "/dashboard/kpi", params={"hospital_id": ghost_data, "month": "2026-01"}
+    ).json()["kpis"]}
+    # this month only: peer conf 60.0 (not the 45.0 two-month average)
+    assert kpis["conf_high"]["network_value"] == 60.0
+    assert kpis["quality_score"]["network_value"] == 50.0
+
+    kpis3 = {k["id"]: k for k in client.get(
+        "/dashboard/kpi", params={"hospital_id": ghost_data, "month": "2026-03"}
+    ).json()["kpis"]}
+    assert kpis3["conf_high"]["network_value"] == 30.0
+    assert kpis3["quality_score"]["network_value"] == 55.0
+
+
+def test_previous_period_confidence_excludes_disabled_months(app, db_session, ghost_data):
+    """The previous-period delta is a claim about the same hospital over the
+    same window, so confidence needs the ghost AND disabled-month gate the
+    score query already had.
+
+    The fixture is built so the two windows disagree: the previous window has
+    ONE analyzed month with a score but no confidence row, and a DISABLED month
+    that does have a confidence row. A query without the gate publishes the
+    disabled month's confidence as the hospital's baseline.
+    """
+    from app.models import SystemSetting
+
+    ind = db_session.query(Indicator).first()
+    # previous window (2025-11 → 2025-12 for a 2026-01 → 2026-02 selection):
+    # analyzed + scored, but never scored for confidence
+    db_session.add(IndicatorValue(hospital_id=ghost_data, month="2025-11",
+                                  indicator_id=ind.id, value=10))
+    db_session.add(QualityScore(hospital_id=ghost_data, month="2025-11", score=65.0,
+                                rule_compliance=65.0, consistency=65.0))
+    # analyzed + scored + confidence, but the month was disabled by management
+    db_session.add(IndicatorValue(hospital_id=ghost_data, month="2025-12",
+                                  indicator_id=ind.id, value=10))
+    db_session.add(QualityScore(hospital_id=ghost_data, month="2025-12", score=60.0,
+                                rule_compliance=60.0, consistency=60.0))
+    db_session.add(ConfidenceScore(hospital_id=ghost_data, month="2025-12",
+                                   overall_confidence=50.0, level="HIGH"))
+    db_session.add(SystemSetting(key=f"month_enabled_{ghost_data}_2025-12",
+                                 value="false"))
+    db_session.commit()
+
+    client = TestClient(app)
+    kpis = {k["id"]: k for k in client.get(
+        "/dashboard/kpi", params={"hospital_id": ghost_data,
+                                  "month_from": "2026-01", "month_to": "2026-02"}
+    ).json()["kpis"]}
+    # the comparison still exists for the metrics that have previous data…
+    assert kpis["quality_score"]["prev_value"] == 65.0
+    assert kpis["quality_score"]["delta"] == 25.0
+    # …but the disabled month contributes no confidence, so there is nothing to
+    # compare against (never a 0.0, never the disabled month's 50.0)
+    assert kpis["conf_high"].get("prev_value") is None
+    assert kpis["conf_high"].get("delta") is None
+
+
 def test_overview_avg_trend_and_reports_ignore_ghosts(app, db_session, ghost_data):
     client = TestClient(app)
     r = client.get("/dashboard/overview").json()
@@ -66,6 +207,25 @@ def test_overview_avg_trend_and_reports_ignore_ghosts(app, db_session, ghost_dat
     trend = {t["month"]: t["score"] for t in r["quality_trend"]}
     assert trend.get("2026-01") == 90.0
     assert trend.get("2026-02") is None
+
+
+def test_overview_with_no_analyzed_data_says_none_not_zero(app, db_session):
+    """A window with zero analyzed reports has NO score.
+
+    Historically /dashboard/overview returned 0.0 for everything the instant
+    the filter matched nothing: "average quality 0", radar full of zeros, and
+    an Outlier Score of 100 — so an unmeasured month appeared to be the worst
+    and cleanest month at the same time."""
+    client = TestClient(app)
+    r = client.get("/dashboard/overview?year=2099").json()
+    assert r["total_reports"] == 0
+    assert r["avg_quality_score"] is None
+    assert r["radar_components"]["Validation rule"] is None
+    assert r["radar_components"]["Completeness"] is None
+    assert r["radar_components"]["Consistency"] is None
+    assert r["radar_components"]["Outlier Score"] is None
+    # no-data hospitals must not rank as 0.0 against measured ones
+    assert r["hospital_compare"] == []
 
 
 def test_ranking_ignores_ghost_months(app, db_session, ghost_data):

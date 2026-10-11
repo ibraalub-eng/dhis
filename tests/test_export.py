@@ -36,6 +36,7 @@ def client(db_session):
 # --- Engine helpers ---
 
 def test_sanitize_converts_numpy_scalars(db_session):
+    import json
     import numpy as np
     from app.engine.export import _sanitize
     out = _sanitize({"score": np.float64(0.45), "count": np.int64(7), "nan": float("nan"), "inf": float("inf")})
@@ -43,8 +44,12 @@ def test_sanitize_converts_numpy_scalars(db_session):
     assert isinstance(out["score"], float)
     assert out["count"] == 7
     assert isinstance(out["count"], int)
-    assert out["nan"] == 0.0
-    assert out["inf"] == 0.0
+    # NaN/Inf are "not computable", not zero — 0.0 would be indistinguishable
+    # from a measured zero in any downstream ranking or average.
+    assert out["nan"] is None
+    assert out["inf"] is None
+    # … and the payload must still be strict JSON (no NaN literals leaking).
+    json.dumps(out, allow_nan=False)
 
 
 def test_sanitize_converts_numpy_array(db_session):
@@ -66,10 +71,14 @@ def test_get_available_months_distinct_sorted(db_session):
     from app.engine.export import _get_available_months
     hosp = db_session.query(Hospital).first()
     ind = db_session.query(Indicator).filter(Indicator.code == "2").first()
+    ind2 = db_session.query(Indicator).filter(Indicator.code == "3").first()
     db_session.add_all([
         IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=100),
         IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-06", value=120),
-        IndicatorValue(hospital_id=hosp.id, indicator_id=ind.id, month="2026-05", value=90),
+        # Same month again — but via another indicator, because the renamed
+        # schema now enforces (hospital, indicator, month) uniqueness and the
+        # point of the test is that a repeated MONTH collapses to one.
+        IndicatorValue(hospital_id=hosp.id, indicator_id=ind2.id, month="2026-05", value=90),
     ])
     db_session.commit()
     assert _get_available_months(db_session) == ["2026-05", "2026-06"]
@@ -396,6 +405,19 @@ def test_alerts_js_still_has_overview_handlers():
     assert "renderAlertTable" not in content
 
 
+def test_alert_badge_matches_alerts_page_total():
+    """The sidebar badge counted only CRITICAL+HIGH while the Alerts page
+    headline counts every severity, so the badge and the page it links to
+    disagreed. It must read the page's own total."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "alerts.js")
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    fn = content[content.index("function updateAlertBadge"):]
+    fn = fn[:fn.index("function renderAlertOverview")]
+    assert "data.total_alerts" in fn, "badge must use total_alerts, not a CRITICAL+HIGH sum"
+
+
 def test_index_has_no_removed_tabs():
     """index.html لم يعد يحتوي على تبويبي AI Reports وRule Failures المنفصلين"""
     import os
@@ -650,6 +672,32 @@ def test_analysis_js_has_metric_toggle_labels():
     assert "s[metric]" in content
     # عند اختيار مكوّن تظهر درجة الجودة كخط مرجعي متقطع
     assert "qScore + ' (' + __('reference') + ')'" in content
+
+
+def test_clustering_card_never_shows_a_fake_zero_silhouette():
+    """silhouette_score is null when clustering is not computable; the card
+    must print "n/a" instead of 0.00 (which reads as "no structure found")."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "validation.js")
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    assert "(c.silhouette_score ?? 0)" not in content, (
+        "?? 0 turns an invalid silhouette into a measured 0.00")
+    assert "'n/a'" in content
+    assert "isFinite(c.silhouette_score)" in content
+
+
+def test_governorates_bar_chart_null_does_not_plot_zero():
+    """The regional comparison's bar chart mapped a null avg_quality_score to 0
+    (and a red bar) — a governorate with no data looked like the worst
+    performer. It must plot a gap and a neutral colour instead."""
+    import os
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "validation.js")
+    with open(path, encoding="utf-8") as f:
+        content = f.read()
+    assert "v != null ? (v >= 80" in content, "null must not take the red branch"
+    assert "rgba(120,120,120,0.4)" in content, "no-data bar has a neutral colour"
+    assert "g.avg_quality_score != null ? Number(g.avg_quality_score).toFixed(1) : null" in content
 
 
 def test_styles_have_quality_trend_toggle_css():

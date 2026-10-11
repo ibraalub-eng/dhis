@@ -9,7 +9,7 @@
                         <select id="alert-hospital-filter" class="form-select" onchange="window.filterAlerts()" style="font-size:0.78rem;padding:0.3rem 0.5rem;">
                             <option value="all" data-i18n="All hospitals">جميع المستشفيات</option>
                         </select>
-                        <input type="text" id="alert-search" class="form-input" placeholder="بحث..." data-i18n-placeholder="search" oninput="window.filterAlerts()" style="max-width:200px;font-size:0.78rem;padding:0.3rem 0.5rem;">
+                        <input type="text" id="alert-search" class="form-input" placeholder="بحث في التنبيهات الحرجة..." title="Search the critical alerts panel below (hospital, rule, description)" data-i18n-placeholder="search" oninput="window.filterAlerts()" style="max-width:200px;font-size:0.78rem;padding:0.3rem 0.5rem;">
                     </div>
 
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
@@ -37,10 +37,11 @@
                             <h3 style="margin:0;font-size:0.95rem;">Rule Failures <span id="ruleFailCount" style="font-size:0.75rem;color:var(--text-muted);"></span></h3>
                             <div style="display:flex;align-items:center;gap:0.4rem;">
                                 <div id="ruleFailSummary" style="display:flex;gap:0.4rem;flex-wrap:wrap;"></div>
-                                <button onclick="exportRuleFailuresCSV()" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Export CSV</button>
+                                <button id="ruleFailExportBtn" onclick="exportRuleFailuresCSV()" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Export CSV</button>
                             </div>
                         </div>
                         <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                            <input type="text" id="ruleFailSearch" class="form-input" oninput="window.onRuleFailSearch()" onkeydown="if(event.key==='Enter'){window.onRuleFailSearch(true);}" placeholder="ابحث في المستشفى أو القاعدة أو التفاصيل..." title="Search hospital name, rule code, description, details or month" style="max-width:260px;font-size:0.78rem;padding:0.2rem 0.4rem;">
                             <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
                             <select id="ruleFailHospitalFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
                             <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
@@ -49,6 +50,19 @@
                             <select id="ruleFailSeverityFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select>
                             <label style="font-size:0.75rem;color:var(--text-secondary);">Type:</label>
                             <select id="ruleFailTypeFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option><option value="LOGIC">Logic</option><option value="CLINICAL">Clinical</option><option value="STATISTICAL">Statistical</option><option value="TREND">Trend</option></select>
+                            <label style="font-size:0.75rem;color:var(--text-secondary);">Sort:</label>
+                            <select id="ruleFailSort" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+                                <option value="">Severity (critical first)</option>
+                                <option value="hospital:asc">Hospital name (A-Z)</option>
+                                <option value="hospital:desc">Hospital name (Z-A)</option>
+                                <option value="month:desc">Month (newest first)</option>
+                                <option value="month:asc">Month (oldest first)</option>
+                                <option value="rule_code:asc">Rule code (A-Z)</option>
+                                <option value="rule_code:desc">Rule code (Z-A)</option>
+                                <option value="severity:desc">Severity (low first)</option>
+                                <option value="type:asc">Type (A-Z)</option>
+                            </select>
+                            <button id="ruleFailSearchClear" onclick="window.clearRuleFailSearch()" style="display:none;background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.55rem;font-size:0.75rem;cursor:pointer;">Clear</button>
                             <span id="ruleFailLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);"><span class="spinner"></span></span>
                         </div>
                         <div style="max-height:500px;overflow-y:auto;">

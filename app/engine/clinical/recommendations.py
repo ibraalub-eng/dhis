@@ -166,7 +166,7 @@ def _maternal_mortality(ctx):
             description=f"{deaths} maternal death(s) reported; MMR of {mmr:.0f} per 100,000 deliveries",
             rationale="Every maternal death requires thorough review. Elevated MMR indicates systemic gaps in emergency obstetric care.",
             action_items=action,
-            indicators_monitored=["11", "11.a", "11.b", "11.c", "10", "10.m"],
+            indicators_monitored=["11", "11.a", "11.b", "10", "10.m"],
         )
 
 

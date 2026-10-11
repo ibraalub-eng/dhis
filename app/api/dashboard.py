@@ -80,6 +80,55 @@ def _exclude_disabled(db, q, model, hospital_id=None):
     return q.filter(and_(*conds)) if conds else q
 
 
+# ── Shared helper: confidence aggregate with the score query's filters ──
+def _conf_avg_q(db, hospital_id=None, exclude_self=False, lo=None, hi=None,
+                month=None, year=None, enabled_months=None):
+    """Average ``ConfidenceScore.overall_confidence`` under EXACTLY the ghost,
+    disabled-month, hospital and window filters the QualityScore query uses.
+
+    Confidence is stored on its own table, so every consumer (the card, the
+    previous-period delta, the peer benchmark) has to repeat this filter ladder.
+    When one did not, it reported a different population: a ?month= selection
+    averaged every month, and the peer/previous-period queries skipped both
+    the disabled-month gate and the single-month window the scores had
+    already applied.
+    """
+    q = db.query(func.avg(ConfidenceScore.overall_confidence).label("avg_conf")).filter(
+        _analyzed_exists(db, ConfidenceScore)
+    )
+    if hospital_id:
+        q = q.filter(
+            ConfidenceScore.hospital_id != hospital_id if exclude_self
+            else ConfidenceScore.hospital_id == hospital_id
+        )
+    # Single-hospital queries exclude that hospital's disabled months; network
+    # queries (including the peer view) exclude every hospital's.
+    q = _exclude_disabled(
+        db, q, ConfidenceScore,
+        hospital_id=None if (exclude_self or not hospital_id) else hospital_id,
+    )
+    if lo:
+        q = q.filter(ConfidenceScore.month >= lo)
+    if hi:
+        q = q.filter(ConfidenceScore.month <= hi)
+    elif month:
+        q = q.filter(ConfidenceScore.month == month)
+    elif year:
+        q = q.filter(ConfidenceScore.month.like(f"{year}-%"))
+    elif enabled_months:
+        q = q.filter(ConfidenceScore.month.in_(enabled_months))
+    return q
+
+
+def _conf_avg_value(row):
+    """Aggregate → rounded float, or None when the window has no data. A
+    missing ConfidenceScore row is no data, not 0.0%: claiming a score of
+    zero confidence would assert the data is definitively unreliable."""
+    if row is None or row.avg_conf is None:
+        return None
+    return round(float(row.avg_conf), 1)
+
+
 # ── Shared helper: recalculate completeness (batch-optimized) ──
 def _recalc_completeness(db, scores):
     """Recalculate completeness for QualityScore objects using batch pre-fetching.
@@ -175,7 +224,8 @@ def dashboard_overview(
         q = q.filter(QualityScore.month.like(f"{year}-%"))
     elif enabled_months:
         q = q.filter(QualityScore.month.in_(enabled_months))
-    avg_score = round(q.scalar() or 0, 1)
+    _avg = q.scalar()
+    avg_score = round(float(_avg), 1) if _avg is not None else None
 
     alerts_q = db.query(ValidationResult).filter(
         ValidationResult.status == "FAIL"
@@ -212,11 +262,13 @@ def dashboard_overview(
         key=lambda x: x["month"],
     )
 
-    # hospital comparison (only enabled months)
+    # hospital comparison (only enabled months). A hospital with zero analyzed
+    # reports has NO score — it must not rank as 0.0 against hospitals that
+    # were measured, so it is excluded entirely.
     comp_q = db.query(
         Hospital.id,
         Hospital.name,
-        func.coalesce(func.avg(QualityScore.score), 0).label("avg_score"),
+        func.avg(QualityScore.score).label("avg_score"),
         func.count(QualityScore.id).label("report_count"),
     ).outerjoin(
         QualityScore, and_(
@@ -234,7 +286,9 @@ def dashboard_overview(
         comp_q = comp_q.filter(QualityScore.month.like(f"{year}-%"))
     elif enabled_months:
         comp_q = comp_q.filter(QualityScore.month.in_(enabled_months))
-    comp = comp_q.group_by(Hospital.id, Hospital.name).order_by(
+    comp = comp_q.group_by(Hospital.id, Hospital.name).having(
+        func.count(QualityScore.id) >= 0
+    ).order_by(
         func.avg(QualityScore.score).desc().nullslast()
     ).all()
 
@@ -242,7 +296,7 @@ def dashboard_overview(
         {
             "id": c.id,
             "name": c.name,
-            "avg_score": round(float(c.avg_score), 1) if c.avg_score else 0,
+            "avg_score": round(float(c.avg_score), 1) if c.avg_score is not None else None,
             "report_count": c.report_count,
         }
         for c in comp
@@ -300,11 +354,11 @@ def dashboard_overview(
         _radar_q = _radar_q.filter(QualityScore.month.like(f"{year}-%"))
     _radar_scores = _radar_q.all()
     _radar_cp = _recalc_completeness(db, _radar_scores)
-    _radar_cp_avg = round(sum(_radar_cp) / len(_radar_cp), 1) if _radar_cp else 0
+    _radar_cp_avg = round(sum(_radar_cp) / len(_radar_cp), 1) if _radar_cp else None
     radar_components = {
-        "Validation rule": round(float(radar_row.rule_compliance or 0), 1),
+        "Validation rule": round(float(radar_row.rule_compliance), 1) if radar_row and radar_row.rule_compliance is not None else None,
         "Completeness": _radar_cp_avg,
-        "Consistency": round(float(radar_row.consistency or 0), 1),
+        "Consistency": round(float(radar_row.consistency), 1) if radar_row and radar_row.consistency is not None else None,
     }
     outlier_q = db.query(func.avg(func.abs(QualityScore.outlier_penalty)).label("avg_op"))
     if hospital_id:
@@ -320,8 +374,12 @@ def dashboard_overview(
     if year:
         outlier_q = outlier_q.filter(QualityScore.month.like(f"{year}-%"))
     outlier_row = outlier_q.first()
-    outlier_penalty = round(float(outlier_row.avg_op or 0), 1)
-    radar_components["Outlier Score"] = round(max(0, 100 - outlier_penalty), 1)
+    outlier_penalty = round(float(outlier_row.avg_op), 1) if outlier_row and outlier_row.avg_op is not None else None
+    # Outlier Score is "100 minus the penalty" — with no analyzed data there is
+    # no penalty to subtract, so forcing 100 would be the loudest lie of all.
+    radar_components["Outlier Score"] = (
+        round(max(0, 100 - outlier_penalty), 1) if outlier_penalty is not None else None
+    )
 
     return {
         "total_hospitals": total_hospitals,
@@ -416,38 +474,46 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     elif enabled_months:
         base = base.filter(QualityScore.month.in_(enabled_months))
 
-    agg = base.with_entities(
-        func.avg(QualityScore.score).label("avg_score"),
-        func.avg(QualityScore.rule_compliance).label("avg_compliance"),
-        func.avg(QualityScore.consistency).label("avg_consistency"),
-    ).first()
-
-    avg_score = round(float(agg.avg_score or 0), 1)
-    avg_compliance = round(float(agg.avg_compliance or 0), 1)
-    avg_consistency = round(float(agg.avg_consistency or 0), 1)
-
     # Recalculate completeness using current disabled indicator set
     _kpi_scores = base.all()
-    _kpi_cp = _recalc_completeness(db, _kpi_scores)
-    avg_completeness = round(sum(_kpi_cp) / len(_kpi_cp), 1) if _kpi_cp else 0
+    # "No analyzed rows in this window" is NO DATA, not zero performance. A
+    # ghost hospital-month (score row persisted, no IndicatorValue rows behind
+    # it) used to render every KPI card as 0.0 / 100 — a catastrophic reading
+    # for a month that was never analyzed, and one whose drilldown and Why popup
+    # then 404. Every card value is None in that case and the UI shows "—".
+    _has_data = bool(_kpi_scores)
+    if _has_data:
+        agg = base.with_entities(
+            func.avg(QualityScore.score).label("avg_score"),
+            func.avg(QualityScore.rule_compliance).label("avg_compliance"),
+            func.avg(QualityScore.consistency).label("avg_consistency"),
+        ).first()
+
+        avg_score = round(float(agg.avg_score or 0), 1)
+        avg_compliance = round(float(agg.avg_compliance or 0), 1)
+        avg_consistency = round(float(agg.avg_consistency or 0), 1)
+
+        _kpi_cp = _recalc_completeness(db, _kpi_scores)
+        avg_completeness = round(sum(_kpi_cp) / len(_kpi_cp), 1) if _kpi_cp else 0
+    else:
+        avg_score = avg_compliance = avg_completeness = avg_consistency = None
 
     # confidence: use weighted overall_confidence (not just count of HIGH records)
-    conf_q = db.query(func.avg(ConfidenceScore.overall_confidence).label("avg_conf")).filter(
-        _analyzed_exists(db, ConfidenceScore)
-    )
-    if hospital_id:
-        conf_q = conf_q.filter(ConfidenceScore.hospital_id == hospital_id)
-    if month_from:
-        conf_q = conf_q.filter(ConfidenceScore.month >= month_from)
-    if month_to:
-        conf_q = conf_q.filter(ConfidenceScore.month <= month_to)
-    elif year:
-        conf_q = conf_q.filter(ConfidenceScore.month.like(f"{year}-%"))
-    conf_high_pct = round(float(conf_q.first().avg_conf or 0), 1)
+    conf_high_pct = None
+    if _has_data:
+        # Same ghost / disabled / hospital / window filters as the score query
+        # above, shared with the previous-period and peer comparators below.
+        conf_high_pct = _conf_avg_value(_conf_avg_q(
+            db, hospital_id=hospital_id, lo=month_from, hi=month_to,
+            month=month, year=year, enabled_months=enabled_months,
+        ).first())
 
     # Outlier score (lower penalty = better)
-    _op_q = base.with_entities(func.avg(QualityScore.outlier_penalty).label("avg_op")).first()
-    outlier_penalty = round(float(_op_q.avg_op or 0), 1)
+    if _has_data:
+        _op_q = base.with_entities(func.avg(QualityScore.outlier_penalty).label("avg_op")).first()
+        outlier_penalty = round(float(_op_q.avg_op or 0), 1)
+    else:
+        outlier_penalty = None
 
     kpis = [
         {"id": "quality_score", "label": "Quality Score", "value": avg_score,
@@ -458,7 +524,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
          "target": 90, "unit": "%", "higher_is_better": True},
         {"id": "consistency", "label": "Consistency", "value": avg_consistency,
          "target": 85, "unit": "%", "higher_is_better": True},
-        {"id": "outlier_score", "label": "Outlier Score", "value": 100 - outlier_penalty,
+        {"id": "outlier_score", "label": "Outlier Score",
+         "value": (100 - outlier_penalty) if outlier_penalty is not None else None,
          "target": 90, "unit": "%", "higher_is_better": True},
         {"id": "conf_high", "label": "High Confidence", "value": conf_high_pct,
          "target": 60, "unit": "%", "higher_is_better": True},
@@ -513,14 +580,9 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         # Confidence is queried on its own table (same filters as the main
         # conf query above), so shift it separately.
         def _conf_avg(lo: str, hi: str):
-            cq = db.query(func.avg(ConfidenceScore.overall_confidence)).filter(
-                _analyzed_exists(db, ConfidenceScore)
-            )
-            if hospital_id:
-                cq = cq.filter(ConfidenceScore.hospital_id == hospital_id)
-            cq = cq.filter(ConfidenceScore.month >= lo, ConfidenceScore.month <= hi)
-            v = cq.first()[0]
-            return None if v is None else round(float(v), 1)
+            return _conf_avg_value(_conf_avg_q(
+                db, hospital_id=hospital_id, lo=lo, hi=hi,
+            ).first())
 
         prev = _avg_over(p_lo, p_hi)
         if prev:
@@ -557,18 +619,15 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
 
         def _net_val(kid):
             if kid == "conf_high":
-                cq = db.query(func.avg(ConfidenceScore.overall_confidence)).filter(
-                    _analyzed_exists(db, ConfidenceScore),
-                    ConfidenceScore.hospital_id != hospital_id,
-                )
-                if month_from:
-                    cq = cq.filter(ConfidenceScore.month >= month_from)
-                if month_to:
-                    cq = cq.filter(ConfidenceScore.month <= month_to)
-                elif year:
-                    cq = cq.filter(ConfidenceScore.month.like(f"{year}-%"))
-                v = cq.first()[0]
-                return None if v is None else round(float(v), 1)
+                # Peers only, and the SAME window/disabled gate the score
+                # network average above used: the peer confidence used to
+                # average every month of every peer while the quality score
+                # next to it answered for the selected month only.
+                return _conf_avg_value(_conf_avg_q(
+                    db, hospital_id=hospital_id, exclude_self=True,
+                    lo=month_from, hi=month_to, month=month, year=year,
+                    enabled_months=enabled_months,
+                ).first())
             if kid == "completeness":
                 cp = _recalc_completeness(db, net.all())
                 return round(sum(cp) / len(cp), 1) if cp else None
@@ -607,7 +666,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
                 }
 
     return {"kpis": kpis, "data_epoch": get_data_epoch(), "prev_period": prev_delta,
-            "disabled_months": disabled_months_meta}
+            "disabled_months": disabled_months_meta,
+            "has_data": _has_data}
 
 
 @router.get("/attention")

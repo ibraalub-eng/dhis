@@ -226,12 +226,13 @@ def _seed_trending_data(db_session):
               for i, m in enumerate(months)}
     _seed_gov(db_session, "محافظة متصاعدة", ["م ص"], month=months[0],
               values_by_hosp={"م ص": rising[months[0]]})
-    # إضافة قيم الأشهر اللاحقة للمستشفى نفسه
-    _add_month_values(db_session, "م ص", rising)
+    # إضافة قيم الأشهر التالية فقط للمستشفى نفسه (الشهر الأول مُزرع أعلاه،
+    # وتفرض الـ schema الجديدة تفرّد (مستشفى، مؤشر، شهر))
+    _add_month_values(db_session, "م ص", {m: rising[m] for m in months[1:]})
     _seed_gov(db_session, "محافظة مستقرة", ["م ث"], month=months[0],
               values_by_hosp={"م ث": {"2": 300.0, "5": 80.0, "6": 280.0, "17": 5.0}})
     _add_month_values(db_session, "م ث", {m: {"2": 300.0, "5": 80.0, "6": 280.0, "17": 5.0}
-                                          for m in months})
+                                          for m in months[1:]})
 
 
 def _add_month_values(db_session, hosp_name, values_by_month):
@@ -344,8 +345,8 @@ def test_regional_anomalies_historical_spike(db_session):
     _seed_gov(db_session, "محافظة قافزة", ["م ق"], month=months[0], values_by_hosp={
         "م ق": {"2": 300.0, "5": 80.0, "6": 280.0, "17": 3.0},
     })
+    # الشهر الأول مُزرع أعلاه — نُضيف التالي فقط (schema تفرض التفرد)
     _add_month_values(db_session, "م ق", {
-        "2026-01": {"2": 300.0, "5": 80.0, "6": 280.0, "17": 3.0},
         "2026-02": {"2": 300.0, "5": 80.0, "6": 280.0, "17": 4.0},
         "2026-03": {"2": 300.0, "5": 80.0, "6": 280.0, "17": 5.0},
         "2026-04": {"2": 300.0, "5": 80.0, "6": 280.0, "17": 30.0},

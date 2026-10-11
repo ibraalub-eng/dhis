@@ -9,6 +9,25 @@ def _read_rules_js():
         return f.read()
 
 
+def test_dashboard_avg_score_card_renders_dash_for_no_data():
+    """avg_quality_score is null when the window has zero analyzed reports.
+
+    Writing that value straight to textContent printed 'null' on the card;
+    mapping it to 0 printed a fake "average quality 0". It must render a dash.
+    """
+    src = _read_settings_js()
+    assert "'\\u2014'" in src, "null scores must render as an em-dash, not 0/null"
+    assert "isFinite(data.avg_quality_score)" in src
+
+
+def test_dashboard_radar_handles_null_components():
+    """With no analyzed data the radar components are null (not 0.0/100), so the
+    radar chart must tolerate null values instead of plotting fake zeros."""
+    src = _read_settings_js()
+    assert "radar_components || {}" in src
+    assert "Object.values(radar)" in src
+
+
 def _read_settings_js():
     """The rules UI code lives in rules-manager.js (split out of settings.js);
     structural checks below should see both files."""
@@ -330,7 +349,7 @@ def _read_i18n_js():
 
 
 RULES_MANAGER_EXPRS = [
-    "ge", "gt", "ge_factor", "eq", "le", "lt", "le_sum",
+    "ge", "gt", "ge_factor", "eq", "le", "lt", "le_sum", "parent_le",
     "benchmark_rate", "benchmark_low_rate", "cross_hospital_rate",
     "month_over", "month_under", "neg_check", "decimal_check",
     "missing", "all_zero", "formula",

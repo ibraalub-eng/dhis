@@ -1654,6 +1654,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* Clickable indicator chip (rule drawer): opens the node in the Indicator Tree */
 .rule-ref-chip-link { cursor: pointer; transition: background 0.15s, border-color 0.15s, color 0.15s; }
 .rule-ref-chip-link:hover { background: var(--accent-blue)22; border-color: var(--accent-blue); color: var(--accent-blue); }
+/* Historical FAIL alerts on a rule row: the live "Affected Hospitals" figure only
+   covers the latest month, so a rule that passed recently but failed in earlier
+   months would otherwise look permanently clean. */
+.rule-alert-hist { color: var(--accent-orange); font-size: 0.68rem; white-space: nowrap; }
 .rule-ref-chip-link:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
 /* Flash highlight for a node revealed via a drawer chip jump */
 @keyframes tree-flash-kf { 0% { background: rgba(59,130,246,0.35); } 70% { background: rgba(59,130,246,0.18); } 100% { background: transparent; } }

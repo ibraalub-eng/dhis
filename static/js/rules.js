@@ -1,7 +1,7 @@
         import { API } from './api.js';
         import { __ } from './i18n.js';
         import { EXPR_EXPLANATIONS, rulesManagerData, loadRulesManager } from './settings.js';
-import { toastSuccess, toastError, toastWarning } from './toast.js';
+import { toastSuccess, toastError, toastWarning, toastInfo } from './toast.js';
 import { confirmDestructive } from './confirm-modal.js';
 
         let ruleEditId = null;
@@ -200,8 +200,8 @@ import { confirmDestructive } from './confirm-modal.js';
             switch (expr) {
                 case 'ge':
                 case 'eq':
-                    return JSON.stringify({ parent: _vbState.parent || '', children: _vbState.children || [] });
                 case 'gt':
+                case 'parent_le':
                     return JSON.stringify({ parent: _vbState.parent || '', children: _vbState.children || [] });
                 case 'ge_factor':
                     return JSON.stringify({ parent: _vbState.parent || '', children: _vbState.children || [], factor: parseFloat(_vbState.ge_factor) || 1.0 });
@@ -229,6 +229,38 @@ import { confirmDestructive } from './confirm-modal.js';
                 default:
                     return '{}';
             }
+        }
+
+        // ── Nested-children guard ──────────────────────────────────────
+        // Indicator codes are dotted paths (10.a.1.2), so ancestry is decidable
+        // from the code alone. Summing a parent together with its own
+        // descendants counts the same cases several times, which silently
+        // inflates the sum and makes the rule mean something other than what
+        // the chip list shows. Surface it instead of quietly accepting it.
+        export function _vbNestedChildren(codes) {
+            const list = (codes || []).filter(Boolean);
+            const out = [];
+            for (let i = 0; i < list.length; i++) {
+                for (let j = 0; j < list.length; j++) {
+                    if (i === j) continue;
+                    if (list[j].indexOf(list[i] + '.') === 0) out.push([list[i], list[j]]);
+                }
+            }
+            return out;
+        }
+
+        function _vbNestingWarningHTML(codes) {
+            const pairs = _vbNestedChildren(codes);
+            if (!pairs.length) return '';
+            const uniq = [];
+            pairs.forEach(function(p) { if (uniq.indexOf(p[0]) === -1) uniq.push(p[0]); });
+            return '<div style="margin-top:0.4rem;padding:0.4rem 0.55rem;border:1px solid var(--accent-orange);'
+                + 'border-radius:6px;background:var(--accent-orange)14;font-size:0.72rem;color:var(--text-primary);">'
+                + '<strong>' + __('Warning:') + '</strong> '
+                + __('these indicators contain a parent and its own children, so they will be counted more than once in the sum:')
+                + ' <code>' + uniq.map(esc).join('</code>, <code>') + '</code>. '
+                + __('Use either the parent or its children, not both.')
+                + '</div>';
         }
 
         function _vbUpdateHidden() {
@@ -261,6 +293,7 @@ import { confirmDestructive } from './confirm-modal.js';
             switch (expr) {
                 case 'ge': cond = chip(p.parent) + ' ≥ ' + chips(p.children); break;
                 case 'gt': cond = chip(p.parent) + ' > ' + chips(p.children); break;
+                case 'parent_le': cond = chip(p.parent) + ' ≤ ' + chips(p.children); break;
                 case 'ge_factor': cond = chip(p.parent) + ' × ' + num(p.factor) + ' ≥ ' + chips(p.children); break;
                 case 'eq': cond = chip(p.parent) + ' = ' + chips(p.children); break;
                 case 'le': cond = chip(p.child) + ' ≤ ' + chip(p.parent); break;
@@ -281,21 +314,37 @@ import { confirmDestructive } from './confirm-modal.js';
             if (!cond) { box.style.display = 'none'; return; }
             textEl.innerHTML = cond;
             box.style.display = 'block';
+            // Warn about parent/child nesting in any summed indicator list. Every
+            // sum-based expression (ge, gt, eq, ge_factor, parent_le, le_sum)
+            // reads `children`; the set-based ones (all_zero, neg_check,
+            // decimal_check) read `codes`. Check whichever the current
+            // expression actually populates.
+            const lists = [p.children, p.codes].filter(function(l) { return Array.isArray(l) && l.length; });
+            const warned = lists.find(function(l) { return _vbNestedChildren(l).length; });
+            let warnEl = document.getElementById('ruleExprPreviewWarn');
+            if (!warnEl) {
+                warnEl = document.createElement('div');
+                warnEl.id = 'ruleExprPreviewWarn';
+                box.appendChild(warnEl);
+            }
+            const warnHTML = _vbNestingWarningHTML(warned);
+            if (warnEl.innerHTML !== warnHTML) warnEl.innerHTML = warnHTML;
         };
 
         // ── Render builders per category ───────────────────────────
 
         function _buildVBParentChild(expr) {
-            const symbols = { ge: '\u2265', eq: '=', le: '\u2264', le_sum: '\u2265', gt: '>', lt: '<', ge_factor: '\u2265' };
+            const symbols = { ge: '\u2265', eq: '=', le: '\u2264', le_sum: '\u2265', parent_le: '\u2264', gt: '>', lt: '<', ge_factor: '\u2265' };
             const symbol = symbols[expr] || '?';
             const geClass = ['ge', 'le_sum', 'ge_factor'].includes(expr) ? 'ge' : ['gt', 'lt'].includes(expr) ? (expr === 'gt' ? 'gt' : 'lt') : expr === 'eq' ? 'eq' : 'le';
             let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
 
-            if (expr === 'ge' || expr === 'eq' || expr === 'gt' || expr === 'ge_factor') {
+            if (expr === 'ge' || expr === 'eq' || expr === 'gt' || expr === 'ge_factor' || expr === 'parent_le') {
                 let relText;
                 if (expr === 'ge') relText = __('parent \u2265 sum(children)');
                 else if (expr === 'gt') relText = __('parent > sum(children)');
                 else if (expr === 'ge_factor') relText = __('parent \u00d7 factor \u2265 sum(children)');
+                else if (expr === 'parent_le') relText = __('parent \u2264 sum(children)');
                 else relText = __('parent = sum(children)');
                 html += _vbZoneHTML('vb_zone_parent', __('Parent'), _vbState.parent ? [_vbState.parent] : [], false, __('Drop parent indicator here'));
                 html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + geClass + '">' + symbol + '</span> ' + relText + '</div>';
@@ -520,7 +569,7 @@ import { confirmDestructive } from './confirm-modal.js';
             if (!container) return;
             _vbState._expr = expr;
             let html = '';
-            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum'];
+            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le'];
             const rateTypes = ['benchmark_rate', 'benchmark_low_rate', 'cross_hospital_rate'];
             const trendTypes = ['month_over', 'month_under'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
@@ -563,7 +612,7 @@ import { confirmDestructive } from './confirm-modal.js';
             let params = {};
             try { params = typeof paramsStr === 'string' ? JSON.parse(paramsStr) : paramsStr; } catch(e) {}
             _vbStateReset(expr);
-            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum'];
+            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le'];
             const rateTypes = ['benchmark_rate', 'benchmark_low_rate', 'cross_hospital_rate'];
             const trendTypes = ['month_over', 'month_under'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
@@ -613,6 +662,9 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'gt':
                     if (!_vbState.parent || !(_vbState.children || []).length) return '';
                     return parent + (expr === 'gt' ? ' > ' : ' >= ') + joinNames(_vbState.children);
+                case 'parent_le':
+                    if (!_vbState.parent || !(_vbState.children || []).length) return '';
+                    return parent + ' <= ' + joinNames(_vbState.children);
                 case 'ge_factor':
                     if (!_vbState.parent || !(_vbState.children || []).length) return '';
                     return joinNames(_vbState.children) + ' <= ' + (Math.round((parseFloat(_vbState.ge_factor) || 1) * 100)) + '% of ' + parent;
@@ -917,6 +969,39 @@ import { confirmDestructive } from './confirm-modal.js';
             ruleEditId = null;
         }
 
+        // ── Rule-change recompute notice ──────────────────────────────
+        // A rule edit changes the stored per-hospital quality scores, so the
+        // server re-runs the latest month in the background. Poll the task and
+        // tell the user when the dashboard numbers have caught up; until then
+        // any "Validation rule" percentage on screen is the pre-edit value.
+        let _recomputePollTimer = null;
+
+        export function _watchRuleRecompute() {
+            try { if (typeof clearTimeout === 'function') clearTimeout(_recomputePollTimer); } catch (e) {}
+            let waited = 0;
+            const poll = async function() {
+                waited += 1500;
+                try {
+                    const res = await authFetch(API() + '/rules/recompute-status');
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const st = await res.json();
+                    if (st && st.running) {
+                        if (waited === 1500 && typeof toastInfo === 'function') {
+                            toastInfo(__('Updating quality scores for the latest month...'));
+                        }
+                        if (waited < 120000) { _recomputePollTimer = setTimeout(poll, 1500); return; }
+                        return;
+                    }
+                    if (waited > 1500 && typeof toastSuccess === 'function') {
+                        toastSuccess(__('Quality scores updated.'));
+                        if (typeof loadRulesManager === 'function') loadRulesManager();
+                    }
+                } catch (e) { /* status is advisory only */ }
+            };
+            _recomputePollTimer = setTimeout(poll, 1500);
+        }
+        window._watchRuleRecompute = _watchRuleRecompute;
+
         export async function saveRule() {
             const code = document.getElementById('ruleEditCode').value.trim();
             const name = document.getElementById('ruleEditName').value.trim();
@@ -953,6 +1038,11 @@ import { confirmDestructive } from './confirm-modal.js';
                 }
                 if (!res.ok) throw new Error(await res.text());
                 closeRuleModal();
+                // Stored ValidationResult / QualityScore rows are snapshots, so
+                // the server re-runs the latest month in the background after a
+                // rule change. Say so instead of letting the hospital card keep
+                // showing a pre-edit score.
+                _watchRuleRecompute();
                 // The impact map (referenced indicators, affected hospitals)
                 // is memoized server-side for 5 minutes — force a recompute
                 // so the drawer/table show the new definition immediately.

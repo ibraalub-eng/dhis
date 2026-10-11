@@ -125,6 +125,26 @@ def _ge_factor(parent: str, children: List[str], factor: float, code: str, desc:
     return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}x{factor}={allowed:.2f} >= children sum={cs}")
 
 
+def _parent_le(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
+    """Reverse of ge: FAIL when the parent value exceeds the sum of its children.
+
+    Complements _gt exactly — _gt FAILs when cs >= pv - tol, this FAILs when
+    pv > cs + tol — so the two together reconcile a parent against a breakdown.
+    """
+    pv = _v(ctx, parent)
+    cs = _vs(ctx, children)
+    if pv is None and cs == 0:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
+    if pv is None:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
+    if not _has_any(ctx, children):
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
+    tol = _RULES_CONFIG["eq_tolerance"]
+    if pv > cs + tol:
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs} (parent must not exceed)")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} <= children sum={cs}")
+
+
 def _lt(child: str, parent: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
     """Strict less-than: FAIL when child >= parent."""
     cv = _v(ctx, child)
@@ -391,8 +411,20 @@ def _formula(formula_str: str, target_code: str, code: str, desc: str, sev: Seve
     return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"Formula={formula_val} {op} {target_code}={target_val}")
 
 
-def _all_zero_check(ctx: ValidationContext, code: str, desc: str) -> RuleResult:
-    key_codes = ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]
+ALL_ZERO_DEFAULT_CODES = ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]
+
+
+def _all_zero_check(ctx: ValidationContext, code: str, desc: str,
+                    codes: Optional[List[str]] = None) -> RuleResult:
+    """FAIL when every code in ``codes`` is zero.
+
+    ``codes`` comes from the rule's params so a rule built in the Rules Manager
+    is evaluated against exactly the indicators it displays. It previously
+    ignored params entirely and always used the hardcoded key-indicator list, so
+    a rule defined as codes ["2","3","4","5","6"] silently tested eleven
+    indicators and could contradict its own definition.
+    """
+    key_codes = list(codes) if codes else ALL_ZERO_DEFAULT_CODES
     all_zero = True
     has_data = False
     for c in key_codes:
@@ -625,7 +657,7 @@ def get_covered_child_codes(ctx: ValidationContext, session: Session = None) -> 
 
 
 def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
-    if expr in ("ge", "eq", "gt", "ge_factor"):
+    if expr in ("ge", "eq", "gt", "ge_factor", "parent_le"):
         codes = [params.get("parent")]
         codes.extend(params.get("children", []))
         return [c for c in codes if c]
@@ -645,7 +677,7 @@ def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
     if expr in ("neg_check", "decimal_check"):
         return params.get("codes", [])
     if expr == "all_zero":
-        return ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]
+        return params.get("codes") or ALL_ZERO_DEFAULT_CODES
     if expr == "formula":
         import re
         codes = re.findall(r'\{([^}]+)\}', params.get("formula", ""))
@@ -689,6 +721,8 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
         return _lt(params["child"], params["parent"], code, desc, sev, rtype, ctx)
     elif expr == "le_sum":
         return _ge(params["child"], params["children"], code, desc, sev, rtype, ctx)
+    elif expr == "parent_le":
+        return _parent_le(params["parent"], params["children"], code, desc, sev, rtype, ctx)
     elif expr == "benchmark_rate":
         return _benchmark_rate(params["num_code"], params["den_code"], params["threshold"], code, desc, sev, ctx)
     elif expr == "benchmark_low_rate":
@@ -706,7 +740,7 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
     elif expr == "missing":
         return _missing(params["code"], code, desc, sev, ctx)
     elif expr == "all_zero":
-        return _all_zero_check(ctx, code, desc)
+        return _all_zero_check(ctx, code, desc, params.get("codes"))
     elif expr == "formula":
         return _formula(params["formula"], params["target"], code, desc, sev, rtype, ctx, op=params.get("op", "="))
     else:

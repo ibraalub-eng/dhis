@@ -61,4 +61,6 @@ def get_user_hospital_ids(user, db: Session) -> list[int] | None:
     assigned = [row[0] for row in db.execute(
         _sel(_uh.c.hospital_id).where(_uh.c.user_id == user.id)
     ).fetchall()]
-    return assigned if assigned else None  # empty list means no restriction
+    if assigned:
+        return assigned
+    return []  # explicitly assigned zero hospitals -> no access

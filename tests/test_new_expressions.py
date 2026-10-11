@@ -336,3 +336,125 @@ def test_le_sum_seeded_rule_refs_match_registry():
     codes = _get_rule_ref_codes_from_expr(
         "le_sum", {"child": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
     assert set(codes) == set(RULE_REF_CODES["R024"])
+
+
+# ── parent_le: parent <= sum(children), the true reverse of ge ───────
+
+def test_parent_le_passes_on_equality():
+    rule = _make_rule("X010", "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    ctx = _make_ctx({"10.a.1": 100, "10.a.1.1": 60, "10.a.1.2": 40})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.PASS
+
+
+def test_parent_le_passes_when_children_exceed_parent():
+    rule = _make_rule("X010", "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    ctx = _make_ctx({"10.a.1": 80, "10.a.1.1": 60, "10.a.1.2": 40})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.PASS
+
+
+def test_parent_le_fails_when_parent_exceeds_children_sum():
+    rule = _make_rule("X010", "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    ctx = _make_ctx({"10.a.1": 110, "10.a.1.1": 60, "10.a.1.2": 40})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.FAIL
+
+
+def test_parent_le_is_not_strict_like_gt():
+    """gt FAILs on equality; parent_le PASSes on equality. The two must stay
+    exact complements or a parent can neither satisfy both nor be flagged."""
+    params = {"parent": "2", "children": ["3", "4"]}
+    ctx = _make_ctx({"2": 100, "3": 60, "4": 40})
+    assert dispatch_rule(_make_rule("X011", "gt", params), ctx).status == RuleStatus.FAIL
+    assert dispatch_rule(_make_rule("X012", "parent_le", params), ctx).status == RuleStatus.PASS
+
+
+def test_parent_le_passes_with_missing_parent():
+    rule = _make_rule("X010", "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    ctx = _make_ctx({"10.a.1.1": 60, "10.a.1.2": 40})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.PASS
+
+
+def test_parent_le_passes_with_no_child_data():
+    rule = _make_rule("X010", "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    ctx = _make_ctx({"10.a.1": 100})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.PASS
+
+
+def test_parent_le_passes_when_both_zero():
+    rule = _make_rule("X010", "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    ctx = _make_ctx({"10.a.1": 0, "10.a.1.1": 0, "10.a.1.2": 0})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.PASS
+
+
+def test_parent_le_respects_equality_tolerance():
+    """A 0.005 overshoot on a 100 parent stays PASS — eq_tolerance is 0.01, so
+    a rounding wobble must not be treated as a real drift."""
+    rule = _make_rule("X010", "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    ctx = _make_ctx({"10.a.1": 100, "10.a.1.1": 99.995, "10.a.1.2": 0})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.PASS
+
+
+def test_parent_le_fails_beyond_equality_tolerance():
+    rule = _make_rule("X010", "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    ctx = _make_ctx({"10.a.1": 100, "10.a.1.1": 99.5, "10.a.1.2": 0})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.FAIL
+
+
+def test_parent_le_ref_codes_include_parent_and_children():
+    from app.engine.quality.rules import _get_rule_ref_codes_from_expr
+    codes = _get_rule_ref_codes_from_expr(
+        "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]})
+    assert codes == ["10.a.1", "10.a.1.1", "10.a.1.2"]
+
+
+def test_parent_le_confidence_engine_extracts_codes():
+    """The confidence engine has its own copy of the param shape map; without
+    parent_le the rule would contribute no indicator references."""
+    assert _extract_codes_from_params(
+        "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1", "10.a.1.2"]}
+    ) == ["10.a.1", "10.a.1.1", "10.a.1.2"]
+
+
+def test_parent_le_does_not_confuse_drawer_with_le_sum():
+    """le_sum keys the parent under 'child'; parent_le uses 'parent'. Reading
+    params.child for parent_le must not silently yield a blank parent chip."""
+    from app.engine.quality.rules import _get_rule_ref_codes_from_expr
+    codes = _get_rule_ref_codes_from_expr(
+        "parent_le", {"parent": "10.a.1", "children": ["10.a.1.1"]})
+    assert None not in codes and "" not in codes
+
+
+# ── all_zero must honour its own params ──────────────────────────────
+
+def test_all_zero_uses_params_codes_not_a_hardcoded_list():
+    """Regression: all_zero ignored params["codes"] and always tested the
+    11 key indicators, so a rule displayed as codes [2,3,4,5,6] silently
+    examined eleven indicators and could contradict its own definition."""
+    rule = _make_rule("X020", "all_zero", {"codes": ["2", "3", "4", "5", "6"]},
+                      rule_type="DATA_QUALITY")
+    # Only the five declared codes are zero; every other key code is non-zero.
+    ctx = _make_ctx({"2": 0, "3": 0, "4": 0, "5": 0, "6": 0,
+                     "7": 5, "8": 5, "10": 5, "11": 5, "17": 5})
+    assert dispatch_rule(rule, ctx).status == RuleStatus.FAIL
+
+
+def test_all_zero_fails_on_any_declared_zero_set():
+    rule = _make_rule("X020", "all_zero", {"codes": ["2", "3"]}, rule_type="DATA_QUALITY")
+    assert dispatch_rule(rule, _make_ctx({"2": 0, "3": 0})).status == RuleStatus.FAIL
+
+
+def test_all_zero_passes_when_a_declared_code_is_non_zero():
+    rule = _make_rule("X020", "all_zero", {"codes": ["2", "3"]}, rule_type="DATA_QUALITY")
+    assert dispatch_rule(rule, _make_ctx({"2": 0, "3": 4})).status == RuleStatus.PASS
+
+
+def test_all_zero_ref_codes_follow_params():
+    """The drawer/confidence refs must describe the same codes the rule runs,
+    so the displayed definition and the outcome cannot diverge."""
+    from app.engine.quality.rules import _get_rule_ref_codes_from_expr
+    assert _get_rule_ref_codes_from_expr(
+        "all_zero", {"codes": ["2", "3", "4"]}) == ["2", "3", "4"]
+
+
+def test_all_zero_ref_codes_fall_back_to_default():
+    from app.engine.quality.rules import ALL_ZERO_DEFAULT_CODES, _get_rule_ref_codes_from_expr
+    assert _get_rule_ref_codes_from_expr("all_zero", {}) == ALL_ZERO_DEFAULT_CODES

@@ -1,6 +1,7 @@
-from pydantic import BaseModel
-from typing import Generic, List, Optional, TypeVar
 from datetime import datetime
+from typing import Generic, List, Optional, TypeVar
+
+from pydantic import BaseModel
 
 T = TypeVar("T")
 
@@ -340,6 +341,7 @@ class AutoReportResponse(BaseModel):
     months: List[str]
     reports: List["ReportOut"]
     new_indicators: List[dict] = []
+    renamed_indicators: List[dict] = []
 
 
 class ConfidenceSummaryOut(BaseModel):
@@ -405,6 +407,7 @@ class TrendResultOut(BaseModel):
 
 
 class HospitalComparisonOut(BaseModel):
+    hospital_id: Optional[int] = None
     hospital: str
     indicator_code: str
     rate_name: str
