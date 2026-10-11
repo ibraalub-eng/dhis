@@ -187,6 +187,8 @@ tbody tr { transition: background 0.12s; }
 .badge-stable { background: var(--severity-success-bg); color: var(--accent-green); }
 .badge-increasing { background: var(--severity-warning-bg); color: var(--accent-orange); }
 .badge-decreasing { background: var(--severity-info-bg); color: var(--accent-blue); }
+.badge-amber { background: var(--severity-warning-bg); color: #B45309; }
+.badge-muted { background: var(--bg-surface-hover); color: var(--text-muted); }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
 .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.25rem; }
 .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 1rem; }

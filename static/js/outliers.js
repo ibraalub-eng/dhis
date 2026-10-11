@@ -19,7 +19,7 @@
         export function exportOutliersCSV() {
             const data = window._lastOutlierData;
             if (!data || !data.length) return;
-            const headers = ['Hospital', 'Month', 'Indicator', 'Value', 'Benchmark', 'Z-Score', 'Peers', 'Peer Std', 'Peer Range', 'Peer Median', 'Severity', 'Features'];
+            const headers = ['Hospital', 'Month', 'Indicator', 'Value', 'Benchmark', 'Z-Score', 'Peers', 'Peer Std', 'Peer Range', 'Peer Median', 'Severity', 'Features', 'Classification'];
             const rows = data.map(d => {
                 const features = d.contributing_features
                     ? Object.entries(d.contributing_features).map(([k, v]) => k + ':' + Number(v).toFixed(3)).join('; ')
@@ -36,7 +36,8 @@
                     d.peer_min != null && d.peer_max != null ? Number(d.peer_min).toFixed(2) + ' - ' + Number(d.peer_max).toFixed(2) : '',
                     d.peer_median !== null && d.peer_median !== undefined ? Number(d.peer_median).toFixed(2) : '',
                     d.is_outlier !== undefined ? (d.is_outlier ? 'Outlier' : 'Normal') : '',
-                    features
+                    features,
+                    d.layered_type || ''
                 ];
             });
             downloadCSV('outliers_' + todayStr() + '.csv', headers, rows);
@@ -67,6 +68,20 @@
             if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
         }
 
+        // Spec §10A: classification badge colors. Gray covers NORMAL, the
+        // unmatched case (no layered row) and the types the spec does not
+        // enumerate; the tooltip is the one-line interpretation persisted
+        // with the row.
+        export function classificationBadge(type, interpretation) {
+            const cls = type === 'POSSIBLE_DATA_ENTRY_ERROR' ? 'badge-critical'
+                : type === 'CLINICAL_INVESTIGATION_REQUIRED' ? 'badge-medium'
+                : type === 'PEER_ANOMALY' ? 'badge-low'
+                : type === 'VOLUME_DRIVEN_ANOMALY' ? 'badge-amber'
+                : 'badge-muted';
+            const label = type || '--';
+            return '<span class="badge ' + cls + '" title="' + esc(interpretation || '') + '">' + esc(label) + '</span>';
+        }
+
         // ── Outliers Tab ──────────────────────────────────────────
         export function loadOutliers() {
             const month = document.getElementById('outlierMonthFilter').value;
@@ -76,7 +91,7 @@
             const hosp = document.getElementById('outlierHospitalFilter').value;
             const mon = document.getElementById('outlierMonthFilter').value;
             const rate = document.getElementById('outlierRateFilter').value;
-            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
+            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
             let url = '/analysis/outliers?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
@@ -86,7 +101,7 @@
                 updateOutlierUI(data, hosp, mon, rate);
             }).catch(err => {
                 document.getElementById('outlierLoading').classList.add('hidden');
-                document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="9" style="color:red;">Error: ' + err.message + '</td></tr>';
+                document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="10" style="color:red;">Error: ' + err.message + '</td></tr>';
             });
         }
 
@@ -126,7 +141,7 @@
             // Render table
             const tbody = document.getElementById('outlierTbody');
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
                 return;
             }
             const idxById = new Map();
@@ -157,6 +172,7 @@
                     '<td><span class="badge ' + zClass + '">' + (z ? Number(d.z_score).toFixed(2) : '--') + '</span></td>' +
                     '<td>' + peerCell + '</td>' +
                     '<td>' + peerRange + '</td>' +
+                    '<td>' + classificationBadge(d.layered_type, d.layered_interpretation) + '</td>' +
                     '<td>' + whyBtn + '</td>' +
                     '</tr>';
             }).join('');

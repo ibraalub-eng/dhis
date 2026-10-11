@@ -346,6 +346,8 @@
             '— every other active hospital that has data for the same month, regardless of type or governorate. The hospital itself is excluded.': '— كل المستشفيات النشطة الأخرى التي لديها بيانات لنفس الشهر، بغض النظر عن النوع أو المحافظة. المستشفى نفسه مستثنى من المجموعة.',
             'Peers = all active hospitals with data for the month': 'المقارنة مع جميع المستشفيات النشطة التي لديها بيانات للشهر',
             '— how many standard deviations the value sits from the benchmark mean. |z| ≥ 2 = unusual, |z| ≥ 3 = severe outlier.': '— عدد الانحرافات المعيارية للقيمة عن متوسط المعامل المرجعي. |z| ≥ 2 = غير طبيعي، |z| ≥ 3 = شذوذ حاد.',
+            'Classification': 'التصنيف',
+            '— layered verdict for this row (raw value → rate → history → volume → peer layers); an outlier alone is never proof of a data error.': '— الحكم متعدد الطبقات لهذا الصف (القيمة الخام ← المعدل ← التاريخ ← الحجم ← النظراء)؛ الشذوذ وحده ليس دليلاً على خطأ في البيانات.',
 
             // Audit & Verification Tab
             'Audit & Verification': 'التدقيق والتحقق',

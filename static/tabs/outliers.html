@@ -15,6 +15,7 @@
                             <div><strong data-i18n="Benchmark">Benchmark</strong> <span data-i18n="— the reference/peer average the value is compared against.">— the reference/peer average the value is compared against.</span></div>
                             <div><strong data-i18n="Peers">Peers</strong> <span data-i18n="— every other active hospital that has data for the same month, regardless of type or governorate. The hospital itself is excluded.">— every other active hospital that has data for the same month, regardless of type or governorate. The hospital itself is excluded.</span></div>
                             <div><strong data-i18n="Z-Score">Z-Score</strong> <span data-i18n="— how many standard deviations the value sits from the benchmark mean. |z| ≥ 2 = unusual, |z| ≥ 3 = severe outlier.">— how many standard deviations the value sits from the benchmark mean. |z| ≥ 2 = unusual, |z| ≥ 3 = severe outlier.</span></div>
+                            <div><strong data-i18n="Classification">Classification</strong> <span data-i18n="— layered verdict for this row (raw value → rate → history → volume → peer layers); an outlier alone is never proof of a data error.">— layered verdict for this row (raw value → rate → history → volume → peer layers); an outlier alone is never proof of a data error.</span></div>
                         </div>
                     </div>
                     <div class="card" style="padding:0.6rem 0.8rem;">
@@ -46,6 +47,7 @@
                                     <th class="sortable" data-col="z_score" data-i18n="Z-Score">Z-Score</th>
                                     <th class="sortable" data-col="peer_count" data-i18n="Peers">Peers</th>
                                     <th class="sortable" data-col="peer_range" data-i18n="Peer Range">Peer Range</th>
+                                    <th class="sortable" data-col="layered_type" data-i18n="Classification">Classification</th>
                                     <th data-i18n="Why">Why</th>
                                 </tr></thead>
                                 <tbody id="outlierTbody"></tbody>
