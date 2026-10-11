@@ -284,7 +284,7 @@ Existing `detect_anomalies` / `detect_monthly_trend` / dedup runs **unchanged** 
 Lifecycle parity with `anomaly_results`:
 
 - `reanalyze-all`, `purge_derived_results`, `recompute_hospital_months` include the new table.
-- Cache: new key namespace `analysis:layered_v1`; outliers endpoint join piggybacks on the existing `analysis:outliers_v3` key.
+- Cache: new key namespace `analysis:layered_v1`; outliers endpoint join piggybacks on the existing `analysis:outliers_v4` key.
 
 ## 8. API
 
