@@ -351,11 +351,11 @@
 
             // Layered Analysis Tab
             'Layered Analysis': 'التحليل المتدرج',
-            'Every signal is a question, not a verdict: raw value, rate, history, volume, then peers.': 'كل إشارة سؤال لا حكم مسبق: القيمة الخام، النسبة، التاريخ، الحجم، ثم الأقران.',
+            'Every signal is a question, not a verdict: raw value, rate, history, volume, then peers.': 'كل إشارة سؤال لا حكم مسبق: القيمة الخام، النسبة، التاريخ، الحجم، ثم النظراء.',
             'Raw value (Δ%)': 'القيمة الخام (Δ%)',
             'Rate (Δ%)': 'النسبة (Δ%)',
             'Denominator (Δ%)': 'المقام (Δ%)',
-            'Peer': 'الأقران',
+            'Peer': 'النظراء',
             'No layered findings for the selected criteria.': 'لا توجد نتائج متدرجة للمعايير المحددة.',
 
             // Audit & Verification Tab
