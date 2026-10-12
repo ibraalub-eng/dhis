@@ -1139,3 +1139,32 @@ def test_optional_indicator_fill_does_not_inflate_completeness(db_session):
     ).first()
     engine = _engine_style_completeness(db_session, 1, month)
     assert s.completeness == pytest.approx(round(engine, 1))
+
+
+def test_component_diagnostics_completeness_excludes_optional(client, db_session):
+    """An Optional indicator WITH a value must not affect the drilldown
+    completeness number — the KPI card and the drilldown must agree."""
+    from app.engine.pipeline import compute_hospital_completeness
+    from app.models import Indicator, IndicatorValue, QualityScore
+
+    month = "2027-12"
+    _insert_indicator_value(db_session, 1, month, "2", 100)
+    _insert_indicator_value(db_session, 1, month, "2.a", 60)
+    opt = db_session.query(Indicator).filter(Indicator.code == "16").first()
+    db_session.add(IndicatorValue(hospital_id=1, month=month, indicator_id=opt.id, value=5))
+    db_session.query(Indicator).filter(Indicator.id == opt.id).update(
+        {"requirement_type": "Optional"}, synchronize_session=False)
+    db_session.add(QualityScore(hospital_id=1, month=month, score=50.0))
+    db_session.commit()
+
+    resp = client.get(
+        "/dashboard/component-diagnostics",
+        params={"hospital_id": 1, "month_from": month, "month_to": month,
+                "metric": "completeness"},
+    )
+    assert resp.status_code == 200
+    comp = resp.json()["components"][0]
+    engine = round(compute_hospital_completeness(db_session, 1, month), 1)
+    assert comp["avg"] == pytest.approx(engine, abs=0.05), (
+        f"drilldown {comp['avg']} != engine {engine}"
+    )

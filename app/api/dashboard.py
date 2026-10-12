@@ -1299,13 +1299,18 @@ def component_diagnostics(
     # indicators and must never appear in missing-indicator lists.
     from app.indicators import SYNTHETIC_INDICATOR_CODES as _SYN_DG
     all_ind_rows = [
-        r for r in db.query(Indicator.id, Indicator.code, Indicator.name).all()
+        r for r in db.query(
+            Indicator.id, Indicator.code, Indicator.name, Indicator.requirement_type
+        ).all()
         if r[1] not in _SYN_DG
     ]
     all_ind_ids = [r[0] for r in all_ind_rows]
     id_to_code = {r[0]: r[1] for r in all_ind_rows}
     code_to_id = {r[1]: r[0] for r in all_ind_rows}
     all_ind_names_map = {r[0]: r[2] for r in all_ind_rows}
+    required_ind_ids = {
+        r[0] for r in all_ind_rows if (r[3] or "Required") == "Required"
+    }
     # Pre-fetch ALL indicator values for this query in one batch
     hosp_months = [(s.hospital_id, s.month) for s in scores]
     all_hosp_ids = list(set(h[0] for h in hosp_months))
@@ -1377,18 +1382,27 @@ def component_diagnostics(
             _covered_cache[key] = {code_to_id[c] for c in _ccc(values, disabled_codes, db) if c in code_to_id}
         return _covered_cache[key]
     # Compute completeness for each score
+    from app.engine.quality import compute_completeness as _completeness
     cp_vals = []
     for s in scores:
         try:
             disabled = _fast_disabled(s.hospital_id, s.month)
             covered = _fast_covered(s.hospital_id, s.month)
-            enabled_ids = [iid for iid in all_ind_ids if iid not in disabled and iid not in covered]
-            if not enabled_ids:
+            iv_map = iv_index.get((s.hospital_id, s.month), {})
+            values = {
+                id_to_code[iid]: v
+                for iid, v in iv_map.items()
+                if iid in id_to_code and iid not in disabled and v is not None
+            }
+            required_codes = {
+                id_to_code[iid] for iid in required_ind_ids
+                if iid in id_to_code and iid not in disabled
+            }
+            covered_codes = {id_to_code[iid] for iid in covered if iid in id_to_code}
+            if not required_codes:
                 cp_vals.append(round(float(s.completeness or 0), 1))
                 continue
-            iv_map = iv_index.get((s.hospital_id, s.month), {})
-            filled = sum(1 for iid in enabled_ids if iv_map.get(iid) is not None)
-            cp_vals.append(round(filled / len(enabled_ids) * 100, 1))
+            cp_vals.append(round(_completeness(values, required_codes, covered_codes) * 100, 1))
         except Exception:
             cp_vals.append(round(float(s.completeness or 0), 1))
     cp_by_month = {}
