@@ -80,7 +80,7 @@ def test_menu_registry_registers_layered_tab():
     from app.menu_registry import DEFAULT_GROUPS, TAB_REGISTRY
 
     spec = TAB_REGISTRY["layered"]
-    assert spec["label"] == "Layered Analysis"
+    assert spec["label"] == "Outlier Diagnostics"
     assert spec["permission"] == "analysis.read"
     oversight = next(g for g in DEFAULT_GROUPS if g["name"] == "Oversight")
     assert oversight["items"].index("layered") == oversight["items"].index("outliers") + 1
@@ -94,7 +94,7 @@ def test_auth_maps_layered_tab_to_analysis_permission():
 def test_main_inits_labels_and_searches_the_layered_tab():
     js = _read("js", "main.js")
     assert "_tryInit('loadLayered', 10)" in js
-    assert "layered: 'Layered Analysis'" in js
+    assert "layered: 'Outlier Diagnostics'" in js
     assert "{tab:'layered'" in js
 
 

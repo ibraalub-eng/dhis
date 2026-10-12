@@ -14,6 +14,7 @@
             'Dashboard': 'لوحة القيادة',
             'Quality Reports': 'تقارير الجودة',
             'Comparative Analysis': 'التحليل المقارن',
+            'Hospital Comparisons': 'مقارنات المستشفيات',
             'Trend Analysis': 'تحليل الاتجاهات',
             'Hospital Comparison': 'مقارنة المستشفيات',
             'Clinical Intelligence': 'التحليل السريري',
@@ -29,6 +30,7 @@
             'Disable all indicators that no hospital ever reported? They will stop counting as missing.': 'تعطيل جميع المؤشرات التي لم يبلّغ عنها أي مستشفى إطلاقاً؟ ستتوقف عن الاحتساب ضمن الناقص.',
             'Done': 'تم',
             'Rules Manager': 'إدارة القواعد',
+            'Validation Rules': 'قواعد التحقق',
             'Root Cause': 'تحليل الأسباب الجذرية',
             // Rules Manager: formula comparison operator
             'Comparison operator': 'معامل المقارنة',
@@ -352,6 +354,8 @@
 
             // Layered Analysis Tab
             'Layered Analysis': 'التحليل المتدرج',
+            'Outlier Diagnostics': 'تشخيص الشذوذ',
+            'Outlier Scan': 'مسح الشذوذ',
             'Every signal is a question, not a verdict: raw value, rate, history, volume, then peers.': 'كل إشارة سؤال لا حكم مسبق: القيمة الخام، النسبة، التاريخ، الحجم، ثم النظراء.',
             'Raw value (Δ%)': 'القيمة الخام (Δ%)',
             'Rate (Δ%)': 'النسبة (Δ%)',
@@ -580,6 +584,7 @@
 
             // Rules Manager
             'Rules Manager': 'إدارة القواعد',
+            'Validation Rules': 'قواعد التحقق',
             'Toggle to enable/disable for analytics control': 'بدّل للتمكين/التعطيل للتحكم في التحليل',
             '+ Add Rule': '+ إضافة قاعدة',
             'Code': 'الرمز',
