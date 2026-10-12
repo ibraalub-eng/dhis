@@ -155,7 +155,7 @@ def get_hospital_indicator_config(hospital_id: int, db: Session = Depends(get_db
     return results
 
 
-@router.put("/{hospital_id}/indicators/{indicator_id}/toggle", response_model=ConfigToggleOut)
+@router.put("/{hospital_id}/indicators/{indicator_id}/toggle", response_model=ConfigToggleOut, dependencies=[Depends(require_permission("settings.write"))])
 def toggle_indicator(
     hospital_id: int,
     indicator_id: int,
@@ -248,7 +248,7 @@ def get_never_reported_indicators(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/indicators/disable-never-reported")
+@router.post("/indicators/disable-never-reported", dependencies=[Depends(require_permission("settings.write"))])
 def disable_never_reported_indicators(
     dry_run: bool = Query(False, description="Preview the affected indicators without changing anything"),
     db: Session = Depends(get_db),
@@ -342,7 +342,7 @@ def _all_known_months(db: Session):
     return sorted(months)
 
 
-@router.put("/indicators/{indicator_id}/toggle-default")
+@router.put("/indicators/{indicator_id}/toggle-default", dependencies=[Depends(require_permission("settings.write"))])
 def toggle_default_indicator(
     indicator_id: int,
     month: str = Query(..., description="Month YYYY-MM, or '__all__' to apply to every known month"),
@@ -407,7 +407,7 @@ def toggle_default_indicator(
     }
 
 
-@router.put("/{hospital_id}/indicators/{indicator_id}/weight", response_model=ConfigToggleOut)
+@router.put("/{hospital_id}/indicators/{indicator_id}/weight", response_model=ConfigToggleOut, dependencies=[Depends(require_permission("settings.write"))])
 def update_indicator_weight(
     hospital_id: int,
     indicator_id: int,
@@ -437,7 +437,7 @@ def update_indicator_weight(
     )
 
 
-@router.put("/indicators/reorder")
+@router.put("/indicators/reorder", dependencies=[Depends(require_permission("settings.write"))])
 def bulk_reorder_indicators(
     body: dict,
     db: Session = Depends(get_db),
@@ -452,7 +452,7 @@ def bulk_reorder_indicators(
     return {"message": f"{len(items)} indicators reordered"}
 
 
-@router.put("/indicators/{indicator_id}", response_model=IndicatorOut)
+@router.put("/indicators/{indicator_id}", response_model=IndicatorOut, dependencies=[Depends(require_permission("settings.write"))])
 def update_global_indicator(
     indicator_id: int,
     update: IndicatorUpdate,
@@ -472,7 +472,7 @@ def update_global_indicator(
     return ind
 
 
-@router.post("/indicators", response_model=IndicatorOut)
+@router.post("/indicators", response_model=IndicatorOut, dependencies=[Depends(require_permission("settings.write"))])
 def create_global_indicator(
     indicator: IndicatorBase,
     db: Session = Depends(get_db),
@@ -494,7 +494,7 @@ def create_global_indicator(
     return db_ind
 
 
-@router.delete("/indicators/{indicator_id}")
+@router.delete("/indicators/{indicator_id}", dependencies=[Depends(require_permission("settings.write"))])
 def delete_global_indicator(
     indicator_id: int,
     cascade: bool = Query(False, description="Also delete all descendant indicators"),
@@ -534,7 +534,7 @@ def delete_global_indicator(
     return {"message": f"Indicator '{ind.code}' deleted", "indicator_id": indicator_id, "cascade": cascade}
 
 
-@router.put("/indicators/{indicator_id}/reparent")
+@router.put("/indicators/{indicator_id}/reparent", dependencies=[Depends(require_permission("settings.write"))])
 def reparent_indicator(
     indicator_id: int,
     new_parent_id: Optional[int] = Query(None, description="New parent indicator id, or null for root"),
@@ -560,7 +560,7 @@ def reparent_indicator(
     return {"message": f"Indicator '{ind.code}' reparented", "indicator_id": indicator_id, "new_parent_id": new_parent_id}
 
 
-@router.put("/indicators/{indicator_id}/global-toggle")
+@router.put("/indicators/{indicator_id}/global-toggle", dependencies=[Depends(require_permission("settings.write"))])
 def global_toggle_indicator(
     indicator_id: int,
     cascade: bool = Query(False, description="Also toggle all descendant indicators"),
@@ -629,7 +629,7 @@ def global_toggle_indicator(
     }
 
 
-@router.put("/indicators/{indicator_id}/sort-order")
+@router.put("/indicators/{indicator_id}/sort-order", dependencies=[Depends(require_permission("settings.write"))])
 def set_indicator_sort_order(
     indicator_id: int,
     order: int = Query(..., description="New sort order"),

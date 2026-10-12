@@ -97,7 +97,7 @@ def list_hospitals(
     return result
 
 
-@router.post("/", response_model=HospitalOut)
+@router.post("/", response_model=HospitalOut, dependencies=[Depends(require_permission("hospitals.write"))])
 def create_hospital(data: HospitalCreate, db: Session = Depends(get_db)):
     existing = db.query(Hospital).filter(Hospital.name == data.name).first()
     if existing:
@@ -119,7 +119,7 @@ def create_hospital(data: HospitalCreate, db: Session = Depends(get_db)):
     return hosp
 
 
-@router.put("/{hospital_id}/toggle-active")
+@router.put("/{hospital_id}/toggle-active", dependencies=[Depends(require_permission("hospitals.write"))])
 def toggle_hospital_active(hospital_id: int, db: Session = Depends(get_db)):
     """Toggle a hospital's active status. Inactive hospitals are excluded from analysis and reports."""
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
@@ -131,7 +131,7 @@ def toggle_hospital_active(hospital_id: int, db: Session = Depends(get_db)):
     return {"id": hospital.id, "name": hospital.name, "is_active": hospital.is_active}
 
 
-@router.put("/{hospital_id}/clear-data")
+@router.put("/{hospital_id}/clear-data", dependencies=[Depends(require_permission("data.manage"))])
 def clear_hospital_data(
     hospital_id: int,
     month: str = Query(None, description="If set, only clear this month. Otherwise clear ALL data."),
@@ -495,7 +495,7 @@ def _run_remove_recompute(pairs: list, task_id: str) -> None:
         db.close()
 
 
-@router.delete("/clear-all-data")
+@router.delete("/clear-all-data", dependencies=[Depends(require_permission("data.manage"))])
 def clear_all_data(db: Session = Depends(get_db)):
     """Nuclear option: clear ALL indicator data, quality scores, validation results.
     Hospitals remain but become inactive."""
@@ -561,7 +561,7 @@ def hospital_data_status(db: Session = Depends(get_db)):
     return result
 
 
-@router.post("/bulk-metadata")
+@router.post("/bulk-metadata", dependencies=[Depends(require_permission("hospitals.write"))])
 def bulk_update_metadata(
     updates: list = Body(...),
     db: Session = Depends(get_db),
@@ -702,7 +702,7 @@ def get_hospital(hospital_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.put("/{hospital_id}", response_model=HospitalOut)
+@router.put("/{hospital_id}", response_model=HospitalOut, dependencies=[Depends(require_permission("hospitals.write"))])
 def update_hospital(hospital_id: int, data: HospitalCreate, db: Session = Depends(get_db)):
     hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hosp:
@@ -724,7 +724,7 @@ def update_hospital(hospital_id: int, data: HospitalCreate, db: Session = Depend
     return hosp
 
 
-@router.delete("/{hospital_id}")
+@router.delete("/{hospital_id}", dependencies=[Depends(require_permission("hospitals.write"))])
 def delete_hospital(hospital_id: int, db: Session = Depends(get_db)):
     hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hosp:
@@ -735,7 +735,7 @@ def delete_hospital(hospital_id: int, db: Session = Depends(get_db)):
     return {"ok": True}
 
 
-@router.post("/{hospital_id}/re-analyze")
+@router.post("/{hospital_id}/re-analyze", dependencies=[Depends(require_permission("data.manage"))])
 def reanalyze_hospital(
     hospital_id: int,
     month: str = Query(..., description="Month YYYY-MM"),

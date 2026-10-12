@@ -1083,7 +1083,7 @@ def get_time_overview(db: Session = Depends(get_db)):
     return response
 
 
-@router.post("/run/{month}")
+@router.post("/run/{month}", dependencies=[Depends(require_permission("smart_analytics.generate_report"))])
 def trigger_analysis(month: str, db: Session = Depends(get_db)):
     data = _get_smart_data(db, month)
     return {"status": "completed", "month": month, "hospitals_count": data.get("hospitals_count", 0)}

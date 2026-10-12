@@ -66,6 +66,8 @@ def alerts_overview(
         .filter(ValidationResult.status == "FAIL")
         .filter(ValidationResult.severity.in_(["CRITICAL", "HIGH"]))
     )
+    if user_hosp_ids is not None:
+        hospital_counts = hospital_counts.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:
         hospital_counts = hospital_counts.filter(ValidationResult.month == month)
     hospital_counts = hospital_counts.group_by(ValidationResult.hospital_id).order_by(func.count().desc()).limit(10).all()
@@ -79,6 +81,8 @@ def alerts_overview(
         ValidationResult.status == "FAIL",
         ValidationResult.severity == "CRITICAL",
     )
+    if user_hosp_ids is not None:
+        critical_q = critical_q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:
         critical_q = critical_q.filter(ValidationResult.month == month)
     if hospital_id:
@@ -101,6 +105,8 @@ def alerts_overview(
 
     outlier_count = 0
     oq = db.query(AnomalyResult).filter(AnomalyResult.is_outlier)
+    if user_hosp_ids is not None:
+        oq = oq.filter(AnomalyResult.hospital_id.in_(user_hosp_ids))
     if month:
         oq = oq.filter(AnomalyResult.month == month)
     if hospital_id:

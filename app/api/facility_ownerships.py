@@ -28,7 +28,7 @@ def get_facility_ownership(ownership_id: int, db: Session = Depends(get_db)):
     return ow
 
 
-@router.post("/", response_model=FacilityOwnershipOut)
+@router.post("/", response_model=FacilityOwnershipOut, dependencies=[Depends(require_permission("facility_ownerships.write"))])
 def create_facility_ownership(data: FacilityOwnershipCreate, db: Session = Depends(get_db)):
     existing = db.query(FacilityOwnership).filter(FacilityOwnership.name == data.name).first()
     if existing:
@@ -41,7 +41,7 @@ def create_facility_ownership(data: FacilityOwnershipCreate, db: Session = Depen
     return ow
 
 
-@router.put("/{ownership_id}", response_model=FacilityOwnershipOut)
+@router.put("/{ownership_id}", response_model=FacilityOwnershipOut, dependencies=[Depends(require_permission("facility_ownerships.write"))])
 def update_facility_ownership(ownership_id: int, data: FacilityOwnershipCreate, db: Session = Depends(get_db)):
     ow = db.query(FacilityOwnership).filter(FacilityOwnership.id == ownership_id).first()
     if not ow:
@@ -56,7 +56,7 @@ def update_facility_ownership(ownership_id: int, data: FacilityOwnershipCreate, 
     return ow
 
 
-@router.delete("/{ownership_id}")
+@router.delete("/{ownership_id}", dependencies=[Depends(require_permission("facility_ownerships.write"))])
 def delete_facility_ownership(ownership_id: int, db: Session = Depends(get_db)):
     ow = db.query(FacilityOwnership).filter(FacilityOwnership.id == ownership_id).first()
     if not ow:

@@ -940,7 +940,7 @@ def _run_reanalyze_all(hosp_list, frc, progress_cb=None):
         bg_db.close()
 
 
-@router.post("/reanalyze-all")
+@router.post("/reanalyze-all", dependencies=[Depends(require_permission("data.manage"))])
 def reanalyze_all(
     force: bool = Query(False, description="Force re-analysis even if cached results exist"),
     background_tasks: BackgroundTasks = None,
@@ -1087,7 +1087,7 @@ def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: S
     return result
 
 
-@router.post("/generate-report")
+@router.post("/generate-report", dependencies=[Depends(require_permission("data.manage"))])
 def generate_report(
     month: Optional[str] = Query(None, description="Month YYYY-MM, or omit for all months"),
     hospital_id: Optional[int] = Query(None, description="Hospital ID, or omit for all hospitals"),

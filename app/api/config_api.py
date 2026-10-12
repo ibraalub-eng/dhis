@@ -89,7 +89,7 @@ def get_control_settings(db: Session = Depends(get_db)):
     return result
 
 
-@router.put("/control/settings")
+@router.put("/control/settings", dependencies=[Depends(require_permission("settings.write"))])
 def update_control_settings(updates: dict = Body(...), db: Session = Depends(get_db)):
     updated = {}
     for key in (CONTROL_KEY, LOGGING_KEY, SLOW_QUERY_KEY, HIDE_EXPLANATIONS_KEY, INCREMENTAL_UPLOAD_KEY):
@@ -163,7 +163,7 @@ def get_month_settings(
     return {"enabled_months": enabled_months}
 
 
-@router.put("/month-settings")
+@router.put("/month-settings", dependencies=[Depends(require_permission("settings.write"))])
 def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db)):
     """Enable or disable a specific month for a specific hospital."""
     month = updates.get("month")
@@ -199,7 +199,7 @@ def get_config_by_category(category: str, db: Session = Depends(get_db)):
     return {r.key: {"value": r.value, "label": r.label} for r in rows}
 
 
-@router.put("/")
+@router.put("/", dependencies=[Depends(require_permission("settings.write"))])
 def update_config(updates: dict, db: Session = Depends(get_db)):
     updated = 0
     for key, val in updates.items():
@@ -223,7 +223,7 @@ def get_ai_settings(db: Session = Depends(get_db)):
         return {k: v for k, v in AI_CONFIG_KEYS.items()}
 
 
-@router.put("/ai/settings")
+@router.put("/ai/settings", dependencies=[Depends(require_permission("settings.write"))])
 @safe_endpoint("Error saving AI settings")
 def update_ai_settings(updates: dict, db: Session = Depends(get_db)):
     for key, val in updates.items():

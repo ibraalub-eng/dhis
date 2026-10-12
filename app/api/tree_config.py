@@ -15,7 +15,7 @@ class _State:
         self.is_enabled = is_enabled
 
 
-@router.post("/{hospital_id}/save-tree-config")
+@router.post("/{hospital_id}/save-tree-config", dependencies=[Depends(require_permission("settings.write"))])
 def save_tree_config(
     hospital_id: int,
     body: dict,
@@ -91,7 +91,7 @@ def save_tree_config(
     return {"message": f"Saved {count} config entries for {hospital.name} / {month}"}
 
 
-@router.post("/save-default-tree-config")
+@router.post("/save-default-tree-config", dependencies=[Depends(require_permission("settings.write"))])
 def save_default_tree_config(
     body: dict,
     month: str = Query(..., description="Month YYYY-MM, or '__all__' to apply to every known month"),

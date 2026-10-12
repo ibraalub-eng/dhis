@@ -12,9 +12,16 @@ from app.cache import cache
 from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue
 from app.schemas import ReportOut, ReportSummaryOut
 from app.engine.pipeline import run_full_analysis
-from app.core.deps import require_permission, get_user_hospital_ids
+from app.core.deps import require_permission, get_user_hospital_ids, get_current_user
 
 router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(require_permission("analysis.read"))])
+
+
+def _check_hospital_access(user, db: Session, hospital_id: int) -> None:
+    """Raise 403 if the user is restricted and this hospital is not assigned."""
+    allowed = get_user_hospital_ids(user, db)
+    if allowed is not None and hospital_id not in allowed:
+        raise HTTPException(status_code=403, detail="No access to this hospital")
 
 
 @router.get("/", response_model=List[ReportOut])
@@ -25,8 +32,12 @@ def list_reports(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ):
     query = db.query(QualityScore)
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    if user_hosp_ids is not None:
+        query = query.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         query = query.filter(QualityScore.hospital_id == hospital_id)
     if month:
@@ -44,6 +55,7 @@ def list_reports(
         )
     cache_key = cache.make_key(
         "reports:list_v2",
+        uid=getattr(user, "id", 0),
         month=month,
         source_file=source_file,
         skip=skip,
@@ -114,7 +126,8 @@ def list_reports(
 
 
 @router.get("/generate/{hospital_id}", response_model=ReportOut)
-def generate_report(hospital_id: int, month: str = Query(..., description="Month YYYY-MM"), db: Session = Depends(get_db)):
+def generate_report(hospital_id: int, month: str = Query(..., description="Month YYYY-MM"), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    _check_hospital_access(user, db, hospital_id)
     try:
         report = run_full_analysis(db, hospital_id, month)
     except ValueError as e:
@@ -122,12 +135,15 @@ def generate_report(hospital_id: int, month: str = Query(..., description="Month
     return ReportOut(**report)
 
 
-@router.post("/generate/{hospital_id}")
+@router.post("/generate/{hospital_id}", dependencies=[Depends(require_permission("reports.export"))])
 def generate_report_background(
     hospital_id: int,
     month: str = Query(..., description="Month YYYY-MM"),
     background_tasks: BackgroundTasks = None,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
 ):
+    _check_hospital_access(user, db, hospital_id)
     task_id = create_task("Generate Report", lambda: None)
 
     def _run(tid, hid, m):
@@ -155,7 +171,8 @@ def generate_report_background(
 
 
 @router.get("/detail/{hospital_id}", response_model=ReportSummaryOut)
-def detailed_report(hospital_id: int, month: str = Query(..., description="Month YYYY-MM"), db: Session = Depends(get_db)):
+def detailed_report(hospital_id: int, month: str = Query(..., description="Month YYYY-MM"), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    _check_hospital_access(user, db, hospital_id)
     hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hosp:
         raise HTTPException(status_code=404, detail="Hospital not found")
@@ -211,12 +228,15 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
 
 
 @router.get("/from-file/{source_file}", response_model=List[ReportOut])
-def reports_from_file(source_file: str, db: Session = Depends(get_db)):
+def reports_from_file(source_file: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    user_hosp_ids = get_user_hospital_ids(user, db)
     values = (
         db.query(IndicatorValue)
         .filter(IndicatorValue.source_file == source_file)
         .all()
     )
+    if user_hosp_ids is not None:
+        values = [v for v in values if v.hospital_id in user_hosp_ids]
     if not values:
         raise HTTPException(status_code=404, detail=f"No data found for file: {source_file}")
 
@@ -234,7 +254,9 @@ def reports_from_file(source_file: str, db: Session = Depends(get_db)):
     return reports
 
 
-def _get_export_data(db: Session, hospital_id: int, month: str) -> dict:
+def _get_export_data(db: Session, hospital_id: int, month: str, user=None) -> dict:
+    if user is not None:
+        _check_hospital_access(user, db, hospital_id)
     hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hosp:
         raise HTTPException(status_code=404, detail="Hospital not found")
@@ -282,14 +304,14 @@ def _register_unicode_font():
 
 
 @router.get("/export/{hospital_id}/pdf")
-def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = Depends(get_db)):
+def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.lib import colors
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     try:
-        d = _get_export_data(db, hospital_id, month)
+        d = _get_export_data(db, hospital_id, month, user=user)
     except HTTPException:
         raise
     except Exception as e:
@@ -414,10 +436,10 @@ def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = D
 
 
 @router.get("/export/{hospital_id}/excel")
-def export_report_excel(hospital_id: int, month: str = Query(...), db: Session = Depends(get_db)):
+def export_report_excel(hospital_id: int, month: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    d = _get_export_data(db, hospital_id, month)
+    d = _get_export_data(db, hospital_id, month, user=user)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Quality Report"

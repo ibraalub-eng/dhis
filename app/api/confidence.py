@@ -212,7 +212,7 @@ def get_confidence_weights(db: Session = Depends(get_db)):
     }
 
 
-@router.put("/weights")
+@router.put("/weights", dependencies=[Depends(require_permission("settings.write"))])
 def update_confidence_weights(weights: dict, db: Session = Depends(get_db)):
     from app.models import ConfidenceWeights
     fields = ["rule_compliance", "historical", "cross_hospital", "trend", "completeness"]

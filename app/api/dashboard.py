@@ -82,7 +82,7 @@ def _exclude_disabled(db, q, model, hospital_id=None):
 
 # ── Shared helper: confidence aggregate with the score query's filters ──
 def _conf_avg_q(db, hospital_id=None, exclude_self=False, lo=None, hi=None,
-                month=None, year=None, enabled_months=None):
+                month=None, year=None, enabled_months=None, user_hosp_ids=None):
     """Average ``ConfidenceScore.overall_confidence`` under EXACTLY the ghost,
     disabled-month, hospital and window filters the QualityScore query uses.
 
@@ -101,6 +101,8 @@ def _conf_avg_q(db, hospital_id=None, exclude_self=False, lo=None, hi=None,
             ConfidenceScore.hospital_id != hospital_id if exclude_self
             else ConfidenceScore.hospital_id == hospital_id
         )
+    if user_hosp_ids is not None:
+        q = q.filter(ConfidenceScore.hospital_id.in_(user_hosp_ids))
     # Single-hospital queries exclude that hospital's disabled months; network
     # queries (including the peer view) exclude every hospital's.
     q = _exclude_disabled(
@@ -214,6 +216,8 @@ def dashboard_overview(
     q = db.query(func.avg(QualityScore.score)).filter(
         _analyzed_exists(db, QualityScore)
     )
+    if user_hosp_ids is not None:
+        q = q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         q = q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -230,6 +234,8 @@ def dashboard_overview(
     alerts_q = db.query(ValidationResult).filter(
         ValidationResult.status == "FAIL"
     )
+    if user_hosp_ids is not None:
+        alerts_q = alerts_q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         alerts_q = alerts_q.filter(ValidationResult.hospital_id == hospital_id)
     if month_from:
@@ -246,6 +252,8 @@ def dashboard_overview(
     ).filter(
         _analyzed_exists(db, QualityScore)
     )
+    if user_hosp_ids is not None:
+        trend_q = trend_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         trend_q = trend_q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -278,6 +286,8 @@ def dashboard_overview(
     ).filter(
         Hospital.is_active.is_(True)
     )
+    if user_hosp_ids is not None:
+        comp_q = comp_q.filter(Hospital.id.in_(user_hosp_ids))
     if month_from:
         comp_q = comp_q.filter(QualityScore.month >= month_from)
     if month_to:
@@ -307,6 +317,8 @@ def dashboard_overview(
         ConfidenceScore.level,
         func.count(ConfidenceScore.id).label("count"),
     )
+    if user_hosp_ids is not None:
+        conf_q = conf_q.filter(ConfidenceScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         conf_q = conf_q.filter(ConfidenceScore.hospital_id == hospital_id)
     if month_from:
@@ -326,6 +338,8 @@ def dashboard_overview(
         func.avg(QualityScore.completeness).label("completeness"),
         func.avg(QualityScore.consistency).label("consistency"),
     )
+    if user_hosp_ids is not None:
+        radar_q = radar_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         radar_q = radar_q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -342,6 +356,8 @@ def dashboard_overview(
     # Recalculate radar completeness with current disabled indicators
     _radar_q = db.query(QualityScore)
     _radar_q = _exclude_disabled(db, _radar_q, QualityScore, hospital_id=hospital_id)
+    if user_hosp_ids is not None:
+        _radar_q = _radar_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         _radar_q = _radar_q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -361,6 +377,8 @@ def dashboard_overview(
         "Consistency": round(float(radar_row.consistency), 1) if radar_row and radar_row.consistency is not None else None,
     }
     outlier_q = db.query(func.avg(func.abs(QualityScore.outlier_penalty)).label("avg_op"))
+    if user_hosp_ids is not None:
+        outlier_q = outlier_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         outlier_q = outlier_q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -394,7 +412,7 @@ def dashboard_overview(
 
 
 @router.get("/trend")
-def dashboard_trend(db: Session = Depends(get_db)):
+def dashboard_trend(db: Session = Depends(get_db), user=Depends(require_permission("dashboard.read"))):
     """Quality Score Trend for every analyzed month across all hospitals.
 
     Intentionally immune to the dashboard's filters (hospital, year, From/To
@@ -427,7 +445,11 @@ def dashboard_trend(db: Session = Depends(get_db)):
             continue
         disabled_by_hid.setdefault(int(hid_str), set()).add(m)
     # Exclude a month only when EVERY scored hospital disabled it.
-    scored_hids = {r[0] for r in db.query(QualityScore.hospital_id).distinct().all()}
+    _scored_q = db.query(QualityScore.hospital_id).distinct()
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    if user_hosp_ids is not None:
+        _scored_q = _scored_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
+    scored_hids = {r[0] for r in _scored_q.all()}
     common_disabled: set = set()
     if scored_hids and disabled_by_hid:
         common_disabled = set.intersection(
@@ -440,6 +462,8 @@ def dashboard_trend(db: Session = Depends(get_db)):
     ).filter(
         _analyzed_exists(db, QualityScore)
     )
+    if user_hosp_ids is not None:
+        trend_q = trend_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if common_disabled:
         trend_q = trend_q.filter(~QualityScore.month.in_(common_disabled))
     trend_rows = trend_q.group_by(QualityScore.month).order_by(QualityScore.month.asc()).all()
@@ -451,9 +475,10 @@ def dashboard_trend(db: Session = Depends(get_db)):
 
 
 @router.get("/kpi")
-def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
+def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db), user=Depends(require_permission("dashboard.read"))):
     from app.api.analysis import get_enabled_months
     from app.cache import get_data_epoch
+    user_hosp_ids = get_user_hospital_ids(user, db)
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
     if year is not None and not re.match(r"^\d{4}$", str(year)):
         return {"error": "Invalid year format"}
@@ -461,6 +486,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         _analyzed_exists(db, QualityScore)
     )
     base = _exclude_disabled(db, base, QualityScore, hospital_id=hospital_id)
+    if user_hosp_ids is not None:
+        base = base.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         base = base.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
@@ -506,6 +533,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         conf_high_pct = _conf_avg_value(_conf_avg_q(
             db, hospital_id=hospital_id, lo=month_from, hi=month_to,
             month=month, year=year, enabled_months=enabled_months,
+            user_hosp_ids=user_hosp_ids,
         ).first())
 
     # Outlier score (lower penalty = better)
@@ -557,6 +585,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             # windows and always yield an empty (0.0) previous period.
             pq = db.query(QualityScore).filter(_analyzed_exists(db, QualityScore))
             pq = _exclude_disabled(db, pq, QualityScore, hospital_id=hospital_id)
+            if user_hosp_ids is not None:
+                pq = pq.filter(QualityScore.hospital_id.in_(user_hosp_ids))
             if hospital_id:
                 pq = pq.filter(QualityScore.hospital_id == hospital_id)
             pq = pq.filter(QualityScore.month >= lo, QualityScore.month <= hi)
@@ -582,6 +612,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         def _conf_avg(lo: str, hi: str):
             return _conf_avg_value(_conf_avg_q(
                 db, hospital_id=hospital_id, lo=lo, hi=hi,
+                user_hosp_ids=user_hosp_ids,
             ).first())
 
         prev = _avg_over(p_lo, p_hi)
@@ -606,6 +637,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             QualityScore.hospital_id != hospital_id,
         )
         net = _exclude_disabled(db, net, QualityScore)
+        if user_hosp_ids is not None:
+            net = net.filter(QualityScore.hospital_id.in_(user_hosp_ids))
         if month_from:
             net = net.filter(QualityScore.month >= month_from)
         if month_to:
@@ -626,7 +659,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
                 return _conf_avg_value(_conf_avg_q(
                     db, hospital_id=hospital_id, exclude_self=True,
                     lo=month_from, hi=month_to, month=month, year=year,
-                    enabled_months=enabled_months,
+                    enabled_months=enabled_months, user_hosp_ids=user_hosp_ids,
                 ).first())
             if kid == "completeness":
                 cp = _recalc_completeness(db, net.all())
@@ -671,7 +704,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
 
 
 @router.get("/attention")
-def dashboard_attention(hospital_id: int | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db)):
+def dashboard_attention(hospital_id: int | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db), user=Depends(require_permission("dashboard.read"))):
     """'Needs attention' strip: the three lists a quality manager should look
     at first — worst month-over-month movers, hospitals with critical/high
     rule failures in the latest month, and hospitals with data problems
@@ -682,6 +715,9 @@ def dashboard_attention(hospital_id: int | None = None, month_from: str | None =
     Why popup needs (kind, hospital_id, month) so nothing is derived twice.
     """
     hospitals = {h.id: h for h in db.query(Hospital).filter(Hospital.is_active.is_(True)).all()}
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    if user_hosp_ids is not None:
+        hospitals = {hid: h for hid, h in hospitals.items() if hid in user_hosp_ids}
 
     def _base_q(model):
         q = db.query(model).filter(_analyzed_exists(db, model))
@@ -899,11 +935,15 @@ def dashboard_attention(hospital_id: int | None = None, month_from: str | None =
 
 
 @router.get("/ranking")
-def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = None, month_to: str | None = None, db: Session = Depends(get_db)):
+def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = None, month_to: str | None = None, db: Session = Depends(get_db), user=Depends(require_permission("dashboard.read"))):
     from app.api.analysis import get_enabled_months
     enabled_months = get_enabled_months(db)
 
-    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    hospitals_q = db.query(Hospital).filter(Hospital.is_active.is_(True))
+    if user_hosp_ids is not None:
+        hospitals_q = hospitals_q.filter(Hospital.id.in_(user_hosp_ids))
+    hospitals = hospitals_q.all()
 
     rows = []
     for h in hospitals:
@@ -991,7 +1031,10 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
 
 
 @router.get("/hospital-performance/{hospital_id}")
-def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
+def hospital_performance(hospital_id: int, db: Session = Depends(get_db), user=Depends(require_permission("dashboard.read"))):
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    if user_hosp_ids is not None and hospital_id not in user_hosp_ids:
+        raise HTTPException(status_code=403, detail="No access to this hospital")
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail="Hospital not found")
@@ -1093,7 +1136,7 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/recalculate-completeness")
+@router.post("/recalculate-completeness", dependencies=[Depends(require_permission("dashboard.write"))])
 def recalculate_completeness(db: Session = Depends(get_db), user=Depends(require_permission("dashboard.write"))):
     """Bulk recalculate completeness + score for all quality_scores.
 

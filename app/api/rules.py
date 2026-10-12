@@ -230,7 +230,7 @@ def rule_recompute_status():
         return {"running": True}
 
 
-@router.post("/recompute-latest")
+@router.post("/recompute-latest", dependencies=[Depends(require_permission("rules.write"))])
 def force_recompute_latest(background_tasks=None):
     """Manual trigger for the same refresh (Admin > Recalculate, or after a
     bulk rule import) when the automatic pass is not wanted."""
@@ -673,7 +673,7 @@ def list_rules(
     return rules
 
 
-@router.put("/save-enabled")
+@router.put("/save-enabled", dependencies=[Depends(require_permission("rules.write"))])
 def save_rules_enabled(body: dict, db: Session = Depends(get_db)):
     """Bulk save enabled states: {"items": [{"id": 1, "enabled": true}, ...]}"""
     items = body.get("items", [])
@@ -710,7 +710,7 @@ def export_rules(db: Session = Depends(get_db)):
     }
 
 
-@router.post("/import")
+@router.post("/import", dependencies=[Depends(require_permission("rules.write"))])
 def import_rules(body: Union[dict, List[dict]] = Body(...), db: Session = Depends(get_db)):
     """Import rules from an export payload: {"rules": [...]} (a bare list is
     also accepted). Existing codes are updated, new codes are created."""
@@ -816,7 +816,7 @@ def get_rule(rule_id: int, db: Session = Depends(get_db)):
     return rule
 
 
-@router.post("/", response_model=RuleOut)
+@router.post("/", response_model=RuleOut, dependencies=[Depends(require_permission("rules.write"))])
 def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
     existing = db.query(Rule).filter(Rule.code == rule.code).first()
     if existing:
@@ -841,7 +841,7 @@ def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
     return db_rule
 
 
-@router.put("/{rule_id}", response_model=RuleOut)
+@router.put("/{rule_id}", response_model=RuleOut, dependencies=[Depends(require_permission("rules.write"))])
 def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_db)):
     db_rule = db.query(Rule).filter(Rule.id == rule_id).first()
     if not db_rule:
@@ -860,7 +860,7 @@ def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_db)):
     return db_rule
 
 
-@router.delete("/{rule_id}")
+@router.delete("/{rule_id}", dependencies=[Depends(require_permission("rules.write"))])
 def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     db_rule = db.query(Rule).filter(Rule.id == rule_id).first()
     if not db_rule:
@@ -876,7 +876,7 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     return {"message": f"Rule {code} deleted"}
 
 
-@router.put("/reorder")
+@router.put("/reorder", dependencies=[Depends(require_permission("rules.write"))])
 def bulk_reorder_rules(
     body: dict,
     db: Session = Depends(get_db),
@@ -891,7 +891,7 @@ def bulk_reorder_rules(
     return {"message": f"{len(items)} rules reordered"}
 
 
-@router.put("/{rule_id}/toggle")
+@router.put("/{rule_id}/toggle", dependencies=[Depends(require_permission("rules.write"))])
 def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
     rule = db.query(Rule).filter(Rule.id == rule_id).first()
     if not rule:

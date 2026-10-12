@@ -20,7 +20,7 @@ def list_hospital_types(
     return q.offset(skip).limit(limit).all()
 
 
-@router.post("/", response_model=HospitalTypeOut)
+@router.post("/", response_model=HospitalTypeOut, dependencies=[Depends(require_permission("hospital_types.write"))])
 def create_hospital_type(data: HospitalTypeCreate, db: Session = Depends(get_db)):
     existing = db.query(HospitalType).filter(HospitalType.name == data.name).first()
     if existing:
@@ -33,7 +33,7 @@ def create_hospital_type(data: HospitalTypeCreate, db: Session = Depends(get_db)
     return ht
 
 
-@router.put("/{hospital_type_id}", response_model=HospitalTypeOut)
+@router.put("/{hospital_type_id}", response_model=HospitalTypeOut, dependencies=[Depends(require_permission("hospital_types.write"))])
 def update_hospital_type(hospital_type_id: int, data: HospitalTypeCreate, db: Session = Depends(get_db)):
     ht = db.query(HospitalType).filter(HospitalType.id == hospital_type_id).first()
     if not ht:
@@ -48,7 +48,7 @@ def update_hospital_type(hospital_type_id: int, data: HospitalTypeCreate, db: Se
     return ht
 
 
-@router.delete("/{hospital_type_id}")
+@router.delete("/{hospital_type_id}", dependencies=[Depends(require_permission("hospital_types.write"))])
 def delete_hospital_type(hospital_type_id: int, db: Session = Depends(get_db)):
     ht = db.query(HospitalType).filter(HospitalType.id == hospital_type_id).first()
     if not ht:

@@ -28,7 +28,7 @@ def get_facility_type(type_id: int, db: Session = Depends(get_db)):
     return ft
 
 
-@router.post("/", response_model=FacilityTypeOut)
+@router.post("/", response_model=FacilityTypeOut, dependencies=[Depends(require_permission("facility_types.write"))])
 def create_facility_type(data: FacilityTypeCreate, db: Session = Depends(get_db)):
     existing = db.query(FacilityType).filter(FacilityType.name == data.name).first()
     if existing:
@@ -41,7 +41,7 @@ def create_facility_type(data: FacilityTypeCreate, db: Session = Depends(get_db)
     return ft
 
 
-@router.put("/{type_id}", response_model=FacilityTypeOut)
+@router.put("/{type_id}", response_model=FacilityTypeOut, dependencies=[Depends(require_permission("facility_types.write"))])
 def update_facility_type(type_id: int, data: FacilityTypeCreate, db: Session = Depends(get_db)):
     ft = db.query(FacilityType).filter(FacilityType.id == type_id).first()
     if not ft:
@@ -56,7 +56,7 @@ def update_facility_type(type_id: int, data: FacilityTypeCreate, db: Session = D
     return ft
 
 
-@router.delete("/{type_id}")
+@router.delete("/{type_id}", dependencies=[Depends(require_permission("facility_types.write"))])
 def delete_facility_type(type_id: int, db: Session = Depends(get_db)):
     ft = db.query(FacilityType).filter(FacilityType.id == type_id).first()
     if not ft:

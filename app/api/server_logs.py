@@ -82,7 +82,7 @@ def get_logs(
 
 @router.delete("")
 def clear_logs(
-    user=Depends(require_permission("system.read_audit")),
+    user=Depends(require_permission("system.manage_data")),
 ):
     """Clear all entries from the in-memory log buffer."""
     with _buffer_lock:

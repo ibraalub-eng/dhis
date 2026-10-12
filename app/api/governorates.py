@@ -20,7 +20,7 @@ def list_governorates(
     return q.offset(skip).limit(limit).all()
 
 
-@router.post("/", response_model=GovernorateOut)
+@router.post("/", response_model=GovernorateOut, dependencies=[Depends(require_permission("governorates.write"))])
 def create_governorate(data: GovernorateCreate, db: Session = Depends(get_db)):
     existing = db.query(Governorate).filter(Governorate.name == data.name).first()
     if existing:
@@ -33,7 +33,7 @@ def create_governorate(data: GovernorateCreate, db: Session = Depends(get_db)):
     return gov
 
 
-@router.put("/{governorate_id}", response_model=GovernorateOut)
+@router.put("/{governorate_id}", response_model=GovernorateOut, dependencies=[Depends(require_permission("governorates.write"))])
 def update_governorate(governorate_id: int, data: GovernorateCreate, db: Session = Depends(get_db)):
     gov = db.query(Governorate).filter(Governorate.id == governorate_id).first()
     if not gov:
@@ -48,7 +48,7 @@ def update_governorate(governorate_id: int, data: GovernorateCreate, db: Session
     return gov
 
 
-@router.delete("/{governorate_id}")
+@router.delete("/{governorate_id}", dependencies=[Depends(require_permission("governorates.write"))])
 def delete_governorate(governorate_id: int, db: Session = Depends(get_db)):
     gov = db.query(Governorate).filter(Governorate.id == governorate_id).first()
     if not gov:
