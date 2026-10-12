@@ -984,15 +984,14 @@ def test_drilldown_targets_match_kpi_cards(db_session, client):
 # ── Rev-2 completeness parity: every site must use ONE formula ─────────────
 
 def _engine_style_completeness(db, hospital_id, month):
-    """Reference formula exactly as scoring._calc_completeness computes it
-    inside run_full_analysis: numerator = enabled non-null values (capped),
-    denominator = required(enabled ∧ Required) minus covered-by-total."""
+    """Reference completeness via the single shared core — every production
+    site must agree with this."""
     from app.engine.pipeline import (
         get_disabled_indicator_ids,
         get_enabled_values_for_hospital_month,
-        get_required_indicator_ids,
+        get_required_indicator_codes,
     )
-    from app.engine.quality import compute_covered_codes
+    from app.engine.quality import compute_completeness, compute_covered_codes
     values = get_enabled_values_for_hospital_month(db, hospital_id, month)
     disabled_ids = get_disabled_indicator_ids(db, hospital_id, month)
     disabled_codes = {
@@ -1000,9 +999,8 @@ def _engine_style_completeness(db, hospital_id, month):
         .filter(Indicator.id.in_(disabled_ids)).all()
     } if disabled_ids else set()
     covered = compute_covered_codes(values, disabled_codes, db)
-    active = max(1, len(get_required_indicator_ids(db, hospital_id, month)) - len(covered))
-    filled = sum(1 for v in values.values() if v is not None)
-    return min(1.0, filled / active) * 100.0
+    required_codes = get_required_indicator_codes(db, hospital_id, month)
+    return compute_completeness(values, required_codes, covered) * 100.0
 
 
 def test_card_helper_matches_engine_formula(db_session):
