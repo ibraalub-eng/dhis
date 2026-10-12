@@ -3,6 +3,24 @@ from typing import List, Dict, Optional
 from .rules import RuleResult, RuleStatus, Severity
 
 
+def compute_completeness(values: Dict[str, float], required_codes, covered_codes=None) -> float:
+    """The single completeness formula, DB-free.
+
+    numerator   = number of non-None values passed in `values` (a value of 0
+                  counts as Filled; an Optional fill still counts here)
+    denominator = required codes minus those covered-by-total that are
+                  themselves required (covered Optional codes never shrink it)
+    Empty denominator -> 0.0. Result is capped at 1.0.
+    """
+    required = set(required_codes or ())
+    covered = set(covered_codes or ()) & required
+    denom = len(required) - len(covered)
+    if denom <= 0:
+        return 0.0
+    filled = sum(1 for v in values.values() if v is not None)
+    return min(1.0, filled / denom)
+
+
 def calculate_quality_score(
     rule_results: List[RuleResult],
     values: Dict[str, float],

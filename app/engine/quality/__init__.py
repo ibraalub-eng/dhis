@@ -16,7 +16,7 @@ from .rules import (
     compute_covered_codes,
     set_rules_config,
 )
-from .scoring import calculate_quality_score
+from .scoring import calculate_quality_score, compute_completeness
 from .definitions import _RULES_CONFIG as _RULES_CONFIG, RULE_CATALOG
 
 
@@ -76,5 +76,6 @@ __all__ = [
     "compute_covered_codes",
     "set_rules_config",
     "calculate_quality_score",
+    "compute_completeness",
     "run_quality_analysis",
 ]
