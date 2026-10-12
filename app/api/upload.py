@@ -17,6 +17,7 @@ from app.cache import cache
 from app.engine.comparative.report_cache import invalidate_report_cache
 from app.core.deps import require_permission
 from app.config import MAX_UPLOAD_SIZE
+from app.utils.files import safe_upload_name
 from datetime import datetime
 import logging
 
@@ -116,7 +117,7 @@ def _precompute_smart_bg(db_session, months: list):
 
 
 @router.get("/template")
-def download_template():
+def download_template(user=Depends(require_permission("data.upload"))):
     import openpyxl
     top_inds = [ind for ind in INDICATOR_FLAT_LIST if ind["level"] == 0 and ind["code"] not in SYNTHETIC_INDICATOR_CODES]
     wb = openpyxl.Workbook()
@@ -149,12 +150,14 @@ class DuplicateCheckResponse(BaseModel):
 
 
 @router.post("/check-duplicate")
-def check_duplicate(file: UploadFile = File(...), db: Session = Depends(get_db)):
+def check_duplicate(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
     """Check if uploaded file is a duplicate of previously uploaded data.
     Returns duplicate info so frontend can show confirmation dialog."""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"File extension '{ext}' not supported")
+
+    _check_upload_size_sync(file)
 
     # Read file content and compute hash
     content = file.file.read()
@@ -196,7 +199,8 @@ def preview_excel(file: UploadFile = File(...), db: Session = Depends(get_db), u
     _check_upload_size_sync(file)
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, file.filename)
+    safe_name = safe_upload_name(file.filename)
+    file_path = os.path.join(upload_dir, safe_name)
     file.file.seek(0)
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
@@ -226,7 +230,7 @@ def preview_excel(file: UploadFile = File(...), db: Session = Depends(get_db), u
 
 
 @router.get("/data-entry/options")
-def data_entry_options(db: Session = Depends(get_db)):
+def data_entry_options(db: Session = Depends(get_db), user=Depends(require_permission("data.upload"))):
     hospitals = db.query(Hospital).order_by(Hospital.name).all()
     top_indicators = [ind for ind in INDICATOR_FLAT_LIST if ind["level"] == 0 and ind["code"] not in SYNTHETIC_INDICATOR_CODES]
     return {
@@ -296,7 +300,8 @@ async def upload_excel(file: UploadFile = File(...), override: bool = Query(Fals
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
     await _check_upload_size(file)
-    file_path = os.path.join(upload_dir, file.filename)
+    safe_name = safe_upload_name(file.filename)
+    file_path = os.path.join(upload_dir, safe_name)
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     file_size = os.path.getsize(file_path)
@@ -306,7 +311,7 @@ async def upload_excel(file: UploadFile = File(...), override: bool = Query(Fals
     logger.info(f"Uploaded file: {file.filename} ({file_size} bytes)")
 
     # Check for duplicate file before processing
-    filename = os.path.basename(file.filename or "")
+    filename = safe_name
     existing_records = (
         db.query(IndicatorValue)
         .filter(IndicatorValue.source_file == filename)
@@ -346,7 +351,8 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
     await _check_upload_size(file)
-    file_path = os.path.join(upload_dir, file.filename)
+    safe_name = safe_upload_name(file.filename)
+    file_path = os.path.join(upload_dir, safe_name)
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
     file_size = os.path.getsize(file_path)
@@ -355,7 +361,7 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
         raise HTTPException(status_code=400, detail="Uploaded file is empty (0 bytes)")
 
     # Check for duplicate file before processing
-    filename = os.path.basename(file.filename or "")
+    filename = safe_name
     existing_count = (
         db.query(IndicatorValue)
         .filter(IndicatorValue.source_file == filename)

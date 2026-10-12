@@ -19,6 +19,7 @@ from datetime import datetime
 from app.config import UPLOAD_DIR, MAX_UPLOAD_SIZE
 from app.schemas import MultiFileUploadResponse
 from app.core.deps import require_permission
+from app.utils.files import safe_upload_name
 import os
 import io
 import shutil
@@ -61,7 +62,7 @@ def list_saved_files(db: Session = Depends(get_db)):
     for row in rows:
         fname = row.source_file
         # Check if file still exists on disk (may or may not)
-        fpath = os.path.join(UPLOAD_DIR, fname) if UPLOAD_DIR else None
+        fpath = os.path.join(UPLOAD_DIR, os.path.basename(fname)) if UPLOAD_DIR else None
         on_disk = fpath and os.path.exists(fpath)
         size_kb = 0.0
         if on_disk:
@@ -184,7 +185,7 @@ async def analyze_saved_files(
 
     for fname in filenames:
         # Try re-importing from disk first
-        fpath = os.path.join(UPLOAD_DIR, fname) if UPLOAD_DIR else None
+        fpath = os.path.join(UPLOAD_DIR, os.path.basename(fname)) if UPLOAD_DIR else None
         if fpath and os.path.exists(fpath):
             try:
                 result = process_excel_upload(fpath, db)
@@ -234,7 +235,7 @@ async def analyze_saved_files(
     }
 
 
-@router.delete("/saved-files")
+@router.delete("/saved-files", dependencies=[Depends(require_permission("data.manage"))])
 def delete_saved_files(body: dict, db: Session = Depends(get_db)):
     """Delete uploaded data from database by source file name.
 
@@ -253,7 +254,7 @@ def delete_saved_files(body: dict, db: Session = Depends(get_db)):
         deleted += count
         # Remove file from disk if it still exists (best-effort)
         if UPLOAD_DIR:
-            fpath = os.path.join(UPLOAD_DIR, fname)
+            fpath = os.path.join(UPLOAD_DIR, os.path.basename(fname))
             if os.path.exists(fpath):
                 try:
                     os.remove(fpath)
@@ -303,7 +304,7 @@ async def update_saved_file(
 
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, filename)
+    file_path = os.path.join(upload_dir, safe_upload_name(filename))
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
@@ -374,7 +375,7 @@ async def upload_multiple_files(
             continue
         await file.seek(0)
 
-        file_path = os.path.join(upload_dir, file.filename)
+        file_path = os.path.join(upload_dir, safe_upload_name(file.filename))
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
@@ -432,7 +433,7 @@ async def upload_multiple_and_analyze(
         if ext not in ALLOWED_EXTENSIONS:
             continue
 
-        file_path = os.path.join(upload_dir, file.filename)
+        file_path = os.path.join(upload_dir, safe_upload_name(file.filename))
         with open(file_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
@@ -510,7 +511,7 @@ def process_preview_file(
     """
     upload_dir = UPLOAD_DIR
     os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, filename)
+    file_path = os.path.join(upload_dir, safe_upload_name(filename))
 
     # Always save from the request body if provided (more reliable on ephemeral disks)
     if file is not None:
