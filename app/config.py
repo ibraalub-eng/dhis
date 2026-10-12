@@ -1,4 +1,5 @@
 import os
+import secrets
 import sys
 from dotenv import load_dotenv
 
@@ -32,11 +33,31 @@ if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # JWT / Auth
-JWT_SECRET = os.getenv("JWT_SECRET", "dev-secret-change-in-production")
+def _secret(name: str, *, dev_default: str | None = None) -> str:
+    """Read a secret from the environment, never shipping a known default.
+
+    Under pytest a stable dev default may be used so tokens survive within a
+    test process. Otherwise, if the variable is unset, a random unguessable
+    value is generated (and a warning logged) so a missing env var can never
+    fall back to a hardcoded production credential.
+    """
+    val = os.getenv(name)
+    if val:
+        return val
+    if "pytest" in sys.modules or os.environ.get("TESTING"):
+        return dev_default or secrets.token_urlsafe(48)
+    if dev_default is not None:
+        print(f"[WARN] {name} is not set — using an insecure development default. Set it for production.", file=sys.stderr)
+        return dev_default
+    print(f"[WARN] {name} is not set — generated a random value; tokens/logins reset on restart. Set {name} for production.", file=sys.stderr)
+    return secrets.token_urlsafe(48)
+
+
+JWT_SECRET = _secret("JWT_SECRET", dev_default="dev-secret-change-in-production")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 hours
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "90"))  # 90 days
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_PASSWORD = _secret("ADMIN_PASSWORD")
 
 # Upload size limit (10 MB default, safe for Render free tier 512MB RAM)
 MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", "20"))

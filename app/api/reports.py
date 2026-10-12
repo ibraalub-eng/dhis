@@ -12,7 +12,7 @@ from app.cache import cache
 from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue
 from app.schemas import ReportOut, ReportSummaryOut
 from app.engine.pipeline import run_full_analysis
-from app.core.deps import require_permission, get_user_hospital_ids, get_current_user
+from app.core.deps import get_current_user, get_user_hospital_ids, require_permission
 
 router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(require_permission("analysis.read"))])
 

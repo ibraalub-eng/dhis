@@ -45,7 +45,7 @@ from app.api import regional as regional_router
 from app.api import rules as rules_api
 from app.api import server_logs as server_logs_router
 from app.api import smart_analytics as smart_analytics_router
-from app.config import BASE_DIR, DATABASE_URL, UPLOAD_DIR  # noqa: E402
+from app.config import ADMIN_PASSWORD, BASE_DIR, DATABASE_URL, UPLOAD_DIR  # noqa: E402
 from app.database import SessionLocal, engine, init_db  # noqa: E402
 from app.models import AppConfig, FacilityOwnership, FacilityType, Governorate, HospitalType  # noqa: E402
 from app.monitoring import (  # noqa: E402
@@ -457,7 +457,7 @@ def _ensure_admin_user(session):
         admin = session.query(User).filter(User.username == "admin").first()
         if admin is None:
             from app.core.security import hash_password
-            admin_pw = os.getenv("ADMIN_PASSWORD", "admin123")
+            admin_pw = ADMIN_PASSWORD
             admin = User(
                 username="admin", email="admin@health.local",
                 full_name="System Administrator",
@@ -535,7 +535,7 @@ def _ensure_admin_user(session):
             sa_user = User(
                 username="superadmin", email="superadmin@health.local",
                 full_name="Super Administrator",
-                password_hash=hash_password(os.getenv("ADMIN_PASSWORD", "admin123")),
+                password_hash=hash_password(ADMIN_PASSWORD),
                 is_active=True, is_superuser=True,
             )
             session.add(sa_user)
@@ -738,10 +738,22 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_env = os.getenv("CORS_ORIGINS", "").strip()
+if _cors_env:
+    _cors_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    _cors_origins = [
+        "http://localhost:9090", "http://127.0.0.1:9090",
+        "http://localhost:8000", "http://127.0.0.1:8000",
+        "http://localhost:8123", "http://127.0.0.1:8123",
+    ]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    # A wildcard origin cannot be combined with credentials (and doing so is a
+    # CSRF-grade hole); only allow credentials for explicit origins.
+    allow_credentials="*" not in _cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -751,7 +763,6 @@ app.middleware("http")(monitoring_middleware)
 app.include_router(upload.router)
 app.include_router(hospitals.router)
 app.include_router(indicator_config.router)
-app.include_router(indicator_groups_router.router)
 app.include_router(indicator_groups_router.router)
 app.include_router(tree_config.router)
 app.include_router(reports.router)
