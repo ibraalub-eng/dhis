@@ -200,6 +200,17 @@ def get_required_indicator_ids(session, hospital_id, month):
     return sorted(required_ids)
 
 
+def get_required_indicator_codes(session, hospital_id, month):
+    """Required indicators as CODES, for the DB-free compute_completeness core."""
+    required_ids = get_required_indicator_ids(session, hospital_id, month)
+    if not required_ids:
+        return set()
+    return {
+        code for (code,) in session.query(Indicator.code)
+        .filter(Indicator.id.in_(required_ids)).all()
+    }
+
+
 def compute_hospital_completeness(session, hospital_id, month):
     """Rev-2 completeness for one hospital/month (0-100), mirroring the
     analysis engine's scoring._calc_completeness EXACTLY so the stored
@@ -430,19 +441,21 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
             deduped_anomalies.append(a)
     anomaly_results = deduped_anomalies
 
-    # Rev 2 denominator: enabled ∧ requirement_type=='Required', via the shared
-    # helper. Falls back to the historical total-minus-disabled count if the
-    # helper fails (e.g. requirement_type column not yet migrated).
+    # Rev 2 denominator: enabled ∧ requirement_type=='Required' as codes, via
+    # the shared helper. Falls back to all non-synthetic, non-disabled codes if
+    # the helper fails (e.g. requirement_type column not yet migrated).
     try:
-        active_indicator_count = len(get_required_indicator_ids(session, hospital_id, month))
+        required_codes = get_required_indicator_codes(session, hospital_id, month)
     except Exception:
-        total_indicators = session.query(Indicator).count()
-        all_disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
-        active_indicator_count = total_indicators - len(all_disabled_ids)
+        disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
+        required_codes = {
+            code for (iid, code) in session.query(Indicator.id, Indicator.code).all()
+            if iid not in disabled_ids and code not in SYNTHETIC_INDICATOR_CODES
+        }
     from app.config_utils import get_config_dict
     quality_config = get_config_dict(session, "quality")
     covered_codes = get_covered_child_codes(ctx, session)
-    quality = calculate_quality_score(rule_results, values, anomaly_results, active_indicator_count, quality_config, covered_codes=covered_codes)
+    quality = calculate_quality_score(rule_results, values, anomaly_results, required_codes, quality_config, covered_codes=covered_codes)
 
     indicator_rule_map = build_indicator_rule_map(session)
     all_indicators_db = session.query(Indicator.code, Indicator.name).all()

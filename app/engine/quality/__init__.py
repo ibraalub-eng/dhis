@@ -27,7 +27,7 @@ def run_quality_analysis(
     all_hospital_data: Optional[Dict[str, Dict[str, float]]] = None,
     historical_data: Optional[Dict[str, Dict[str, float]]] = None,
     anomaly_results: Optional[list] = None,
-    active_indicator_count: int = 60,
+    required_codes: Optional[set] = None,
     disabled_codes: Optional[set] = None,
     score_config: Optional[Dict[str, float]] = None,
 ) -> Dict:
@@ -48,7 +48,7 @@ def run_quality_analysis(
         rule_results=rule_results,
         values=values,
         anomaly_results=anomaly_results or [],
-        active_indicator_count=active_indicator_count,
+        required_codes=required_codes or set(),
         config=score_config,
         covered_codes=covered_codes,
     )
