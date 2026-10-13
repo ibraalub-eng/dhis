@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<!--
+  layered-faq.html — أسئلة شائعة عن تشخيص الشذوذ / Layered Diagnostics FAQ
+
+  Static Q&A page following the layered-legend.html pattern: self-contained
+  (no external CSS/JS — prints correctly offline), Arabic-first, opened in a
+  new tab from the Outlier Diagnostics tab or standalone at
+  /static/tabs/layered-faq.html
+-->
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>أسئلة شائعة — تشخيص الشذوذ · Outlier Diagnostics FAQ</title>
+<style>
+  :root { --ink:#1a1a2e; --muted:#666; --line:#bbb; --accent:#0d47a1; }
+  * { box-sizing:border-box; }
+  body { font-family:"Segoe UI", Tahoma, Arial, sans-serif; color:var(--ink);
+         margin:0; padding:8mm 9mm; background:#fff; font-size:10.2pt; line-height:1.55; }
+  header { border-bottom:2px solid var(--ink); padding-bottom:4px; margin-bottom:10px;
+           display:flex; justify-content:space-between; align-items:baseline; }
+  h1 { font-size:14pt; margin:0; }
+  .en { direction:ltr; font-size:9pt; color:var(--muted); }
+  h2 { font-size:10.8pt; margin:14px 0 3px; padding:3px 8px; background:#eef2f7;
+       border-inline-start:3px solid var(--accent); border-radius:3px; }
+  .q { font-weight:700; }
+  a { color:var(--accent); text-decoration:underline; word-break:break-all; }
+  .term { direction:ltr; display:inline-block; font-size:8.4pt; color:var(--muted);
+          font-family:Consolas, monospace; unicode-bidi:plaintext; }
+  table { width:100%; border-collapse:collapse; margin:4px 0 8px; }
+  th, td { border:1px solid var(--line); padding:3px 7px; vertical-align:top; font-size:9.4pt; }
+  thead th { background:#f0f0f4; text-align:right; }
+  .num { text-align:center; width:30px; }
+  footer { margin-top:12px; border-top:1px solid var(--line); padding-top:5px;
+           font-size:8.4pt; color:var(--muted); }
+  @media print {
+    body { padding:6mm; font-size:9.6pt; }
+    details { open:always; }
+  }
+  @page { size:A4 portrait; margin:10mm; }
+</style>
+</head>
+<body>
+<header>
+  <h1>أسئلة شائعة — شاشة تشخيص الشذوذ</h1>
+  <span class="en">Outlier Diagnostics · FAQ</span>
+</header>
+
+<h2>ما الفرق بين عرضي القيمة الخام (Raw value) والنسبة (Rate) في الجدول؟</h2>
+<p><b>القيمة الخام</b> هي العدد الحرفي من UPLOAD: عدد العمليات القيصرية هذا الشهر (مؤشر عددي)؛
+أو مجموع البسط لمؤشر معدل (عدد الولادات الخام). <b>النسبة</b> موجودة فقط لمؤشرات المعدل و
+تُحسب <span class="term">Rate = (البسط ÷ المقام) × المضاعف</span>، مثل
+(15 ÷ 500) × 100 = 3 قيصرية/100 ولادة. لذلك عمود Rate يظهر <span class="term">--</span>
+لكل مؤشر عدّي — فليس غلطاً ولا شندزاً. يختار النظام الاثنين معاً لأن الحالات الفعلية تختلف:
+قفزة في العدد مع ثبات النسبة = ضغط مرضى أكبر (مبرر)؛ وقفزة في النسبة مع ثبات العدد =
+نفس الموارد أعطت بنسبة أعلى (مشكلة حقيقية).</p>
+
+<h2>ماذا يعني Δ% الذي يظهر بجانب الرقم؟</h2>
+<p>نسبة التغيير عن المرجع: في عمود Raw = عن <b>الشهر الماضي</b>
+(10 ← 15 يعنا +50%). في عمود Rate = عن <b>متوسط المؤسسة التاريخي</b> لآخر ~6 أشهر.
+زر لماذا تُظهر القيم بيقين في قسم من 5 طبقات كشف.</p>
+
+<h2>ما هي الطبقات الخمس، ولماذا نحتاجها؟</h2>
+<table>
+<thead><tr><th class="num">#</th><th style="width:22%">الطبقة</th><th style="width:26%">سؤالها</th><th>مقارنة</th></tr></thead>
+<tbody>
+<tr><td class="num">1</td><td>القيمة الخام (Raw)</td><td>هل العدد نفسه غريب؟</td><td>توزيع عدد المؤسسة السابق</td></tr>
+<tr><td class="num">2</td><td>النسبة (Rate)</td><td>هل المعدل شاذ؟</td><td>توزيع النسبة التاريخي (مؤشرات معدل فقط)</td></tr>
+<tr><td class="num">3</td><td>الخط التاريخي (Historical)</td><td>كم انحرف عن الاعتيادي؟</td><td>متوسط آخر 6 أشهر ± %</td></tr>
+<tr><td class="num">4</td><td>حجم المرضى (Volume / المقام)</td><td>هل التغيير مبرر بضغط مرضى؟</td><td>تغير المقام عن الشهر السابق (مؤشرات معدل فقط)</td></tr>
+<tr><td class="num">5</td><td>النظراء (Peer)</td><td>مختلف عن زملائه؟</td><td>مستشفيات مماثلة (النوع ← الملكية ← المحافظة) هذا الشهر</td></tr>
+</tbody>
+</table>
+<p>كل طبقة تحمي من تفسير خاطئ: الرقم الوحيد لا يعني شيئاً — قد يكون ضغط مرضى، أو اختلاف
+وصف العدّ، أو مجرد خطأ موظف. الطبقات معاً = سياق كامل قبل الحكم. جميع الطبقات معروضة
+في نافذة <b>لماذا</b> بشارة «طبقات الكشف».</p>
+
+<h2>ما الفرق بين HISTORICAL_ANOMALY و RAW_VALUE_ANOMALY؟</h2>
+<p><span class="term">HISTORICAL_ANOMALY</span> = القيمة انحرفت <b>قوياً</b>
+(درجة ≥ 0.9 — HIGH) عن متوسط تاريخها، مثل 4.0 بدل متوسط 1.0 (+300%).
+<span class="term">RAW_VALUE_ANOMALY</span> = انحراف <b>معتدل</b> فقط (0.5–0.9 = MODERATE)
+مع بقاء كل الطبقات الأخرى هادئة — جولة استيقاظ، ليست إنذاراً. لذلك رؤيته إذا تكررت
+أشهراً يُقترح التدقيق.</p>
+
+<h2>ما معنى التصنيفات الثمانية؟</h2>
+<table>
+<thead><tr><th style="width:20%">التصنيف</th><th style="width:32%">متى؟</th><th>الحركة</th></tr></thead>
+<tbody>
+<tr><td><span class="term">POSSIBLE_DATA_ENTRY_ERROR</span></td><td>قفزة أربعة أضعاف في العدد والنسبة والتاريخ معاً، والمقام ثابت</td><td><b>التحقق من الملف الأصلي قبل أي إحالة</b></td></tr>
+<tr><td><span class="term">CLINICAL_INVESTIGATION_REQUIRED</span></td><td>النسبة والتاريخ قفزا بقوة، والمقام ثابت/أقل</td><td><b>إحالة سريرية</b> — نفس الحجم أعطى وفيات أكثر</td></tr>
+<tr><td><span class="term">VOLUME_DRIVEN_ANOMALY</span></td><td>العدد والمقام قفزا معاً، والنسبة هادئة</td><td>رقم حقيقي ومبررات بضغط مرضى — ملاحظة تشغيلية</td></tr>
+<tr><td><span class="term">PEER_ANOMALY</span></td><td>شاذ بين المستشفيات المماثلة</td><td>مراجعة تعريف المؤشر ونمط الإحالة — <b>ليس خطأ بيانات أبداً</b></td></tr>
+<tr><td><span class="term">HISTORICAL_ANOMALY</span></td><td>انحراف قوي عن تاريخه</td><td>مراجعة سياق الشهر</td></tr>
+<tr><td><span class="term">RATE_ANOMALY</span></td><td>النسبة منحرفة معتدلة، البقية هادئة</td><td>نظرة على تكوين البسط/المقام</td></tr>
+<tr><td><span class="term">RAW_VALUE_ANOMALY</span></td><td>القيمة الخام منحرفة معتدلة فقط</td><td>متابعة لو تكررت</td></tr>
+<tr><td><span class="term">NORMAL</span></td><td>كل شيء هادئ، أو التاريخ غير كافٍ (أقل من 3 أشهر)</td><td>لا حركة</td></tr>
+</tbody>
+</table>
+<p>الدليل المطبوع الكامل من زر <b>دليل التصنيفات</b> أعلى شاشة التشخيص، أو مباشرة:
+<a href="/static/tabs/layered-legend.html">/static/tabs/layered-legend.html</a></p>
+
+<h2>كيف يبني النظام «النظراء»؟</h2>
+<p>أول مستوى فيه <b>مستشفيان آخَران على الأقل</b> يستخدم للمقارنة، بالترتيب:
+نفس النوع ← نفس الملكية ← نفس المحافظة ← كل المستشفيات. إن لم يوجد أي مستوى —
+درجة النظراء <span class="term">NULL</span> ولا تُحسب شهادة غائبة (لا خطر من مستشفى صغير).</p>
+
+<h2>هل التصنيف يغيّر درجة الجودة أو بياناتي؟</h2>
+<p><b>لا أبداً.</b> التصنيف = كشف ← تفسير ← تحقيق فقط؛ لا يمس القيم، الدرجة، النتائج،
+ولا الكمال. هذا مضمون بمعمارية النظام (عبارة إنذار مستقلة عن البيانات).</p>
+
+<h2>كيف أستخدم الشاشة عملياً خطوة بالخطوة؟</h2>
+<p>1) اختر <b>الشهر</b> والمستشفى (الفلتران الظاهران). 2) مسح الشارات الملونة
+(الأحمر أولاً = أخطاء إدخال، البرتقالي = تحقيق سريري). 3) اضغط <b>لماذا</b> في صف مثير ←
+طبقات الكشف الخمس + القاعدة اللازمة + حالة التطابق مع البيانات الحالية. 4) زر
+<b>الشاشة الإقليمية</b> في نهاية النافذة ينقل إلى التدقيق الكامل على نفس المستشفى/الشهر.
+5) فلاتر متقدمة تفتح المؤشر/التصنيف/الLevels/التحقيق. 6) تصدير CSV يحفظ الصفوف
+المفروزة كاملة (حتى 500) للتقارير.</p>
+
+<details style="margin-top:8px;font-size:8.6pt;color:var(--muted);">
+<summary>قد تحدث حالة فنية: عمود النسبة يظهر بالقيمة و نافذة لماذا لا تعرض ما أتوقعه — لماذا؟</summary>
+نافذة لماذا تُعيد احتساب التصنيف من الطبقات المخزنة + التاريخ <b>الحالي</b>. إذا تغيرت
+البيانات بعد التحليل (مثلاً ملف أعيد رفعه) تظهر عبارة «لم يعد مطابقاً — أعد احتساب الشهر»
+بدلاً من رقم مكتّب. هذا متعمد — الصراح أفضل من رقم قديم يبدو دقيقاً.
+</details>
+
+<footer>
+  <b>للمزيد:</b> دليل التصنيفات المطبوع (layered-legend.html) · شرح كل شاشة في صحة
+  الاستعلامات من جروب System · زر لماذا في كل رقم مشتق — أسرع طريق لفهم أي عدد في سياقه.
+  <span class="en">SRMNH DHIS — detection informs, never modifies.</span>
+</footer>
+</body>
+</html>
