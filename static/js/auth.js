@@ -496,6 +496,7 @@
     'tab-root-cause': 'root_cause.read',
     'tab-audit': 'audit.read',
     'tab-settings': 'system.manage_users',
+    'tab-guides': 'dashboard.read',
     // tab-admin uses data-requires-superadmin instead of permission check
   };
 

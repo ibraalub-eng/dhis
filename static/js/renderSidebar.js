@@ -157,6 +157,7 @@ function _renderFallback() {
         ]},
         {id:'fb-5', name:'System', icon:'⚙️', items:[
             {tab_key:'admin', label:'System Control', icon:'⚙️', permission:'system.manage_users', superadmin_only:true},
+            {tab_key:'guides', label:'Guides', icon:'📚', permission:'dashboard.read'},
             {tab_key:'settings', label:'Settings', icon:'🔧', permission:'system.manage_users'},
         ]},
     ];

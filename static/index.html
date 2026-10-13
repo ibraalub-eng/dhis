@@ -25,6 +25,8 @@
         html.lang = newLang;
         html.body.classList.toggle('rtl', newLang === 'ar');
         localStorage.setItem('lang', newLang);
+        // Mirror into a cookie so server-rendered pages (/setup) follow too.
+        try { document.cookie = 'app_lang=' + encodeURIComponent(newLang) + '; path=/; max-age=31536000; SameSite=Lax'; } catch (e) { /* no-op */ }
         if (btn) btn.textContent = newLang === 'ar' ? 'English' : 'العربية';
       };
     }
@@ -143,6 +145,8 @@
         <div id="tab-admin" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-admin"></div>
 
         <div id="tab-settings" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-settings" data-src="/static/tabs/settings.html"></div>
+
+        <div id="tab-guides" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-guides" data-src="/static/tabs/guides.html"></div>
 
         <div id="tab-smart-analytics" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-smart-analytics" data-src="/static/tabs/smart-analytics.html"></div>
         </main>

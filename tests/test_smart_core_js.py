@@ -488,7 +488,10 @@ def test_i18n_covers_every_tab_and_index():
             html = f.read()
         for key in re.findall(r'data-i18n="([^"]+)"', html):
             checked += 1
-            assert f"'{key}':" in i18n, f"{os.path.basename(page)}: missing translation for {key!r}"
+            # Keys containing an apostrophe are double-quoted in i18n.js
+            # (a single-quoted literal could not hold them).
+            assert (f"'{key}':" in i18n) or (f'"{key}":' in i18n), \
+                f"{os.path.basename(page)}: missing translation for {key!r}"
         # keys must also be displayable text, not Arabic (which can never be re-translated)
         for key in re.findall(r'data-i18n="([^"]+)"', html):
             assert not re.search(r"[\u0600-\u06FF]", key), (

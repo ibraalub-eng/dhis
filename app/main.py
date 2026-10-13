@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager  # noqa: E402
 
 from alembic.config import Config  # noqa: E402
 from alembic.script import ScriptDirectory  # noqa: E402
-from fastapi import FastAPI  # noqa: E402
+from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import HTMLResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -884,22 +884,44 @@ def version_info():
     }
 
 
-@app.get("/setup")
-def setup_page():
-    """Show setup instructions when DATABASE_URL is not configured."""
-    from app.database import _db_ready
-    if _db_ready:
-        return RedirectResponse(url="/dashboard")
-    setup_html = """
-    <!DOCTYPE html>
-    <html dir="rtl"><head><meta charset="utf-8">
-    <title>Health AI — إعداد قاعدة البيانات</title>
+def _resolve_is_arabic(request: Request) -> bool:
+    """True when the user prefers Arabic.
+
+    Priority: app_lang cookie written by the UI language toggle (same
+    preference the dashboard uses, stored in localStorage which the server
+    cannot see) → Accept-Language header when it explicitly mentions a
+    language → default Arabic (the setup page's historical language).
+    """
+    try:
+        cookie = request.cookies.get("app_lang", "").strip().lower()
+        if cookie in ("ar", "en"):
+            return cookie == "ar"
+        accept = request.headers.get("accept-language", "").lower()
+        if accept:
+            # All languages starting with ar are Arabic (ar, ar-EG, ar-SA…).
+            for part in accept.split(","):
+                tag = part.split(";", 1)[0].strip()
+                if tag:
+                    return tag.startswith("ar")
+    except Exception:
+        pass
+    return True   # default: Arabic (as before)
+
+
+_SETUP_STYLES = """
     <style>
       body { font-family: 'Segoe UI', Tahoma, sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; background: #f8fafc; color: #1e293b; }
       h1 { color: #1a237e; } .step { background: white; border-radius: 10px; padding: 1.2rem; margin: 1rem 0; border: 1px solid #e2e8f0; }
       code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9rem; }
       .cmd { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; font-family: monospace; direction: ltr; text-align: left; margin: 0.5rem 0; }
-    </style></head><body>
+    </style>
+"""
+
+_SETUP_HTML_AR = """
+    <!DOCTYPE html>
+    <html dir="rtl"><head><meta charset="utf-8">
+    <title>Health AI — إعداد قاعدة البيانات</title>
+    {STYLE}  </head><body>
     <h1>🗄️ إعداد قاعدة البيانات</h1>
     <p>يجب تعيين <code>DATABASE_URL</code> للاتصال بقاعدة بيانات PostgreSQL.</p>
     <div class="step"><h3>الخطوة 1: إنشاء قاعدة بيانات على Render</h3>
@@ -911,7 +933,46 @@ def setup_page():
     <p>بعد تعيين DATABASE_URL، أعد نشر الخدمة. سيتم تشغيل الهجرات تلقائياً.</p></div>
     </body></html>
     """
-    return HTMLResponse(content=setup_html)
+
+_SETUP_HTML_EN = """
+    <!DOCTYPE html>
+    <html dir="ltr"><head><meta charset="utf-8">
+    <title>Health AI — Database Setup</title>
+    {STYLE}  </head><body>
+    <h1>🗄️ Database Setup</h1>
+    <p><code>DATABASE_URL</code> must be set to connect to a PostgreSQL database.</p>
+    <div class="step"><h3>Step 1: Create a PostgreSQL database on Render</h3>
+    <p>Go to the <a href="https://dashboard.render.com">Render Dashboard</a> → New → PostgreSQL</p></div>
+    <div class="step"><h3>Step 2: Set DATABASE_URL</h3>
+    <p>In Render: Environment → add a variable:</p>
+    <div class="cmd">Key: DATABASE_URL<br>Value: postgresql://user:pass@host:5432/dbname</div></div>
+    <div class="step"><h3>Step 3: Redeploy</h3>
+    <p>After setting DATABASE_URL, redeploy the service. Migrations run automatically.</p></div>
+    </body></html>
+    """
+
+
+@app.get("/setup")
+def setup_page(request: Request):
+    """Show setup instructions when DATABASE_URL is not configured.
+
+    عربي/EN حسب لغة المستخدم: أولاً كوكيز app_lang التي تكتبها واجهة
+    المستخدم عند تغيير اللغة، وإلا نستنتج من Accept-Language للمتصفح.
+    """
+    from app.database import _db_ready
+    if _db_ready:
+        return RedirectResponse(url="/dashboard")
+
+    # 1) cookie written by the UI language toggle → 2) browser Accept-Language
+    is_ar = _resolve_is_arabic(request)
+
+    if is_ar:
+        page = _SETUP_HTML_AR
+    else:
+        page = _SETUP_HTML_EN
+    return HTMLResponse(
+        content=page.replace("{STYLE}", _SETUP_STYLES),
+    )
 
 
 @app.get("/tasks/{task_id}")

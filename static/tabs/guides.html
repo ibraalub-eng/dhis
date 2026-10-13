@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<!--
+  guides.html — الاستعلامات والأدلة / System Guides hub
+
+  Read-only explainer hub inside the System menu group: one card per screen,
+  each explains what the screen does, how to read it, and what action to take —
+  plus a link to the printable layered classification legend.
+  Static and bilingual (data-i18n driven like every other tab); zero API calls.
+-->
+<div style="max-width:1100px;margin:0 auto;">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+    <div>
+      <h2 style="margin:0;" data-i18n="Guides">Guides</h2>
+      <span style="font-size:0.82rem;color:var(--text-muted);" data-i18n="Quick answers and printable guides for every screen in the system.">Quick answers and printable guides for every screen in the system.</span>
+    </div>
+    <button onclick="window.open('/static/tabs/layered-legend.html','_blank')" title="دليل التصنيفات الثمانية — قابل للطباعة A4"
+            style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.3rem 0.8rem;font-size:0.78rem;cursor:pointer;"
+            data-i18n="Classification legend">Classification legend</button>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:0.8rem;">
+
+    <div class="card" style="padding:0.9rem 1rem;">
+      <h3 style="margin:0 0 0.3rem;font-size:0.95rem;">🧱 <span data-i18n="Outlier Diagnostics">Outlier Diagnostics</span></h3>
+      <p style="margin:0 0 0.4rem;font-size:0.8rem;color:var(--text-secondary);" data-i18n="Sounds every indicator across five detection layers (raw, rate, history, volume, peers) and classifies the result into 8 action types.">Sounds every indicator across five detection layers (raw, rate, history, volume, peers) and classifies the result into 8 action types.</p>
+      <p style="margin:0;font-size:0.78rem;color:var(--text-muted);" data-i18n="Use: pick the month, scan colored badges, press Why on any row for the five-layer breakdown and the full audit trail.">Use: pick the month, scan colored badges, press Why on any row for the five-layer breakdown and the full audit trail.</p>
+    </div>
+
+    <div class="card" style="padding:0.9rem 1rem;">
+      <h3 style="margin:0 0 0.3rem;font-size:0.95rem;">⚠️ <span data-i18n="Outlier Scan">Outlier Scan</span></h3>
+      <p style="margin:0 0 0.4rem;font-size:0.8rem;color:var(--text-secondary);" data-i18n="Z-score statistical scan of the current month against historical windows.">Z-score statistical scan of the current month against historical windows.</p>
+      <p style="margin:0;font-size:0.78rem;color:var(--text-muted);" data-i18n="Use: quick sweep of the most unusual values per rate; drill into peers popover.">Use: quick sweep of the most unusual values per rate; drill into peers popover.</p>
+    </div>
+
+    <div class="card" style="padding:0.9rem 1rem;">
+      <h3 style="margin:0 0 0.3rem;font-size:0.95rem;">✅ <span data-i18n="Quality Reports">Quality Reports</span></h3>
+      <p style="margin:0 0 0.4rem;font-size:0.8rem;color:var(--text-secondary);" data-i18n="Composite quality score (rule compliance + completeness + consistency, minus outlier penalty).">Composite quality score (rule compliance + completeness + consistency, minus outlier penalty).</p>
+      <p style="margin:0;font-size:0.78rem;color:var(--text-muted);" data-i18n="Use: monthly scorecard review per hospital, trends over time untouched by diagnostics.">Use: monthly scorecard review per hospital, trends over time untouched by diagnostics.</p>
+    </div>
+
+    <div class="card" style="padding:0.9rem 1rem;">
+      <h3 style="margin:0 0 0.3rem;font-size:0.95rem;">🔔 <span data-i18n="Alerts">Alerts</span></h3>
+      <p style="margin:0 0 0.4rem;font-size:0.8rem;color:var(--text-secondary);" data-i18n="Failed validation rules per hospital and month.">Failed validation rules per hospital and month.</p>
+      <p style="margin:0;font-size:0.78rem;color:var(--text-muted);" data-i18n="Use: data-hygiene follow-up list; rule chips open the rule's own Why popup.">Use: data-hygiene follow-up list; rule chips open the rule's own Why popup.</p>
+    </div>
+
+    <div class="card" style="padding:0.9rem 1rem;">
+      <h3 style="margin:0 0 0.3rem;font-size:0.95rem;">📝 <span data-i18n="Audit Log">Audit Log</span></h3>
+      <p style="margin:0 0 0.4rem;font-size:0.8rem;color:var(--text-secondary);" data-i18n="Full verification of every derived number: calculation steps, traceability chain, data-auditor sweep.">Full verification of every derived number: calculation steps, traceability chain, data-auditor sweep.</p>
+      <p style="margin:0;font-size:0.78rem;color:var(--text-muted);" data-i18n="Use: the single source of truth reached from any Why popup's audit button.">Use: the single source of truth reached from any Why popup's audit button.</p>
+    </div>
+
+    <div class="card" style="padding:0.9rem 1rem;">
+      <h3 style="margin:0 0 0.3rem;font-size:0.95rem;">🔥 <span data-i18n="Root Cause">Root Cause</span></h3>
+      <p style="margin:0 0 0.4rem;font-size:0.8rem;color:var(--text-secondary);" data-i18n="Explains WHY a hospital's score changed: component contributions + peer comparisons.">Explains WHY a hospital's score changed: component contributions + peer comparisons.</p>
+      <p style="margin:0;font-size:0.78rem;color:var(--text-muted);" data-i18n="Use: monthly management review pre-read.">Use: monthly management review pre-read.</p>
+    </div>
+
+    <div class="card" style="padding:0.9rem 1rem;">
+      <h3 style="margin:0 0 0.3rem;font-size:0.95rem;">🔍 <span data-i18n="FAQ">FAQ</span></h3>
+      <p style="margin:0 0 0.4rem;font-size:0.8rem;color:var(--text-secondary);" data-i18n="What is the difference between Raw value and Rate? Between the 8 classifications? How are peers chosen?">What is the difference between Raw value and Rate? Between the 8 classifications? How are peers chosen?</p>
+      <p style="margin:0;font-size:0.78rem;color:var(--text-muted);" data-i18n="Answered in the printable legend (top button) and inside each Why popup.">Answered in the printable legend (top button) and inside each Why popup.</p>
+    </div>
+
+  </div>
+
+  <p style="margin-top:1rem;font-size:0.78rem;color:var(--text-muted);text-align:center;"
+     data-i18n="Every screen also has its own Explain/Why button — the fastest way to understand a number in context.">Every screen also has its own Explain/Why button — the fastest way to understand a number in context.</p>
+
+</div>
