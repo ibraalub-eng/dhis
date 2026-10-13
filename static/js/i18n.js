@@ -3,6 +3,17 @@
         // ── Translation System (EN ↔ AR) ─────────────────────────
         export let currentLang = localStorage.getItem('lang') || 'en';
 
+        // بقاء اللغة على السيرفر أيضاً: localStorage لا يُرسل مع الطلبات، لذا
+        // نخزّنها في كوكيز بسيطة تقرؤها صفحات السيرفر الثابتة (مثل /setup)
+        // لتصيير نفس لغة المستخدم. كوكيز بلا قيمة حساسة، ألفا بسيطة للموقع.
+        export function _persistLangCookie(lang) {
+            try {
+                document.cookie = 'app_lang=' + encodeURIComponent(lang) +
+                    '; path=/; max-age=31536000; SameSite=Lax';
+            } catch (e) { /* كوكيز غير متاحة (e.g. private mode) */ }
+        }
+        _persistLangCookie(currentLang);
+
         export const translations = {
             // Menu group names
             'Home': 'الرئيسية',
@@ -357,6 +368,35 @@
             'Outlier Diagnostics': 'تشخيص الشذوذ',
             'Outlier Scan': 'مسح الشذوذ',
             'Every signal is a question, not a verdict: raw value, rate, history, volume, then peers.': 'كل إشارة سؤال لا حكم مسبق: القيمة الخام، النسبة، التاريخ، الحجم، ثم النظراء.',
+            'Advanced filters': 'فلاتر متقدمة',
+            'Classification legend': 'دليل التصنيفات',
+            'FAQ': 'أسئلة شائعة',
+            'Guides': 'الاستعلامات',
+            'Quick answers and printable guides for every screen in the system.': 'إجابات سريعة وأدلة قابلة للطباعة لكل شاشة في النظام.',
+            'Sounds every indicator across five detection layers (raw, rate, history, volume, peers) and classifies the result into 8 action types.': 'يفحص كل مؤشر عبر خمس طبقات كشف (خام، نسبة، تاريخ، حجم، نظراء) ويصنف النتيجة في 8 أنواع إجراء.',
+            'Z-score statistical scan of the current month against historical windows.': 'مسح إحصائي بدرجة Z للشهر الحالي مقابل النوافذ التاريخية.',
+            'Use: pick the month, scan colored badges, press Why on any row for the five-layer breakdown and the full audit trail.': 'الاستخدام: اختر الشهر، تتبع الشارات الملونة، اضغط لماذا في أي صف لرؤية الطبقات الخمس وسلسلة الإثبات الكاملة.',
+            'Use: quick sweep of the most unusual values per rate; drill into peers popover.': 'الاستخدام: مسح سريع لأشذ القيم لكل معدل مع تفصيل النظراء.',
+            'Composite quality score (rule compliance + completeness + consistency, minus outlier penalty).': 'درجة جودة مركبة (التزام القواعد + الاكتمال + الترابط ناقص جزاء الشذوذ).',
+            'Use: monthly scorecard review per hospital, trends over time untouched by diagnostics.': 'الاستخدام: بطاقة مراجعة شهرية لكل مستشفى؛ الاتجاهات الزمنية لا يمسها التشخيص.',
+            'Failed validation rules per hospital and month.': 'قواعد التحقق الفاشلة لكل مستشفى وشهر.',
+            "Use: data-hygiene follow-up list; rule chips open the rule's own Why popup.": 'الاستخدام: قائمة متابعة نظافة البيانات؛ شرائح القواعد تفتح نوافذ لماذا الخاصة بها.',
+            'Full verification of every derived number: calculation steps, traceability chain, data-auditor sweep.': 'إثبات كامل لكل رقم مشتق: خطوات الحساب، سلسلة التتبع، ومسح مدقق البيانات.',
+            "Use: the single source of truth reached from any Why popup's audit button.": 'الاستخدام: مصدر الإثبات الوحيد، يُصل إليه من زر التدقيق في أي نافذة لماذا.',
+            "Explains WHY a hospital's score changed: component contributions + peer comparisons.": 'يفسر لماذا تغيرت درجة المستشفى: مساهمات المكونات ومقارنات النظراء.',
+            'Use: monthly management review pre-read.': 'الاستخدام: قراءة مسبقة لمراجعة الإدارة الشهرية.',
+            'FAQ': 'أسئلة شائعة',
+            'What is the difference between Raw value and Rate? Between the 8 classifications? How are peers chosen?': 'ما الفرق بين القيمة الخام والنسبة؟ وبين التصنيفات الثمانية؟ كيف يُختار النظراء؟',
+            'Answered in the printable legend (top button) and inside each Why popup.': 'تُجاب في الدليل القابل للطباعة (زر أعلى الصفحة) وداخل كل نافذة لماذا.',
+            'Every screen also has its own Explain/Why button — the fastest way to understand a number in context.': 'كل شاشة لها زر لماذا أيضاً — أسرع طريقة لفهم أي رقم في سياقه.',
+            'Investigation': 'تحقيق',
+            'Filter by this classification': 'تصفية حسب هذا التصنيف',
+            'Why — fixed comparison panel': 'لماذا — لوحة مقارنة ثابتة',
+            'Detection layers': 'طبقات الكشف',
+            'Layers': 'الطبقات',
+            'History': 'التاريخ',
+            'Hospital × month heatmap (worst classification)': 'خريطة حرارية مستشفى × شهر (أسوأ تصنيف)',
+            'Worst classification per cell; click a cell to filter the table to that hospital and month.': 'أسوأ تصنيف لكل خلية؛ انقر على الخلية لتصفية الجدول إلى ذلك المستشفى والشهر.',
             'Raw value (Δ%)': 'القيمة الخام (Δ%)',
             'Rate (Δ%)': 'النسبة (Δ%)',
             'Denominator (Δ%)': 'المقام (Δ%)',
@@ -1208,6 +1248,7 @@
             'Rule': 'القاعدة',
             'Source file(s)': 'ملف المصدر',
             'Why (triggered rule / threshold)': 'السبب (القاعدة/الحد المُفعَّل)',
+            'Why this rule failed?': 'لماذا فشلت هذه القاعدة؟',
             'Data problems in the source values': 'مشاكل في بيانات المصدر',
             'How it was calculated': 'كيف تم حسابها',
             'Inputs used': 'المدخلات المستخدمة',
@@ -1240,6 +1281,7 @@
             'Data epoch — same stamp means the same snapshot of the data': 'بصمة البيانات — نفس البصمة تعني نفس لقطة البيانات',
             'System info': 'معلومات النظام',
             'Refresh to latest version': 'تحديث إلى أحدث إصدار',
+            'Newer version deployed — refresh to load it': 'طُرح إصدار جديد — حدِّث الصفحة لتحميله',
             'Building explanation…': 'جاري بناء الشرح…',
             'No explanation available': 'لا يوجد شرح متاح',
             'The underlying result row may not exist for this hospital/month.': 'قد لا يوجد سجل النتيجة الأساسي لهذا المستشفى/الشهر.',
@@ -1309,6 +1351,7 @@
             document.body.classList.toggle('rtl', isAr);
             document.getElementById('langToggle').textContent = isAr ? 'English' : 'العربية';
             localStorage.setItem('lang', currentLang);
+            _persistLangCookie(currentLang);
             // Translate all data-i18n elements (safely - preserve child elements)
             document.querySelectorAll('[data-i18n]').forEach(el => {
                 const trans = __(el.getAttribute('data-i18n'));

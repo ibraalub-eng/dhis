@@ -71,6 +71,58 @@ function _levelBadge(level) {
     return '<span class="badge ' + cls + '">' + esc(level || 'NONE') + '</span>';
 }
 
+// ── Five-layer sparkline ──────────────────────────────────────────
+// A mini severity strip per row: one square per detection layer colored by
+// that layer's severity band, so the reviewer sees WHY before opening Why.
+// Score→band mirrors BAND_CUTOFFS in app/engine/anomaly/layered.py (the
+// first bound a score is <); colors reuse the level badge variables from
+// styles.css so the strip and the Level column agree visually. The five
+// score columns come straight from /analysis/layered (the endpoint returns
+// every stored column), so this is pure client-side rendering.
+const _LAYER_SCORE_COLS = [
+    ['raw_value_outlier_score', 'Raw value'],
+    ['rate_outlier_score', 'Rate'],
+    ['historical_outlier_score', 'History'],
+    ['volume_anomaly_score', 'Denominator (Δ%)'],
+    ['peer_outlier_score', 'Peer'],
+];
+
+const _LEVEL_SQUARE_STYLE = {
+    NONE: 'background:var(--bg-surface-hover,#eee);color:var(--text-muted,#888);',
+    LOW: 'background:var(--severity-info-bg,#e3f2fd);color:var(--accent-blue,#1565c0);',
+    MODERATE: 'background:var(--severity-warning-bg,#fff3e0);color:var(--accent-orange,#e65100);',
+    HIGH: 'background:var(--severity-critical-bg,#ffebee);color:var(--accent-red,#c62828);',
+    VERY_HIGH: 'background:var(--accent-red,#c62828);color:#fff;',
+};
+
+function _scoreLevel(s) {
+    if (s === null || s === undefined) return null;
+    if (s < 0.25) return 'NONE';
+    if (s < 0.50) return 'LOW';
+    if (s < 0.75) return 'MODERATE';
+    if (s < 0.90) return 'HIGH';
+    return 'VERY_HIGH';
+}
+
+function _layersSparkline(d) {
+    const squares = _LAYER_SCORE_COLS.map(function (pair) {
+        const col = pair[0];
+        const label = pair[1];
+        const s = d[col];
+        const lvl = _scoreLevel(s);
+        // N/A square: the layer does not apply to this row (e.g. rate for
+        // count indicators) — dashed outline + '·', never a scary color.
+        if (!lvl) return '<span title="' + esc(label) + ': ' + __('no data') + '"'
+            + ' style="width:13px;height:12px;border-radius:2px;border:1px dashed var(--border-default,#ccc);'
+            + 'color:var(--text-muted,#888);font-size:0.55rem;display:inline-flex;align-items:center;justify-content:center;">·</span>';
+        return '<span title="' + esc(label) + ': ' + lvl + ' (' + Number(s).toFixed(2) + ')"'
+            + ' aria-label="' + esc(label) + ' ' + lvl + '"'
+            + ' style="width:13px;height:12px;border-radius:2px;font-weight:700;display:inline-flex;'
+            + 'align-items:center;justify-content:center;' + (_LEVEL_SQUARE_STYLE[lvl] || '') + '"></span>';
+    }).join('');
+    return '<span style="display:inline-flex;gap:2px;align-items:center;">' + squares + '</span>';
+}
+
 function populateSelectOptions(sel, values, currentVal) {
     const prevVal = sel.value;
     sel.innerHTML = '<option value="">All</option>';
@@ -140,12 +192,32 @@ function _renderSummary(sum) {
     if (!sum || !sum.by_classification || !sum.by_classification.length) {
         el.innerHTML = '';
         return;
-    }
-    el.innerHTML = sum.by_classification.map(e =>
-        '<span style="display:inline-flex;align-items:center;gap:0.3rem;">'
-        + classificationBadge(e.outlier_type, '')
-        + '<span style="font-weight:700;color:var(--text-muted);">' + e.count + '</span></span>'
-    ).join('');
+    }    // الشارات التلخيصية هي فلاتر نفسها: النقر يضبط فلتر التصنيف (ويعيد
+    // النقر على النشطة يزيله). حالة النشطة مشتقة من قيمة الفلتر نفسه
+    // عند كل إعادة رسم في loadLayered، فلا تنفكّ التزامن أبدًا.
+    const activeCls = (document.getElementById('layeredClassificationFilter') || {}).value || '';
+    el.innerHTML = sum.by_classification.map(e => {
+        const isActive = e.outlier_type && e.outlier_type === activeCls;
+        return '<button type="button" data-classification="' + esc(e.outlier_type || '') + '"'
+            + ' title="' + __('Filter by this classification') + '"
+            + ' style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer;'
+            + 'padding:0.05rem 0.35rem;border-radius:6px;'
+            + 'border:1px solid ' + (isActive ? 'var(--accent-blue,#1565c0)' : 'transparent') + ';'
+            + (isActive ? 'background:var(--bg-surface-hover,#f0f4f8);' : '')
+            + '"
+            + '>'
+            + classificationBadge(e.outlier_type, '')
+            + '<span style="font-weight:700;color:var(--text-muted);">' + e.count + '</span></button>';
+    }).join('');
+    el.querySelectorAll('button[data-classification]').forEach(btn => {
+        btn.onclick = function () {
+            const sel = document.getElementById('layeredClassificationFilter');
+            if (!sel) return;
+            // Toggle: النقر على الشارة النشطة يعيد الجدول إلى «All».
+            sel.value = (sel.value === this.dataset.classification) ? '' : this.dataset.classification;
+            layeredFilterChange();
+        };
+    });
 }
 
 // ── Trend chart: raw value across months, adaptive to the filter ─────
@@ -251,6 +323,62 @@ function wireLayeredSort() {
     });
 }
 
+// ── Hospital × month heatmap: worst classification per cell ────────
+// Same visual doctrine as the Quality Score heatmap (rules-manager.js):
+// plain HTML grid, sticky hospital column, colored cells. Here the cell
+// color is the worst classification present (severity order lives in the
+// /analysis/layered/heatmap endpoint docstring); tooltip = per-type counts.
+// Click = filter the table to that hospital+month.
+function _renderLayeredHeatmap(body) {
+    const bodyEl = document.getElementById('layeredHeatmapBody');
+    if (!bodyEl) return;
+    const data = (body && body.data) || [];
+    const months = (body && body.months) || [];
+    if (!data.length) {
+        bodyEl.innerHTML = '<div style="font-size:0.8rem;color:var(--text-muted);padding:0.5rem 0;">'
+            + __('No layered findings for the selected criteria.') + '</div>';
+        return;
+    }
+    let html = '<table style="font-size:0.72rem;border-collapse:collapse;width:100%;"><thead><tr>'
+        + '<th style="padding:0.3rem;text-align:left;position:sticky;left:0;background:var(--bg-surface);z-index:1;">'
+        + __('Hospital') + '</th>';
+    months.forEach(m => { html += '<th style="padding:0.3rem;text-align:center;min-width:64px;">' + esc(m) + '</th>'; });
+    html += '</tr></thead><tbody>';
+    data.forEach(d => {
+        html += '<tr><td style="padding:0.2rem 0.4rem;font-weight:600;position:sticky;left:0;background:var(--bg-surface);z-index:1;">'
+            + esc(d.hospital) + '</td>';
+        months.forEach(m => {
+            const c = d[m];
+            if (!c) {
+                html += '<td style="text-align:center;padding:0.2rem;background:var(--bg-surface);color:var(--text-muted);">·</td>';
+                return;
+            }
+            const color = _TREND_COLORS[c.type] || '#6b7280';
+            html += '<td onclick="window._layeredHeatmapClick(' + Number(d.hospital_id) + ',' + JSON.stringify(String(m))
+                + ')" title="' + esc(d.hospital) + ' — ' + esc(m) + ' — '
+                + Object.entries(c.breakdown || {}).map(([t, n]) => t + ':' + n).join(', ')
+                + '" style="text-align:center;padding:0.2rem;background:' + color
+                + ';color:#fff;font-weight:600;cursor:pointer;">' + c.count + '</td>';
+        });
+        html += '</tr>';
+    });
+    bodyEl.innerHTML = html;
+}
+
+window._layeredHeatmapClick = function (hospitalId, month) {
+    const hsel = document.getElementById('layeredHospitalFilter');
+    const msel = document.getElementById('layeredMonthFilter');
+    if (hsel) hsel.value = String(hospitalId);
+    if (msel) msel.value = month;
+    layeredFilterChange();
+};
+
+export function loadLayeredHeatmap() {
+    return apiGet('/analysis/layered/heatmap?' + _filterQuery())
+        .then(body => _renderLayeredHeatmap(body))
+        .catch(err => console.warn('Layered heatmap failed:', err));
+}
+
 export function layeredFilterChange() {
     _page = 1;
     loadLayered();
@@ -266,10 +394,11 @@ export function layeredPage(delta) {
 export async function loadLayered() {
     _initFilters();   // fire-and-forget; selections are read independently
     loadLayeredTrend();   // filter-driven chart; fire-and-forget
+    loadLayeredHeatmap();   // worst-classification grid; fire-and-forget
     const loadingEl = document.getElementById('layeredLoading');
     if (loadingEl) loadingEl.classList.remove('hidden');
     const tbody = document.getElementById('layeredTbody');
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading layered findings...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading layered findings...</td></tr>';
     const month = document.getElementById('layeredMonthFilter').value;
     const url = '/analysis/layered?' + _filterQuery()
         + 'page=' + _page + '&page_size=' + PAGE_SIZE
@@ -297,7 +426,7 @@ export async function loadLayered() {
         document.getElementById('layeredCount').textContent = total + ' finding(s)';
         document.getElementById('layeredPageInfo').textContent = _page + ' / ' + pages;
         if (!data.length) {
-            tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">' + __('No layered findings for the selected criteria.') + '</td></tr>';
+            tbody.innerHTML =                '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">' + __('No layered findings for the selected criteria.') + '</td></tr>';
             wireLayeredSort();
             return;
         }
@@ -306,15 +435,15 @@ export async function loadLayered() {
                 ? _fmt(d.raw_value) + _fmtDelta(_rawDelta(d)) : '--';
             const rateCell = (d.rate !== null && d.rate !== undefined)
                 ? _fmt(d.rate) + _fmtDelta(d.historical_change_percent) : '--';
-            const denCell = (d.denominator !== null && d.denominator !== undefined)
-                ? _fmt(d.denominator) + _fmtDelta(d.denominator_change_percent) : '--';
-            const peerCell = (d.peer_outlier_score !== null && d.peer_outlier_score !== undefined)
-                ? _fmt(d.peer_outlier_score) : '--';
             // Object form: the Task 15 dispatcher keys on kind + indicator_code.
+            // mode='drawer' routes it to the persistent side panel (explain.js):
+            // the panel stays open while the reviewer clicks Why on other rows,
+            // which is the comparison workflow this screen exists for.
             const whyBtn = '<button onclick="window.showWhyPopup({kind:\'layered_outlier\',hospitalId:'
                 + Number(d.hospital_id)
                 + ',month:' + JSON.stringify(String(d.month)).replace(/"/g, '&quot;')
                 + ',indicatorCode:' + JSON.stringify(String(d.analysis_code)).replace(/"/g, '&quot;')
+                + ',mode:\'drawer\'
                 + '})" title="' + __('Why') + '"'
                 + ' style="background:none;border:1px solid var(--border-default,#ccc);border-radius:4px;padding:1px 7px;font-size:0.7rem;cursor:pointer;color:var(--accent-blue,#1565c0);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button>';
             return '<tr>' +
@@ -323,8 +452,7 @@ export async function loadLayered() {
                 '<td>' + esc(d.indicator_name || d.analysis_code || '') + '</td>' +
                 '<td>' + rawCell + '</td>' +
                 '<td>' + rateCell + '</td>' +
-                '<td>' + denCell + '</td>' +
-                '<td>' + peerCell + '</td>' +
+                '<td>' + _layersSparkline(d) + '</td>' +
                 '<td>' + _levelBadge(d.outlier_level) + '</td>' +
                 '<td>' + classificationBadge(d.outlier_type, d.interpretation) + '</td>' +
                 '<td>' + whyBtn + '</td>' +
@@ -332,7 +460,7 @@ export async function loadLayered() {
         }).join('');
         wireLayeredSort();
     } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="10" style="color:red;">Error: ' + err.message + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" style="color:red;">Error: ' + err.message + '</td></tr>';
     } finally {
         if (loadingEl) loadingEl.classList.add('hidden');
     }
@@ -357,8 +485,8 @@ export async function exportLayeredCSV() {
     }
     if (!data || !data.length) return;
     const headers = ['Hospital ID', 'Hospital', 'Month', 'Indicator', 'Indicator Name', 'Type',
-        'Raw Value', 'Raw Delta %', 'Rate', 'Rate Delta %', 'Denominator', 'Denominator Delta %',
-        'Peer Score', 'Level', 'Investigation', 'Interpretation'];
+        'Raw Value', 'Raw Delta %', 'Rate', 'Rate Delta %',
+        'Level', 'Investigation', 'Interpretation'];
     const rows = data.map(d => [
         d.hospital_id || '',
         d.hospital || '',
@@ -369,10 +497,10 @@ export async function exportLayeredCSV() {
         (d.raw_value !== null && d.raw_value !== undefined) ? Number(d.raw_value).toFixed(2) : '',
         _deltaCsv(_rawDelta(d)),
         (d.rate !== null && d.rate !== undefined) ? Number(d.rate).toFixed(2) : '',
-        _deltaCsv(d.historical_change_percent),
-        (d.denominator !== null && d.denominator !== undefined) ? Number(d.denominator).toFixed(2) : '',
-        _deltaCsv(d.denominator_change_percent),
-        (d.peer_outlier_score !== null && d.peer_outlier_score !== undefined) ? Number(d.peer_outlier_score).toFixed(2) : '',
+        // Rate Delta belongs with the rate cell: for count indicators rate is
+        // NULL (their delta lives in Raw Delta %), so emitting the historical
+        // delta here printed data with an empty Rate column — misleading CSV.
+        (d.rate !== null && d.rate !== undefined) ? _deltaCsv(d.historical_change_percent) : '',
         d.outlier_level || '',
         d.investigation_route || '',
         d.interpretation || ''

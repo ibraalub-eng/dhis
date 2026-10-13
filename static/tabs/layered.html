@@ -15,44 +15,62 @@
         <div id="layeredTrendChart" style="height:320px;width:100%;"></div>
     </div>
 </div>
+<div class="card" id="layeredHeatmapCard" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+        <h3 style="margin:0;font-size:0.9rem;" data-i18n="Hospital × month heatmap (worst classification)">Hospital × month heatmap (worst classification)</h3>
+        <button onclick="window.open('/static/tabs/layered-legend.html','_blank')" title="دليل التصنيفات الثمانية — قابل للطباعة A4" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="Classification legend">Classification legend</button>
+    </div>
+    <div id="layeredHeatmapBody" style="margin-top:0.5rem;max-height:260px;overflow:auto;">
+        <div id="layeredHeatmapHint" style="font-size:0.8rem;color:var(--text-muted);" data-i18n="Worst classification per cell; click a cell to filter the table to that hospital and month.">Worst classification per cell; click a cell to filter the table to that hospital and month.</div>
+    </div>
+</div>
 <div class="card" style="padding:0.6rem 0.8rem;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
         <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;">
-            <label style="font-size:0.75rem;color:var(--text-secondary);">Hospital:</label>
-            <select id="layeredHospitalFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
-            <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
+            <!-- Simplified default: the two filters a reviewer actually needs
+                 (which month, which hospital). The four technical filters live
+                 behind “Advanced” so the common path is one glance → scan rows
+                 → click Why on the row that matters. -->
+            <label style="font-size:0.75rem;color:var(--text-secondary);" data-i18n="Month">Month</label>
             <select id="layeredMonthFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
-            <label style="font-size:0.75rem;color:var(--text-secondary);">Indicator:</label>
-            <select id="layeredIndicatorFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
-            <label style="font-size:0.75rem;color:var(--text-secondary);">Classification:</label>
-            <select id="layeredClassificationFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
-                <option value="">All</option>
-                <option value="NORMAL">NORMAL</option>
-                <option value="RAW_VALUE_ANOMALY">RAW_VALUE_ANOMALY</option>
-                <option value="RATE_ANOMALY">RATE_ANOMALY</option>
-                <option value="HISTORICAL_ANOMALY">HISTORICAL_ANOMALY</option>
-                <option value="VOLUME_DRIVEN_ANOMALY">VOLUME_DRIVEN_ANOMALY</option>
-                <option value="PEER_ANOMALY">PEER_ANOMALY</option>
-                <option value="POSSIBLE_DATA_ENTRY_ERROR">POSSIBLE_DATA_ENTRY_ERROR</option>
-                <option value="CLINICAL_INVESTIGATION_REQUIRED">CLINICAL_INVESTIGATION_REQUIRED</option>
-            </select>
-            <label style="font-size:0.75rem;color:var(--text-secondary);">Level:</label>
-            <select id="layeredLevelFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
-                <option value="">All</option>
-                <option value="NONE">NONE</option>
-                <option value="LOW">LOW</option>
-                <option value="MODERATE">MODERATE</option>
-                <option value="HIGH">HIGH</option>
-                <option value="VERY_HIGH">VERY_HIGH</option>
-            </select>
-            <label style="font-size:0.75rem;color:var(--text-secondary);">Investigation:</label>
-            <select id="layeredInvestigationFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
-                <option value="">All</option>
-                <option value="none">none</option>
-                <option value="data_quality">data_quality</option>
-                <option value="clinical">clinical</option>
-                <option value="contextual">contextual</option>
-            </select>
+            <label style="font-size:0.75rem;color:var(--text-secondary);" data-i18n="Hospital">Hospital</label>
+            <select id="layeredHospitalFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+            <details id="layeredAdvancedFilters" style="display:inline-block;">
+                <summary style="cursor:pointer;font-size:0.75rem;color:var(--accent-blue,#1565c0);font-weight:600;user-select:none;" data-i18n="Advanced filters">Advanced filters</summary>
+                <div style="display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-top:0.4rem;padding:0.5rem 0.6rem;border:1px solid var(--border-default,#ddd);border-radius:6px;background:var(--bg-elevated,#f7f7f7);">
+                    <label style="font-size:0.75rem;color:var(--text-secondary);" data-i18n="Indicator">Indicator</label>
+                    <select id="layeredIndicatorFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                    <label style="font-size:0.75rem;color:var(--text-secondary);" data-i18n="Classification">Classification</label>
+                    <select id="layeredClassificationFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+                        <option value="">All</option>
+                        <option value="NORMAL">NORMAL</option>
+                        <option value="RAW_VALUE_ANOMALY">RAW_VALUE_ANOMALY</option>
+                        <option value="RATE_ANOMALY">RATE_ANOMALY</option>
+                        <option value="HISTORICAL_ANOMALY">HISTORICAL_ANOMALY</option>
+                        <option value="VOLUME_DRIVEN_ANOMALY">VOLUME_DRIVEN_ANOMALY</option>
+                        <option value="PEER_ANOMALY">PEER_ANOMALY</option>
+                        <option value="POSSIBLE_DATA_ENTRY_ERROR">POSSIBLE_DATA_ENTRY_ERROR</option>
+                        <option value="CLINICAL_INVESTIGATION_REQUIRED">CLINICAL_INVESTIGATION_REQUIRED</option>
+                    </select>
+                    <label style="font-size:0.75rem;color:var(--text-secondary);" data-i18n="Level">Level</label>
+                    <select id="layeredLevelFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+                        <option value="">All</option>
+                        <option value="NONE">NONE</option>
+                        <option value="LOW">LOW</option>
+                        <option value="MODERATE">MODERATE</option>
+                        <option value="HIGH">HIGH</option>
+                        <option value="VERY_HIGH">VERY_HIGH</option>
+                    </select>
+                    <label style="font-size:0.75rem;color:var(--text-secondary);" data-i18n="Investigation">Investigation</label>
+                    <select id="layeredInvestigationFilter" onchange="layeredFilterChange()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+                        <option value="">All</option>
+                        <option value="none">none</option>
+                        <option value="data_quality">data_quality</option>
+                        <option value="clinical">clinical</option>
+                        <option value="contextual">contextual</option>
+                    </select>
+                </div>
+            </details>
         </div>
         <div style="display:flex;align-items:center;gap:0.4rem;">
             <span id="layeredCount" style="font-size:0.75rem;color:var(--text-muted);"></span>
@@ -61,6 +79,8 @@
             <span id="layeredPageInfo" style="font-size:0.75rem;color:var(--text-muted);"></span>
             <button onclick="layeredPage(1)" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Next &#8250;</button>
             <button id="layeredExportBtn" onclick="exportLayeredCSV()" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Export CSV</button>
+            <button onclick="window.open('/static/tabs/layered-legend.html','_blank')" title="دليل التصنيفات الثمانية — قابل للطباعة A4" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="Classification legend">Classification legend</button>
+            <button onclick="window.open('/static/tabs/layered-faq.html','_blank')" title="أسئلة شائعة عن تشخيص الشذوذ" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="FAQ">FAQ</button>
         </div>
     </div>
     <div style="max-height:500px;overflow-y:auto;">
@@ -71,8 +91,7 @@
                 <th data-i18n="Indicator">Indicator</th>
                 <th class="sortable" data-col="raw_value" data-i18n="Raw value (Δ%)">Raw value (Δ%)</th>
                 <th class="sortable" data-col="rate" data-i18n="Rate (Δ%)">Rate (Δ%)</th>
-                <th class="sortable" data-col="denominator" data-i18n="Denominator (Δ%)">Denominator (Δ%)</th>
-                <th data-i18n="Peer">Peer</th>
+                <th data-i18n="Layers">Layers</th>
                 <th class="sortable" data-col="level" data-i18n="Level">Level</th>
                 <th class="sortable" data-col="type" data-i18n="Classification">Classification</th>
                 <th data-i18n="Why">Why</th>

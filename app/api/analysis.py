@@ -667,6 +667,113 @@ def layered_trend(
     return result
 
 
+@router.get("/layered/heatmap")
+def layered_heatmap(
+    month: Optional[str] = Query(None, description="Filter by month YYYY-MM (collapses columns to it)"),
+    hospital: Optional[int] = Query(None, description="Filter by hospital ID"),
+    indicator: Optional[str] = Query(None, description="Filter by analysis code (indicator or rate code)"),
+    classification: Optional[str] = Query(None, description="Filter by outlier_type"),
+    level: Optional[str] = Query(None, description="Filter by outlier_level (NONE..VERY_HIGH)"),
+    investigation: Optional[str] = Query(None, description="Filter by investigation_route (none|data_quality|clinical|contextual)"),
+    db: Session = Depends(get_db),
+):
+    """Hospital × month grid for the Layered tab, one cell per pair.
+
+    The cell carries the WORST classification present in it (order below is a
+    judgment call: the data-entry suspect — a finding that is most likely a
+    fixable data bug — ranks highest, a verified investigation need next, then
+    the statistical anomalies, then the contextual ones):
+    NORMAL < HISTORICAL < PEER < VOLUME_DRIVEN < RAW_VALUE < RATE <
+    CLINICAL_INVESTIGATION_REQUIRED < POSSIBLE_DATA_ENTRY_ERROR.
+    Cells with no matching rows under the current filters are absent (leaf
+    rows only) — the UI renders them as empty, not dangerous.
+    """
+    cache_key = cache.make_key(
+        "analysis:layered_heatmap_v1",
+        month=month,
+        hospital=hospital,
+        indicator=indicator,
+        classification=classification,
+        level=level,
+        investigation=investigation,
+    )
+    cached = cache.get(cache_key)
+    if cached:
+        return cached
+
+    query = (
+        db.query(LayeredOutlierResult)
+        .options(selectinload(LayeredOutlierResult.hospital))
+        .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
+        .filter(Hospital.is_active.is_(True))
+    )
+    if month:
+        query = query.filter(LayeredOutlierResult.month == month)
+    if hospital:
+        query = query.filter(LayeredOutlierResult.hospital_id == hospital)
+    if indicator:
+        query = query.filter(LayeredOutlierResult.analysis_code == indicator)
+    if classification:
+        query = query.filter(LayeredOutlierResult.outlier_type == classification)
+    if level:
+        query = query.filter(LayeredOutlierResult.outlier_level == level)
+    if investigation:
+        query = query.filter(LayeredOutlierResult.investigation_route == investigation)
+
+    rows = query.all()
+    groups: dict = {}
+    for r in rows:
+        cell = groups.setdefault((r.hospital_id, r.month), {})
+        otype = r.outlier_type or "UNKNOWN"
+        count = cell.get(otype, 0) + 1
+        cell[otype] = count
+
+    _severity = {t: i for i, t in enumerate(
+        ["NORMAL", "UNKNOWN", "HISTORICAL_ANOMALY", "PEER_ANOMALY",
+         "VOLUME_DRIVEN_ANOMALY", "RAW_VALUE_ANOMALY", "RATE_ANOMALY",
+         "CLINICAL_INVESTIGATION_REQUIRED", "POSSIBLE_DATA_ENTRY_ERROR"],
+    )}
+    worst = {
+        key: (
+            max(cell, key=lambda t: (_severity.get(t, -1), cell[t])),
+            sum(cell.values()),
+            dict(sorted(cell.items(), key=lambda kv: -kv[1])),
+        )
+        for key, cell in groups.items()
+    }
+
+    hosp_ids = {hid for hid, _m in groups}
+    hospital_names = {}
+    if hosp_ids:
+        hospital_names = dict(
+            db.query(Hospital.id, Hospital.name)
+            .filter(Hospital.id.in_(hosp_ids))
+            .all()
+        )
+
+    months = sorted({m for _hid, m in groups})
+    data = [
+        {
+            "hospital_id": hid,
+            "hospital": hospital_names.get(hid, "Unknown"),
+            **{
+                m: {
+                    "type": worst[(hid, m)][0],
+                    "count": worst[(hid, m)][1],
+                    "breakdown": worst[(hid, m)][2],
+                }
+                for m in months
+                if (hid, m) in worst
+            },
+        }
+        for hid in sorted(hosp_ids, key=lambda i: str(hospital_names.get(i, "")))
+    ]
+
+    result = {"months": months, "data": data}
+    cache.set(cache_key, result)
+    return result
+
+
 @router.get("/ml")
 def get_ml_analysis(
     month: str = Query(..., description="Month YYYY-MM"),

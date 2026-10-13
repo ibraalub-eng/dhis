@@ -61,6 +61,48 @@ def test_classification_badge_styles_exist():
     assert ".badge-muted" in css
 
 
+def test_layered_legend_page_exists_and_is_print_ready():
+    """One-page A4 legend for the 8 classifications — admins print/share it.
+    Self-contained (no external CSS/JS), Arabic-first, all 8 types present."""
+    html = _read("tabs", "layered-legend.html")
+    assert "@page" in html and "A4" in html          # print-safe page setup
+    for t in ("POSSIBLE_DATA_ENTRY_ERROR", "CLINICAL_INVESTIGATION_REQUIRED",
+              "VOLUME_DRIVEN_ANOMALY", "PEER_ANOMALY", "HISTORICAL_ANOMALY",
+              "RATE_ANOMALY", "RAW_VALUE_ANOMALY", "NORMAL"):
+        assert t in html, t
+    # External references would break printing offline.
+    assert "<script src=" not in html and '<link rel="stylesheet"' not in html
+
+
+def test_layered_tab_links_to_the_legend():
+    html = _read("tabs", "layered.html")
+    assert "/static/tabs/layered-legend.html" in html
+    assert 'data-i18n="Classification legend"' in html
+    i18n = _read("js", "i18n.js")
+    assert "'Classification legend':" in i18n
+
+
+def test_layered_faq_page_exists_and_is_self_contained():
+    """FAQ page following the layered-legend pattern: print-safe @page setup,
+    self-contained (no external CSS/JS), covers the core questions."""
+    html = _read("tabs", "layered-faq.html")
+    assert "@page" in html
+    assert "<script src=" not in html and '<link rel="stylesheet"' not in html
+    for topic in ("Raw value", "Rate", "HISTORICAL_ANOMALY", "RAW_VALUE_ANOMALY",
+                  "VOLUME_DRIVEN_ANOMALY", "PEER_ANOMALY", "NORMAL"):
+        assert topic in html, topic
+    # Cross-references the printable legend.
+    assert "/static/tabs/layered-legend.html" in html
+
+
+def test_layered_tab_links_to_the_faq():
+    html = _read("tabs", "layered.html")
+    assert "/static/tabs/layered-faq.html" in html
+    assert 'data-i18n="FAQ"' in html
+    i18n = _read("js", "i18n.js")
+    assert "'FAQ':" in i18n
+
+
 def test_classification_label_is_translated():
     i18n = _read("js", "i18n.js")
     assert "'Classification': '" in i18n
@@ -123,18 +165,21 @@ def test_layered_tab_html_shape():
 
 
 def test_layered_columns_follow_spec_order():
-    """Spec §10B: Hospital, Month, Indicator, Raw value (Δ%), Rate (Δ%),
-    Denominator (Δ%), Peer, Level, Classification, Why."""
+    """Sidebar columns: Hospital, Month, Indicator, Raw value (Δ%), Rate (Δ%),
+    Level, Classification, Why — Denominator and Peer were removed from the
+    table (both are restated in full by the Why popup); The Why button carries
+    everything the two removed columns showed."""
     html = _read("tabs", "layered.html")
     thead = html.split("<thead>")[1].split("</thead>")[0]
     order = [
         'data-i18n="Hospital"', 'data-i18n="Month"', 'data-i18n="Indicator"',
         'data-i18n="Raw value (Δ%)"', 'data-i18n="Rate (Δ%)"',
-        'data-i18n="Denominator (Δ%)"', 'data-i18n="Peer"',
         'data-i18n="Level"', 'data-i18n="Classification"', 'data-i18n="Why"',
     ]
     pos = [thead.index(tok) for tok in order]
     assert pos == sorted(pos), pos
+    assert 'data-i18n="Denominator (Δ%)"' not in thead
+    assert 'data-i18n="Peer"' not in thead
 
 
 def test_layered_sortable_headers_use_endpoint_sort_keys():
@@ -143,9 +188,9 @@ def test_layered_sortable_headers_use_endpoint_sort_keys():
     loaded page would order at most 50 rows."""
     html = _read("tabs", "layered.html")
     thead = html.split("<thead>")[1].split("</thead>")[0]
-    for col in ("month", "raw_value", "rate", "denominator", "level", "type"):
+    for col in ("month", "raw_value", "rate", "level", "type"):
         assert f'data-col="{col}"' in thead, col
-    for col in ("hospital", "indicator", "peer"):
+    for col in ("hospital", "indicator", "peer", "denominator"):
         assert f'data-col="{col}"' not in thead, col
 
 
@@ -181,7 +226,112 @@ def test_layered_why_opens_the_layered_explanation():
     # exactly like outliers.js:208 — hence the doubled backslashes here.
     assert "showWhyPopup({kind:\\'layered_outlier\\'" in js
     assert "indicatorCode" in js
-    assert "anomaly" not in js    # the Task 15 dispatcher is kind-specific
+    # Narrowed from 'anomaly' not in js: volume_anomaly_score (a legitimate
+    # stored layer column the sparkline reads) contains the substring; the
+    # actual guard is the OLD dispatcher kind never appearing as a Why target.
+    assert "kind:\\'anomaly\\'" not in js
+
+
+def test_layered_why_uses_the_persistent_drawer():
+    """Layered Why buttons route mode='drawer' to explain.js's persistent
+    side panel: the panel is appended once to document.body and each row
+    click only re-renders its body, so it stays open across rows for the
+    comparison workflow (the reason this screen exists).
+    """
+    js = _read("js", "layered.js")
+    assert "mode:\\'drawer\\'" in js
+    ex = _read("js", "explain.js")
+    assert "function _ensureDrawer" in ex
+    assert "export function showWhyDrawer" in ex
+    assert "export function closeWhyDrawer" in ex
+    assert "document.body.appendChild(_drawerEl)" in ex   # survives row/tab reloads
+    assert "id=\"whyDrawerBody\"" in ex                   # body-only re-render per row
+    # The popup's fetch flow must share the query/error builders (one pipeline).
+    assert "function _buildExplainQuery" in ex
+    assert "let q = _buildExplainQuery(opts)" in ex
+    # Stale-response guard: a late reply for a previous row never clobbers
+    # the currently shown one.
+    assert "seq !== _drawerSeq" in ex
+    i18n = _read("js", "i18n.js")
+    assert "'Why — fixed comparison panel':" in i18n
+
+
+def test_layered_summary_badges_are_clickable_filters():
+    """Summary badges act as classification filters: they must be real
+    buttons carrying data-classification, toggling the classification
+    select and re-running the load on click. Active state is derived from
+    the select's own value at render time, so the badge and the hidden
+    Advanced-filter select can never disagree.
+    """
+    js = _read("js", "layered.js")
+    assert "button type=\"button\" data-classification" in js
+    assert "sel.value = (sel.value === this.dataset.classification) ? '' : this.dataset.classification" in js
+    assert "layeredFilterChange();" in js
+    # Active state sourced from the filter select itself, not ad-hoc JS state.
+    assert "layeredClassificationFilter" in js
+    assert "e.outlier_type === activeCls" in js
+    # The title tooltip must be translated via the i18n helper, not hardcoded.
+    assert "__('Filter by this classification')" in js
+    i18n = _read("js", "i18n.js")
+    assert "'Filter by this classification':" in i18n
+
+
+def test_layered_heatmap_card_elements_and_keys():
+    """Hospital × month grid card sits above the table, colored per worst
+    classification (the Quality-Score-heatmap doctrine on this screen)."""
+    html = _read("tabs", "layered.html")
+    assert 'id="layeredHeatmapCard"' in html
+    assert "layeredHeatmapBody" in html
+    # The card precedes the table card in the DOM (request: above the screen).
+    assert html.index('id="layeredHeatmapCard"') < html.index('id="layeredTbody"')
+    i18n = _read("js", "i18n.js")
+    assert "'Hospital × month heatmap (worst classification)':" in i18n
+    assert "'Worst classification per cell; click a cell to filter the table to that hospital and month.':" in i18n
+
+
+def test_layered_js_heatmap_contract():
+    js = _read("js", "layered.js")
+    assert "'/analysis/layered/heatmap?'" in js          # same filter-set endpoint
+    assert "_renderLayeredHeatmap" in js
+    assert "loadLayeredHeatmap();" in js                 # wired into loadLayered
+    assert "_TREND_COLORS" in js                         # same color map as the trend
+    # Clicking a cell narrows the table to that hospital + month (i18n tooltips).
+    assert "window._layeredHeatmapClick" in js
+    assert "_|:1" not in js                              # no separator junk
+
+
+def test_layered_layers_sparkline_column():
+    """Small severity strip per row: five colored squares (one per detection
+    layer) so the reviewer sees WHY before opening Why. Scores come straight
+    from /analysis/layered; the band boundary is a client mirror of
+    BAND_CUTOFFS, and the colors come from the level-badge variables so the
+    strip agrees with the Level column.
+    """
+    html = _read("tabs", "layered.html")
+    # Column sits between Rate and Level, translated via the i18n map.
+    assert html.index('data-i18n="Rate (Δ%)"') < html.index('data-i18n="Layers"') < html.index('data-col="level"')
+
+    js = _read("js", "layered.js")
+    for col in ("raw_value_outlier_score", "rate_outlier_score",
+                "historical_outlier_score", "volume_anomaly_score",
+                "peer_outlier_score"):
+        assert f"'{col}'" in js, col
+    # Band mirror of BAND_CUTOFFS (first bound a score is <).
+    assert "if (s < 0.25) return 'NONE'" in js
+    assert "if (s < 0.50) return 'LOW'" in js
+    assert "if (s < 0.75) return 'MODERATE'" in js
+    assert "if (s < 0.90) return 'HIGH'" in js
+    assert "return 'VERY_HIGH'" in js
+    # N/A layer is a dashed '·', never a scary color.
+    assert "'no data'" in js
+    assert "1px dashed var(--border-default" in js
+    # The extra column widens every full-width placeholder row.
+    assert js.count('colspan="9"') == 3
+    assert 'colspan="8"' not in js
+
+    i18n = _read("js", "i18n.js")
+    assert "'Layers':" in i18n
+    assert "'History':" in i18n
 
 
 def test_layered_i18n_keys_exist():
@@ -192,7 +342,7 @@ def test_layered_i18n_keys_exist():
     for key in re.findall(r'data-i18n="([^"]+)"', html):
         assert f"'{key}':" in i18n, key
     for key in ("'Layered Analysis'", "'Raw value (Δ%)'", "'Rate (Δ%)'",
-                "'Denominator (Δ%)'", "'Peer'", "'No layered findings for the selected criteria.'"):
+                "'No layered findings for the selected criteria.'"):
         assert f"{key}:" in i18n, key
 
 

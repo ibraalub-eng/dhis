@@ -77,6 +77,109 @@ export function closeWhyPopup() {
     try { if (document.activeElement && _modalEl && _modalEl.contains(document.activeElement)) document.activeElement.blur(); } catch (e) { /* non-fatal */ }
 }
 
+// ── Persistent Why drawer (Layered tab) ───────────────────────────
+// Same pipeline as the popup (one /audit/explain fetch + the same
+// _renderPayload builder), but hosted in a fixed side panel that stays open
+// while the reviewer clicks Why on other rows: each click re-renders the
+// panel body in place, so findings can be compared row by row. Deliberately
+// NO backdrop click-to-close — persistence is the point; the ✕ and Escape
+// (when the modal is not open) are the only dismiss paths.
+let _drawerEl = null;
+let _drawerSeq = 0; // response stamp: a stale row's late reply never clobbers a newer one
+
+function _ensureDrawer() {
+    if (_drawerEl) return _drawerEl;
+    _drawerEl = document.createElement('div');
+    _drawerEl.id = 'whyDrawerPanel';
+    // Far side only: the Layered table's sticky hospital column sits on the
+    // inline start (right in RTL, left in LTR) — hanging the drawer at the
+    // visual opposite keeps the row labels visible under it.
+    const side = document.documentElement.dir === 'rtl' ? 'left' : 'right';
+    _drawerEl.style.cssText = 'position:fixed;top:0;bottom:0;' + side + ':0;z-index:2600;'
+        + 'width:min(520px,95vw);box-sizing:border-box;background:var(--bg-surface,#fff);color:var(--text-primary,#222);'
+        + 'border:1px solid var(--border-default,#ccc);'
+        + 'box-shadow:0 8px 32px rgba(0,0,0,0.35);display:none;flex-direction:column;overflow:hidden;';
+    _drawerEl.innerHTML =
+        '<div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:0.5rem;padding:0.7rem 1rem;border-bottom:1px solid var(--border-default,#ddd);">'
+        + '<div style="display:flex;align-items:center;gap:0.6rem;min-width:0;">'
+        + '<div style="font-weight:700;font-size:0.95rem;white-space:nowrap;">\u2753 ' + __('Why — fixed comparison panel') + '</div>'
+        + '<span id="whyDrawerStamp" style="font-size:0.62rem;color:var(--text-muted,#888);font-family:monospace;direction:ltr;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="'
+        + __('Data epoch — same stamp means the same snapshot of the data') + '"></span>'
+        + '</div>'
+        + '<button id="whyDrawerClose" aria-label="' + __('Close') + '" title="' + __('Close') + '"'
+        + ' style="flex:0 0 auto;width:34px;height:34px;min-width:34px;min-height:34px;display:inline-flex;align-items:center;justify-content:center;background:none;border:1px solid transparent;border-radius:8px;font-size:1.15rem;line-height:1;cursor:pointer;color:var(--text-muted,#888);">\u2715</button>'
+        + '</div>'
+        + '<div id="whyDrawerBody" style="flex:1 1 auto;overflow-y:auto;overflow-wrap:break-word;padding:0.9rem 1rem;font-size:0.8rem;line-height:1.5;"></div>';
+    document.body.appendChild(_drawerEl);
+    _drawerEl.addEventListener('click', function (e) {
+        const btn = e.target.closest && e.target.closest('#whyDrawerClose');
+        if (btn && _drawerEl.contains(btn)) { e.preventDefault(); e.stopPropagation(); closeWhyDrawer(); }
+    });
+    document.addEventListener('keydown', function (e) {
+        // Escape closes the drawer only when it is not also holding the modal
+        // open — one key, one dismissal, no fighting listeners.
+        if (e.key === 'Escape' && _drawerEl && _drawerEl.style.display === 'flex'
+            && (!_modalEl || _modalEl.style.display !== 'flex')) closeWhyDrawer();
+    });
+    return _drawerEl;
+}
+
+export function closeWhyDrawer() {
+    const els = document.querySelectorAll('#whyDrawerPanel');
+    els.forEach(function (el) { el.style.display = 'none'; });
+    if (_drawerEl) _drawerEl.style.display = 'none';
+    try { if (document.activeElement && _drawerEl && _drawerEl.contains(document.activeElement)) document.activeElement.blur(); } catch (e) { /* non-fatal */ }
+}
+
+function _buildExplainQuery(opts) {
+    let q = '?kind=' + encodeURIComponent(opts.kind);
+    // Month-overview digests (trend point with "All Hospitals") send no
+    // hospital_id at all — the dispatcher routes them to explain_month_overview.
+    // The Comparative Analysis kinds pass a string context here instead of
+    // a number ('Hospital|Rate', a governorate or a rate name).
+    if (opts.hospitalId !== undefined && opts.hospitalId !== null && opts.hospitalId !== 'null') {
+        q += '&hospital_id=' + encodeURIComponent(opts.hospitalId);
+    }
+    if (opts.month) q += '&month=' + encodeURIComponent(opts.month);
+    if (opts.rateName) q += '&rate_name=' + encodeURIComponent(opts.rateName);
+    if (opts.indicatorCode) q += '&indicator_code=' + encodeURIComponent(opts.indicatorCode);
+    if (opts.ruleCode) q += '&rule_code=' + encodeURIComponent(opts.ruleCode);
+    // Component-specific sparkline (attention-strip component anomalies):
+    // shows THIS component's own history, not the overall score's.
+    if (opts.component) q += '&component=' + encodeURIComponent(opts.component);
+    return q;
+}
+
+function _explainErrorHtml(err) {
+    return '<div style="color:var(--accent-red,#c62828);padding:0.5rem;">'
+        + '\u26a0\ufe0f ' + __('No explanation available') + ': ' + esc(err && err.message ? err.message : 'error')
+        + '<div style="margin-top:0.4rem;color:var(--text-muted,#888);font-size:0.72rem;">'
+        + __('The underlying result row may not exist for this hospital/month.') + '</div></div>';
+}
+
+/**
+ * Render the Why explanation into the persistent side panel. The panel is
+ * created once and re-used: navigating rows only swaps the body content.
+ */
+export function showWhyDrawer(opts) {
+    _lastOpts = opts; // audit-jump fallback works from the drawer subject too
+    const panel = _ensureDrawer();
+    const body = panel.querySelector('#whyDrawerBody');
+    const stamp = panel.querySelector('#whyDrawerStamp');
+    panel.style.display = 'flex';
+    const seq = ++_drawerSeq;
+    body.innerHTML = '<div style="text-align:center;padding:1.5rem;color:var(--text-muted,#888);">'
+        + '<span class="spinner"></span> ' + __('Building explanation…') + '</div>';
+    apiGet('/audit/explain' + _buildExplainQuery(opts)).then(function (p) {
+        if (seq !== _drawerSeq) return; // a newer row was requested meanwhile
+        if (stamp) stamp.textContent = p && p.data_epoch ? '\u00b7 ' + p.data_epoch : '';
+        body.innerHTML = _renderPayload(p);
+    }).catch(function (err) {
+        if (seq !== _drawerSeq) return;
+        body.innerHTML = _explainErrorHtml(err);
+    });
+}
+
 function _classificationBadge(cls) {
     if (!cls) return '';
     const map = {
@@ -297,6 +400,26 @@ function _renderPayload(p) {
     html += _renderReproduce(p);
     html += _renderScoreTrend(p);
 
+    // Layered-outlier detection layers (kind=layered_outlier). The Why popup
+    // previously dropped p.layers entirely — the backend built the five-layer
+    // breakdown (raw/rate/historical/volume/peer) but nothing rendered it, so
+    // a RATE_ANOMALY row looked "empty" in the table: the rate value only
+    // lived inside layers['rate'].value.
+    if (p.layers && p.layers.length) {
+        html += _sectionTitle(__('Detection layers'));
+        const _LAYER_ICON = { raw: '\u2139', rate: '\u2139', historical: '\u2139', volume: '\u26a1', peer: '\u2139' };
+        html += p.layers.map(function (L) {
+            const lvl = L.level || (L.score === null || L.score === undefined ? '\u2014' : '');
+            return '<div style="display:flex;justify-content:space-between;gap:0.8rem;padding:0.12rem 0;border-bottom:1px dashed var(--border-default,#eee);">'
+                + '<span style="color:var(--text-secondary,#555);flex:1;min-width:0;overflow-wrap:anywhere;">'
+                + esc(L.name || L.key) + (L.detail ? ' <span style="color:var(--text-muted,#888);font-size:0.66rem;">' + esc(L.detail) + '</span>' : '') + '</span>'
+                + '<span style="font-weight:600;text-align:right;direction:ltr;flex-shrink:0;white-space:nowrap;">'
+                + esc(L.value === null || L.value === undefined ? '\u2014' : String(L.value))
+                + (L.score !== null && L.score !== undefined ? ' <span style="color:var(--text-muted,#888);font-size:0.66rem;">score ' + Number(L.score).toFixed(2) +' · ' + esc(lvl) + '</span>' : '')
+                + '</span></div>';
+        }).join('');
+    }
+
     if (p.components_below_target && p.components_below_target.length) {
         html += _sectionTitle(__('Components below target'));
         html += _kvRows(p.components_below_target.map(function (c) { return { input: c.component + ' (' + __('target') + ' ' + c.target + ')', value: c.value }; }));
@@ -318,26 +441,16 @@ export function showWhyPopup(optsOrKind, hospitalId, month, rateName, ruleCode) 
         opts = { kind: optsOrKind, hospitalId: hospitalId, month: month, rateName: rateName, ruleCode: ruleCode };
     }
     _lastOpts = opts;
+    // Layered screen (mode='drawer'): the explanation goes to the persistent
+    // side panel instead of the overlay — staying open across row clicks is
+    // how findings get compared.
+    if (opts && opts.mode === 'drawer') { showWhyDrawer(opts); return; }
     const modal = _ensureModal();
     const body = modal.querySelector('#explainModalBody');
     modal.style.display = 'flex';
     body.innerHTML = '<div style="text-align:center;padding:1.5rem;color:var(--text-muted,#888);">' + __('Building explanation…') + '</div>';
 
-    let q = '?kind=' + encodeURIComponent(opts.kind);
-    // Month-overview digests (trend point with "All Hospitals") send no
-    // hospital_id at all — the dispatcher routes them to explain_month_overview.
-    // The Comparative Analysis kinds pass a string context here instead of
-    // a number ('Hospital|Rate', a governorate or a rate name).
-    if (opts.hospitalId !== undefined && opts.hospitalId !== null && opts.hospitalId !== 'null') {
-        q += '&hospital_id=' + encodeURIComponent(opts.hospitalId);
-    }
-    if (opts.month) q += '&month=' + encodeURIComponent(opts.month);
-    if (opts.rateName) q += '&rate_name=' + encodeURIComponent(opts.rateName);
-    if (opts.indicatorCode) q += '&indicator_code=' + encodeURIComponent(opts.indicatorCode);
-    if (opts.ruleCode) q += '&rule_code=' + encodeURIComponent(opts.ruleCode);
-    // Component-specific sparkline (attention-strip component anomalies):
-    // shows THIS component's own history, not the overall score's.
-    if (opts.component) q += '&component=' + encodeURIComponent(opts.component);
+    let q = _buildExplainQuery(opts);
 
     apiGet('/audit/explain' + q).then(function (p) {
         const stamp = modal.querySelector('#explainBuildStamp');
