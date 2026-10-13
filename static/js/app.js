@@ -326,7 +326,8 @@ function _bindAll(mod, label) {
   }
 }
 
-// Start loading modules immediately (non-blocking)_loadModules();
+// Start loading modules immediately (non-blocking)
+_loadModules();
 
 // ── Version badge: show which build/commit this deploy is running ──
 async function _loadVersionBadge() {

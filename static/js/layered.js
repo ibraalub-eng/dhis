@@ -199,12 +199,12 @@ function _renderSummary(sum) {
     el.innerHTML = sum.by_classification.map(e => {
         const isActive = e.outlier_type && e.outlier_type === activeCls;
         return '<button type="button" data-classification="' + esc(e.outlier_type || '') + '"'
-            + ' title="' + __('Filter by this classification') + '"
+            + ' title="' + __('Filter by this classification') + '"'
             + ' style="display:inline-flex;align-items:center;gap:0.3rem;cursor:pointer;'
             + 'padding:0.05rem 0.35rem;border-radius:6px;'
             + 'border:1px solid ' + (isActive ? 'var(--accent-blue,#1565c0)' : 'transparent') + ';'
             + (isActive ? 'background:var(--bg-surface-hover,#f0f4f8);' : '')
-            + '"
+            + '"'
             + '>'
             + classificationBadge(e.outlier_type, '')
             + '<span style="font-weight:700;color:var(--text-muted);">' + e.count + '</span></button>';
@@ -443,7 +443,7 @@ export async function loadLayered() {
                 + Number(d.hospital_id)
                 + ',month:' + JSON.stringify(String(d.month)).replace(/"/g, '&quot;')
                 + ',indicatorCode:' + JSON.stringify(String(d.analysis_code)).replace(/"/g, '&quot;')
-                + ',mode:\'drawer\'
+                + ',mode:\'drawer\''
                 + '})" title="' + __('Why') + '"'
                 + ' style="background:none;border:1px solid var(--border-default,#ccc);border-radius:4px;padding:1px 7px;font-size:0.7rem;cursor:pointer;color:var(--accent-blue,#1565c0);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button>';
             return '<tr>' +
