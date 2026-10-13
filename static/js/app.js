@@ -326,8 +326,7 @@ function _bindAll(mod, label) {
   }
 }
 
-// Start loading modules immediately (non-blocking)
-_loadModules();
+// Start loading modules immediately (non-blocking)_loadModules();
 
 // ── Version badge: show which build/commit this deploy is running ──
 async function _loadVersionBadge() {
@@ -344,6 +343,45 @@ async function _loadVersionBadge() {
     // Non-fatal: hide badge if endpoint unavailable
   }
 }
+
+// ── New-build notifier ─────────────────────────────────────────────
+// ES modules load once per page load, so code deployed after the page was
+// opened stays invisible until a manual refresh — which users discover only
+// by weird bugs ("this needs F5"). Poll /api/version: its build stamp is
+// the latest mtime of the static tree, so a code change flips it. On change
+// show a one-time toast with a Reload button; the ?v= fingerprint rewrite
+// guarantees the reload picks up everything fresh.
+let _pageBuild = null;
+async function _checkForNewBuild() {
+  try {
+    const v = await apiGet('/api/version', { noCache: true });
+    const b = v && v.build;
+    if (!b) return false;
+    if (_pageBuild === null) { _pageBuild = b; return false; }
+    return b !== _pageBuild;
+  } catch (e) {
+    return false; // endpoint hiccup (e.g. mid-deploy) must never nag
+  }
+}
+let _newBuildNoticed = false;
+function _startBuildPolling() {
+  setInterval(async function () {
+    if (_newBuildNoticed || !document.body) return;
+    if (await _checkForNewBuild()) {
+      _newBuildNoticed = true;
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:3200;display:flex;align-items:center;gap:0.6rem;'
+        + 'background:var(--bg-surface,#fff);color:var(--text-primary,#222);border:1px solid var(--border-default,#ccc);'
+        + 'border-radius:8px;padding:0.5rem 0.8rem;box-shadow:0 6px 24px rgba(0,0,0,0.25);font-size:0.8rem;';
+      toast.innerHTML = '<span>\uD83D\uDD04 ' + __('Newer version deployed — refresh to load it') + '</span>'
+        + '<button style="background:var(--accent-blue,#1565c0);color:#fff;border:none;border-radius:6px;padding:0.25rem 0.7rem;font-size:0.75rem;cursor:pointer;">'
+        + __('Reload') + '</button>';
+      toast.querySelector('button').onclick = function () { location.reload(); };
+      document.body.appendChild(toast);
+    }
+  }, 120000);
+}
+_startBuildPolling();
 
 // ── Global error boundary ──
 window.addEventListener('error', function(e) {
