@@ -88,30 +88,22 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
     run_full_analysis writes, so toggles can never drift the stored rows
     away from a fresh analysis.
     """
+    from app.config_utils import get_config_dict
     from app.engine.pipeline import compute_hospital_completeness as _chc
-    from app.models import QualityScore, AppConfig
+    from app.engine.quality import combine_quality_score
+    from app.models import QualityScore
     scores = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id).all()
     if not scores:
         return
-    # Get weights
-    try:
-        cfg_rows = db.query(AppConfig).all()
-        cfg_map = {c.key: c.value for c in cfg_rows}
-        w_rc = float(cfg_map.get("quality_rule_compliance", "0.35"))
-        w_cp = float(cfg_map.get("quality_completeness", "0.25"))
-        w_co = float(cfg_map.get("quality_consistency", "0.25"))
-        w_op = float(cfg_map.get("quality_outlier_penalty", "0.15"))
-    except Exception:
-        w_rc, w_cp, w_co, w_op = 0.35, 0.25, 0.25, 0.15
+    # Weights come from the engine's single source of truth.
+    cfg_map = get_config_dict(db, "quality")
     for s in scores:
         try:
             new_cp = round(_chc(db, s.hospital_id, s.month), 1)
             s.completeness = new_cp
-            rc = float(s.rule_compliance or 0) / 100
-            cp = new_cp / 100
-            co = float(s.consistency or 0) / 100
-            op = float(s.outlier_penalty or 0) / 100
-            s.score = max(0, min(100, round((rc * w_rc + cp * w_cp + co * w_co + (1.0 - op) * w_op) * 100, 1)))
+            s.score = combine_quality_score(
+                s.rule_compliance, new_cp, s.consistency, s.outlier_penalty, cfg_map
+            )
         except Exception:
             pass
     db.commit()

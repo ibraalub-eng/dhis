@@ -65,8 +65,8 @@ def test_guides_hub_page_shape_and_bilingual_keys():
     for k in keys:
         # Keys with an apostrophe are double-quoted in i18n.js, the rest single.
         assert (f"'{k}':" in i18n) or (f'"{k}":' in i18n), k
-    # Links to the printable legend.
-    assert "/static/tabs/layered-legend.html" in html
+    # Links to the merged printable FAQ+legend page.
+    assert "/static/tabs/layered-faq.html" in html
     # All explained screens named on the page.
     for screen in ("Outlier Diagnostics", "Outlier Scan", "Quality Reports",
                    "Alerts", "Audit Log", "Root Cause", "FAQ"):

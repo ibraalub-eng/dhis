@@ -18,7 +18,7 @@
 <div class="card" id="layeredHeatmapCard" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
         <h3 style="margin:0;font-size:0.9rem;" data-i18n="Hospital × month heatmap (worst classification)">Hospital × month heatmap (worst classification)</h3>
-        <button onclick="window.open('/static/tabs/layered-legend.html','_blank')" title="دليل التصنيفات الثمانية — قابل للطباعة A4" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="Classification legend">Classification legend</button>
+        <button onclick="window.open('/static/tabs/layered-faq.html','_blank')" title="الدليل + الأسئلة الشائعة عن تشخيص الشذوذ — قابل للطباعة" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="FAQ & legend">FAQ & legend</button>
     </div>
     <div id="layeredHeatmapBody" style="margin-top:0.5rem;max-height:260px;overflow:auto;">
         <div id="layeredHeatmapHint" style="font-size:0.8rem;color:var(--text-muted);" data-i18n="Worst classification per cell; click a cell to filter the table to that hospital and month.">Worst classification per cell; click a cell to filter the table to that hospital and month.</div>
@@ -79,8 +79,7 @@
             <span id="layeredPageInfo" style="font-size:0.75rem;color:var(--text-muted);"></span>
             <button onclick="layeredPage(1)" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Next &#8250;</button>
             <button id="layeredExportBtn" onclick="exportLayeredCSV()" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Export CSV</button>
-            <button onclick="window.open('/static/tabs/layered-legend.html','_blank')" title="دليل التصنيفات الثمانية — قابل للطباعة A4" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="Classification legend">Classification legend</button>
-            <button onclick="window.open('/static/tabs/layered-faq.html','_blank')" title="أسئلة شائعة عن تشخيص الشذوذ" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="FAQ">FAQ</button>
+            <button onclick="window.open('/static/tabs/layered-faq.html','_blank')" title="الدليل + الأسئلة الشائعة عن تشخيص الشذوذ — قابل للطباعة" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;" data-i18n="FAQ & legend">FAQ & legend</button>
         </div>
     </div>
     <div style="max-height:500px;overflow-y:auto;">
@@ -91,7 +90,6 @@
                 <th data-i18n="Indicator">Indicator</th>
                 <th class="sortable" data-col="raw_value" data-i18n="Raw value (Δ%)">Raw value (Δ%)</th>
                 <th class="sortable" data-col="rate" data-i18n="Rate (Δ%)">Rate (Δ%)</th>
-                <th data-i18n="Layers">Layers</th>
                 <th class="sortable" data-col="level" data-i18n="Level">Level</th>
                 <th class="sortable" data-col="type" data-i18n="Classification">Classification</th>
                 <th data-i18n="Why">Why</th>

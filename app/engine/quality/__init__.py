@@ -16,7 +16,14 @@ from .rules import (
     compute_covered_codes,
     set_rules_config,
 )
-from .scoring import calculate_quality_score, compute_completeness
+from .scoring import (
+    calculate_quality_score,
+    compute_completeness,
+    quality_weights,
+    combine_quality_score,
+    QUALITY_WEIGHT_KEYS,
+    QUALITY_WEIGHT_DEFAULTS,
+)
 from .definitions import _RULES_CONFIG as _RULES_CONFIG, RULE_CATALOG
 
 
@@ -77,5 +84,9 @@ __all__ = [
     "set_rules_config",
     "calculate_quality_score",
     "compute_completeness",
+    "quality_weights",
+    "combine_quality_score",
+    "QUALITY_WEIGHT_KEYS",
+    "QUALITY_WEIGHT_DEFAULTS",
     "run_quality_analysis",
 ]

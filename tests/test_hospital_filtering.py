@@ -99,10 +99,11 @@ class TestHospitalFiltering:
         r = ag(client, t, '/hospitals/')
         assert r.status_code == 200 and len(r.json()) >= 3
 
-    def test_doctor_unrestricted(self, client):
+    def test_doctor_without_assignment_sees_none(self, client):
+        # US-09: no assigned hospitals must mean NO access, not all hospitals.
         t = login(client, 'doctor')
         r = ag(client, t, '/hospitals/')
-        assert r.status_code == 200 and len(r.json()) >= 3
+        assert r.status_code == 200 and r.json() == []
 
     def test_doctor_restricted(self, client):
         sa = login(client, 'superadmin')
@@ -118,15 +119,34 @@ class TestHospitalFiltering:
         r4 = ag(client, login(client, 'doctor'), '/hospitals/')
         assert len(r4.json()) == 2, 'Expected 2, got ' + str(len(r4.json()))
 
-    def test_remove_restriction(self, client):
+    def test_clearing_assignment_revokes_access(self, client):
+        # US-09: clearing an assignment removes access; it does NOT grant all.
+        sa = login(client, 'superadmin')
+        r = ag(client, sa, '/hospitals/')
+        all_ids = [h['id'] for h in r.json()]
+        r2 = ag(client, sa, '/admin/users')
+        doc = next(u for u in r2.json()['users'] if u['username'] == 'doctor')
+        client.put('/admin/users/' + str(doc['id']) + '/hospitals',
+                   json={'hospital_ids': all_ids},
+                   headers={'Authorization': 'Bearer ' + sa})
+        assert len(ag(client, login(client, 'doctor'), '/hospitals/').json()) == len(all_ids)
+        client.put('/admin/users/' + str(doc['id']) + '/hospitals',
+                   json={'hospital_ids': []},
+                   headers={'Authorization': 'Bearer ' + sa})
+        assert ag(client, login(client, 'doctor'), '/hospitals/').json() == []
+
+    def test_unrestricted_permission_grants_all(self, client):
+        # US-09: unrestricted access is a deliberate authorization, not the
+        # side-effect of an empty assignment.
         sa = login(client, 'superadmin')
         r = ag(client, sa, '/hospitals/')
         n = len(r.json())
         r2 = ag(client, sa, '/admin/users')
         doc = next(u for u in r2.json()['users'] if u['username'] == 'doctor')
-        client.put('/admin/users/' + str(doc['id']) + '/hospitals',
-                   json={'hospital_ids': []},
-                   headers={'Authorization': 'Bearer ' + sa})
+        resp = client.put('/admin/users/' + str(doc['id']) + '/hospitals',
+                          json={'hospital_ids': [], 'unrestricted': True},
+                          headers={'Authorization': 'Bearer ' + sa})
+        assert resp.status_code == 200 and resp.json()['unrestricted'] is True
         r3 = ag(client, login(client, 'doctor'), '/hospitals/')
         assert len(r3.json()) == n
 

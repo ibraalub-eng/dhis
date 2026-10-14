@@ -32,6 +32,8 @@ data/models/*
 # Dev-server logs and preview artifacts
 uvicorn*.log
 *.err.log
+service-*.log
+watchdog.log
 .freebuff/
 
 # Runtime caches

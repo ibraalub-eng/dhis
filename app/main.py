@@ -45,8 +45,16 @@ from app.api import regional as regional_router
 from app.api import rules as rules_api
 from app.api import server_logs as server_logs_router
 from app.api import smart_analytics as smart_analytics_router
-from app.config import ADMIN_PASSWORD, BASE_DIR, DATABASE_URL, UPLOAD_DIR  # noqa: E402
+from app.config import (  # noqa: E402
+    ADMIN_PASSWORD,
+    BASE_DIR,
+    DATABASE_URL,
+    DEV_ADMIN_PASSWORD,
+    IS_PRODUCTION,
+    UPLOAD_DIR,
+)
 from app.database import SessionLocal, engine, init_db  # noqa: E402
+from app.engine.quality import QUALITY_WEIGHT_DEFAULTS  # noqa: E402
 from app.models import AppConfig, FacilityOwnership, FacilityType, Governorate, HospitalType  # noqa: E402
 from app.monitoring import (  # noqa: E402
     CONTENT_TYPE_LATEST,
@@ -65,10 +73,10 @@ setup_structured_logging(logging.INFO)
 
 
 APP_CONFIG_DEFAULTS = [
-    ("quality_rule_compliance", 0.35, "quality", "Validation rule Weight"),
-    ("quality_completeness", 0.25, "quality", "Completeness Weight"),
-    ("quality_consistency", 0.25, "quality", "Consistency Weight"),
-    ("quality_outlier_penalty", 0.15, "quality", "Outlier Penalty Weight"),
+    ("quality_rule_compliance", QUALITY_WEIGHT_DEFAULTS["rule_compliance"], "quality", "Validation rule Weight"),
+    ("quality_completeness", QUALITY_WEIGHT_DEFAULTS["completeness"], "quality", "Completeness Weight"),
+    ("quality_consistency", QUALITY_WEIGHT_DEFAULTS["consistency"], "quality", "Consistency Weight"),
+    ("quality_outlier_penalty", QUALITY_WEIGHT_DEFAULTS["outlier_penalty"], "quality", "Outlier Penalty Weight"),
     ("outlier_multiplier", 2.0, "quality", "Outlier Penalty Multiplier"),
     ("severity_high", 3.0, "quality", "Severity HIGH Weight"),
     ("severity_medium", 2.0, "quality", "Severity MEDIUM Weight"),
@@ -503,7 +511,7 @@ def _ensure_admin_user(session):
         admin_role = session.query(Role).filter(Role.name == "admin").first()
         if admin_role:
             admin_grant_codenames = [
-                    "hospitals.write", "hospitals.manage",
+    "hospitals.write", "hospitals.manage", "hospitals.unrestricted",
                     "governorates.read", "governorates.write", "governorates.manage",
                     "hospital_types.read", "hospital_types.write", "hospital_types.manage",
                     "facility_ownerships.read", "facility_ownerships.write", "facility_ownerships.manage",
@@ -543,27 +551,29 @@ def _ensure_admin_user(session):
             if sa_role:
                 sa_user.roles.append(sa_role)
             session.commit()
-            print("[startup] Superadmin user created (username=superadmin, password=admin123).")
+            print("[startup] Superadmin user created (username=superadmin).")
 
-        # Ensure test users exist for doctor and viewer roles
-        for uname, email, fname, rolename in [
-            ("doctor", "doctor@health.local", "Dr. Ahmed", "doctor"),
-            ("viewer", "viewer@health.local", "Viewer User", "viewer"),
-        ]:
-            if not session.query(User).filter(User.username == uname).first():
-                from app.core.security import hash_password
-                u = User(
-                    username=uname, email=email, full_name=fname,
-                    password_hash=hash_password("admin123"),
-                    is_active=True, is_superuser=False,
-                )
-                session.add(u)
-                session.flush()
-                role = session.query(Role).filter(Role.name == rolename).first()
-                if role:
-                    u.roles.append(role)
-                session.commit()
-                print(f"[startup] Test user created: {uname}/admin123 (role={rolename})")
+        # Development-only demo accounts (doctor/viewer). Never seeded in
+        # production so no known-password login ships to a live deployment.
+        if not IS_PRODUCTION:
+            for uname, email, fname, rolename in [
+                ("doctor", "doctor@health.local", "Dr. Ahmed", "doctor"),
+                ("viewer", "viewer@health.local", "Viewer User", "viewer"),
+            ]:
+                if not session.query(User).filter(User.username == uname).first():
+                    from app.core.security import hash_password
+                    u = User(
+                        username=uname, email=email, full_name=fname,
+                        password_hash=hash_password(DEV_ADMIN_PASSWORD),
+                        is_active=True, is_superuser=False,
+                    )
+                    session.add(u)
+                    session.flush()
+                    role = session.query(Role).filter(Role.name == rolename).first()
+                    if role:
+                        u.roles.append(role)
+                    session.commit()
+                    print(f"[startup] Dev user created: {uname} (role={rolename}).")
 
         print("[startup] Admin user verified.")
     except Exception as e:

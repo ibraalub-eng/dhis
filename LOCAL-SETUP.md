@@ -19,7 +19,7 @@
 
 | What | Value |
 |---|---|
-| App login | `admin` / `admin123` ⚠️ change before public exposure (`ADMIN_PASSWORD` in `.env`) |
+| App login | `admin` / your `ADMIN_PASSWORD` (dev default when unset) ⚠️ set a strong `ADMIN_PASSWORD` before public exposure |
 | PostgreSQL | user `postgres` / password `health_ai_local` / db `health_ai` |
 | DB URL (`.env`) | `postgresql://postgres:health_ai_local@127.0.0.1:5432/health_ai` |
 | pgAdmin | connection "HEALTH-ai (local PostgreSQL 17)" — Desktop & Start Menu shortcuts created; master-password gate disabled (`web\config_local.py`) |

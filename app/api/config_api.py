@@ -1,4 +1,5 @@
 import logging
+import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -28,6 +29,35 @@ SENSITIVE_COLUMN_MARKERS = (
 def _is_sensitive_column(name: str) -> bool:
     low = name.lower()
     return any(marker in low for marker in SENSITIVE_COLUMN_MARKERS)
+
+
+# Dynamic SQL below interpolates table identifiers, which cannot be passed as
+# bound parameters. Table names are therefore treated as untrusted input:
+#   * the ONLY source of names is live DB introspection (never request input);
+#   * every name must match this strict pattern (allowlist);
+#   * the name is quoted with the dialect's identifier preparer, not manually.
+# A name failing the pattern is skipped and logged, never executed.
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _is_safe_identifier(name: str) -> bool:
+    """True only for plain identifiers that cannot carry SQL metacharacters."""
+    return isinstance(name, str) and bool(_SAFE_IDENTIFIER_RE.match(name))
+
+
+def iter_safe_tables(db: Session):
+    """Yield ``(table_name, quoted_name)`` for every introspected table whose
+    name is safe. The introspection result IS the allowlist: a table that does
+    not exist in the database can never be named, and a miscased/malicious name
+    (quotes, semicolons, spaces, ...) is dropped before any SQL is built."""
+    from sqlalchemy import inspect as sa_inspect
+    inspector = sa_inspect(db.get_bind())
+    preparer = db.get_bind().dialect.identifier_preparer
+    for name in sorted(inspector.get_table_names()):
+        if not _is_safe_identifier(name):
+            logger.warning("Skipping table with unsafe identifier: %r", name)
+            continue
+        yield name, preparer.quote(name)
 
 
 CONTROL_KEY = "auto_disable_null_indicators"
@@ -266,7 +296,9 @@ def preview_database_tables(db: Session = Depends(get_db)):
     from sqlalchemy import inspect as sa_inspect, text
     inspector = sa_inspect(db.get_bind())
     tables = []
-    for table_name in sorted(inspector.get_table_names()):
+    # iter_safe_tables yields only allowlisted (introspected) + validated
+    # identifiers, already quoted for this dialect — no raw name reaches SQL.
+    for table_name, quoted in iter_safe_tables(db):
         # Handle both dict-style and string-style column metadata
         raw_cols = inspector.get_columns(table_name)
         columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
@@ -275,14 +307,14 @@ def preview_database_tables(db: Session = Depends(get_db)):
         pk_cols = [p if isinstance(p, str) else str(p) for p in raw_pk]
         # Count rows
         try:
-            count = db.execute(text(f'SELECT COUNT(*) FROM "{table_name}"')).scalar() or 0
+            count = db.execute(text(f'SELECT COUNT(*) FROM {quoted}')).scalar() or 0
         except Exception:
             count = -1  # unknown
         # Preview first 5 rows
         preview = []
         if count > 0:
             try:
-                rows = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT 5')).fetchall()
+                rows = db.execute(text(f'SELECT * FROM {quoted} LIMIT 5')).fetchall()
                 for row in rows:
                     row_dict = {}
                     for i, col in enumerate(columns):
@@ -320,11 +352,11 @@ def export_database(db: Session = Depends(get_db)):
         "tables": {},
     }
     total_rows = 0
-    for table_name in sorted(inspector.get_table_names()):
+    for table_name, quoted in iter_safe_tables(db):
         raw_cols = inspector.get_columns(table_name)
         columns = [c["name"] if isinstance(c, dict) else str(c) for c in raw_cols]
         try:
-            rows = db.execute(text(f'SELECT * FROM "{table_name}" LIMIT 5000')).fetchall()
+            rows = db.execute(text(f'SELECT * FROM {quoted} LIMIT 5000')).fetchall()
         except Exception:
             rows = []
         data = []

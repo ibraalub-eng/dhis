@@ -61,46 +61,61 @@ def test_classification_badge_styles_exist():
     assert ".badge-muted" in css
 
 
-def test_layered_legend_page_exists_and_is_print_ready():
-    """One-page A4 legend for the 8 classifications — admins print/share it.
-    Self-contained (no external CSS/JS), Arabic-first, all 8 types present."""
-    html = _read("tabs", "layered-legend.html")
+def test_layered_legend_merged_into_faq_page():
+    """The printable legend was merged into the FAQ page (request: one button,
+    one page). The merged page keeps the full 8-classification table with the
+    severity badges, stays print-safe (@page A4) and self-contained.
+    """
+    html = _read("tabs", "layered-faq.html")
     assert "@page" in html and "A4" in html          # print-safe page setup
     for t in ("POSSIBLE_DATA_ENTRY_ERROR", "CLINICAL_INVESTIGATION_REQUIRED",
               "VOLUME_DRIVEN_ANOMALY", "PEER_ANOMALY", "HISTORICAL_ANOMALY",
               "RATE_ANOMALY", "RAW_VALUE_ANOMALY", "NORMAL"):
         assert t in html, t
+    # Badge colors + action emphasis carried over from the former legend page.
+    assert ".b-critical" in html and ".b-medium" in html and ".b-amber" in html
+    assert ".b-low" in html and ".b-muted" in html
+    assert 'id="legend"' in html
     # External references would break printing offline.
     assert "<script src=" not in html and '<link rel="stylesheet"' not in html
 
 
-def test_layered_tab_links_to_the_legend():
+def test_layered_tab_links_to_the_merged_faq():
+    """One button opens the merged page; the separate legend button is gone."""
     html = _read("tabs", "layered.html")
-    assert "/static/tabs/layered-legend.html" in html
-    assert 'data-i18n="Classification legend"' in html
+    assert "/static/tabs/layered-faq.html" in html
+    assert 'data-i18n="FAQ & legend"' in html
+    assert 'data-i18n="Classification legend"' not in html
+    assert "layered-legend.html" not in html
     i18n = _read("js", "i18n.js")
-    assert "'Classification legend':" in i18n
+    assert "'FAQ & legend':" in i18n
+    assert "'Classification legend':" not in i18n
 
 
 def test_layered_faq_page_exists_and_is_self_contained():
-    """FAQ page following the layered-legend pattern: print-safe @page setup,
-    self-contained (no external CSS/JS), covers the core questions."""
+    """FAQ page (print-safe, self-contained) covers the core questions and
+    carries the merged classification legend section.
+    """
     html = _read("tabs", "layered-faq.html")
     assert "@page" in html
     assert "<script src=" not in html and '<link rel="stylesheet"' not in html
     for topic in ("Raw value", "Rate", "HISTORICAL_ANOMALY", "RAW_VALUE_ANOMALY",
                   "VOLUME_DRIVEN_ANOMALY", "PEER_ANOMALY", "NORMAL"):
         assert topic in html, topic
-    # Cross-references the printable legend.
-    assert "/static/tabs/layered-legend.html" in html
+    # The merged legend lives INSIDE this page — no dead cross-reference to
+    # the removed standalone file.
+    assert "/static/tabs/layered-legend.html" not in html
 
 
 def test_layered_tab_links_to_the_faq():
     html = _read("tabs", "layered.html")
+    # The single merged button links to the FAQ page — the standalone
+    # legend button was merged into it (see the merged-page test above).
     assert "/static/tabs/layered-faq.html" in html
-    assert 'data-i18n="FAQ"' in html
+    assert html.count('data-i18n="FAQ & legend"') == 2   # heatmap card + toolbar
+    assert 'data-i18n="FAQ"' not in html
     i18n = _read("js", "i18n.js")
-    assert "'FAQ':" in i18n
+    assert "'FAQ & legend':" in i18n
 
 
 def test_classification_label_is_translated():
@@ -232,28 +247,29 @@ def test_layered_why_opens_the_layered_explanation():
     assert "kind:\\'anomaly\\'" not in js
 
 
-def test_layered_why_uses_the_persistent_drawer():
-    """Layered Why buttons route mode='drawer' to explain.js's persistent
-    side panel: the panel is appended once to document.body and each row
-    click only re-renders its body, so it stays open across rows for the
-    comparison workflow (the reason this screen exists).
+def test_layered_why_uses_the_shared_modal():
+    """Layered Why buttons open the SAME modal every other screen uses:
+    the drawer side panel was removed (request: unify the Why screen on the
+    modal), so layered.js must not send mode='drawer' and explain.js must
+    have no drawer code left at all.
     """
     js = _read("js", "layered.js")
-    assert "mode:\\'drawer\\'" in js
+    assert "mode:\\'drawer\\'" not in js
+    assert "showWhyDrawer" not in js
     ex = _read("js", "explain.js")
-    assert "function _ensureDrawer" in ex
-    assert "export function showWhyDrawer" in ex
-    assert "export function closeWhyDrawer" in ex
-    assert "document.body.appendChild(_drawerEl)" in ex   # survives row/tab reloads
-    assert "id=\"whyDrawerBody\"" in ex                   # body-only re-render per row
-    # The popup's fetch flow must share the query/error builders (one pipeline).
+    assert "drawer" not in ex
+    assert "showWhyDrawer" not in ex
+    assert "_ensureDrawer" not in ex
+    assert "_ensureModal" in ex
+    assert "export function showWhyPopup" in ex
+    assert "export function closeWhyPopup" in ex
+    # The modal's fetch flow still shares the query/error builders.
     assert "function _buildExplainQuery" in ex
     assert "let q = _buildExplainQuery(opts)" in ex
-    # Stale-response guard: a late reply for a previous row never clobbers
-    # the currently shown one.
-    assert "seq !== _drawerSeq" in ex
+    # The modal catch reuses the shared error builder (no duplicated markup).
+    assert "body.innerHTML = _explainErrorHtml(err);" in ex
     i18n = _read("js", "i18n.js")
-    assert "'Why — fixed comparison panel':" in i18n
+    assert "'Why — fixed comparison panel':" not in i18n
 
 
 def test_layered_summary_badges_are_clickable_filters():
@@ -300,38 +316,28 @@ def test_layered_js_heatmap_contract():
     assert "_|:1" not in js                              # no separator junk
 
 
-def test_layered_layers_sparkline_column():
-    """Small severity strip per row: five colored squares (one per detection
-    layer) so the reviewer sees WHY before opening Why. Scores come straight
-    from /analysis/layered; the band boundary is a client mirror of
-    BAND_CUTOFFS, and the colors come from the level-badge variables so the
-    strip agrees with the Level column.
+def test_layered_layers_column_removed():
+    """The Layers sparkline column was requested off: the table has no Layers
+    header and no sparkline code at all, and every full-width placeholder row
+    spans the remaining 8 columns.
     """
     html = _read("tabs", "layered.html")
-    # Column sits between Rate and Level, translated via the i18n map.
-    assert html.index('data-i18n="Rate (Δ%)"') < html.index('data-i18n="Layers"') < html.index('data-col="level"')
+    assert "data-i18n=\"Layers\"" not in html
 
     js = _read("js", "layered.js")
+    for dead in ("_layersSparkline", "_LAYER_SCORE_COLS", "_scoreLevel",
+                 "_LEVEL_SQUARE_STYLE"):
+        assert dead not in js, dead
     for col in ("raw_value_outlier_score", "rate_outlier_score",
                 "historical_outlier_score", "volume_anomaly_score",
                 "peer_outlier_score"):
-        assert f"'{col}'" in js, col
-    # Band mirror of BAND_CUTOFFS (first bound a score is <).
-    assert "if (s < 0.25) return 'NONE'" in js
-    assert "if (s < 0.50) return 'LOW'" in js
-    assert "if (s < 0.75) return 'MODERATE'" in js
-    assert "if (s < 0.90) return 'HIGH'" in js
-    assert "return 'VERY_HIGH'" in js
-    # N/A layer is a dashed '·', never a scary color.
-    assert "'no data'" in js
-    assert "1px dashed var(--border-default" in js
-    # The extra column widens every full-width placeholder row.
-    assert js.count('colspan="9"') == 3
-    assert 'colspan="8"' not in js
+        assert f"'{col}'" not in js, col
+    # 8 real columns now (Layers dropped) — placeholders agree.
+    assert js.count('colspan="8"') == 3
+    assert 'colspan="9"' not in js
 
     i18n = _read("js", "i18n.js")
-    assert "'Layers':" in i18n
-    assert "'History':" in i18n
+    assert "'Layers':" not in i18n
 
 
 def test_layered_i18n_keys_exist():

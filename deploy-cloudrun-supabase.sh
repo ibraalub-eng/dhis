@@ -74,6 +74,18 @@ if [[ -z "$ADMIN_PASSWORD" ]]; then
     echo "❌ Set ADMIN_PASSWORD (the app's admin login) before running."
     exit 1
 fi
+# Refuse weak defaults early — the app itself also refuses to start without a
+# strong password in production (see app/config.py).
+case "${ADMIN_PASSWORD,,}" in
+    admin|admin123|admin1234|password|changeme|secret|123456|12345678|123456789)
+        echo "❌ ADMIN_PASSWORD is a known default — choose a strong, unique value."
+        exit 1
+        ;;
+esac
+if (( ${#ADMIN_PASSWORD} < 12 )); then
+    echo "❌ ADMIN_PASSWORD must be at least 12 characters."
+    exit 1
+fi
 if [[ -z "$JWT_SECRET" ]]; then
     JWT_SECRET=$(python -c "import secrets; print(secrets.token_hex(32))" 2>/dev/null) \
         || JWT_SECRET=$(openssl rand -hex 32) \
@@ -122,7 +134,7 @@ gcloud run deploy "$SERVICE_NAME" \
     --memory 1Gi \
     --cpu 1 \
     --timeout 300 \
-    --set-env-vars "AI_RECOMMENDATIONS_ENABLED=false,DATA_DIR=/tmp/health-ai-data" \
+    --set-env-vars "APP_ENV=production,AI_RECOMMENDATIONS_ENABLED=false,DATA_DIR=/tmp/health-ai-data" \
     --set-secrets "DATABASE_URL=database-url:latest,JWT_SECRET=jwt-secret:latest,ADMIN_PASSWORD=admin-password:latest"
 
 URL=$(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format="value(status.url)")

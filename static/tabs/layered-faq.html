@@ -1,26 +1,66 @@
 <!DOCTYPE html>
 <!--
-  layered-faq.html — أسئلة شائعة عن تشخيص الشذوذ / Layered Diagnostics FAQ
+  layered-faq.html — أسئلة شائعة + دليل التصنيفات / Layered Diagnostics FAQ + Legend
 
-  Static Q&A page following the layered-legend.html pattern: self-contained
+  Static page following the former layered-legend.html pattern: self-contained
   (no external CSS/JS — prints correctly offline), Arabic-first, opened in a
   new tab from the Outlier Diagnostics tab or standalone at
-  /static/tabs/layered-faq.html
+  /static/tabs/layered-faq.html. The classification legend (ex-legend page)
+  now lives in this page as the «دليل التصنيفات» section.
 -->
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8">
-<title>أسئلة شائعة — تشخيص الشذوذ · Outlier Diagnostics FAQ</title>
+<title>دليل+أسئلة شائعة — تشخيص الشذوذ · Outlier Diagnostics FAQ & Legend</title>
+<script>
+// Theme sync with the app: the main app stores the theme under localStorage
+// 'theme' and sets data-theme on <html> (see index.html). A standalone tab
+// opened via window.open follows the same key and live-updates on storage
+// events, so toggling the theme in the app recolors this page too.
+(function () {
+  var darkMQ = window.matchMedia('(prefers-color-scheme: dark)');
+  var stored = null;
+  try { stored = localStorage.getItem('theme'); } catch (e) {}
+  document.documentElement.setAttribute('data-theme', stored || (darkMQ.matches ? 'dark' : 'light'));
+  window.addEventListener('storage', function (e) {
+    if (e.key === 'theme' && e.newValue) {
+      document.documentElement.setAttribute('data-theme', e.newValue);
+    }
+  });
+  if (darkMQ.addEventListener) darkMQ.addEventListener('change', function (ev) {
+    var s = null;
+    try { s = localStorage.getItem('theme'); } catch (e) {}
+    if (!s) document.documentElement.setAttribute('data-theme', ev.matches ? 'dark' : 'light');
+  });
+})();
+</script>
 <style>
-  :root { --ink:#1a1a2e; --muted:#666; --line:#bbb; --accent:#0d47a1; }
+  /* Light palette is the default; [data-theme="dark"] overrides to match the
+     app's dark tokens (styles.css --bg-base #0F1117, --text-primary #E8EAED…). */
+  :root {
+    --ink:#1a1a2e; --muted:#666; --line:#bbb; --accent:#0d47a1; --bg:#fff;
+    --h2-bg:#eef2f7; --thead-bg:#f0f0f4;
+    --b-bg-critical:#b71c1c; --b-bg-medium:#e65100; --b-bg-amber:#ff8f00;
+    --b-bg-low:#1565c0; --b-bg-muted:#9e9e9e;
+    --b-ft-critical:#fff; --b-ft-medium:#fff; --b-ft-amber:#fff;
+    --b-ft-low:#fff; --b-ft-muted:#fff;
+  }
+  [data-theme="dark"] {
+    --ink:#E8EAED; --muted:#9AA0AC; --line:#2A2E3B; --accent:#4F8CFF; --bg:#0F1117;
+    --h2-bg:#252A36; --thead-bg:#1A1D27;
+    --b-bg-critical:#7f1d1d; --b-bg-medium:#7c2d12; --b-bg-amber:#713f12;
+    --b-bg-low:#1e3a5f; --b-bg-muted:#374151;
+    --b-ft-critical:#fca5a5; --b-ft-medium:#fdba74; --b-ft-amber:#fde047;
+    --b-ft-low:#93c5fd; --b-ft-muted:#d1d5db;
+  }
   * { box-sizing:border-box; }
   body { font-family:"Segoe UI", Tahoma, Arial, sans-serif; color:var(--ink);
-         margin:0; padding:8mm 9mm; background:#fff; font-size:10.2pt; line-height:1.55; }
+         margin:0; padding:8mm 9mm; background:var(--bg); font-size:10.2pt; line-height:1.55; }
   header { border-bottom:2px solid var(--ink); padding-bottom:4px; margin-bottom:10px;
            display:flex; justify-content:space-between; align-items:baseline; }
   h1 { font-size:14pt; margin:0; }
   .en { direction:ltr; font-size:9pt; color:var(--muted); }
-  h2 { font-size:10.8pt; margin:14px 0 3px; padding:3px 8px; background:#eef2f7;
+  h2 { font-size:10.8pt; margin:14px 0 3px; padding:3px 8px; background:var(--h2-bg);
        border-inline-start:3px solid var(--accent); border-radius:3px; }
   .q { font-weight:700; }
   a { color:var(--accent); text-decoration:underline; word-break:break-all; }
@@ -28,11 +68,29 @@
           font-family:Consolas, monospace; unicode-bidi:plaintext; }
   table { width:100%; border-collapse:collapse; margin:4px 0 8px; }
   th, td { border:1px solid var(--line); padding:3px 7px; vertical-align:top; font-size:9.4pt; }
-  thead th { background:#f0f0f4; text-align:right; }
+  thead th { background:var(--thead-bg); text-align:right; }
   .num { text-align:center; width:30px; }
+  .badge { display:inline-block; border-radius:10px; padding:1px 8px;
+           font-size:8pt; font-weight:700; white-space:nowrap; }
+  .b-critical { background:var(--b-bg-critical); color:var(--b-ft-critical); }   /* POSSIBLE_DATA_ENTRY_ERROR */
+  .b-medium   { background:var(--b-bg-medium); color:var(--b-ft-medium); }   /* CLINICAL_INVESTIGATION_REQUIRED */
+  .b-amber    { background:var(--b-bg-amber); color:var(--b-ft-amber); }   /* VOLUME_DRIVEN_ANOMALY */
+  .b-low      { background:var(--b-bg-low); color:var(--b-ft-low); }   /* PEER_ANOMALY */
+  .b-muted    { background:var(--b-bg-muted); color:var(--b-ft-muted); }   /* HISTORICAL/RAW/NORMAL */
+  .act { font-weight:700; color:var(--accent); }
   footer { margin-top:12px; border-top:1px solid var(--line); padding-top:5px;
            font-size:8.4pt; color:var(--muted); }
   @media print {
+    /* Printing must stay on paper: force the light palette even if the page
+       is being viewed in the dark theme (paper is white anyway). */
+    :root, [data-theme="dark"] {
+      --ink:#1a1a2e; --muted:#666; --line:#bbb; --accent:#0d47a1; --bg:#fff;
+      --h2-bg:#eef2f7; --thead-bg:#f0f0f4;
+      --b-bg-critical:#b71c1c; --b-bg-medium:#e65100; --b-bg-amber:#ff8f00;
+      --b-bg-low:#1565c0; --b-bg-muted:#9e9e9e;
+      --b-ft-critical:#fff; --b-ft-medium:#fff; --b-ft-amber:#fff;
+      --b-ft-low:#fff; --b-ft-muted:#fff;
+    }
     body { padding:6mm; font-size:9.6pt; }
     details { open:always; }
   }
@@ -41,8 +99,8 @@
 </head>
 <body>
 <header>
-  <h1>أسئلة شائعة — شاشة تشخيص الشذوذ</h1>
-  <span class="en">Outlier Diagnostics · FAQ</span>
+  <h1>دليل + أسئلة شائعة — شاشة تشخيص الشذوذ</h1>
+  <span class="en">Outlier Diagnostics · FAQ & Legend</span>
 </header>
 
 <h2>ما الفرق بين عرضي القيمة الخام (Raw value) والنسبة (Rate) في الجدول؟</h2>
@@ -81,22 +139,90 @@
 مع بقاء كل الطبقات الأخرى هادئة — جولة استيقاظ، ليست إنذاراً. لذلك رؤيته إذا تكررت
 أشهراً يُقترح التدقيق.</p>
 
-<h2>ما معنى التصنيفات الثمانية؟</h2>
+<h2 id="legend">ما معنى التصنيفات الثمانية؟ (دليل التصنيفات)</h2>
+<p>يفحص النظام كل قيمة مؤشر عبر <b>خمس طبقات</b> — القيمة الخام، النسبة، التاريخ، حجم المرضى (المقام)،
+ثم مقارنة النظراء — ويصنّف النتيجة وفق جدول قواعد ثابت (تسلسل 1→10، أول قاعدة مطابقة تفوز).
+التصنيف <b>لا يعدّل درجة الجودة</b>؛ هو فقط يحدد الحركة المطلوبة:</p>
 <table>
-<thead><tr><th style="width:20%">التصنيف</th><th style="width:32%">متى؟</th><th>الحركة</th></tr></thead>
+<thead>
+<tr>
+  <th class="num">#</th>
+  <th style="width:18%">التصنيف</th>
+  <th style="width:28%">متى يظهر؟</th>
+  <th style="width:18%">مثال</th>
+  <th>الحركة المطلوبة</th>
+</tr>
+</thead>
 <tbody>
-<tr><td><span class="term">POSSIBLE_DATA_ENTRY_ERROR</span></td><td>قفزة أربعة أضعاف في العدد والنسبة والتاريخ معاً، والمقام ثابت</td><td><b>التحقق من الملف الأصلي قبل أي إحالة</b></td></tr>
-<tr><td><span class="term">CLINICAL_INVESTIGATION_REQUIRED</span></td><td>النسبة والتاريخ قفزا بقوة، والمقام ثابت/أقل</td><td><b>إحالة سريرية</b> — نفس الحجم أعطى وفيات أكثر</td></tr>
-<tr><td><span class="term">VOLUME_DRIVEN_ANOMALY</span></td><td>العدد والمقام قفزا معاً، والنسبة هادئة</td><td>رقم حقيقي ومبررات بضغط مرضى — ملاحظة تشغيلية</td></tr>
-<tr><td><span class="term">PEER_ANOMALY</span></td><td>شاذ بين المستشفيات المماثلة</td><td>مراجعة تعريف المؤشر ونمط الإحالة — <b>ليس خطأ بيانات أبداً</b></td></tr>
-<tr><td><span class="term">HISTORICAL_ANOMALY</span></td><td>انحراف قوي عن تاريخه</td><td>مراجعة سياق الشهر</td></tr>
-<tr><td><span class="term">RATE_ANOMALY</span></td><td>النسبة منحرفة معتدلة، البقية هادئة</td><td>نظرة على تكوين البسط/المقام</td></tr>
-<tr><td><span class="term">RAW_VALUE_ANOMALY</span></td><td>القيمة الخام منحرفة معتدلة فقط</td><td>متابعة لو تكررت</td></tr>
-<tr><td><span class="term">NORMAL</span></td><td>كل شيء هادئ، أو التاريخ غير كافٍ (أقل من 3 أشهر)</td><td>لا حركة</td></tr>
+<tr>
+  <td class="num">2</td>
+  <td><span class="badge b-critical">خطأ إدخال محتمل</span>
+      <span class="term">POSSIBLE_DATA_ENTRY_ERROR</span></td>
+  <td>قفزة أربعة أضعاف (+300%) في العدد <b>و</b>النسبة <b>و</b>التاريخ معاً، والمقام ثابت تقريباً</td>
+  <td>وفيات 1 → 5 مع ولادات 800 → 810</td>
+  <td class="act">التحقق من الملف الأصلي قبل أي إحالة</td>
+</tr>
+<tr>
+  <td class="num">4</td>
+  <td><span class="badge b-medium">تحقيق سريري إجباري</span>
+      <span class="term">CLINICAL_INVESTIGATION_REQUIRED</span></td>
+  <td>النسبة (لكل 100/1000) قفزت بقوة مع التاريخ، والمقام ثابت أو أقل</td>
+  <td>وفيات 2 → 5 مع ولادات 800 → 790</td>
+  <td class="act">إحالة سريرية — نفس الحجم أعطى وفيات أكثر</td>
+</tr>
+<tr>
+  <td class="num">3</td>
+  <td><span class="badge b-amber">مدفوع بحجم المرضى</span>
+      <span class="term">VOLUME_DRIVEN_ANOMALY</span></td>
+  <td>العدد قفز بقوة <b>و</b>المقام قفز بقوته، والنسبة هادئة</td>
+  <td>وفيات 2 → 6 مع ولادات 400 → 1200</td>
+  <td>لا قلق جودة — رقم حقيقي ومبرَّر؛ ملاحظة تشغيلية</td>
+</tr>
+<tr>
+  <td class="num">6/7</td>
+  <td><span class="badge b-low">مختلف عن النظراء</span>
+      <span class="term">PEER_ANOMALY</span></td>
+  <td>المستشفى شاذ بين المستشفيات المماثلة (النوع ← الملكية ← المحافظة)؛ قد يقترن بانحراف تاريخي (القاعدة 7)</td>
+  <td>معدل 12.1 بينما متوسط 6 نظراء 4.0</td>
+  <td>مراجعة تعريف المؤشر ونمط الإحالة — <b>ليس خطأ بيانات أبداً</b></td>
+</tr>
+<tr>
+  <td class="num">5</td>
+  <td><span class="badge b-muted">انحراف تاريخي قوي</span>
+      <span class="term">HISTORICAL_ANOMALY</span></td>
+  <td>القيمة انحرفت بدرجة HIGH (≥ 0.9) عن متوسط آخر 6 أشهر ولم تُطلق قواعد أسبق</td>
+  <td>قيمة 4.0 بدل متوسط تاريخي 1.0 (+300%)</td>
+  <td>مراجعة سياق الشهر (حملة، عطلة، تغيير إدخال)</td>
+</tr>
+<tr>
+  <td class="num">9</td>
+  <td><span class="badge b-muted">شذوذ نسبة</span>
+      <span class="term">RATE_ANOMALY</span></td>
+  <td>النسبة منحرفة MODERATE وكل الطبقات الأخرى هادئة</td>
+  <td>معدل 3% بدل متوسط 1.5%</td>
+  <td>نظرة تحليلية على تكوين البسط/المقام</td>
+</tr>
+<tr>
+  <td class="num">8</td>
+  <td><span class="badge b-muted">انحراف معتدل</span>
+      <span class="term">RAW_VALUE_ANOMALY</span></td>
+  <td>القيمة الخام منحرفة MODERATE فقط (0.5–0.9) وكل الطبقات الأخرى ≤ MODERATE</td>
+  <td>3 بدل 4 الشهر السابق (+50%)</td>
+  <td>متابعة لو تكررت أشهراً متتالية</td>
+</tr>
+<tr>
+  <td class="num">1/10</td>
+  <td><span class="badge b-muted">طبيعي</span>
+      <span class="term">NORMAL</span></td>
+  <td>كل التبرير هادئ؛ أو التاريخ غير كافٍ (أقل من 3 أشهر — لا حكم من قلة بيانات)</td>
+  <td>—</td>
+  <td>لا حركة مطلوبة</td>
+</tr>
 </tbody>
 </table>
-<p>الدليل المطبوع الكامل من زر <b>دليل التصنيفات</b> أعلى شاشة التشخيص، أو مباشرة:
-<a href="/static/tabs/layered-legend.html">/static/tabs/layered-legend.html</a></p>
+<p style="font-size:8.6pt;color:var(--muted);">الألوان: أحمر = تحقق فوري · برتقالي = إحالة سريرية ·
+أزرق = مراجعة تعريف · رمادي = تحليل/متابعة. في كل الأحوال يبقى زر «لماذا» هو المصدر. هذه الصفحة قابلة
+للطباعة كاملة (Ctrl+P → A4).</p>
 
 <h2>كيف يبني النظام «النظراء»؟</h2>
 <p>أول مستوى فيه <b>مستشفيان آخَران على الأقل</b> يستخدم للمقارنة، بالترتيب:
@@ -123,8 +249,8 @@
 </details>
 
 <footer>
-  <b>للمزيد:</b> دليل التصنيفات المطبوع (layered-legend.html) · شرح كل شاشة في صحة
-  الاستعلامات من جروب System · زر لماذا في كل رقم مشتق — أسرع طريق لفهم أي عدد في سياقه.
+  <b>للمزيد:</b> شرح كل شاشة في صفحة الإرشادات (System ← Guides) · زر لماذا في كل رقم مشتق —
+  أسرع طريق لفهم أي عدد في سياقه. هذه الصفحة تجمع الدليل والأسئلة معاً.
   <span class="en">SRMNH DHIS — detection informs, never modifies.</span>
 </footer>
 </body>

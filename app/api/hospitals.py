@@ -18,7 +18,7 @@ from app.engine.pipeline import (
     recompute_hospital_months,
 )
 from app.tasks import create_task, run_task
-from app.core.deps import require_permission
+from app.core.deps import require_permission, get_user_hospital_ids
 from app import undo_store
 
 logger = logging.getLogger(__name__)
@@ -63,13 +63,12 @@ def list_hospitals(
         return result
     q = db.query(Hospital)
 
-    # Filter by user's assigned hospitals (if any)
-    if user and not getattr(user, 'is_superuser', False):
-        from app.models import user_hospitals as _uh
-        from sqlalchemy import select as _sel
-        _assigned = [row[0] for row in db.execute(_sel(_uh.c.hospital_id).where(_uh.c.user_id == user.id)).fetchall()]
-        if _assigned:
-            q = q.filter(Hospital.id.in_(_assigned))
+    # Apply the caller's hospital scope. None = unrestricted; a non-None value
+    # (including []) is applied as an IN filter, so no assignment yields NO rows
+    # rather than accidentally exposing every hospital.
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    if user_hosp_ids is not None:
+        q = q.filter(Hospital.id.in_(user_hosp_ids))
 
     if not include_inactive:
         q = q.filter(Hospital.is_active.is_(True))

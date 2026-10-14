@@ -931,7 +931,7 @@ window._adminAssignHospitals = function(id, btn) {
       var allHosp = await api('/hospitals/');
       var userHospResp = await api('/admin/users/' + userId + '/hospitals');
       var assignedIds = new Set((userHospResp.hospitals || []).map(function(h) { return h.id; }));
-      var isRestricted = userHospResp.is_restricted;
+      var unrestricted = !!userHospResp.unrestricted;
 
       if (!allHosp || !allHosp.length) {
         listEl.innerHTML = '<div style="color:var(--text-muted);padding:1rem;text-align:center;">No hospitals found</div>';
@@ -942,7 +942,7 @@ window._adminAssignHospitals = function(id, btn) {
         '<input type="checkbox" id="hospAssignAll" onchange="window._hospAssignToggleAll(this.checked)" style="margin-right:0.4rem;"> All Hospitals (no restriction)' +
         '</label>';
       allHosp.forEach(function(h) {
-        var checked = isRestricted ? assignedIds.has(h.id) : true;
+        var checked = unrestricted ? true : assignedIds.has(h.id);
         html += '<label style="display:block;padding:0.3rem 0.4rem;font-size:0.82rem;cursor:pointer;border-bottom:1px solid var(--border-default);">' +
           '<input type="checkbox" class="hospAssignCb" value="' + h.id + '" ' + (checked ? 'checked' : '') + ' style="margin-right:0.4rem;"> ' + esc(h.name) +
           '</label>';
@@ -987,7 +987,7 @@ window._adminAssignHospitals = function(id, btn) {
     try {
       var resp = await api('/admin/users/' + userId + '/hospitals', {
         method: 'PUT',
-        body: JSON.stringify({ hospital_ids: hospitalIds })
+        body: JSON.stringify({ hospital_ids: hospitalIds, unrestricted: allChecked })
       });
       if (resp && resp._error) {
         errEl.textContent = resp.detail || 'Server error';

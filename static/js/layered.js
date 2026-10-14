@@ -79,50 +79,6 @@ function _levelBadge(level) {
 // styles.css so the strip and the Level column agree visually. The five
 // score columns come straight from /analysis/layered (the endpoint returns
 // every stored column), so this is pure client-side rendering.
-const _LAYER_SCORE_COLS = [
-    ['raw_value_outlier_score', 'Raw value'],
-    ['rate_outlier_score', 'Rate'],
-    ['historical_outlier_score', 'History'],
-    ['volume_anomaly_score', 'Denominator (Δ%)'],
-    ['peer_outlier_score', 'Peer'],
-];
-
-const _LEVEL_SQUARE_STYLE = {
-    NONE: 'background:var(--bg-surface-hover,#eee);color:var(--text-muted,#888);',
-    LOW: 'background:var(--severity-info-bg,#e3f2fd);color:var(--accent-blue,#1565c0);',
-    MODERATE: 'background:var(--severity-warning-bg,#fff3e0);color:var(--accent-orange,#e65100);',
-    HIGH: 'background:var(--severity-critical-bg,#ffebee);color:var(--accent-red,#c62828);',
-    VERY_HIGH: 'background:var(--accent-red,#c62828);color:#fff;',
-};
-
-function _scoreLevel(s) {
-    if (s === null || s === undefined) return null;
-    if (s < 0.25) return 'NONE';
-    if (s < 0.50) return 'LOW';
-    if (s < 0.75) return 'MODERATE';
-    if (s < 0.90) return 'HIGH';
-    return 'VERY_HIGH';
-}
-
-function _layersSparkline(d) {
-    const squares = _LAYER_SCORE_COLS.map(function (pair) {
-        const col = pair[0];
-        const label = pair[1];
-        const s = d[col];
-        const lvl = _scoreLevel(s);
-        // N/A square: the layer does not apply to this row (e.g. rate for
-        // count indicators) — dashed outline + '·', never a scary color.
-        if (!lvl) return '<span title="' + esc(label) + ': ' + __('no data') + '"'
-            + ' style="width:13px;height:12px;border-radius:2px;border:1px dashed var(--border-default,#ccc);'
-            + 'color:var(--text-muted,#888);font-size:0.55rem;display:inline-flex;align-items:center;justify-content:center;">·</span>';
-        return '<span title="' + esc(label) + ': ' + lvl + ' (' + Number(s).toFixed(2) + ')"'
-            + ' aria-label="' + esc(label) + ' ' + lvl + '"'
-            + ' style="width:13px;height:12px;border-radius:2px;font-weight:700;display:inline-flex;'
-            + 'align-items:center;justify-content:center;' + (_LEVEL_SQUARE_STYLE[lvl] || '') + '"></span>';
-    }).join('');
-    return '<span style="display:inline-flex;gap:2px;align-items:center;">' + squares + '</span>';
-}
-
 function populateSelectOptions(sel, values, currentVal) {
     const prevVal = sel.value;
     sel.innerHTML = '<option value="">All</option>';
@@ -238,6 +194,44 @@ const _TREND_COLORS = {
     RATE_ANOMALY: '#f97316',
     HISTORICAL_ANOMALY: '#a855f7',
 };
+// Light-theme fill palette: the bright dark-theme colors above have poor
+// white-text contrast on light paper; these are their darker idols used by
+// the classification legend (layered-faq) and the severity ink tokens.
+const _TREND_COLORS_LIGHT = {
+    NORMAL: '#15803d',
+    POSSIBLE_DATA_ENTRY_ERROR: '#b91c1c',
+    CLINICAL_INVESTIGATION_REQUIRED: '#b45309',
+    PEER_ANOMALY: '#1d4ed8',
+    VOLUME_DRIVEN_ANOMALY: '#92400e',
+    RAW_VALUE_ANOMALY: '#c2410c',
+    RATE_ANOMALY: '#c2410c',
+    HISTORICAL_ANOMALY: '#6d28d9',
+};
+/** Theme-aware classification color: dark on surfaces, dark ink on light. */
+function _typeColor(type) {
+    const dark = document.documentElement.getAttribute('data-theme') !== 'light';
+    const pal = dark ? _TREND_COLORS : _TREND_COLORS_LIGHT;
+    return pal[type] || (dark ? '#6b7280' : '#9ca3af');
+}
+// Read the app's theme tokens for Plotly (it cannot resolve CSS variables).
+function _plotlyThemeColors() {
+    const cs = getComputedStyle(document.documentElement);
+    const v = n => (cs.getPropertyValue(n) || '').trim() || undefined;
+    return {
+        text: v('--text-secondary'),
+        muted: v('--text-muted'),
+        line: v('--border-default'),
+        bg: dark => v('--bg-base') || (dark ? '#0F1117' : '#F5F6F8'),
+    };
+}
+// Theme change → recolor the heatmap grid and trend chart. Plots cache the
+// theme at render time and Plotly cannot restyle via CSS, so re-render from
+// the last data on [data-theme] mutations (see chart-utils.js precedent).
+new MutationObserver(function () {
+    if (document.getElementById('layeredHeatmapBody')) loadLayeredHeatmap();
+    const ind = document.getElementById('layeredIndicatorFilter');
+    if (ind && ind.value) loadLayeredTrend();
+}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
 function _trendHint(msgKey) {
     const hint = document.getElementById('layeredTrendHint');
@@ -267,18 +261,20 @@ function _renderLayeredTrend(body) {
         line: { width: 2 },
         marker: {
             size: 7,
-            color: s.points.map(p => _TREND_COLORS[p.outlier_type] || '#6b7280'),
-            line: { width: 1, color: '#ffffff' },
+            color: s.points.map(p => _typeColor(p.outlier_type)),
+            line: { width: 1, color: _plotlyThemeColors().bg(false) },
         },
         hovertemplate: '%{x}<br>%{y:.2f}<extra>' + s.name + '</extra>',
     }));
+    const _tc = _plotlyThemeColors();
     Plotly.react(chart, traces, {
         margin: { l: 48, r: 16, t: 12, b: 40 },
         paper_bgcolor: 'rgba(0,0,0,0)',
         plot_bgcolor: 'rgba(0,0,0,0)',
+        font: { color: _tc.text },
         legend: { orientation: 'h', y: -0.2, x: 0.5, xanchor: 'center' },
-        xaxis: { type: 'category', categoryorder: 'array', categoryarray: months },
-        yaxis: { title: __('Raw value') },
+        xaxis: { type: 'category', categoryorder: 'array', categoryarray: months, tickfont: { color: _tc.muted }, gridcolor: _tc.line },
+        yaxis: { title: __('Raw value'), tickfont: { color: _tc.muted }, gridcolor: _tc.line },
     }, { responsive: true, displaylogo: false });
 }
 
@@ -353,7 +349,7 @@ function _renderLayeredHeatmap(body) {
                 html += '<td style="text-align:center;padding:0.2rem;background:var(--bg-surface);color:var(--text-muted);">·</td>';
                 return;
             }
-            const color = _TREND_COLORS[c.type] || '#6b7280';
+            const color = _typeColor(c.type);
             html += '<td onclick="window._layeredHeatmapClick(' + Number(d.hospital_id) + ',' + JSON.stringify(String(m))
                 + ')" title="' + esc(d.hospital) + ' — ' + esc(m) + ' — '
                 + Object.entries(c.breakdown || {}).map(([t, n]) => t + ':' + n).join(', ')
@@ -398,7 +394,7 @@ export async function loadLayered() {
     const loadingEl = document.getElementById('layeredLoading');
     if (loadingEl) loadingEl.classList.remove('hidden');
     const tbody = document.getElementById('layeredTbody');
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading layered findings...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading layered findings...</td></tr>';
     const month = document.getElementById('layeredMonthFilter').value;
     const url = '/analysis/layered?' + _filterQuery()
         + 'page=' + _page + '&page_size=' + PAGE_SIZE
@@ -426,7 +422,7 @@ export async function loadLayered() {
         document.getElementById('layeredCount').textContent = total + ' finding(s)';
         document.getElementById('layeredPageInfo').textContent = _page + ' / ' + pages;
         if (!data.length) {
-            tbody.innerHTML =                '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">' + __('No layered findings for the selected criteria.') + '</td></tr>';
+            tbody.innerHTML =                '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">' + __('No layered findings for the selected criteria.') + '</td></tr>';
             wireLayeredSort();
             return;
         }
@@ -436,14 +432,11 @@ export async function loadLayered() {
             const rateCell = (d.rate !== null && d.rate !== undefined)
                 ? _fmt(d.rate) + _fmtDelta(d.historical_change_percent) : '--';
             // Object form: the Task 15 dispatcher keys on kind + indicator_code.
-            // mode='drawer' routes it to the persistent side panel (explain.js):
-            // the panel stays open while the reviewer clicks Why on other rows,
-            // which is the comparison workflow this screen exists for.
+            // Unified with every other screen: the shared modal in explain.js.
             const whyBtn = '<button onclick="window.showWhyPopup({kind:\'layered_outlier\',hospitalId:'
                 + Number(d.hospital_id)
                 + ',month:' + JSON.stringify(String(d.month)).replace(/"/g, '&quot;')
                 + ',indicatorCode:' + JSON.stringify(String(d.analysis_code)).replace(/"/g, '&quot;')
-                + ',mode:\'drawer\''
                 + '})" title="' + __('Why') + '"'
                 + ' style="background:none;border:1px solid var(--border-default,#ccc);border-radius:4px;padding:1px 7px;font-size:0.7rem;cursor:pointer;color:var(--accent-blue,#1565c0);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button>';
             return '<tr>' +
@@ -452,7 +445,6 @@ export async function loadLayered() {
                 '<td>' + esc(d.indicator_name || d.analysis_code || '') + '</td>' +
                 '<td>' + rawCell + '</td>' +
                 '<td>' + rateCell + '</td>' +
-                '<td>' + _layersSparkline(d) + '</td>' +
                 '<td>' + _levelBadge(d.outlier_level) + '</td>' +
                 '<td>' + classificationBadge(d.outlier_type, d.interpretation) + '</td>' +
                 '<td>' + whyBtn + '</td>' +
@@ -460,7 +452,7 @@ export async function loadLayered() {
         }).join('');
         wireLayeredSort();
     } catch (err) {
-        tbody.innerHTML = '<tr><td colspan="9" style="color:red;">Error: ' + err.message + '</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="color:red;">Error: ' + err.message + '</td></tr>';
     } finally {
         if (loadingEl) loadingEl.classList.add('hidden');
     }

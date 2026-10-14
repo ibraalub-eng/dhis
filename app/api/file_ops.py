@@ -109,9 +109,7 @@ def download_saved_file(
     rebuilds an .xlsx from the IndicatorValue rows for that source_file
     (Render's upload directory is ephemeral, so originals are usually gone).
     """
-    fname = os.path.basename(filename)
-    if fname != filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
+    fname = safe_upload_name(filename)
 
     fpath = os.path.join(UPLOAD_DIR, fname) if UPLOAD_DIR else None
     if fpath and os.path.exists(fpath):

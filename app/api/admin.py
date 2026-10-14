@@ -7,7 +7,12 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
-from app.core.deps import get_current_user, require_permission
+from app.core.deps import (
+    get_current_user,
+    require_permission,
+    user_has_unrestricted_hospitals,
+    UNRESTRICTED_HOSPITALS_PERMISSION,
+)
 from app.core.security import hash_password
 from app.models import User, Role, Permission, Hospital
 from app.tasks import create_task, run_task
@@ -237,35 +242,87 @@ def delete_role(role_id: int, db: Session = Depends(get_db)):
 
 # --- User Hospital Assignments ---
 
+def _set_unrestricted(db: Session, user: User, enabled: bool) -> None:
+    """Add/remove the unrestricted-hospitals permission on a user directly."""
+    perm = db.query(Permission).filter(Permission.codename == UNRESTRICTED_HOSPITALS_PERMISSION).first()
+    if enabled:
+        if perm is None:
+            perm = Permission(
+                codename=UNRESTRICTED_HOSPITALS_PERMISSION,
+                description="See all hospitals regardless of assignment",
+            )
+            db.add(perm)
+            db.flush()
+        if perm not in user.permissions:
+            user.permissions.append(perm)
+    elif perm is not None and perm in user.permissions:
+        user.permissions.remove(perm)
+
+
 @router.get("/users/{user_id}/hospitals")
 def get_user_hospitals(user_id: int, db: Session = Depends(get_db)):
-    """Get hospitals assigned to a user. Empty list = all hospitals (no restriction)."""
+    """Get hospitals assigned to a user.
+
+    An empty assignment means the user can access NO hospitals — it is NOT
+    treated as "all". Unrestricted access requires the
+    ``hospitals.unrestricted`` permission on a role or on the user directly
+    (superusers are always unrestricted).
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    unrestricted = user_has_unrestricted_hospitals(user)
     hospitals = [{"id": h.id, "name": h.name} for h in user.hospitals]
-    return {"user_id": user_id, "username": user.username, "hospitals": hospitals, "is_restricted": len(hospitals) > 0}
+    return {
+        "user_id": user_id,
+        "username": user.username,
+        "hospitals": hospitals,
+        "unrestricted": unrestricted,
+        "is_restricted": not unrestricted,
+    }
 
 
 @router.put("/users/{user_id}/hospitals")
 def update_user_hospitals(user_id: int, req: dict, db: Session = Depends(get_db)):
     """Update hospitals assigned to a user.
-    Pass {"hospital_ids": [1,2,3]} to restrict, or {"hospital_ids": []} to allow all.
-    Superusers always see all hospitals regardless of assignment."""
+
+    Pass {"hospital_ids": [1,2,3]} to assign exactly these hospitals. An empty
+    list (or omitted ids) assigns none — the user will see NO hospitals, not all.
+    Pass {"unrestricted": true} to grant unrestricted access (adds the
+    ``hospitals.unrestricted`` permission); {"unrestricted": false} revokes it.
+    Superusers are always unrestricted regardless of assignment.
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if user.is_superuser:
-        return {"message": "Superusers always see all hospitals.", "hospital_ids": []}
+        return {
+            "message": "Superusers always see all hospitals.",
+            "hospital_ids": [],
+            "unrestricted": True,
+        }
 
-    hospital_ids = req.get("hospital_ids", [])
-    if hospital_ids:
-        hospitals = db.query(Hospital).filter(Hospital.id.in_(hospital_ids)).all()
+    if "hospital_ids" in req:
+        hospital_ids = req.get("hospital_ids") or []
+        hospitals = db.query(Hospital).filter(Hospital.id.in_(hospital_ids)).all() if hospital_ids else []
         user.hospitals = hospitals
-    else:
-        user.hospitals = []
+
+    if "unrestricted" in req:
+        _set_unrestricted(db, user, bool(req.get("unrestricted")))
+
     db.commit()
-    return {"user_id": user_id, "username": user.username, "hospital_count": len(user.hospitals), "message": f"Assigned {len(user.hospitals)} hospitals to {user.username}"}
+    # Scope changed: drop cached per-user payloads so a reduced scope cannot be
+    # served stale (e.g. a hospital list cached before access was removed).
+    from app.cache import cache
+    cache.invalidate()
+    unrestricted = user_has_unrestricted_hospitals(user)
+    return {
+        "user_id": user_id,
+        "username": user.username,
+        "hospital_count": len(user.hospitals),
+        "unrestricted": unrestricted,
+        "message": f"Assigned {len(user.hospitals)} hospitals to {user.username}",
+    }
 
 
 # --- Permissions ---
@@ -295,21 +352,30 @@ def _visibility_tabs() -> dict:
 # --- Quality Score Repair ---
 
 def _quality_weights(db: Session) -> dict:
+    """Quality weights resolved from AppConfig through the engine's single
+    source of truth (app.engine.quality.quality_weights), exposing an
+    `outlier_inverted` alias for the existing API response shape."""
     from app.config_utils import get_config_dict
-    cfg = get_config_dict(db, "quality")
+    from app.engine.quality import quality_weights
+    w = quality_weights(get_config_dict(db, "quality"))
     return {
-        "rule_compliance": float(cfg.get("quality_rule_compliance", 0.35)),
-        "completeness": float(cfg.get("quality_completeness", 0.25)),
-        "consistency": float(cfg.get("quality_consistency", 0.25)),
-        "outlier_inverted": float(cfg.get("quality_outlier_penalty", 0.15)),
+        "rule_compliance": w["rule_compliance"],
+        "completeness": w["completeness"],
+        "consistency": w["consistency"],
+        "outlier_inverted": w["outlier_penalty"],
     }
 
 
 def _expected_score(w: dict, rc, cp, co, op) -> float:
-    op_inv = 100.0 - float(op or 0)
-    expected = round(float(rc or 0) * w["rule_compliance"] + float(cp or 0) * w["completeness"]
-                     + float(co or 0) * w["consistency"] + op_inv * w["outlier_inverted"], 1)
-    return max(0, min(100, expected))
+    """Final score from stored components using the canonical engine formula."""
+    from app.engine.quality import combine_quality_score
+    cfg = {
+        "quality_rule_compliance": w["rule_compliance"],
+        "quality_completeness": w["completeness"],
+        "quality_consistency": w["consistency"],
+        "quality_outlier_penalty": w["outlier_inverted"],
+    }
+    return combine_quality_score(rc, cp, co, op, cfg)
 
 
 # The engine stores components rounded to 0.1 and rounds the final score from
@@ -439,29 +505,6 @@ def repair_quality_scores_preview(
              "stored_score": s.score, "expected_score": expected}
             for (s, expected) in mismatches[:200]
         ],
-        "truncated": len(mismatches) > 200,
-    }
-
-    rows = db.query(QualityScore).all()
-    mismatches = []
-    for s in rows:
-        rc = float(s.rule_compliance or 0)
-        cp = float(s.completeness or 0)
-        co = float(s.consistency or 0)
-        op_inv = 100.0 - float(s.outlier_penalty or 0)
-        expected = round(rc * w_rc + cp * w_cp + co * w_co + op_inv * w_op, 1)
-        expected = max(0, min(100, expected))
-        if abs(expected - float(s.score or 0)) > 0.05:
-            mismatches.append({
-                "id": s.id, "hospital_id": s.hospital_id, "month": s.month,
-                "stored_score": s.score, "expected_score": expected,
-            })
-    return {
-        "total_rows": len(rows),
-        "mismatch_count": len(mismatches),
-        "weights": {"rule_compliance": w_rc, "completeness": w_cp,
-                     "consistency": w_co, "outlier_inverted": w_op},
-        "mismatches": mismatches[:200],
         "truncated": len(mismatches) > 200,
     }
 

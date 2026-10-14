@@ -128,15 +128,17 @@
             if (box) box.style.display = box.style.display === 'none' ? 'block' : 'none';
         }
 
-        // Spec §10A: classification badge colors. Gray covers NORMAL, the
-        // unmatched case (no layered row) and the types the spec does not
-        // enumerate; the tooltip is the one-line interpretation persisted
-        // with the row.
+        // Spec §10A: classification badge colors. Gray covers the unmatched
+        // case (no layered row) only; every known type gets its own badge so
+        // the 8-class legend (layered-faq page) matches the table verbatim.
         export function classificationBadge(type, interpretation) {
             const cls = type === 'POSSIBLE_DATA_ENTRY_ERROR' ? 'badge-critical'
                 : type === 'CLINICAL_INVESTIGATION_REQUIRED' ? 'badge-medium'
                 : type === 'PEER_ANOMALY' ? 'badge-low'
                 : type === 'VOLUME_DRIVEN_ANOMALY' ? 'badge-amber'
+                : type === 'NORMAL' ? 'badge-pass'
+                : type === 'RAW_VALUE_ANOMALY' || type === 'RATE_ANOMALY' ? 'badge-medium'
+                : type === 'HISTORICAL_ANOMALY' ? 'badge-low'
                 : 'badge-muted';
             const label = type || '--';
             return '<span class="badge ' + cls + '" title="' + esc(interpretation || '') + '">' + esc(label) + '</span>';

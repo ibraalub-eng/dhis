@@ -64,11 +64,12 @@ def get_calculation_steps(db: Session, hospital_id: int, month: str) -> dict:
     quality_score_steps = None
     if qs:
         from app.config_utils import get_config_dict
-        _qcfg = get_config_dict(db, "quality")
-        w_rc = float(_qcfg.get("quality_rule_compliance", 0.35))
-        w_cp = float(_qcfg.get("quality_completeness", 0.25))
-        w_co = float(_qcfg.get("quality_consistency", 0.25))
-        w_op = float(_qcfg.get("quality_outlier_penalty", 0.15))
+        from app.engine.quality import quality_weights
+        _qcfg = quality_weights(get_config_dict(db, "quality"))
+        w_rc = _qcfg["rule_compliance"]
+        w_cp = _qcfg["completeness"]
+        w_co = _qcfg["consistency"]
+        w_op = _qcfg["outlier_penalty"]
         rc_w = round((qs.rule_compliance or 0) * w_rc, 4)
         comp_w = round((qs.completeness or 0) * w_cp, 4)
         cons_w = round((qs.consistency or 0) * w_co, 4)

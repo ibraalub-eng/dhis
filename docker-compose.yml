@@ -2,7 +2,8 @@
 # Starts PostgreSQL 16 + the app (built from ./Dockerfile) together.
 #
 #   docker compose up -d --build
-#   → app on http://localhost:8080  (login: admin / $ADMIN_PASSWORD, default admin123)
+#   → app on http://localhost:8080  (login: admin / $ADMIN_PASSWORD, or the
+#     development default when ADMIN_PASSWORD is unset; never in production)
 #
 # First boot runs Alembic migrations + seeds automatically (app lifespan).
 # Data survives restarts via the named volumes; `docker compose down -v` wipes it.
@@ -46,7 +47,10 @@ services:
       # inside the compose network the DB host is the service name
       DATABASE_URL: postgresql://${POSTGRES_USER:-health_ai}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/${POSTGRES_DB:-health_ai}
       JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-please-32-chars-min}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
+      # No shipped default: production (APP_ENV=production) refuses to start
+      # without a strong ADMIN_PASSWORD; local dev falls back to the dev default.
+      APP_ENV: ${APP_ENV:-development}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       # AI recommendations stay off unless a key is provided
       AI_RECOMMENDATIONS_ENABLED: ${AI_RECOMMENDATIONS_ENABLED:-false}
       AI_API_KEY: ${AI_API_KEY:-}

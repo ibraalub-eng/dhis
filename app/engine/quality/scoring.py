@@ -3,6 +3,61 @@ from typing import List, Dict, Optional
 from .rules import RuleResult, RuleStatus, Severity
 
 
+# The ONE place the four Quality Score weight names + fallbacks live. Every
+# surface (engine, dashboard KPI recalc, indicator-config recalc, audit tools,
+# score repair) must resolve weights through quality_weights() so they cannot
+# drift apart.
+QUALITY_WEIGHT_KEYS = {
+    "rule_compliance": "quality_rule_compliance",
+    "completeness": "quality_completeness",
+    "consistency": "quality_consistency",
+    "outlier_penalty": "quality_outlier_penalty",
+}
+
+QUALITY_WEIGHT_DEFAULTS = {
+    "rule_compliance": 0.35,
+    "completeness": 0.25,
+    "consistency": 0.25,
+    "outlier_penalty": 0.15,
+}
+
+
+def quality_weights(config: Optional[Dict] = None) -> Dict[str, float]:
+    """Resolve the four Quality Score weights from config.
+
+    `config` is a mapping keyed by the AppConfig keys (e.g. the dict returned
+    by get_config_dict(db, "quality") or {row.key: row.value}). Missing keys
+    fall back to the canonical defaults above."""
+    cfg = config or {}
+    return {
+        name: float(cfg.get(key, QUALITY_WEIGHT_DEFAULTS[name]))
+        for name, key in QUALITY_WEIGHT_KEYS.items()
+    }
+
+
+def combine_quality_score(
+    rule_compliance,
+    completeness,
+    consistency,
+    outlier_penalty,
+    config: Optional[Dict] = None,
+) -> float:
+    """THE single Quality Score formula.
+
+    All four components are on the 0-100 scale, exactly as stored on a
+    QualityScore row. `outlier_penalty` is inverted (a higher penalty lowers
+    the score). Returns the final score on the 0-100 scale.
+    """
+    w = quality_weights(config)
+    raw = (
+        float(rule_compliance or 0) * w["rule_compliance"]
+        + float(completeness or 0) * w["completeness"]
+        + float(consistency or 0) * w["consistency"]
+        + (100.0 - float(outlier_penalty or 0)) * w["outlier_penalty"]
+    )
+    return max(0.0, min(100.0, round(raw, 1)))
+
+
 def compute_completeness(values: Dict[str, float], required_codes, covered_codes=None) -> float:
     """The single completeness formula, DB-free.
 
@@ -30,24 +85,19 @@ def calculate_quality_score(
     covered_codes: Optional[set] = None,
 ) -> Dict:
     cfg = config or {}
-    w_rc = cfg.get("quality_rule_compliance", 0.35)
-    w_cp = cfg.get("quality_completeness", 0.25)
-    w_co = cfg.get("quality_consistency", 0.25)
-    w_op = cfg.get("quality_outlier_penalty", 0.15)
 
     rule_compliance = _calc_rule_compliance(rule_results)
     completeness = compute_completeness(values, required_codes, covered_codes or set())
     consistency = _calc_consistency(rule_results, cfg)
     outlier_penalty = _calc_outlier_penalty(anomaly_results, cfg)
 
-    raw_score = (
-        rule_compliance * w_rc
-        + completeness * w_cp
-        + consistency * w_co
-        + (1.0 - outlier_penalty) * w_op
-    ) * 100
-
-    score = max(0, min(100, round(raw_score, 1)))
+    score = combine_quality_score(
+        rule_compliance * 100,
+        completeness * 100,
+        consistency * 100,
+        outlier_penalty * 100,
+        cfg,
+    )
 
     issues = []
     for r in rule_results:

@@ -86,7 +86,9 @@ ADMIN_PASSWORD=<first admin password>
 ```
 
 - `JWT_SECRET` — set a long random value in any shared/production environment.
-- `ADMIN_PASSWORD` — password for the auto-seeded `admin` user (default `admin123`).
+- `ADMIN_PASSWORD` — password for the auto-seeded `admin` user. **Required in
+  production** (min 12 characters); production refuses to start without it.
+  Leave empty locally to use the development default.
 - The `AI_*` keys are optional; AI recommendations stay off without them.
 
 > Render-style `postgres://` URLs are normalized to `postgresql://` automatically.
@@ -127,7 +129,8 @@ docker compose up -d --build
 ```
 
 Then open **http://localhost:8080** and log in as `admin` (password from
-`ADMIN_PASSWORD`, default `admin123`). Check readiness with
+`ADMIN_PASSWORD`; locally defaults to the development password when unset).
+Check readiness with
 `docker compose ps` (both services `healthy`) and logs with
 `docker compose logs -f app`.
 

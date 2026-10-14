@@ -11,7 +11,7 @@ FastAPI app serving the SPA frontend from `static/` at `/` (dashboard at `/dashb
   ```
   DATABASE_URL=sqlite:///data/health_ai.db
   JWT_SECRET=<any random string>
-  ADMIN_PASSWORD=admin123
+  ADMIN_PASSWORD=<your admin password, or leave unset for the dev default>
   AI_RECOMMENDATIONS_ENABLED=false
   ```
   Leave `AI_API_KEY` unset unless Gemini recommendations are needed.
@@ -24,7 +24,7 @@ FastAPI app serving the SPA frontend from `static/` at `/` (dashboard at `/dashb
 
 - Default port 8000 (matches `START PYTHON.ps1`). If taken, pick a free port and use `--port <n>`.
 - On startup the app runs alembic migrations + seeds config/indicators/rules into `data/health_ai.db` automatically (fresh DB starts empty).
-- Login: `admin` / `admin123` (or whatever `ADMIN_PASSWORD` is set to).
+- Login: `admin` / `ADMIN_PASSWORD` (dev default when unset; production requires a strong password).
 - For live preview (Windows, detached, PowerShell):
   ```powershell
   (Start-Process -FilePath '<checkout>\.venv\Scripts\python.exe' -ArgumentList '-m','uvicorn','app.main:app','--host','127.0.0.1','--port','8000' -WorkingDirectory '<checkout>' -RedirectStandardOutput '<log>.log' -RedirectStandardError '<log>.err' -WindowStyle Hidden -PassThru).Id

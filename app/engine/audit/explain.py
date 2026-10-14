@@ -119,13 +119,16 @@ def _hospital(db: Session, hospital_id: int) -> Optional[Hospital]:
 
 def _quality_config(db: Session) -> dict:
     from app.config_utils import get_config_dict
-    cfg = get_config_dict(db, "quality")
+    from app.engine.quality import quality_weights
+    raw = get_config_dict(db, "quality")
+    w = quality_weights(raw)
     return {
+        "config": raw,
         "weights": {
-            "rule_compliance": float(cfg.get("quality_rule_compliance", 0.35)),
-            "completeness": float(cfg.get("quality_completeness", 0.25)),
-            "consistency": float(cfg.get("quality_consistency", 0.25)),
-            "outlier_score": float(cfg.get("quality_outlier_penalty", 0.15)),
+            "rule_compliance": w["rule_compliance"],
+            "completeness": w["completeness"],
+            "consistency": w["consistency"],
+            "outlier_score": w["outlier_penalty"],
         },
         # Same targets the KPI cards and component-diagnostics use.
         "targets": {"rule_compliance": 85, "completeness": 90, "consistency": 85, "outlier_score": 90},
@@ -308,7 +311,8 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
     cp = float(qs.completeness or 0)
     co = float(qs.consistency or 0)
     op_inv = 100.0 - float(qs.outlier_penalty or 0)
-    expected = round(rc * w["rule_compliance"] + cp * w["completeness"] + co * w["consistency"] + op_inv * w["outlier_score"], 2)
+    from app.engine.quality import combine_quality_score
+    expected = round(combine_quality_score(rc, cp, co, qs.outlier_penalty, cfg["config"]), 2)
     stored = round(float(qs.score), 2)
     verified = abs(expected - stored) <= 0.05
 
