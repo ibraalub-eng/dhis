@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
 from statsmodels.formula.api import ols
@@ -44,7 +45,18 @@ def analyze_residuals(
         if residuals.std() < 1e-10:
             continue
 
-        residual_z = (residuals - residuals.mean()) / residuals.std()
+        # Standardize each residual against the OTHER residuals (leave-one-out),
+        # so a large value cannot inflate the very scale it is measured against.
+        resid_arr = np.asarray(residuals, dtype=float)
+        n_res = len(resid_arr)
+        adj_z = np.zeros(n_res)
+        for pos in range(n_res):
+            others = np.delete(resid_arr, pos)
+            if len(others) < 2 or others.std() < 1e-12:
+                adj_z[pos] = 0.0
+            else:
+                adj_z[pos] = (resid_arr[pos] - others.mean()) / others.std()
+        residual_z = pd.Series(adj_z, index=residuals.index)
 
         for idx in valid.index:
             name = valid.loc[idx, "hospital_name"]

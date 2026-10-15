@@ -65,3 +65,13 @@ def test_too_few_hospitals():
     data = {"H1": {"hospital_id": 1, "governorate": "Gaza", "hospital_type": "general", "values": {"cs_rate": 30.0}}}
     results = analyze_residuals(data, {})
     assert results == []
+
+
+def test_outlier_z_excludes_scored_point(sample_data):
+    results = analyze_residuals(sample_data, {})
+    rows = [r for r in results if r.indicator == "cs_rate"]
+    outlier = next(r for r in rows if r.hospital_name == "Hospital 0")
+    res = np.array([r.residual for r in rows])
+    in_sample_z = (outlier.residual - res.mean()) / res.std()
+    assert abs(outlier.residual_z_score) > abs(in_sample_z)
+    assert outlier.is_anomaly is True
