@@ -149,7 +149,7 @@ def run_clustering(
     else:
         sil_score = 0.0
 
-    pca = PCA(n_components=2)
+    pca = PCA(n_components=2, random_state=42)
     coords = pca.fit_transform(combined)
     pca_coordinates = {}
     for i, name in enumerate(hospital_names):

@@ -94,6 +94,12 @@ def test_clustering_serialization_includes_profiles(sample_data, default_config)
         assert all(isinstance(d, dict) for d in p["distinguishing_features"])
 
 
+def test_pca_coordinates_deterministic(sample_data, default_config):
+    a = run_clustering(sample_data, default_config)
+    b = run_clustering(sample_data, default_config)
+    assert a.pca_coordinates == b.pca_coordinates
+
+
 @pytest.fixture
 def client(db_session):
     from fastapi.testclient import TestClient
