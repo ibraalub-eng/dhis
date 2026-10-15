@@ -1177,6 +1177,7 @@ def component_diagnostics(
     year: str | None = None,
     metric: str | None = None,
     db: Session = Depends(get_db),
+    user=Depends(require_permission("dashboard.read")),
 ):
     """Detailed per-component diagnostics with causes, impact, and monthly history.
     If metric is specified (e.g. completeness, rule_compliance), return only that component."""
@@ -1184,9 +1185,17 @@ def component_diagnostics(
     from app.models import Indicator, IndicatorValue, HospitalIndicatorConfig
     enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
+    # The drilldown must answer the SAME question as the KPI card it was opened
+    # from: same analyzed gate, same disabled-month exclusion, same user
+    # hospital scope. Any filter added here must be added to /dashboard/kpi too
+    # (and vice-versa) or clicking a card explains a number it never showed.
+    user_hosp_ids = get_user_hospital_ids(user, db)
     base = db.query(QualityScore).filter(
         _analyzed_exists(db, QualityScore)
     )
+    base = _exclude_disabled(db, base, QualityScore, hospital_id=hospital_id)
+    if user_hosp_ids is not None:
+        base = base.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
         base = base.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
