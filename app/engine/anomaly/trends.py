@@ -279,7 +279,7 @@ def generate_historical_summary(
         "cross_hospital_outliers": cross_outlier_count,
         "hospital_comparison_flags": len(critical_comparisons),
         "key_findings": [
-            *["\u2191 " + f.finding for t in trends for f in [] if t.findings for f in [t.findings[0]] if t.is_significant][:5],
+            *["\u2191 " + t.findings[0] for t in trends if t.is_significant and t.findings][:5],
             *[f"{a.rate_name}: value={a.value}, benchmark={a.benchmark}, z={a.z_score}" for a in trend_anomalies if a.is_outlier][:3],
             *[f"{c.hospital} {c.rate_name}: {c.comparison_label} ({c.deviation_pct:+.1f}%)" for c in critical_comparisons[:3]],
         ],

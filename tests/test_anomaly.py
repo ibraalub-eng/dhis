@@ -514,3 +514,19 @@ def test_rate_definitions_structure():
         assert isinstance(name, str)
         assert isinstance(num, str)
         assert isinstance(den, str)
+
+
+# ── US-10 Phase 1 remediation ─────────────────────────────────
+
+def test_historical_summary_includes_significant_trend_finding():
+    trends = [TrendResult(
+        hospital="H", indicator_code="5", rate_name="C-section rate",
+        months=["2026-01", "2026-02"], values=[25, 30],
+        mean=27.5, std=2.5, slope=2.5, slope_pct=9.1,
+        trend_direction="increasing", trend_severity="moderate",
+        is_significant=True, cv=9.1, last_vs_mean_pct_change=9.1,
+        consecutive_direction="increasing", consecutive_count=2,
+        findings=["C-section rate shows a increasing trend"],
+    )]
+    summary = generate_historical_summary(trends, [], [], [])
+    assert any(f.startswith("\u2191 ") for f in summary["key_findings"])
