@@ -402,6 +402,25 @@ def test_explain_risk_structure():
     assert all(f["feature"] != "nmr" for f in healthy["factors"])
 
 
+def test_explain_risk_factors_sum_to_score():
+    """شرح الخطر يسرد مكوّنات الدرجة الفعلية فقط (الأشد لكل مجموعة) فمجموعها = الدرجة."""
+    metrics = {"Gaz": {
+        "nmr": 40.0, "mmr": 110.0, "cs_rate": 30.0,
+        "stillbirth_rate": None, "preterm_rate": None,
+        "smm_rate": None, "high_risk_rate": None, "adolescent_rate": None,
+    }}
+    benchmarks = {
+        "nmr": {"mean": 20.0, "std": 5.0},   # z=4 -> mortality=35 (capped)
+        "mmr": {"mean": 100.0},             # dev 10% -> 1.0 (loses to cs_rate)
+        "cs_rate": {"mean": 20.0},          # dev 50% -> 5.0 (worst rate)
+    }
+    risk_scores = [{"governorate": "Gaz", "risk_score": 41.5, "level": "high", "completeness": 90.0}]
+    ex = _explain_risk(metrics, benchmarks, risk_scores)[0]
+    feats = {f["feature"] for f in ex["factors"]}
+    assert "cs_rate" in feats and "mmr" not in feats  # only the worst rate counts
+    assert round(sum(f["contribution"] for f in ex["factors"]), 1) == 41.5
+
+
 def test_run_regional_analysis_includes_new_keys(db_session):
     """التحليل الكامل يتضمن الشذوذ وشرح العوامل."""
     _seed_gov(db_session, "محافظة أ", ["م1 أ", "م2 أ"])

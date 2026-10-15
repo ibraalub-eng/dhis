@@ -360,33 +360,45 @@ def _explain_risk(metrics_by_gov, benchmarks, risk_scores) -> List[Dict[str, Any
                 "observed": round(float(nmr), 3), "benchmark": round(float(mean_v), 3),
             })
 
-        # انحراف معدلات الخطر (0-15 لكل منها)
+        # انحراف معدلات الخطر (0-15): الدرجة تأخذ الأشد فقط، فالكشف يطابق المكوّن
+        best_rate = None
         for metric in ("mmr", "stillbirth_rate", "cs_rate", "preterm_rate"):
             bm_m = benchmarks.get(metric, {})
             mv, bmean = m.get(metric), bm_m.get("mean")
             if mv is not None and bmean and bmean > 0:
                 dev = (mv - bmean) / bmean * 100
                 if dev > 0:
-                    factors.append({
-                        "feature": metric, "arabic_label": METRIC_NAMES_AR[metric],
-                        "contribution": round(min(15.0, dev / 10.0), 1),
-                        "deviation_pct": round(float(dev), 1),
-                        "observed": round(float(mv), 3), "benchmark": round(float(bmean), 3),
-                    })
+                    contrib = min(15.0, dev / 10.0)
+                    if best_rate is None or contrib > best_rate[0]:
+                        best_rate = (contrib, metric, dev, float(mv), float(bmean))
+        if best_rate:
+            contrib, metric, dev, mv_f, bmean_f = best_rate
+            factors.append({
+                "feature": metric, "arabic_label": METRIC_NAMES_AR[metric],
+                "contribution": round(contrib, 1),
+                "deviation_pct": round(dev, 1),
+                "observed": round(mv_f, 3), "benchmark": round(bmean_f, 3),
+            })
 
-        # مؤشرات الخطر السريرية (0-15 لكل منها)
+        # مؤشرات الخطر السريرية (0-15 لكل منها): الأشد فقط
+        best_clin = None
         for metric in ("smm_rate", "high_risk_rate", "adolescent_rate"):
             bm_m = benchmarks.get(metric, {})
             mv, bmean = m.get(metric), bm_m.get("mean")
             if mv is not None and bmean and bmean > 0:
                 dev = (mv - bmean) / bmean * 100
                 if dev > 0:
-                    factors.append({
-                        "feature": metric, "arabic_label": METRIC_NAMES_AR[metric],
-                        "contribution": round(min(15.0, dev / 12.0), 1),
-                        "deviation_pct": round(float(dev), 1),
-                        "observed": round(float(mv), 3), "benchmark": round(float(bmean), 3),
-                    })
+                    contrib = min(15.0, dev / 12.0)
+                    if best_clin is None or contrib > best_clin[0]:
+                        best_clin = (contrib, metric, dev, float(mv), float(bmean))
+        if best_clin:
+            contrib, metric, dev, mv_f, bmean_f = best_clin
+            factors.append({
+                "feature": metric, "arabic_label": METRIC_NAMES_AR[metric],
+                "contribution": round(contrib, 1),
+                "deviation_pct": round(dev, 1),
+                "observed": round(mv_f, 3), "benchmark": round(bmean_f, 3),
+            })
 
         # عقوبة نقص الاكتمال (0-15)
         if completeness is not None:
