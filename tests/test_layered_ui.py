@@ -21,18 +21,28 @@ def test_outliers_table_has_classification_column_before_why():
 
 
 def test_classification_badge_colors_follow_spec():
-    """Spec §10A: red / orange / blue / amber, gray for NORMAL + unmatched."""
+    """Spec §10A colors PLUS one distinct class per type: the original
+    severity-class mapping collapsed CLINICAL/RAW/RATE onto the same amber
+    and HISTORICAL into PEER's blue, so the tags stopped identifying their
+    type at a glance. The .badge-c-* classes (styles.css) give all eight
+    types their own themed pair while keeping §10A's action hues
+    (red = entry error, orange = clinical, amber = volume, blue = peer).
+    """
     js = _read("js", "outliers.js")
     assert "export function classificationBadge" in js
     for type_name, css_class in (
-        ("POSSIBLE_DATA_ENTRY_ERROR", "badge-critical"),
-        ("CLINICAL_INVESTIGATION_REQUIRED", "badge-medium"),
-        ("PEER_ANOMALY", "badge-low"),
-        ("VOLUME_DRIVEN_ANOMALY", "badge-amber"),
+        ("POSSIBLE_DATA_ENTRY_ERROR", "badge-c-entry"),
+        ("CLINICAL_INVESTIGATION_REQUIRED", "badge-c-clinical"),
+        ("PEER_ANOMALY", "badge-c-peer"),
+        ("VOLUME_DRIVEN_ANOMALY", "badge-c-volume"),
+        ("NORMAL", "badge-c-normal"),
+        ("RAW_VALUE_ANOMALY", "badge-c-raw"),
+        ("RATE_ANOMALY", "badge-c-rate"),
+        ("HISTORICAL_ANOMALY", "badge-c-historical"),
     ):
         assert type_name in js, type_name
         assert css_class in js, css_class
-    assert "badge-muted" in js                      # NORMAL / unmatched / other
+    assert "badge-muted" in js                      # unmatched / other only
     assert "layered_type" in js and "layered_interpretation" in js
 
 
@@ -59,6 +69,18 @@ def test_classification_badge_styles_exist():
     css = _read("css", "styles.css")
     assert ".badge-amber" in css
     assert ".badge-muted" in css
+    # One themed pair per classification type (both themes carry overrides).
+    for cls in ("badge-c-normal", "badge-c-raw", "badge-c-rate",
+                "badge-c-historical", "badge-c-clinical", "badge-c-volume",
+                "badge-c-peer", "badge-c-entry"):
+        assert "." + cls in css, cls
+        assert ("[data-theme=dark] ." + cls) in css, cls
+    # One themed pair per classification type (both themes carry overrides).
+    for cls in ("badge-c-normal", "badge-c-raw", "badge-c-rate",
+                "badge-c-historical", "badge-c-clinical", "badge-c-volume",
+                "badge-c-peer", "badge-c-entry"):
+        assert "." + cls in css, cls
+        assert ('[data-theme=dark] .' + cls) in css, cls
 
 
 def test_layered_legend_merged_into_faq_page():

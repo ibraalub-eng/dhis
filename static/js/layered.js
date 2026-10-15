@@ -207,7 +207,6 @@ const _TREND_COLORS_LIGHT = {
     RATE_ANOMALY: '#c2410c',
     HISTORICAL_ANOMALY: '#6d28d9',
 };
-/** Theme-aware classification color: dark on surfaces, dark ink on light. */
 function _typeColor(type) {
     const dark = document.documentElement.getAttribute('data-theme') !== 'light';
     const pal = dark ? _TREND_COLORS : _TREND_COLORS_LIGHT;
@@ -335,7 +334,7 @@ function _renderLayeredHeatmap(body) {
             + __('No layered findings for the selected criteria.') + '</div>';
         return;
     }
-    let html = '<table style="font-size:0.72rem;border-collapse:collapse;width:100%;"><thead><tr>'
+    let html = '<table style="font-size:0.72rem;border-collapse:separate;border-spacing:2px 2px;width:100%;"><thead><tr>'
         + '<th style="padding:0.3rem;text-align:left;position:sticky;left:0;background:var(--bg-surface);z-index:1;">'
         + __('Hospital') + '</th>';
     months.forEach(m => { html += '<th style="padding:0.3rem;text-align:center;min-width:64px;">' + esc(m) + '</th>'; });
@@ -346,15 +345,19 @@ function _renderLayeredHeatmap(body) {
         months.forEach(m => {
             const c = d[m];
             if (!c) {
-                html += '<td style="text-align:center;padding:0.2rem;background:var(--bg-surface);color:var(--text-muted);">·</td>';
+                html += '<td style="text-align:center;padding:0.2rem;background:var(--bg-surface);border-radius:4px;color:var(--text-muted);">·</td>';
                 return;
             }
-            const color = _typeColor(c.type);
+            const dark = document.documentElement.getAttribute('data-theme') !== 'light';
+            // Heat cell fill sits UNDER white text, so the dark theme uses the
+            // bright trend palette while light theme uses _TREND_COLORS_LIGHT
+            // (darker inks); contrast stays #fff-on-safe in both.
+            const color = dark ? (_TREND_COLORS[c.type] || '#6b7280') : (_TREND_COLORS_LIGHT[c.type] || '#9ca3af');
             html += '<td onclick="window._layeredHeatmapClick(' + Number(d.hospital_id) + ',' + JSON.stringify(String(m))
                 + ')" title="' + esc(d.hospital) + ' — ' + esc(m) + ' — '
                 + Object.entries(c.breakdown || {}).map(([t, n]) => t + ':' + n).join(', ')
                 + '" style="text-align:center;padding:0.2rem;background:' + color
-                + ';color:#fff;font-weight:600;cursor:pointer;">' + c.count + '</td>';
+                + ';color:#fff;font-weight:600;cursor:pointer;border-radius:4px;">' + c.count + '</td>';
         });
         html += '</tr>';
     });

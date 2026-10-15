@@ -131,14 +131,18 @@
         // Spec §10A: classification badge colors. Gray covers the unmatched
         // case (no layered row) only; every known type gets its own badge so
         // the 8-class legend (layered-faq page) matches the table verbatim.
+        // Map to the .badge-c-* classes (styles.css) — one distinct color per
+        // type; the old shared severity shades collapsed CLINICAL/RAW/RATE
+        // onto the same amber and hid HISTORICAL inside PEER's blue.
         export function classificationBadge(type, interpretation) {
-            const cls = type === 'POSSIBLE_DATA_ENTRY_ERROR' ? 'badge-critical'
-                : type === 'CLINICAL_INVESTIGATION_REQUIRED' ? 'badge-medium'
-                : type === 'PEER_ANOMALY' ? 'badge-low'
-                : type === 'VOLUME_DRIVEN_ANOMALY' ? 'badge-amber'
-                : type === 'NORMAL' ? 'badge-pass'
-                : type === 'RAW_VALUE_ANOMALY' || type === 'RATE_ANOMALY' ? 'badge-medium'
-                : type === 'HISTORICAL_ANOMALY' ? 'badge-low'
+            const cls = type === 'POSSIBLE_DATA_ENTRY_ERROR' ? 'badge-c-entry'
+                : type === 'CLINICAL_INVESTIGATION_REQUIRED' ? 'badge-c-clinical'
+                : type === 'PEER_ANOMALY' ? 'badge-c-peer'
+                : type === 'VOLUME_DRIVEN_ANOMALY' ? 'badge-c-volume'
+                : type === 'NORMAL' ? 'badge-c-normal'
+                : type === 'RAW_VALUE_ANOMALY' ? 'badge-c-raw'
+                : type === 'RATE_ANOMALY' ? 'badge-c-rate'
+                : type === 'HISTORICAL_ANOMALY' ? 'badge-c-historical'
                 : 'badge-muted';
             const label = type || '--';
             return '<span class="badge ' + cls + '" title="' + esc(interpretation || '') + '">' + esc(label) + '</span>';
