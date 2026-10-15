@@ -12,6 +12,19 @@ from app.engine.smart.xgboost_predictor import _compute_derived_features, ARABIC
 FEATURE_KEYS_SET = set(FEATURE_KEYS)
 
 
+def _fdr_filter_correlations(candidates: List[Dict[str, Any]], q: float = 0.05) -> List[Dict[str, Any]]:
+    """Keep only correlations surviving Benjamini-Hochberg FDR (q).
+
+    The governorate sweep tests every indicator pair, so a fixed p threshold
+    would admit chance findings; BH controls the false-discovery rate.
+    """
+    if not candidates:
+        return []
+    from app.engine.smart.correlations import _bh_significant
+    mask = _bh_significant([c["p_value"] for c in candidates], q=q)
+    return [c for c, keep in zip(candidates, mask) if keep]
+
+
 def _build_governorate_dataframe(all_hospital_data: Dict[str, Any]) -> pd.DataFrame:
     rows = []
     for name, entry in all_hospital_data.items():
@@ -67,6 +80,7 @@ def analyze_governorate_correlations(
     gov_list = list(gov_means.keys())
     indicators = list(FEATURE_KEYS)
 
+    candidates = []
     for ind_a in indicators:
         for ind_b in indicators:
             if ind_a >= ind_b:
@@ -83,8 +97,8 @@ def analyze_governorate_correlations(
                 if np.std(vals_a) > 1e-10 and np.std(vals_b) > 1e-10:
                     from scipy.stats import pearsonr
                     r, p = pearsonr(vals_a, vals_b)
-                    if abs(r) > 0.6 and p < 0.1:
-                        cross_correlations.append({
+                    if abs(r) > 0.6:
+                        candidates.append({
                             "indicator_a": ind_a,
                             "indicator_b": ind_b,
                             "correlation": round(float(r), 4),
@@ -94,6 +108,7 @@ def analyze_governorate_correlations(
                             "direction": "positive" if r > 0 else "negative",
                         })
 
+    cross_correlations = _fdr_filter_correlations(candidates, q=0.05)
     cross_correlations.sort(key=lambda x: abs(x["correlation"]), reverse=True)
 
     heatmap = {}
@@ -159,10 +174,18 @@ def _compute_xgboost_governorate_insights(df: pd.DataFrame, feature_cols: List[s
             if len(gov_vals) > 0:
                 gov_means[gov] = round(float(gov_vals.mean()), 4)
 
+        r2 = float(model.score(X, y))
+        n_samples, n_features = X.shape
+        if n_samples - n_features - 1 > 0:
+            r2_adj = 1 - (1 - r2) * (n_samples - 1) / (n_samples - n_features - 1)
+        else:
+            r2_adj = r2
+
         results[target] = {
             "governorate_impact": [{"governorate": g, "impact": v} for g, v in gov_shap_sorted],
             "governorate_means": gov_means,
-            "model_r2": round(float(model.score(X, y)), 4),
+            "model_r2": round(r2, 4),
+            "model_r2_adj": round(float(r2_adj), 4),
         }
 
     return results
