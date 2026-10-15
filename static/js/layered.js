@@ -324,6 +324,14 @@ function wireLayeredSort() {
 // color is the worst classification present (severity order lives in the
 // /analysis/layered/heatmap endpoint docstring); tooltip = per-type counts.
 // Click = filter the table to that hospital+month.
+// Client-side severity mirror of the endpoint's ordering — used for the
+// month-direction arrow (Δ severity vs the previous month cell) and to
+// highlight each hospital's worst cell of the row.
+const _CELL_SEVERITY = ['NORMAL', 'UNKNOWN', 'HISTORICAL_ANOMALY', 'PEER_ANOMALY',
+    'VOLUME_DRIVEN_ANOMALY', 'RAW_VALUE_ANOMALY', 'RATE_ANOMALY',
+    'CLINICAL_INVESTIGATION_REQUIRED', 'POSSIBLE_DATA_ENTRY_ERROR'];
+const _cellSeverity = t => Math.max(0, _CELL_SEVERITY.indexOf(t));
+
 function _renderLayeredHeatmap(body) {
     const bodyEl = document.getElementById('layeredHeatmapBody');
     if (!bodyEl) return;
@@ -339,10 +347,27 @@ function _renderLayeredHeatmap(body) {
         + __('Hospital') + '</th>';
     months.forEach(m => { html += '<th style="padding:0.3rem;text-align:center;min-width:64px;">' + esc(m) + '</th>'; });
     html += '</tr></thead><tbody>';
+
+    // Pre-pass: severity per existing cell (needed for the row-worst badge
+    // and the previous-month direction arrow without re-parsing the row).
+    const sev = new Map();
+    data.forEach(d => months.forEach(m => {
+        const c = d[m];
+        if (c) sev.set(d.hospital_id + '|' + m, _cellSeverity(c.type));
+    }));
+
     data.forEach(d => {
+        // The row's single worst cell gets a visual priority marker, so a
+        // reviewer can jump straight to that hospital's gravest month
+        // without scanning 8 columns for the darkest tile.
+        let worstMonth = null, worstSev = -1;
+        months.forEach(m => {
+            const s = sev.get(d.hospital_id + '|' + m);
+            if (s !== undefined && s > worstSev) { worstSev = s; worstMonth = m; }
+        });
         html += '<tr><td style="padding:0.2rem 0.4rem;font-weight:600;position:sticky;left:0;background:var(--bg-surface);z-index:1;">'
             + esc(d.hospital) + '</td>';
-        months.forEach(m => {
+        months.forEach((m, mi) => {
             const c = d[m];
             if (!c) {
                 html += '<td style="text-align:center;padding:0.2rem;background:var(--bg-surface);border-radius:4px;color:var(--text-muted);">·</td>';
@@ -353,11 +378,29 @@ function _renderLayeredHeatmap(body) {
             // bright trend palette while light theme uses _TREND_COLORS_LIGHT
             // (darker inks); contrast stays #fff-on-safe in both.
             const color = dark ? (_TREND_COLORS[c.type] || '#6b7280') : (_TREND_COLORS_LIGHT[c.type] || '#9ca3af');
+            // Month direction: compare this cell's severity with the previous
+            // existing month's cell for the same hospital. ▲ = worsened,
+            // ▼ = improved, = unchanged; `na` marks the first month (no
+            // baseline) and never claims a trend it cannot compute.
+            let prevSev = null;
+            for (let pj = mi - 1; pj >= 0; pj--) {
+                const ps = sev.get(d.hospital_id + '|' + months[pj]);
+                if (ps !== undefined) { prevSev = ps; break; }
+            }
+            const s = sev.get(d.hospital_id + '|' + m);
+            const arrow = prevSev === null ? '' : (s > prevSev ? '▲' : (s < prevSev ? '▼' : '='));
+            if (arrow) c._arrow = arrow;
+            const isWorst = (m === worstMonth);
+            const cellStyle = 'text-align:center;padding:0.2rem;background:' + color
+                + ';color:#fff;font-weight:600;cursor:pointer;border-radius:4px;'
+                + (isWorst ? 'box-shadow:0 0 0 2px var(--text-primary,#fff) inset;' : '');
+            const arrowSpan = arrow ? '<span style="opacity:0.85;font-size:0.62rem;margin-inline-start:2px;">' + arrow + '</span>' : '';
+            const worstMark = isWorst ? ' ⚠' : '';
             html += '<td onclick="window._layeredHeatmapClick(' + Number(d.hospital_id) + ',' + JSON.stringify(String(m))
                 + ')" title="' + esc(d.hospital) + ' — ' + esc(m) + ' — '
                 + Object.entries(c.breakdown || {}).map(([t, n]) => t + ':' + n).join(', ')
-                + '" style="text-align:center;padding:0.2rem;background:' + color
-                + ';color:#fff;font-weight:600;cursor:pointer;border-radius:4px;">' + c.count + '</td>';
+                + (isWorst ? ' — ' + __('Worst month for this hospital') : '')
+                + '" style="' + cellStyle + '">' + c.count + worstMark + arrowSpan + '</td>';
         });
         html += '</tr>';
     });

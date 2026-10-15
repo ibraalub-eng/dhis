@@ -396,6 +396,7 @@
             'History': 'التاريخ',
             'Hospital × month heatmap (worst classification)': 'خريطة حرارية مستشفى × شهر (أسوأ تصنيف)',
             'Worst classification per cell; click a cell to filter the table to that hospital and month.': 'أسوأ تصنيف لكل خلية؛ انقر على الخلية لتصفية الجدول إلى ذلك المستشفى والشهر.',
+            'Worst month for this hospital': 'أسوأ شهر لهذا المستشفى — الحلقة ⚠ وحدود داكنة',
             'Raw value (Δ%)': 'القيمة الخام (Δ%)',
             'Rate (Δ%)': 'النسبة (Δ%)',
             'Denominator (Δ%)': 'المقام (Δ%)',
