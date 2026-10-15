@@ -546,3 +546,35 @@ def test_trend_projection_uses_fitted_intercept():
     results = detect_trend_anomalies("TestHosp", monthly)
     cs = [r for r in results if "C-section" in r.rate_name][0]
     assert cs.is_outlier is False
+
+
+def test_compare_hospitals_benchmark_excludes_self():
+    all_data = {
+        "H1": {"2026-04": {"5": 20, "2": 200}},   # 10%
+        "H2": {"2026-04": {"5": 40, "2": 200}},   # 20%
+        "H3": {"2026-04": {"5": 60, "2": 200}},   # 30%
+    }
+    comps = compare_hospitals(all_data, "2026-04")
+    h1 = next(c for c in comps if c.hospital == "H1" and "C-section" in c.rate_name)
+    assert h1.benchmark == 25.0  # mean(20, 30) — excludes self
+
+
+def test_compare_hospitals_percentile_full_tie_is_median():
+    all_data = {f"H{i}": {"2026-04": {"5": 30, "2": 200}} for i in range(3)}
+    comps = compare_hospitals(all_data, "2026-04")
+    cs = [c for c in comps if "C-section" in c.rate_name]
+    assert cs and all(c.percentile_rank == 50.0 for c in cs)
+
+
+def test_compare_hospitals_pvalue_matches_one_sample_ttest():
+    from scipy import stats as _s
+    all_data = {
+        "H1": {"2026-04": {"5": 20, "2": 200}},   # 10%
+        "H2": {"2026-04": {"5": 40, "2": 200}},   # 20%
+        "H3": {"2026-04": {"5": 60, "2": 200}},   # 30%
+        "H4": {"2026-04": {"5": 50, "2": 200}},   # 25%
+    }
+    comps = compare_hospitals(all_data, "2026-04")
+    h1 = next(c for c in comps if c.hospital == "H1" and "C-section" in c.rate_name)
+    expected = round(float(_s.ttest_1samp([20.0, 30.0, 25.0], 10.0).pvalue), 4)
+    assert h1.comparison_p_value == expected

@@ -21,6 +21,18 @@ class HospitalComparison:
     hospital_id: Optional[int] = None
 
 
+def peer_significance(rate: float, other_rates: List[float]) -> Optional[float]:
+    """Two-sided one-sample t-test of the peer rates against this hospital's value.
+
+    Valid for >=2 peers with some spread (unlike a t-test with a single-observation
+    group). Returns None when there is nothing meaningful to test.
+    """
+    if len(other_rates) < 2 or len(set(other_rates)) < 2:
+        return None
+    _, p_val = scipy_stats.ttest_1samp(other_rates, rate)
+    return round(float(p_val), 4)
+
+
 def compare_hospitals(
     all_hospital_data: Dict[str, Dict[str, Dict[str, float]]],
     month: str,
@@ -39,25 +51,22 @@ def compare_hospitals(
             continue
 
         rate_vals = list(rates.values())
-        benchmark = float(np.mean(rate_vals))
-
-        sorted_rates = sorted(rate_vals)
-        n = len(sorted_rates)
 
         for hosp_name, rate in rates.items():
-            rank_idx = sorted_rates.index(rate) if rate in sorted_rates else 0
-            percentile = (rank_idx / (n - 1) * 100) if n > 1 else 50.0
-            deviation = ((rate - benchmark) / benchmark * 100) if benchmark != 0 else 0.0
+            # Benchmark and percentile are peer-relative: the hospital itself is
+            # excluded, matching the audit benchmark screen and anomaly engine.
+            other_rates = [v for h, v in rates.items() if h != hosp_name]
+            benchmark = float(np.mean(other_rates)) if other_rates else float(np.mean(rate_vals))
 
-            if len(rate_vals) >= 3:
-                other_rates = [v for h, v in rates.items() if h != hosp_name]
-                if len(other_rates) >= 2 and len(set(other_rates)) > 1:
-                    _, p_val = scipy_stats.ttest_ind([rate], other_rates, alternative='two-sided')
-                    _p_value = round(float(p_val), 4)
-                else:
-                    _p_value = None
+            if other_rates:
+                below = sum(1 for p in other_rates if p < rate)
+                equal = sum(1 for p in other_rates if p == rate)
+                percentile = round((below + 0.5 * equal) / len(other_rates) * 100, 1)
             else:
-                _p_value = None
+                percentile = 50.0
+
+            deviation = ((rate - benchmark) / benchmark * 100) if benchmark != 0 else 0.0
+            p_value = peer_significance(rate, other_rates) if len(rate_vals) >= 3 else None
 
             if abs(deviation) < 10:
                 label = "normal"
@@ -80,7 +89,7 @@ def compare_hospitals(
                 deviation_pct=round(deviation, 2),
                 percentile_rank=round(percentile, 1),
                 comparison_label=label,
-                comparison_p_value=_p_value,
+                comparison_p_value=p_value,
                 hospital_id=None,
             ))
 

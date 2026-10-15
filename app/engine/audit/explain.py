@@ -1129,17 +1129,10 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
     others = sorted((r for n, r in peer_rates.items() if n != hospital_name), reverse=True)
     n_all = len(peer_rates)
 
-    # p-value exactly as the comparison engine computes it (t-test of the
-    # single hospital rate against the other hospitals' rates).
-    p_value = None
-    if n_all >= 3 and len(others) >= 2 and len(set(others)) > 1:
-        try:
-            from scipy import stats as scipy_stats
-            _, p_value = scipy_stats.ttest_ind([peer_rates[hospital_name]], others,
-                                               alternative="two-sided")
-            p_value = round(float(p_value), 4)
-        except Exception:
-            p_value = None
+    # p-value exactly as the comparison engine computes it (one-sample t-test of
+    # the other hospitals' rates against this hospital's rate).
+    from app.engine.anomaly.comparison import peer_significance
+    p_value = peer_significance(peer_rates[hospital_name], others) if n_all >= 3 else None
 
     ind_names = {}
     if num_code and den_code:
@@ -1160,7 +1153,7 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
         f"|deviation| = {abs(row.deviation_pct):.1f}% — "
         + ("within" if abs(row.deviation_pct) < 10 else "beyond")
         + " the ±10% band around the peer average",
-        f"percentile {row.percentile_rank} of {n_all} hospitals",
+        f"percentile {row.percentile_rank} among {len(others)} peer hospitals",
     ]
     if p_value is not None:
         why_bits.append(f"t-test vs the other {len(others)} hospitals: p = {p_value}")
@@ -1183,14 +1176,14 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
         },
         "why": ". ".join(why_bits) + ".",
         "how": {
-            "formula": "rate = numerator/denominator×100;  benchmark = mean(rate of every hospital computing this rate);  deviation% = (rate − benchmark)/benchmark×100;  percentile = rank/(n−1)×100",
+            "formula": "rate = numerator/denominator×100;  benchmark = mean(rate of the OTHER hospitals, self excluded);  deviation% = (rate − benchmark)/benchmark×100;  percentile = (peers below + 0.5×peers equal)/peers ×100",
             "formula_readable": (
                 (
                     f"{rate_name} = ({num_code} — {ind_names.get(num_code)}) / ({den_code} — {ind_names.get(den_code)}) × 100"
                     if (num_code and den_code and ind_names.get(num_code) and ind_names.get(den_code))
                     else (f"{rate_name} = rate of {hospital_name} this month" if rate_def else rate_name)
                 )
-                + f"; benchmark is the simple mean of the {n_all} hospital rates (this hospital included)"
+                + f"; benchmark is the mean of the other {len(others)} peer hospital rates (this hospital excluded)"
             ),
             "thresholds": {"normal_band": "±10%", "significantly": "±25%", "critically": "±50%"},
             "inputs": (
@@ -1203,13 +1196,13 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
                 {"input": f"Rate — {hospital_name}", "value": round(peer_rates[hospital_name], 2), "role": "this hospital"},
                 *[{"input": f"Rate — {n}", "value": round(r, 2), "role": "peer hospital"}
                   for n, r in sorted(peer_rates.items(), key=lambda kv: -kv[1]) if n != hospital_name],
-                {"input": "Benchmark (mean of rates)", "value": row.benchmark, "role": f"mean of {n_all} hospital rates"},
+                {"input": "Benchmark (mean of peers)", "value": row.benchmark, "role": f"mean of {len(others)} other hospital rates"},
                 {"input": "Deviation %", "value": row.deviation_pct,
                  "role": "(rate − benchmark) / benchmark × 100"},
                 {"input": "Percentile", "value": row.percentile_rank,
-                 "role": "position among the n sorted rates, on a 0-100 scale"},
+                 "role": "peer-relative position, self excluded, on a 0-100 scale"},
                 {"input": "p-value", "value": p_value,
-                 "role": "t-test of this rate vs the other hospitals' rates (n≥3 only; a single-vs-many t-test is indicative, not a robust test)"},
+                 "role": "one-sample t-test of the other hospitals' rates against this rate (n≥3 only; indicative, not a robust test)"},
             ],
         },
         "reproduce": {
