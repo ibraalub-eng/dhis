@@ -14,7 +14,13 @@ FEATURE_KEYS = [
 ]
 
 
-def _prepare_features(all_hospital_data: Dict[str, Any]) -> tuple:
+def _prepare_feature_matrix(all_hospital_data: Dict[str, Any]) -> tuple:
+    """Build the shared feature matrix and its column names.
+
+    Returns (combined, hospital_names, feature_names). Kept separate from
+    `_prepare_features` (which omits the names) so the anomaly detector and the
+    SHAP explainer use byte-identical preprocessing and column ordering.
+    """
     hospital_names = list(all_hospital_data.keys())
     numeric_features = []
     categorical_data = []
@@ -43,6 +49,14 @@ def _prepare_features(all_hospital_data: Dict[str, Any]) -> tuple:
     categorical_encoded = encoder.fit_transform(categorical_data)
 
     combined = np.hstack([numeric_scaled, categorical_encoded])
+    feature_names = list(FEATURE_KEYS) + list(
+        encoder.get_feature_names_out(["governorate", "hospital_type"])
+    )
+    return combined, hospital_names, feature_names
+
+
+def _prepare_features(all_hospital_data: Dict[str, Any]) -> tuple:
+    combined, hospital_names, _feature_names = _prepare_feature_matrix(all_hospital_data)
     return combined, hospital_names
 
 

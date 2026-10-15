@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from app.models import AnalysisCache
+from app.plugins.ai.providers import ai_config_signature
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,10 @@ CACHE_TTL_HOURS = 24
 
 
 def _make_cache_key(prompt: str) -> str:
-    return "ai:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:32]
+    # The provider/model/prompt-schema signature is part of the key so a config
+    # change (reload_ai_config) cannot serve a response produced by another model.
+    payload = f"{ai_config_signature()}\n{prompt}"
+    return "ai:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:32]
 
 
 def get_ai_cache(session: Session, prompt: str) -> str | None:

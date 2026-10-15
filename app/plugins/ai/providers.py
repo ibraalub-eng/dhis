@@ -14,6 +14,21 @@ AI_API_URL = os.getenv("AI_API_URL", "")
 AI_MAX_RECOMMENDATIONS = int(os.getenv("AI_MAX_RECOMMENDATIONS", "8"))
 AI_TIMEOUT = int(os.getenv("AI_TIMEOUT", "30"))
 
+# Bumped when the prompt shape or expected output schema changes, so cached
+# responses generated from an older prompt contract are not reused.
+AI_PROMPT_SCHEMA_VERSION = "1"
+
+
+def ai_config_signature() -> str:
+    """Signature of the active AI provider/model + prompt schema.
+
+    Cache keys embed this so that switching the model/provider (via the admin
+    config API, which mutates these module globals through reload_ai_config)
+    invalidates previously cached output instead of serving it for the TTL.
+    Read at call time — never captured at import — so config reloads take effect.
+    """
+    return f"v{AI_PROMPT_SCHEMA_VERSION}|{AI_PROVIDER}|{AI_MODEL}"
+
 
 def _try_load_db_config():
     global AI_ENABLED, AI_PROVIDER, AI_API_KEY, AI_MODEL, AI_API_URL, AI_MAX_RECOMMENDATIONS, AI_TIMEOUT
@@ -69,6 +84,17 @@ class AIRuleDef:
     description_ar: str = ""
     rationale_ar: str = ""
     action_items_ar: List[str] = field(default_factory=list)
+    # Provenance for audit: "ai" for model output, "local" for a deterministic
+    # rule-based fallback produced when the provider is unavailable/disabled.
+    # Consumers must not present the two as equivalent without this marker.
+    source: str = "ai"
+
+
+def _mark_local(recs: List[AIRuleDef]) -> List[AIRuleDef]:
+    """Tag rule-based fallback output so callers can distinguish it from AI output."""
+    for rec in recs:
+        rec.source = "local"
+    return recs
 
 
 def _call_openai_api(prompt: str) -> Optional[str]:
@@ -296,7 +322,7 @@ def _local_clinical_fallback(values, classifications, risk_profile, morbidity_pr
             indicators_monitored=[],
         ))
 
-    return recs
+    return _mark_local(recs)
 
 
 def _local_executive_summary_fallback(
@@ -524,7 +550,7 @@ def _local_root_cause_fallback(report_data: dict) -> List[AIRuleDef]:
             indicators_monitored=[],
         ))
 
-    return recs
+    return _mark_local(recs)
 
 
 def _local_root_cause_fallback_enhanced(report_data: dict) -> List[AIRuleDef]:
@@ -677,4 +703,4 @@ def _local_root_cause_fallback_enhanced(report_data: dict) -> List[AIRuleDef]:
             indicators_monitored=[],
         ))
 
-    return recs
+    return _mark_local(recs)

@@ -4,6 +4,7 @@ import logging
 from typing import Any, Dict, Optional
 from sqlalchemy.orm import Session
 from app.models import AnalysisCache
+from app.plugins.ai.providers import ai_config_signature
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,11 @@ REPORT_CACHE_PREFIX = "comparative_report_v2:"
 
 
 def _cache_key(month: str, lang: str) -> str:
-    return f"{REPORT_CACHE_PREFIX}{month}:{lang}"
+    # Embed the provider/model signature so a model switch cannot keep serving a
+    # report whose AI narrative was produced by the previous model. The
+    # "{month}:" and prefix "like" patterns used by invalidate_report_cache still
+    # match because the signature is only appended after the month/lang.
+    return f"{REPORT_CACHE_PREFIX}{month}:{lang}:{ai_config_signature()}"
 
 
 def _sanitize(obj: Any) -> Any:

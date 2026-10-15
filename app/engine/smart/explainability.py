@@ -1,12 +1,9 @@
-import numpy as np
 from typing import Dict, Any, List
 import shap
 from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer
 
 from app.engine.smart.schemas import SmartAnomalyResult, AnomalyExplanation, FactorExplanation
-from app.engine.smart.anomaly import FEATURE_KEYS
+from app.engine.smart.anomaly import _prepare_feature_matrix
 
 ARABIC_NAMES = {
     "cs_rate": "معدل العمليات القيصارية",
@@ -109,38 +106,13 @@ def explain_anomalies(
         for s in stratified:
             strat_map[(s.hospital_name, s.indicator)] = s
 
-    hospital_names = list(all_hospital_data.keys())
+    # Reuse the detector's exact preprocessing so the SHAP matrix (and therefore
+    # the attributions) are computed on the same feature space as the model whose
+    # component we explain.
+    combined, hospital_names, feature_names = _prepare_feature_matrix(all_hospital_data)
 
-    numeric_features = []
-    categorical_data = []
-    for name in hospital_names:
-        entry = all_hospital_data[name]
-        values = entry.get("values", {})
-        row = [values.get(k, np.nan) for k in FEATURE_KEYS]
-        numeric_features.append(row)
-        categorical_data.append([
-            entry.get("governorate", "unknown"),
-            entry.get("hospital_type", "unknown"),
-        ])
 
-    numeric_array = np.array(numeric_features, dtype=float)
-    # Columns where EVERY hospital is NaN would make SimpleImputer skip them AND
-    # leave NaN that poisons StandardScaler + SHAP. Zero-fill up-front.
-    numeric_array[:, np.isnan(numeric_array).all(axis=0)] = 0.0
-    imputer = SimpleImputer(strategy="median")
-    numeric_imputed = imputer.fit_transform(numeric_array)
-    scaler = StandardScaler()
-    numeric_scaled = scaler.fit_transform(numeric_imputed)
-
-    encoder = OneHotEncoder(sparse_output=False, handle_unknown="ignore")
-    categorical_encoded = encoder.fit_transform(categorical_data)
-
-    combined = np.hstack([numeric_scaled, categorical_encoded])
-
-    feature_names = list(FEATURE_KEYS)
-    feature_names += list(encoder.get_feature_names_out(["governorate", "hospital_type"]))
-
-    contamination = config.get("contamination", 0.1)
+    contamination = config.get("contamination", 0.05)
     iforest = IsolationForest(contamination=contamination, random_state=42)
     iforest.fit(combined)
 
@@ -203,6 +175,10 @@ def explain_anomalies(
             shap_values=feature_shap,
             top_factors=top_factors,
             text_explanation=text,
+            # Attributions explain the IsolationForest component only; expose its
+            # score so the explanation and the number it describes stay in sync.
+            explained_component="isolation_forest",
+            explained_score=float((outlier.method_scores or {}).get("isolation_forest", 0.0)),
         ))
 
     return explanations

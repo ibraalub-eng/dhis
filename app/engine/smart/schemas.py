@@ -122,6 +122,12 @@ class AnomalyExplanation:
     shap_values: Dict[str, float]
     top_factors: List[FactorExplanation]
     text_explanation: str
+    # Which ensemble component the SHAP attributions describe. SHAP can only
+    # explain a tree model, so `top_factors`/`shap_values` attribute the
+    # IsolationForest component (whose value is `explained_score`), NOT the
+    # combined `anomaly_score`. Kept explicit so the explanation is auditable.
+    explained_component: str = "isolation_forest"
+    explained_score: float = 0.0
 
 
 @dataclass

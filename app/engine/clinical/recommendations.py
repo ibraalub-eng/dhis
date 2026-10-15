@@ -17,6 +17,9 @@ class Recommendation:
     indicators_monitored: List[str] = field(default_factory=list)
     triggered_by_rules: List[str] = field(default_factory=list)
     data_reliable: bool = True
+    # Provenance: "rule" (deterministic engine), "ai" (model), or "local"
+    # (rule-based fallback used when the AI provider is unavailable/disabled).
+    source: str = "rule"
 
 
 RECOMMENDATION_RULES = []
@@ -105,6 +108,7 @@ def generate_recommendations(
                         rationale=a.rationale,
                         action_items=a.action_items,
                         indicators_monitored=a.indicators_monitored,
+                        source=getattr(a, "source", "ai"),
                     ))
                     seen_titles.add(a.title)
         except ImportError:

@@ -60,7 +60,7 @@ def generate(
         return _local_clinical_fallback(values, classifications, risk_profile, morbidity_profile, quality_score)
 
 
-def generate_executive_summary(
+def generate_executive_summary_ex(
     hospital: str,
     month: str,
     values: Dict[str, float],
@@ -77,13 +77,20 @@ def generate_executive_summary(
     risk_profile=None,
     morbidity_profile=None,
     session=None,
-) -> str:
+) -> tuple:
+    """Executive summary plus provenance.
+
+    Returns (text, source) where source is "ai" for model output and "local"
+    for the deterministic fallback, so callers can audit which text was AI.
+    Only genuine model responses are cached, so a cache hit is always "ai".
+    """
     if not AI_ENABLED or not AI_API_KEY:
-        return _local_executive_summary_fallback(
+        text = _local_executive_summary_fallback(
             hospital, month, quality_score, completeness, consistency,
             rule_compliance, outlier_penalty, rule_results, anomaly_results,
             classifications, risk_profile, morbidity_profile,
         )
+        return text, "local"
     prompt = _build_executive_summary_prompt(
         hospital, month, values, quality_score, completeness, consistency,
         rule_compliance, outlier_penalty, rule_results or [],
@@ -94,22 +101,29 @@ def generate_executive_summary(
         try:
             cached = get_ai_cache(session, prompt)
             if cached:
-                return cached
+                return cached, "ai"
         except Exception:
             pass
     response = _call_api(prompt)
     if not response:
-        return _local_executive_summary_fallback(
+        text = _local_executive_summary_fallback(
             hospital, month, quality_score, completeness, consistency,
             rule_compliance, outlier_penalty, rule_results, anomaly_results,
             classifications, risk_profile, morbidity_profile,
         )
+        return text, "local"
     if session is not None:
         try:
             set_ai_cache(session, prompt, response)
         except Exception:
             pass
-    return response.strip()
+    return response.strip(), "ai"
+
+
+def generate_executive_summary(*args, **kwargs) -> str:
+    """Backward-compatible wrapper: returns only the summary text."""
+    text, _source = generate_executive_summary_ex(*args, **kwargs)
+    return text
 
 
 def generate_root_cause_ai(report_data: dict, session=None) -> List[AIRuleDef]:
