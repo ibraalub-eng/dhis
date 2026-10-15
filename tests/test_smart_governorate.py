@@ -1,10 +1,9 @@
 """Tests for governorate analysis: FDR-controlled cross-correlations and adjusted R^2."""
-import numpy as np
 import pandas as pd
 
 from app.engine.smart.governorate_analysis import (
-    _fdr_filter_correlations,
     _compute_xgboost_governorate_insights,
+    _fdr_filter_correlations,
 )
 
 

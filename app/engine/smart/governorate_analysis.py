@@ -22,7 +22,7 @@ def _fdr_filter_correlations(candidates: List[Dict[str, Any]], q: float = 0.05) 
         return []
     from app.engine.smart.correlations import _bh_significant
     mask = _bh_significant([c["p_value"] for c in candidates], q=q)
-    return [c for c, keep in zip(candidates, mask) if keep]
+    return [c for c, keep in zip(candidates, mask, strict=False) if keep]
 
 
 def _build_governorate_dataframe(all_hospital_data: Dict[str, Any]) -> pd.DataFrame:
