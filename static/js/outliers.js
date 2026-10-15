@@ -193,15 +193,14 @@
             const monSel = document.getElementById('outlierMonthFilter');
             const rateSel = document.getElementById('outlierRateFilter');
             const prevHosp = hospSel.value;
-            const hospMap = {};
-            data.forEach(d => { if (d.hospital_id && d.hospital) hospMap[d.hospital_id] = d.hospital; });
-            hospSel.innerHTML = '<option value="">All</option>';
-            Object.entries(hospMap).sort((a, b) => a[1].localeCompare(b[1])).forEach(([id, name]) => {
-                const opt = document.createElement('option');
-                opt.value = id; opt.textContent = name;
-                hospSel.appendChild(opt);
-            });
-            hospSel.value = currentHosp && hospMap[currentHosp] ? currentHosp : (prevHosp && hospMap[prevHosp] ? prevHosp : '');
+            // Hospital options come from /hospitals/ (the full active list),
+            // NOT from the filtered rows: rebuilding from `data` made picking
+            // one hospital shrink the dropdown to just that hospital — every
+            // other option vanished and could never be selected again (the
+            // layered tab fixed this same trap the same way). Fire-and-forget;
+            // rows read the current value independently, so a user without
+            // hospitals.read still gets every outlier row.
+            fillHospitalOptions(hospSel, prevHosp);
             populateSelectOptions(monSel, [...new Set(data.map(d => d.month))], currentMon);
             populateSelectOptions(rateSel, [...new Set(data.map(d => d.rate_name))], currentRate);
             // Render table
@@ -302,6 +301,34 @@
                     }
                 });
             });
+        }
+
+        // Hospital filter options are built from the full active-hospital
+        // list (/hospitals/), never from the filtered response rows. When the
+        // options were rebuilt from `data`, choosing one hospital emptied the
+        // dropdown of every other hospital, with no way back to the full list
+        // except switching the month filter. Mirrors the layered tab's filter
+        // bootstrap (layered.js _initFilters).
+        async function fillHospitalOptions(hospSel, currentVal) {
+            try {
+                const hosps = await apiGet('/hospitals/');
+                const list = Array.isArray(hosps) ? hosps : [];
+                const prevVal = hospSel.value;
+                hospSel.innerHTML = '<option value="">All</option>';
+                list.slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+                    .forEach(h => {
+                        const opt = document.createElement('option');
+                        opt.value = h.id; opt.textContent = h.name;
+                        hospSel.appendChild(opt);
+                    });
+                // Keep whichever selection survives the rebuild (the passed
+                // current value wins; the in-flight select is the fallback).
+                const keep = (currentVal && list.some(h => String(h.id) === String(currentVal)))
+                    ? currentVal : prevVal;
+                hospSel.value = list.some(h => String(h.id) === String(keep)) ? keep : '';
+            } catch (err) {
+                console.warn('Outlier hospital filter failed:', err);
+            }
         }
 
         function populateSelectOptions(sel, values, currentVal) {
