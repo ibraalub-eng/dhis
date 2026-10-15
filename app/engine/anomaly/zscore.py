@@ -113,7 +113,7 @@ def detect_monthly_trend(
             continue
         historical_rates = []
         for month, m_values in historical_months.items():
-            if month == current_month:
+            if month >= current_month:
                 continue
             rate = compute_rate(m_values, num_code, den_code)
             if rate is not None:

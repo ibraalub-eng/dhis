@@ -578,3 +578,15 @@ def test_compare_hospitals_pvalue_matches_one_sample_ttest():
     h1 = next(c for c in comps if c.hospital == "H1" and "C-section" in c.rate_name)
     expected = round(float(_s.ttest_1samp([20.0, 30.0, 25.0], 10.0).pvalue), 4)
     assert h1.comparison_p_value == expected
+
+
+def test_detect_monthly_trend_ignores_future_months():
+    rate_name, num, den, _ = RATE_DEFINITIONS[0]
+    hist = {
+        "2026-03": {num: 20, den: 200},   # 10%
+        "2026-04": {num: 20, den: 200},   # 10%
+        "2026-06": {num: 200, den: 200},  # 100% — AFTER the current month
+    }
+    res = detect_monthly_trend(hist, "2026-05", {num: 30, den: 200}, {"zscore_threshold": 2.5})
+    row = next(r for r in res if r.rate_name == f"{rate_name} (trend)")
+    assert row.benchmark == 10.0  # mean of pre-current months only, not (10+10+100)/3
