@@ -229,15 +229,10 @@ def detect_trend_anomalies(
 
         is_outlier = abs(z) > _TRENDS_CONFIG["zscore_threshold"]
 
-        _mu = float(np.mean(historical_rates[:-1])) if len(historical_rates) > 2 else mean_h
-
-        if abs(z) > _TRENDS_CONFIG["zscore_threshold"]:
-            is_outlier = True
-
         if len(historical_rates) >= 3:
             x = list(range(len(historical_rates)))
-            slope, _, _ = _linear_regression(x, historical_rates)
-            projected = slope * len(historical_rates) + (historical_rates[0] if historical_rates else mean_h)
+            slope, intercept, _ = _linear_regression(x, historical_rates)
+            projected = slope * len(historical_rates) + intercept
             if std_h > 0 and abs(current_rate - projected) > 2 * std_h:
                 is_outlier = True
 

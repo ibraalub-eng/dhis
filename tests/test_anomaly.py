@@ -530,3 +530,19 @@ def test_historical_summary_includes_significant_trend_finding():
     )]
     summary = generate_historical_summary(trends, [], [], [])
     assert any(f.startswith("\u2191 ") for f in summary["key_findings"])
+
+
+def test_trend_projection_uses_fitted_intercept():
+    # history rates [10,10,10,20]; linregress slope=3, intercept=8, std~4.33
+    # current rate 12: |12-(3*4+8)|=8 < 2*std => NOT an outlier.
+    # Buggy code used historical_rates[0]=10 => |12-22|=10 > 2*std => falsely flagged.
+    monthly = {
+        "2026-01": {"5": 20, "2": 200},
+        "2026-02": {"5": 20, "2": 200},
+        "2026-03": {"5": 20, "2": 200},
+        "2026-04": {"5": 40, "2": 200},
+        "2026-05": {"5": 24, "2": 200},
+    }
+    results = detect_trend_anomalies("TestHosp", monthly)
+    cs = [r for r in results if "C-section" in r.rate_name][0]
+    assert cs.is_outlier is False
