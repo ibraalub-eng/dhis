@@ -1942,6 +1942,9 @@ _CHAIN_STEP_NAMES = {
     "impact": "Impact",
     "recommendation": "Recommendation",
     "action": "Action",
+    # aggregate data-origin stages
+    "calculation": "Calculation",
+    "finding": "Finding",
 }
 _RC_NA_REASON = {
     "ar": "\u0644\u0627 \u062a\u0648\u062c\u062f \u0628\u064a\u0627\u0646\u0627\u062a \u0633\u0628\u0628 \u062c\u0630\u0631 \u0645\u062d\u062f\u062f\u0629 \u0644\u0647\u0630\u0647 \u0627\u0644\u0645\u0634\u0643\u0644\u0629",
@@ -2458,7 +2461,7 @@ def _build_aggregate_trail(kind, payload):
     ]
 
 
-def build_explanation(
+def _dispatch_explanation(
     db: Session,
     kind: str,
     hospital_id: Optional[object],         # int hospital id, or a str context for the Comparative Analysis kinds
@@ -2545,3 +2548,48 @@ def build_explanation(
             return {"error": "kind=trend_row requires rate_name"}
         return explain_trend_row(db, hospital_id, rate_name)
     return {"error": f"Unknown explanation kind: {kind!r}"}
+
+
+def _build_trail(db, hid, month, kind, rate_name, rule_code,
+                 indicator_code, component, payload, rc_cache):
+    if kind in _PER_ISSUE_KINDS:
+        return _build_issue_trail(db, hid, month, kind, rate_name, rule_code,
+                                  indicator_code, component, payload, rc_cache)
+    return _build_aggregate_trail(kind, payload)
+
+
+def build_explanation(
+    db: Session,
+    kind: str,
+    hospital_id: Optional[object],
+    month: str,
+    rate_name: Optional[str] = None,
+    indicator_code: Optional[str] = None,
+    rule_code: Optional[str] = None,
+    component: Optional[str] = None,
+    hospital_name: Optional[str] = None,
+) -> dict:
+    """US-11 wrapper: dispatch the base explanation, then attach the unified
+    ``trail`` and extend ``chain`` to 8 stages for per-issue kinds."""
+    payload = _dispatch_explanation(
+        db, kind, hospital_id, month,
+        rate_name=rate_name, indicator_code=indicator_code, rule_code=rule_code,
+        component=component, hospital_name=hospital_name,
+    )
+    if not isinstance(payload, dict) or "error" in payload:
+        return payload
+
+    emitted_kind = payload.get("kind", kind)
+    hid = payload.get("hospital_id")
+    if not isinstance(hid, int):
+        hid = (payload.get("where") or {}).get("hospital_id")
+    if not isinstance(hid, int):
+        hid = hospital_id if isinstance(hospital_id, int) else None
+    resolved_month = payload.get("month", month)
+
+    rc_cache = {}
+    trail = _build_trail(db, hid, resolved_month, emitted_kind, rate_name,
+                         rule_code, indicator_code, component, payload, rc_cache)
+    payload["trail"] = trail
+    payload["chain"] = _chain_from_trail(trail)
+    return payload

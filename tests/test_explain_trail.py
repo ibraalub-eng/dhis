@@ -275,3 +275,88 @@ def test_aggregate_trail_is_four_data_origin_stages():
     assert [s["order"] for s in trail] == [1, 2, 3, 4]
     assert trail[3]["detail"] == "Month average 62 for 2026-04"
     assert trail[0]["deep_link"]["endpoint"].startswith("/audit/")
+
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.models import ConfidenceScore, IndicatorValue, QualityScore
+
+
+@pytest.fixture()
+def client(db_session):
+    from app.main import app
+    yield TestClient(app)
+
+
+def _seed_score(db, month="2026-04", hid=1, score=60.0):
+    db.add(QualityScore(
+        hospital_id=hid, month=month, score=score,
+        rule_compliance=60.0, completeness=50.0, consistency=55.0, outlier_penalty=0.0,
+    ))
+    db.commit()
+
+
+def _add_raw(db, hid, month, value=120):
+    from app.models import Indicator
+    ind = db.query(Indicator).filter(Indicator.code == "2").first()
+    db.add(IndicatorValue(hospital_id=hid, indicator_id=ind.id, month=month,
+                          value=value, source_file="upload.xlsx"))
+    db.commit()
+
+
+def test_quality_score_payload_gains_eight_stage_trail_and_chain(db_session, client):
+    hid = db_session.query(QualityScore).first() or 1
+    hid = 1
+    _add_raw(db_session, hid, "2026-04")
+    _seed_score(db_session, "2026-04", hid)
+    resp = client.get(f"/audit/explain?kind=quality_score&hospital_id={hid}&month=2026-04")
+    assert resp.status_code == 200, resp.text
+    p = resp.json()
+    assert [s["key"] for s in p["trail"]] == [
+        "raw_data", "validation", "issue", "evidence",
+        "root_cause", "impact", "recommendation", "action",
+    ]
+    assert [s["order"] for s in p["trail"]] == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert len(p["chain"]) == 8
+    assert p["chain"][0]["step"] == "Source Data"
+    assert p["chain"][1]["step"] == "Validation"
+    for stage in p["trail"]:
+        assert stage["status"] in ("has_content", "na")
+        assert "ar" in stage and "en" in stage
+
+
+def test_aggregate_kind_gets_four_stage_trail_and_keeps_four_chain(db_session, client):
+    _add_raw(db_session, 1, "2026-04")
+    _seed_score(db_session, "2026-04", 1)
+    resp = client.get("/audit/explain?kind=quality_score&month=2026-04")
+    assert resp.status_code == 200, resp.text
+    p = resp.json()
+    assert p["kind"] == "month_overview"
+    assert [s["key"] for s in p["trail"]] == ["raw_data", "validation", "calculation", "finding"]
+    assert len(p["chain"]) == 4
+    assert any("/audit/" in (n.get("endpoint") or "") for n in p["chain"])
+
+
+def test_trail_stages_5_to_8_are_na_when_root_cause_unavailable(monkeypatch, db_session, client):
+    def boom(*args, **kwargs):
+        raise RuntimeError("no root cause available")
+    monkeypatch.setattr("app.engine.root_cause.generate_root_cause_analysis", boom)
+    _add_raw(db_session, 1, "2026-05")
+    _seed_score(db_session, "2026-05", 1)
+    db_session.add(ConfidenceScore(hospital_id=1, month="2026-05",
+                                   overall_confidence=50.0, level="MEDIUM"))
+    db_session.commit()
+    resp = client.get("/audit/explain?kind=quality_score&hospital_id=1&month=2026-05")
+    assert resp.status_code == 200, resp.text
+    p = resp.json()
+    for stage in p["trail"][4:]:
+        assert stage["status"] == "na"
+        assert stage["na_reason"]["ar"]
+        assert stage["na_reason"]["en"]
+
+
+def test_no_trail_model_or_table_is_introduced():
+    from app import models
+    for name in dir(models):
+        assert "Trail" not in name, f"unexpected model {name}"
