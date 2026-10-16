@@ -57,3 +57,116 @@ def test_chain_from_trail_uses_legacy_step_names_and_english_detail():
     assert chain[2]["step"] == "Issue"
     assert chain[0]["detail"] == "12 indicator values"
     assert chain[0]["key"] == "raw_data"
+
+
+from app.engine.root_cause import (
+    CausalChain,
+    PriorityActionDetail,
+    QualityDriver,
+    RootCauseReport,
+    RuleFailurePattern,
+)
+from app.engine.audit.explain import (
+    _action_from_narrowed,
+    _impact_from_narrowed,
+    _load_root_cause_cached,
+    _narrow_root_cause,
+    _recommendation_from_narrowed,
+)
+
+
+def _sample_report():
+    return RootCauseReport(
+        hospital="General Hospital", hospital_id=1, month="2026-04",
+        overall_quality_score=60.0, overall_confidence=50.0, critical_issues_count=1,
+        top_rule_failures=[RuleFailurePattern(
+            rule_code="R001", rule_description="deliveries total", severity="HIGH",
+            failure_count=3, total_runs=4, failure_rate=75.0,
+            primary_cause="totals mismatch", recommendation="reconcile totals",
+            primary_cause_ar="\u0639\u062f\u0645 \u062a\u0637\u0627\u0628\u0642",
+        )],
+        quality_drivers=[QualityDriver(
+            component="completeness", value=40.0, weight=0.25, impact=15.0,
+            status="needs_improvement", recommendation="improve completeness",
+        )],
+        confidence_gaps=[], anomaly_patterns=[],
+        summary="s", priority_actions=["reconcile totals"],
+        priority_action_details=[PriorityActionDetail(
+            action="Reconcile delivery totals for R001", source="rule",
+            severity="HIGH", impact=12.0, effort=2, roi=6.0,
+        )],
+        causal_chains=[CausalChain(
+            root_cause="R001 failing at 75%", root_cause_arabic="\u0641\u0634\u0644 R001",
+            confidence=0.8, evidence=["e"], affected_factors=["R001"],
+            recommended_action="Repair totals", impact_if_fixed=12.0,
+            implementation_priority="HIGH", chain_path=["R001"],
+            chain_path_arabic="R001",
+        )],
+    )
+
+
+def test_narrow_rule_matches_by_rule_code():
+    n = _narrow_root_cause(_sample_report(), "rule", rule_code="R001")
+    assert n["rule_fail"].rule_code == "R001"
+    assert n["chain"] is not None
+    assert n["general"] is False
+
+
+def test_narrow_quality_score_matches_component_driver():
+    n = _narrow_root_cause(_sample_report(), "quality_score", component="completeness")
+    assert n["qdriver"].component == "completeness"
+    assert n["general"] is False
+
+
+def test_narrow_unknown_falls_back_to_general_chain():
+    n = _narrow_root_cause(_sample_report(), "anomaly", rate_name="No Such Rate")
+    assert n["general"] is True
+    assert n["chain"] is not None  # top chain reused as general context
+
+
+def test_impact_quantified_from_chain():
+    n = _narrow_root_cause(_sample_report(), "rule", rule_code="R001")
+    imp = _impact_from_narrowed(n)
+    assert imp["quantified"] is True
+    assert imp["value"] == 12.0
+    assert imp["unit"] == "quality points"
+
+
+def test_recommendation_prefers_causal_chain():
+    n = _narrow_root_cause(_sample_report(), "rule", rule_code="R001")
+    rec = _recommendation_from_narrowed(n, "rule")
+    assert rec["en"] == "Repair totals"
+    assert rec["source"] == "causal_chain"
+
+
+def test_action_prefers_priority_action_detail():
+    n = _narrow_root_cause(_sample_report(), "rule", rule_code="R001")
+    act = _action_from_narrowed(n, "rule")
+    assert act["en"] == "Reconcile delivery totals for R001"
+    assert act["effort"] == 2 and act["roi"] == 6.0
+
+
+def test_load_root_cause_cached_calls_once(monkeypatch, db_session):
+    from app.engine.audit import explain
+    from app.models import ConfidenceScore, QualityScore
+
+    db_session.add(QualityScore(
+        hospital_id=1, month="2026-04", score=50.0,
+        rule_compliance=50.0, completeness=50.0, consistency=50.0, outlier_penalty=0.0,
+    ))
+    db_session.add(ConfidenceScore(
+        hospital_id=1, month="2026-04", overall_confidence=50.0, level="MEDIUM",
+    ))
+    db_session.commit()
+
+    calls = {"n": 0}
+
+    def fake_generate(session, hid, month, **kwargs):
+        calls["n"] += 1
+        return None
+
+    monkeypatch.setattr("app.engine.root_cause.generate_root_cause_analysis", fake_generate)
+    cache = {}
+    explain._load_root_cause_cached(db_session, 1, "2026-04", cache)
+    explain._load_root_cause_cached(db_session, 1, "2026-04", cache)
+    assert calls["n"] == 1

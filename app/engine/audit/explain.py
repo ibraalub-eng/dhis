@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 
 from app.models import (
     AnomalyResult,
+    ConfidenceScore,
     Hospital,
     Indicator,
     IndicatorValue,
@@ -2031,6 +2032,181 @@ def _chain_from_trail(trail):
             "endpoint": _link_url(st.get("deep_link")),
         })
     return chain
+
+
+def _load_root_cause_cached(db, hid, month, rc_cache):
+    """Load (and cache per (hid, month)) the root-cause report — on demand."""
+    if hid is None or not month:
+        return None
+    key = (hid, month)
+    if key in rc_cache:
+        return rc_cache[key]
+    report = None
+    try:
+        from app.engine.pipeline import run_full_analysis
+        from app.engine.root_cause import generate_root_cause_analysis
+
+        qs = (
+            db.query(QualityScore)
+            .filter(QualityScore.hospital_id == hid, QualityScore.month == month)
+            .first()
+        )
+        cs = (
+            db.query(ConfidenceScore)
+            .filter(ConfidenceScore.hospital_id == hid, ConfidenceScore.month == month)
+            .first()
+        )
+        quality_data = None
+        confidence_data = None
+        if qs:
+            quality_data = {
+                "score": qs.score,
+                "rule_compliance": qs.rule_compliance,
+                "completeness": qs.completeness,
+                "consistency": qs.consistency,
+                "outlier_penalty": qs.outlier_penalty,
+                "issues": json.loads(qs.issues) if qs.issues else [],
+            }
+        if cs:
+            confidence_data = {
+                "overall_confidence": cs.overall_confidence,
+                "level": cs.level,
+                "indicators": json.loads(cs.indicators_data) if cs.indicators_data else [],
+                "by_level": {
+                    "HIGH": cs.high_count, "MEDIUM": cs.medium_count,
+                    "LOW": cs.low_count, "CRITICAL": cs.critical_count,
+                },
+            }
+        if not quality_data or not confidence_data:
+            full = run_full_analysis(db, hid, month)
+            quality_data = quality_data or {
+                "score": full.get("data_quality_score", 0),
+                "rule_compliance": full.get("rule_compliance", 0),
+                "completeness": full.get("completeness", 0),
+                "consistency": full.get("consistency", 0),
+                "outlier_penalty": full.get("outlier_penalty", 0),
+                "issues": full.get("issues", []),
+            }
+            confidence_data = confidence_data or full.get("confidence", {})
+        report = generate_root_cause_analysis(
+            db, hid, month,
+            quality_data=quality_data,
+            confidence_data=confidence_data,
+            include_history=True,
+            compare_peers=False,
+            months_back=6,
+            peer_mode="auto",
+        )
+    except Exception as exc:  # graceful: later stages degrade to N/A
+        logger.warning("trail: root cause failed for %s/%s: %s", hid, month, exc)
+        report = None
+    rc_cache[key] = report
+    return report
+
+
+def _narrow_root_cause(rc_report, kind, rate_name=None, rule_code=None,
+                       indicator_code=None, component=None):
+    """Pick the causal chain / rule failure / quality driver best matching an issue.
+
+    Only narrows when an explicit match key exists; otherwise falls back to the
+    hospital-month summary and flags ``general`` (never invents a link).
+    """
+    result = {"chain": None, "rule_fail": None, "qdriver": None, "paction": None, "general": True}
+    if rc_report is None:
+        return result
+
+    if rule_code:
+        for fail in rc_report.top_rule_failures:
+            if fail.rule_code == rule_code:
+                result["rule_fail"] = fail
+                break
+        for chain in rc_report.causal_chains:
+            factors = set(chain.affected_factors or []) | set(chain.chain_path or [])
+            if rule_code in factors:
+                result["chain"] = chain
+                result["general"] = False
+                break
+
+    if result["chain"] is None and component:
+        for driver in rc_report.quality_drivers:
+            if driver.component == component:
+                result["qdriver"] = driver
+                result["general"] = False
+                break
+
+    token = rate_name or indicator_code
+    if result["chain"] is None and result["qdriver"] is None and token:
+        base = token.replace(" (trend)", "")
+        for pattern in rc_report.anomaly_patterns:
+            if (pattern.rate_name or "").replace(" (trend)", "") == base:
+                result["general"] = False
+                break
+        for driver in rc_report.quality_drivers:
+            if driver.component == token:
+                result["qdriver"] = driver
+                result["general"] = False
+                break
+        for fail in rc_report.top_rule_failures:
+            if token.lower() in (fail.rule_description or "").lower():
+                result["rule_fail"] = fail
+                result["general"] = False
+                break
+
+    if result["chain"] is None and rc_report.causal_chains:
+        result["chain"] = rc_report.causal_chains[0]  # general hospital-month context
+
+    source_pref = {"rule": "rule", "quality_score": "quality",
+                   "time_period_point": "quality", "anomaly": "anomaly",
+                   "layered_outlier": "anomaly"}.get(kind)
+    details = rc_report.priority_action_details or []
+    result["paction"] = (
+        next((p for p in details if p.source == source_pref), None)
+        if source_pref else (details[0] if details else None)
+    )
+    if result["paction"] is None and details:
+        result["paction"] = details[0]
+    return result
+
+
+def _impact_from_narrowed(narrowed):
+    chain = narrowed.get("chain")
+    if chain is not None and getattr(chain, "impact_if_fixed", 0):
+        return {"quantified": True, "value": float(chain.impact_if_fixed),
+                "unit": "quality points",
+                "severity": getattr(chain, "implementation_priority", "") or ""}
+    driver = narrowed.get("qdriver")
+    if driver is not None and getattr(driver, "impact", 0):
+        return {"quantified": True, "value": float(driver.impact),
+                "unit": "quality points", "severity": getattr(driver, "status", "") or ""}
+    fail = narrowed.get("rule_fail")
+    return {"quantified": False, "value": None, "unit": None,
+            "severity": getattr(fail, "severity", "") if fail is not None else ""}
+
+
+def _recommendation_from_narrowed(narrowed, kind):
+    chain = narrowed.get("chain")
+    if chain is not None and getattr(chain, "recommended_action", ""):
+        return {"ar": getattr(chain, "root_cause_arabic", "") or "",
+                "en": chain.recommended_action, "source": "causal_chain"}
+    fail = narrowed.get("rule_fail")
+    if fail is not None and getattr(fail, "recommendation", ""):
+        return {"ar": getattr(fail, "primary_cause_ar", "") or "",
+                "en": fail.recommendation, "source": "rule_failure"}
+    driver = narrowed.get("qdriver")
+    if driver is not None and getattr(driver, "recommendation", ""):
+        return {"ar": "", "en": driver.recommendation, "source": "quality_driver"}
+    return {"ar": "", "en": "", "source": "derived"}
+
+
+def _action_from_narrowed(narrowed, kind):
+    paction = narrowed.get("paction")
+    if paction is not None:
+        return {"ar": "", "en": paction.action, "effort": paction.effort,
+                "roi": paction.roi, "impact": paction.impact, "source": paction.source}
+    rec = _recommendation_from_narrowed(narrowed, kind)
+    en = ("Implement: " + rec["en"]) if rec["en"] else ""
+    return {"ar": rec["ar"], "en": en, "effort": None, "roi": None,
+            "impact": None, "source": "derived"}
 
 
 def build_explanation(
