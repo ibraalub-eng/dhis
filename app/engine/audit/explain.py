@@ -26,8 +26,12 @@ never trusted beyond their own persisted columns).
 """
 
 import json
+import logging
 from collections import Counter
 from typing import Optional
+from urllib.parse import urlencode
+
+logger = logging.getLogger(__name__)
 
 
 def _data_epoch() -> Optional[str]:
@@ -1908,6 +1912,125 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
              "endpoint": f"/analysis/layered?hospital={hospital_id}&month={month}"},
         ],
     }
+
+
+# ─────────────── US-11 unified audit trail (on-demand) ────────────────
+_TRAIL_STAGE_META = {
+    "raw_data": ("\u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0623\u0635\u0644\u064a\u0629", "Raw Data"),
+    "validation": ("\u0627\u0644\u062a\u062d\u0642\u0642", "Validation"),
+    "issue": ("\u0627\u0644\u0645\u0634\u0643\u0644\u0629", "Issue"),
+    "evidence": ("\u0627\u0644\u0623\u062f\u0644\u0629", "Evidence"),
+    "root_cause": ("\u0627\u0644\u0633\u0628\u0628 \u0627\u0644\u062c\u0630\u0631\u064a", "Root Cause"),
+    "impact": ("\u0627\u0644\u0623\u062b\u0631", "Impact"),
+    "recommendation": ("\u0627\u0644\u062a\u0648\u0635\u064a\u0629", "Recommendation"),
+    "action": ("\u0627\u0644\u0625\u062c\u0631\u0627\u0621", "Action"),
+    # aggregate data-origin stages
+    "calculation": ("\u0627\u0644\u062d\u0633\u0627\u0628 / \u0627\u0644\u0645\u0643\u0648\u0651\u0646\u0627\u062a", "Calculation / Constituents"),
+    "finding": ("\u0627\u0644\u0646\u062a\u064a\u062c\u0629", "Finding"),
+}
+_PER_ISSUE_KINDS = {
+    "quality_score", "anomaly", "layered_outlier", "rule",
+    "comparison_row", "trend_row", "time_period_point", "heatmap_cell",
+}
+_CHAIN_STEP_NAMES = {
+    "raw_data": "Source Data",       # legacy name kept for backward compatibility
+    "validation": "Validation",
+    "issue": "Issue",
+    "evidence": "Evidence",
+    "root_cause": "Root Cause",
+    "impact": "Impact",
+    "recommendation": "Recommendation",
+    "action": "Action",
+}
+_RC_NA_REASON = {
+    "ar": "\u0644\u0627 \u062a\u0648\u062c\u062f \u0628\u064a\u0627\u0646\u0627\u062a \u0633\u0628\u0628 \u062c\u0630\u0631 \u0645\u062d\u062f\u062f\u0629 \u0644\u0647\u0630\u0647 \u0627\u0644\u0645\u0634\u0643\u0644\u0629",
+    "en": "No specific root cause data for this issue",
+}
+
+
+def _bilingual(ar, en):
+    return ar if ar == en else {"ar": ar, "en": en}
+
+
+def _na_stage(key, order, ar_label, en_label, ar_reason, en_reason):
+    return {
+        "key": key,
+        "order": order,
+        "ar": ar_label,
+        "en": en_label,
+        "status": "na",
+        "detail": None,
+        "na_reason": {"ar": ar_reason, "en": en_reason},
+    }
+
+
+def _deep_link(endpoint=None, query=None, hash_=None):
+    if not endpoint and not hash_:
+        return None
+    link = {}
+    if endpoint:
+        link["endpoint"] = endpoint
+    if query:
+        link["query"] = {k: v for k, v in query.items() if v is not None}
+    if hash_:
+        link["hash"] = hash_
+    return link
+
+
+def _evidence_item(label_ar, label_en, value, unit=None):
+    item = {"label_ar": label_ar, "label_en": label_en, "value": value}
+    if unit is not None:
+        item["unit"] = unit
+    return item
+
+
+def _stage(key, order, detail_ar, detail_en, status="has_content",
+           na_reason=None, evidence_items=None, deep_link=None, source_engine=None):
+    ar_label, en_label = _TRAIL_STAGE_META.get(key, (key, key))
+    st = {
+        "key": key,
+        "order": order,
+        "ar": ar_label,
+        "en": en_label,
+        "status": status,
+        "detail": _bilingual(detail_ar, detail_en),
+    }
+    if na_reason is not None:
+        st["na_reason"] = na_reason
+    if evidence_items:
+        st["evidence_items"] = evidence_items
+    if deep_link:
+        st["deep_link"] = deep_link
+    if source_engine:
+        st["source_engine"] = source_engine
+    return st
+
+
+def _link_url(link):
+    if not link:
+        return None
+    if link.get("hash"):
+        return link["hash"]
+    endpoint = link.get("endpoint")
+    if not endpoint:
+        return None
+    query = link.get("query") or {}
+    return endpoint + ("?" + urlencode(query) if query else "")
+
+
+def _chain_from_trail(trail):
+    chain = []
+    for st in trail:
+        detail = st.get("detail")
+        detail_str = detail.get("en", "") if isinstance(detail, dict) else (detail or "")
+        chain.append({
+            "step": _CHAIN_STEP_NAMES.get(st.get("key"), st.get("en", st.get("key"))),
+            "detail": detail_str,
+            "key": st.get("key"),
+            "status": st.get("status"),
+            "endpoint": _link_url(st.get("deep_link")),
+        })
+    return chain
 
 
 def build_explanation(
