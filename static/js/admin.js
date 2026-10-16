@@ -818,6 +818,7 @@ window._adminAssignHospitals = function(id, btn) {
       'admin': { label: 'Admin' },
       'settings': { label: 'Settings' },
       'smart-analytics': { label: 'Smart Analytics' },
+      'smart-forecast': { label: 'Smart Forecast' },
     };
     tabIds.forEach(function(tid) {
       var has = role.tab_access[tid];

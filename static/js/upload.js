@@ -291,7 +291,7 @@
                                 // snapshot of reports/data. After an upload, reset them so they
                                 // re-fetch the freshly generated reports, months, and scores.
                                 ['dashboard', 'quality', 'alerts', 'outliers', 'analysis',
-                                 'clinical', 'smart-analytics', 'root-cause', 'indicator-tree'].forEach(function(t) {
+                                 'clinical', 'smart-analytics', 'smart-forecast', 'root-cause', 'indicator-tree'].forEach(function(t) {
                                     _tabInited.delete(t);
                                 });
                                 switchTab('dashboard');

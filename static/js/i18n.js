@@ -862,6 +862,17 @@
 
             // Smart Analytics screen (spec redesign)
             'Smart Analytics': 'التحليل الذكي',
+            'Smart Forecast': 'التنبؤ الذكي',
+            'Forecast first, act early': 'تنبؤ أولاً، تدخّل مبكراً',
+            'Hospital forecast': 'تنبؤ مستشفى',
+            'Leading indicators and expected trend': 'المؤشرات القيادية والاتجاه المتوقع',
+            'Leading indicators rising this month': 'مؤشرات قيادية صاعدة هذا الشهر',
+            'Outcome indicators are rising too': 'مؤشرات النتائج ترتفع هي الأخرى',
+            'Probability': 'الاحتمال',
+            'Previous': 'الشهر السابق',
+            'Change': 'التغير',
+            'Leads to': 'يتوقع أن يسبق',
+            'Expected score per month': 'الدرجة المتوقعة شهرياً',
             'Decision first, analysis second': 'قرار أولاً، تحليل ثانياً',
             'Monthly': 'شهري',
             'Time': 'زمني',

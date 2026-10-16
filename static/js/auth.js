@@ -492,6 +492,7 @@
     'tab-alerts': 'alerts.read',
     'tab-hospitals': 'hospitals.read',
     'tab-smart-analytics': 'smart_analytics.read',
+    'tab-smart-forecast': 'smart_analytics.read',
     'tab-rules': 'rules.read',
     'tab-root-cause': 'root_cause.read',
     'tab-audit': 'audit.read',

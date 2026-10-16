@@ -55,8 +55,7 @@ export async function loadHospitalMode(hospitalId, months) {
     renderHospitalIndicators(drill.indicators || []);
     renderHospitalPeers(drill.peer_comparison || {}, drill.anomaly);
     renderHospitalLagTimeline(drill.lag_analysis || {}, drill.indicators || []);
-    const forecast = drill.forecast || {};
-    renderHospitalForecast(forecast);
+    // تنبؤ المستشفى المنفرد انتقل إلى شاشة التنبؤ الذكي (smart-forecast)
     renderHospitalFactors(drill.anomaly, drill.explanation);
   } catch (e) {
     showSmartSectionError('hospital', e.message);
@@ -303,14 +302,59 @@ export function renderTrend(trend) {
 export function renderHospitalForecast(forecast) {
   const c = document.getElementById('smart-hospital-forecast');
   if (!c) return;
-  const forecasts = forecast.forecasts || forecast.forecast || [];
-  if (!forecasts.length) { c.innerHTML = `<div class="smart-empty-state">${_t('No forecast available')}</div>`; return; }
-  c.innerHTML = `<div class="smart-table-wrap"><table><thead><tr>
-    <th>${_t('Month')}</th><th>${_t('Predicted score')}</th><th>${_t('Range')}</th></tr></thead><tbody>` +
-    forecasts.map(f => `<tr><td>${_smartEscapeHtml(f.month)}</td>
-      <td>${_fmtNum(f.prediction, 3)}</td>
-      <td style="font-size:0.75rem;">${_fmtNum(f.lower, 3)} – ${_fmtNum(f.upper, 3)}</td></tr>`).join('') +
-    `</tbody></table></div>`;
+  const f = forecast || {};
+  const forecasts = f.forecasts || f.forecast || [];
+  if (!f.hospital_name && !forecasts.length) {
+    c.innerHTML = `<div class="smart-empty-state">${_t('No forecast available')}</div>`;
+    return;
+  }
+  // ملخص الخطورة + المؤشرات القيادية الصاعدة — هو ما يعيده run_hospital_forecast فعلياً
+  const sev = f.severity || 'none';
+  const sevCls = sev === 'critical' ? 'smart-badge smart-badge-critical'
+    : sev === 'warning' ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-normal';
+  const sevLabel = _t(sev === 'critical' ? 'critical' : sev === 'warning' ? 'warning' : 'normal');
+  let html = `<div class="smart-empty-state" style="margin-bottom:0.6rem;">
+    <div style="font-weight:600;">${_smartEscapeHtml(f.hospital_name || '')} · ${_smartEscapeHtml(f.month || '')}</div>
+    <div style="font-size:0.78rem;margin-top:0.25rem;">
+      <span class="${sevCls}">${_smartEscapeHtml(sevLabel)}</span>
+      ${_t('Score')}: ${_fmtNum(f.score, 2)} · ${_t('Probability')}: ${Math.round((f.probability || 0) * 100)}% · ${_t('Confidence')}: ${_smartEscapeHtml(f.confidence_label_ar || f.confidence || '—')}
+    </div>
+  </div>`;
+  const rising = f.leading_rising || [];
+  if (rising.length) {
+    html += `<div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.3rem;">📈 ${_t('Leading indicators rising this month')}</div>
+    <div class="smart-table-wrap"><table><thead><tr>
+      <th>${_t('Indicator')}</th><th>${_t('Current')}</th><th>${_t('Previous')}</th><th>${_t('Change')}</th>
+      <th>${_t('Weight')}</th><th>${_t('Leads to')}</th></tr></thead><tbody>` +
+      rising.map(r => {
+        const leads = (r.leads_to || []).map(l =>
+          `${l.outcome_ar || l.outcome || ''}${l.lag_word ? ' (' + l.lag_word + ')' : ''}`).join('، ');
+        return `<tr>
+          <td>${_smartEscapeHtml(r.metric_ar || r.metric)}</td>
+          <td style="text-align:center;">${_fmtNum(r.current, 2)}</td>
+          <td style="text-align:center;">${_fmtNum(r.previous, 2)}</td>
+          <td style="text-align:center;color:var(--accent-red);">${r.delta_pct != null ? '↑ ' + r.delta_pct + '%' : '—'}</td>
+          <td style="text-align:center;">${_fmtNum(r.weight, 2)}</td>
+          <td style="font-size:0.75rem;">${_smartEscapeHtml(leads || '—')}</td>
+        </tr>`;
+      }).join('') + `</tbody></table></div>`;
+  }
+  if (f.outcome_rising) {
+    html += `<div style="font-size:0.8rem;color:var(--accent-red);margin-top:0.4rem;">⚠️ ${_t('Outcome indicators are rising too')}</div>`;
+  }
+  if (forecasts.length) {
+    html += `<div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin:0.5rem 0 0.3rem;">🗓️ ${_t('Expected score per month')}</div>
+    <div class="smart-table-wrap"><table><thead><tr>
+      <th>${_t('Month')}</th><th>${_t('Predicted score')}</th><th>${_t('Range')}</th></tr></thead><tbody>` +
+      forecasts.map(fm => `<tr><td>${_smartEscapeHtml(fm.month)}</td>
+        <td>${_fmtNum(fm.prediction, 3)}</td>
+        <td style="font-size:0.75rem;">${_fmtNum(fm.lower, 3)} – ${_fmtNum(fm.upper, 3)}</td></tr>`).join('') +
+        `</tbody></table></div>`;
+  }
+  if (f.note_ar) {
+    html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem;">${_smartEscapeHtml(f.note_ar)}</div>`;
+  }
+  c.innerHTML = html;
 }
 
 function renderHospitalIndicators(indicators) {

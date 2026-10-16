@@ -10,6 +10,7 @@ TAB_REGISTRY = OrderedDict([
     ("analysis",        {"label": "Hospital Comparisons", "icon": "📈", "permission": "analysis.read"}),
     ("root-cause",      {"label": "Root Cause",           "icon": "🔍", "permission": "root_cause.read"}),
     ("smart-analytics", {"label": "Smart Analytics",      "icon": "🛡️", "permission": "smart_analytics.read"}),
+    ("smart-forecast",  {"label": "Smart Forecast",       "icon": "🔮", "permission": "smart_analytics.read"}),
     ("quality",         {"label": "Quality Reports",      "icon": "✅", "permission": "quality.read"}),
     ("clinical",        {"label": "Clinical Intelligence","icon": "🏥", "permission": "clinical.read"}),
     ("outliers",        {"label": "Outlier Scan",          "icon": "⚠️", "permission": "outliers.read"}),
@@ -24,7 +25,7 @@ TAB_REGISTRY = OrderedDict([
 DEFAULT_GROUPS = [
     {"name": "Home",      "icon": "🏠", "items": ["dashboard"]},
     {"name": "Data",      "icon": "📊", "items": ["upload", "indicator-tree", "indicator-groups", "rules-manager"]},
-    {"name": "Analysis",  "icon": "📈", "items": ["analysis", "smart-analytics", "clinical", "root-cause"]},
+    {"name": "Analysis",  "icon": "📈", "items": ["analysis", "smart-analytics", "smart-forecast", "clinical", "root-cause"]},
     {"name": "Oversight", "icon": "🛡️", "items": ["quality", "outliers", "layered", "alerts", "audit"]},
     {"name": "System",    "icon": "⚙️", "items": ["admin", "guides", "settings"]},
 ]

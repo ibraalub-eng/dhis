@@ -150,45 +150,6 @@
       </div>
     </div>
 
-    <div class="smart-section-card">
-      <div class="smart-section-header" data-smart-collapsible="smart-forecast-section">
-        <span>🔮 <span data-i18n="Forecasts">التنبؤات</span> — <span data-i18n="XGBoost and walk-forward">XGBoost والتحقق الزمني</span></span>
-        <span class="smart-toggle-icon">▾</span>
-      </div>
-      <div id="smart-forecast-section" class="smart-section-body">
-        <div class="smart-loader" data-smart-loader="xgboost"><span data-i18n="Computing...">جاري المعالجة...</span></div>
-        <div class="smart-error-banner" data-smart-error="xgboost" role="alert"></div>
-        <div class="smart-empty-state" data-smart-empty="xgboost"></div>
-        <div style="display:flex;align-items:center;gap:0.6rem;margin:0.4rem 0 0.8rem;flex-wrap:wrap;">
-          <label for="smart-horizon-select" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Forecast horizon">أفق التنبؤ</span></label>
-          <select id="smart-horizon-select" class="smart-select" style="max-width:180px;">
-            <option value="1" data-i18n="Next month (m+1)">الشهر التالي (m+1)</option>
-            <option value="3" data-i18n="Within 3 months">خلال 3 أشهر</option>
-            <option value="6" data-i18n="Within 6 months">خلال 6 أشهر</option>
-            <option value="9" data-i18n="Within 9 months">خلال 9 أشهر</option>
-            <option value="12" data-i18n="Within 12 months">خلال 12 شهراً</option>
-          </select>
-        </div>
-        <div id="smart-xgboost-predictions"></div>
-        <div id="smart-forecast-timeline" style="min-height:280px;"></div>
-        <div id="smart-forecast-accuracy"></div>
-        <div id="smart-forecast-tracking"></div>
-        <div id="smart-forecast-signals"></div>
-        <div id="smart-indicator-forecast">
-          <div style="display:flex;align-items:center;gap:0.6rem;margin:0.6rem 0 0.5rem;flex-wrap:wrap;">
-            <label for="smart-indicator-select" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Indicator forecast">تنبؤ مؤشر</span></label>
-            <select id="smart-indicator-select" class="smart-select" style="max-width:220px;"></select>
-            <label for="smart-indicator-hospitals" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Select hospitals to forecast">اختر المستشفيات (متعدد)</span></label>
-            <select id="smart-indicator-hospitals" class="smart-select" multiple size="4" style="min-width:240px;max-width:320px;"></select>
-            <button id="smart-indicator-forecast-run" class="btn btn-sm" data-i18n="Forecast">تنبؤ</button>
-          </div>
-          <div id="smart-indicator-forecast-output"></div>
-        </div>
-        <div id="smart-walk-forward" style="min-height:220px;"></div>
-        <div id="smart-predicted-scatter" style="height:260px;"></div>
-      </div>
-    </div>
-
     <!-- Report output (kept for backward compatibility) -->
     <div id="smart-report-section" style="display:none;margin-top:1.2rem;">
       <h3 style="color:var(--accent-blue);font-size:1rem;">📋 <span data-i18n="Comprehensive Report">التقرير الشامل</span></h3>
@@ -297,10 +258,6 @@
 
     <!-- Peer Comparison -->
     <div id="smart-hospital-peers" style="margin-bottom:1rem;"></div>
-
-    <!-- Forecast -->
-    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">🔮 <span data-i18n="Forecast">التنبؤ</span></div>
-    <div id="smart-hospital-forecast" style="margin-bottom:1rem;"></div>
 
     <!-- Lag Relationships Timeline -->
     <div id="smart-hospital-lag" style="margin-bottom:1rem;"></div>

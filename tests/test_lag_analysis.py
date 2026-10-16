@@ -315,9 +315,9 @@ def test_drilldown_returns_complete_forecast(client, db_session):
 
 
 def test_drilldown_forecast_container_in_html():
-    """واجهة لوحة المستشفى تتضمن حاوية عرض توقعات الشهر القادم."""
+    """حاوية تنبؤ المستشفى المنفرد انتقلت إلى شاشة التنبؤ الذكي."""
     path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs",
-                        "smart-analytics.html")
+                        "smart-forecast.html")
     with open(path, encoding="utf-8") as fh:
         html = fh.read()
     assert "smart-hospital-forecast" in html

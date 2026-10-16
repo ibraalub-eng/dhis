@@ -145,6 +145,7 @@ function _renderFallback() {
         {id:'fb-3', name:'Analysis', icon:'📈', items:[
             {tab_key:'analysis', label:'Hospital Comparisons', icon:'📈', permission:'analysis.read'},
             {tab_key:'smart-analytics', label:'Smart Analytics', icon:'🛡️', permission:'smart_analytics.read'},
+            {tab_key:'smart-forecast', label:'Smart Forecast', icon:'🔮', permission:'smart_analytics.read'},
             {tab_key:'clinical', label:'Clinical Intelligence', icon:'🏥', permission:'clinical.read'},
             {tab_key:'root-cause', label:'Root Cause', icon:'🔍', permission:'root_cause.read'},
         ]},

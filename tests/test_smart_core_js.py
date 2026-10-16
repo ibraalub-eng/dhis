@@ -244,7 +244,7 @@ def test_indicator_forecast_section_wired_end_to_end():
     """المرحلة 4: تنبؤ مؤشر واحد لعدة مستشفيات — حاوية HTML، اختيار مؤشر +
     متعدد مستشفيات، endpoint بمعطيات معرّفات المستشفيات، وإخلاء مسؤولية إحصائي."""
     import os
-    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-forecast.html")
     with open(html_path, encoding="utf-8") as f:
         html = f.read()
     assert "smart-indicator-select" in html
@@ -311,7 +311,7 @@ def test_indicator_forecast_renders_ownership_and_size_peers():
 def test_horizon_select_wired_in_tab_and_init():
     """مُختار الأفق موجود في HTML وملفوف بالتهيئة ويعيد تحميل التبويب."""
     import os
-    tab_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    tab_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-forecast.html")
     with open(tab_path, encoding="utf-8") as f:
         html = f.read()
     assert "smart-horizon-select" in html
@@ -320,7 +320,7 @@ def test_horizon_select_wired_in_tab_and_init():
     assert "smart-forecast-timeline" in html
     assert "smart-forecast-accuracy" in html
 
-    entry_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-analytics.js")
+    entry_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart-forecast.js")
     with open(entry_path, encoding="utf-8") as f:
         entry = f.read()
     assert "initHorizonSelect" in entry
@@ -329,13 +329,13 @@ def test_horizon_select_wired_in_tab_and_init():
     with open(adv_path, encoding="utf-8") as f:
         adv = f.read()
     assert "smart-horizon-select" in adv
-    assert "loadXGBoostTab(smartState.month)" in adv
+    assert "loadXGBoostTab(_forecastMonth || smartState.month)" in adv
 
 
 def test_forecast_signals_section_rendered():
     """المرحلة 2: قسم إشارات الإنذار المبكر — حاوية HTML ورسّام JS ونقطة نهاية."""
     import os
-    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-analytics.html")
+    html_path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "smart-forecast.html")
     with open(html_path, encoding="utf-8") as f:
         html = f.read()
     assert "smart-forecast-signals" in html
@@ -672,7 +672,7 @@ def test_extended_horizons_available_and_translated():
     """الآفاق الممتدة (9/12) متاحة في المُختار ومترجمة ومقبولة في endpoints الثلاثة."""
     import os
     base = os.path.join(os.path.dirname(__file__), "..")
-    with open(os.path.join(base, "static", "tabs", "smart-analytics.html"), encoding="utf-8") as f:
+    with open(os.path.join(base, "static", "tabs", "smart-forecast.html"), encoding="utf-8") as f:
         html = f.read()
     assert '<option value="9"' in html and '<option value="12"' in html
     assert 'data-i18n="Within 9 months"' in html

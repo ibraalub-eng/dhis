@@ -6,7 +6,7 @@ import { smartState, apiSmartGet, smartShowLoading, smartHideLoading,
          registerSectionLoaders, initSectionObserver, reloadSmartSections,
          trapFocus } from './smart/core.js';
 import { loadDecisionBoard, renderKPIs, renderCriticalList, renderEarlyWarnings, renderHealthyHospitals } from './smart/decision-board.js';
-import { initAdvancedTabs, loadAdvancedSection, loadClustersTab, loadCorrelationsTab,          loadPatternsTab, loadXGBoostTab, loadFeatureImportanceTab, initHorizonSelect } from './smart/advanced.js';
+import { initAdvancedTabs, loadAdvancedSection, loadClustersTab, loadCorrelationsTab,          loadPatternsTab, loadFeatureImportanceTab } from './smart/advanced.js';
 import { renderPlot } from './smart/charts.js';
 import { loadGeoSection } from './smart/geo-regional.js';
 import { initHospitalSelect, loadHospitalMode, openDrilldown, goRootCause } from './smart/hospital.js';
@@ -52,7 +52,7 @@ async function onMonthChange(month) {
   document.getElementById('smart-kpi-container').innerHTML = '';
   document.getElementById('smart-anomaly-table').innerHTML = '';
   // Clear stale empty/error banners from the previous month
-  ['anomalies', 'geo', 'advanced', 'xgboost', 'timeline', 'time-overview', 'hospital', 'comparison'].forEach(clearSmartSectionState);
+  ['anomalies', 'geo', 'advanced', 'timeline', 'time-overview', 'hospital', 'comparison'].forEach(clearSmartSectionState);
   // Fire decision board + section loaders in parallel instead of awaiting
   // the decision board first — the 7-engine pipeline runs on the first
   // request for a month; sections can start fetching immediately.
@@ -65,7 +65,6 @@ registerSectionLoaders({
   anomalies: { load: () => loadAnomaliesTable(smartState.month) },
   geo: { load: () => loadGeoSection(smartState.month) },
   advanced: { load: () => loadAdvancedSection(smartState.month) },
-  xgboost: { load: () => loadXGBoostTab(smartState.month) },
   timeline: { load: () => loadTimeline() },
   'time-overview': { load: () => loadTimeOverview() },
   hospital: { load: () => { const v = getSelectedHospital(); return v ? loadHospitalMode(v, null) : Promise.resolve(); } },
@@ -217,7 +216,11 @@ function wireScreen() {
   });
 
   // ---- collapsible headers ----
+  // Guarded per element: the smart-forecast screen binds its own headers too,
+  // and a second listener would toggle the same card twice per click.
   document.querySelectorAll('[data-smart-collapsible]').forEach(header => {
+    if (header.dataset.smartWired) return;
+    header.dataset.smartWired = '1';
     header.addEventListener('click', () => toggleSmartSection(header));
   });
 
@@ -265,7 +268,6 @@ function wireScreen() {
   });
   initComparisonSelect();
   initAdvancedTabs();
-  initHorizonSelect();
 }
 
 // ---- error banner retry (spec 5): clicking an active error banner reloads its section ----
@@ -273,7 +275,6 @@ const _retryLoaders = {
   anomalies: () => loadAnomaliesTable(smartState.month),
   geo: () => loadGeoSection(smartState.month),
   advanced: () => loadAdvancedSection(smartState.month),
-  xgboost: () => loadXGBoostTab(smartState.month),
   timeline: () => loadTimeline(),
   'time-overview': () => loadTimeOverview(),
   hospital: () => { const v = getSelectedHospital(); return v ? loadHospitalMode(v, null) : Promise.resolve(); },
@@ -306,7 +307,7 @@ function initSmartAnalytics() {
   // Safety net: force-hide all smart loaders after 8 seconds so they never
   // get stuck visible, even if a section loader's promise chain breaks.
   setTimeout(() => {
-    ['anomalies','geo','advanced','xgboost','timeline','time-overview','hospital'].forEach(k => {
+    ['anomalies','geo','advanced','timeline','time-overview','hospital'].forEach(k => {
       setSmartLoader(k, false);
     });
   }, 8000);

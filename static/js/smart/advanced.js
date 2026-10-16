@@ -126,7 +126,15 @@ export function loadPatternsTab(month) {
   });
 }
 
+// Month currently shown on the Smart Forecast screen. The horizon change and
+// the per-indicator forecast are wired here (outside smartState), so they must
+// reuse the month this screen is actually displaying.
+let _forecastMonth = null;
+
+export function getForecastMonth() { return _forecastMonth; }
+
 export function loadXGBoostTab(month) {
+  if (month) _forecastMonth = month;
   const horizon = document.getElementById('smart-horizon-select')?.value || '1';
   return Promise.all([
     fetchSection(`/smart/xgboost/${month}?horizon=${horizon}`, 'xgboost'),
@@ -209,7 +217,7 @@ export function initHorizonSelect() {
   const sel = document.getElementById('smart-horizon-select');
   if (!sel || sel.dataset.bound) return;
   sel.dataset.bound = '1';
-  sel.addEventListener('change', () => loadXGBoostTab(smartState.month));
+  sel.addEventListener('change', () => loadXGBoostTab(_forecastMonth || smartState.month));
 }
 
 // ── تنبؤ مؤشر واحد لعدة مستشفيات يختارها المستخدم (المرحلة 4) ──
@@ -252,7 +260,7 @@ export async function initIndicatorForecast() {
       if (!out) return;
       if (!indicator) { out.innerHTML = `<div class="smart-empty-state">${_t('Select an indicator')}</div>`; return; }
       if (!ids.length) { out.innerHTML = `<div class="smart-empty-state">${_t('Select at least one hospital')}</div>`; return; }
-      const month = smartState.month;
+      const month = _forecastMonth || smartState.month;
       if (!month) return;
       out.innerHTML = `<div class="smart-empty-state">${_t('Computing...')}</div>`;
       apiSmartGet(`/smart/indicator-forecast/${month}?indicator=${encodeURIComponent(indicator)}&hospital_ids=${ids.join(',')}&horizon=${horizon}`)
@@ -540,7 +548,7 @@ export function loadAdvancedSection(month) {
   if (tab === 'corr-tab') return loadCorrelationsTab(month);
   if (tab === 'patterns-tab') return loadPatternsTab(month);
   if (tab === 'fi-tab') return loadFeatureImportanceTab(month);
-  return loadXGBoostTab(month);
+  return loadClustersTab(month);
 }
 
 export function renderClusterScatter(points, labels, features) {
