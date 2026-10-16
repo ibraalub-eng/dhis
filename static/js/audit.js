@@ -1,5 +1,5 @@
 import { API, apiGet } from './api.js';
-import { __ } from './i18n.js';
+import { __, currentLang } from './i18n.js';
 import { esc } from './tree.js';
 import { toastWarning } from './toast.js';
 
@@ -614,6 +614,125 @@ export function downloadAuditJSON() {
     a.download = 'audit-report-' + (meta.hid || 'x') + '-' + (meta.month || 'na') + '.json';
     a.click();
     URL.revokeObjectURL(url);
+}
+
+// ── US-11 Audit Trail view (deep-linked from the Why popup) ──────────
+function _trailQuery(opts) {
+    const params = new URLSearchParams();
+    if (opts.kind) params.set('kind', opts.kind);
+    if (opts.hospitalId !== undefined && opts.hospitalId !== null) params.set('hospital_id', String(opts.hospitalId));
+    if (opts.month) params.set('month', opts.month);
+    if (opts.rateName) params.set('rate_name', opts.rateName);
+    if (opts.indicatorCode) params.set('indicator_code', opts.indicatorCode);
+    if (opts.ruleCode) params.set('rule_code', opts.ruleCode);
+    if (opts.component) params.set('component', opts.component);
+    return params.toString();
+}
+
+function _trailLinkUrl(link) {
+    if (!link) return null;
+    if (link.hash) return link.hash;
+    if (!link.endpoint) return null;
+    const q = link.query ? new URLSearchParams(link.query).toString() : '';
+    return link.endpoint + (q ? '?' + q : '');
+}
+
+function _renderTrail(payload) {
+    const container = document.getElementById('auditResults');
+    if (!container) return;
+    const isAr = currentLang === 'ar';
+    const trail = payload.trail || [];
+    let html = '<div class="card" data-audit-trail style="margin-bottom:0.8rem;padding:0.7rem 0.9rem;">';
+    html += '<div style="font-weight:700;font-size:0.9rem;margin-bottom:0.5rem;">' +
+        (isAr ? '\u0645\u0633\u0627\u0631 \u0627\u0644\u062a\u062f\u0642\u064a\u0642' : 'Audit Trail') +
+        '</div>';
+    trail.forEach(function (st) {
+        const isNa = st.status !== 'has_content';
+        const label = isAr ? (st.ar || st.en) : (st.en || st.ar);
+        const statusLabel = isNa
+            ? (isAr ? '\u063a\u064a\u0631 \u0645\u062a\u0627\u062d' : 'N/A')
+            : (isAr ? '\u0645\u062a\u0627\u062d' : 'Available');
+        const detail = typeof st.detail === 'string'
+            ? st.detail
+            : (st.detail ? (isAr ? st.detail.ar : st.detail.en) : '');
+        html += '<div style="border-left:3px solid ' + (isNa ? 'var(--text-muted)' : 'var(--accent-blue)') +
+            ';padding:0.4rem 0.6rem;margin:0.4rem 0;background:var(--bg-elevated);border-radius:0 4px 4px 0;">';
+        html += '<div style="display:flex;justify-content:space-between;gap:0.6rem;align-items:center;">' +
+            '<strong style="font-size:0.8rem;">' + (st.order) + '. ' + esc(label) + '</strong>' +
+            '<span class="' + (isNa ? 'badge badge-medium' : 'badge badge-low') + '">' +
+            esc(statusLabel) + '</span></div>';
+        if (isNa && st.na_reason) {
+            html += '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.2rem;">' +
+                esc(isAr ? st.na_reason.ar : st.na_reason.en) + '</div>';
+        } else if (detail) {
+            html += '<div style="font-size:0.78rem;margin-top:0.2rem;">' + esc(detail) + '</div>';
+        }
+        if (st.evidence_items && st.evidence_items.length) {
+            html += '<div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-top:0.3rem;">';
+            st.evidence_items.forEach(function (it) {
+                const lbl = isAr ? (it.label_ar || it.label_en) : (it.label_en || it.label_ar);
+                const unit = it.unit ? ' ' + it.unit : '';
+                html += '<span style="font-size:0.68rem;background:var(--bg-surface-hover);border-radius:4px;padding:1px 6px;">' +
+                    esc(lbl) + ': <strong>' + esc(it.value) + '</strong>' + esc(unit) + '</span>';
+            });
+            html += '</div>';
+        }
+        const url = _trailLinkUrl(st.deep_link);
+        if (url) {
+            html += '<div style="margin-top:0.3rem;"><button onclick="window.open(\'' +
+                esc(url) + '\', \'_blank\')" style="background:none;border:1px solid var(--border-default);border-radius:4px;padding:2px 8px;font-size:0.68rem;cursor:pointer;color:var(--accent-blue);">' +
+                (isAr ? '\u0641\u062a\u062d \u0627\u0644\u0645\u0635\u062f\u0631' : 'Open source') + '</button></div>';
+        }
+        html += '</div>';
+    });
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+export function openAuditTrail(opts) {
+    opts = opts || {};
+    if (typeof window.SwitchTab === 'function') window.SwitchTab('audit');
+    let tries = 0;
+    (function _go() {
+        const container = document.getElementById('auditResults');
+        if (!container && ++tries < 80) { setTimeout(_go, 100); return; }
+        if (!container) return;
+        container.innerHTML = emptyState('\u23f3', __('Loading...'), '');
+        const trailUrl = '/audit/explain?' + _trailQuery(opts);
+        apiGet(trailUrl).then(function (payload) {
+            _renderTrail(payload);
+        }).catch(function (err) {
+            container.innerHTML = '<p style="color:var(--accent-red);padding:1rem;">' + __('Error: ') +
+                esc(err && err.message ? err.message : 'error') + '</p>';
+        });
+    })();
+}
+
+window.openAuditTrail = openAuditTrail;
+
+function _trailFromUrl() {
+    try {
+        const search = window.location.search || '';
+        const hash = window.location.hash || '';
+        const params = new URLSearchParams(search.indexOf('?') === 0 ? search : '?' + search);
+        const hay = search + hash;
+        if (hay.indexOf('mode=trail') === -1) return;
+        const opts = {
+            kind: params.get('kind'),
+            hospitalId: params.get('hospital_id'),
+            month: params.get('month'),
+            rateName: params.get('rate_name'),
+            indicatorCode: params.get('indicator_code'),
+            ruleCode: params.get('rule_code'),
+            component: params.get('component'),
+        };
+        if (opts.kind) openAuditTrail(opts);
+    } catch (e) { /* malformed URL — ignore */ }
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _trailFromUrl);
+} else {
+    _trailFromUrl();
 }
 
 export function downloadAuditCSV() {

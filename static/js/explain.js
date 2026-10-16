@@ -25,7 +25,7 @@
  *   onclick="window.showWhyPopup('anomaly', 5, '2026-04', 'C-section rate')"
  */
 import { apiGet } from './api.js';
-import { __ } from './i18n.js';
+import { __, currentLang } from './i18n.js';
 import { esc } from './tree.js';
 
 let _modalEl = null;
@@ -157,9 +157,11 @@ function _renderReproduce(p) {
 // Digest footer: ONE pointer into the Audit screen — the single source of
 // truth for verification — instead of repeating its content in the popup.
 function _renderAuditScreenLink() {
+    const trailLabel = currentLang === 'ar' ? '\u0639\u0631\u0636 \u0627\u0644\u0645\u0633\u0627\u0631 \u0627\u0644\u0643\u0627\u0645\u0644' : 'View full trail';
     return '<div data-explain-footer style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-top:0.9rem;padding:0.55rem 0.7rem;border-top:1px solid var(--border-default,#ddd);">' +
         '<span style="font-size:0.72rem;color:var(--text-muted,#888);">' + __('Digest only — every number here is verified step-by-step on the Audit screen') + '</span>' +
         '<button onclick="window._explainJumpFooter()" style="background:var(--accent-blue,#1565c0);color:#fff;border:none;border-radius:4px;padding:4px 12px;font-size:0.72rem;font-weight:700;cursor:pointer;white-space:nowrap;">' + __('Open in audit screen') + ' \u2192</button>' +
+        '<button data-explain-trail onclick="window._explainJumpTrail()" style="background:transparent;color:var(--accent-blue,#1565c0);border:1px solid var(--accent-blue,#1565c0);border-radius:4px;padding:4px 12px;font-size:0.72rem;font-weight:700;cursor:pointer;white-space:nowrap;">' + trailLabel + ' \u2192</button>' +
         '</div>';
 }
 
@@ -449,6 +451,25 @@ window._explainJump = function (encodedEndpoint, mode) {
     window._explainJumpTo(hid, month, jump);
 };
 window._explainJumpFooter = function () { window._explainJump(null, 'why'); };
+window._explainJumpTrail = function () {
+    if (!_lastOpts) return;
+    closeWhyPopup();
+    if (typeof window.closeModal === 'function') { try { window.closeModal(); } catch (e) { /* non-fatal */ } }
+    const opts = {
+        kind: _lastOpts.kind,
+        hospitalId: _lastOpts.hospitalId,
+        month: _lastOpts.month,
+        rateName: _lastOpts.rateName,
+        indicatorCode: _lastOpts.indicatorCode,
+        ruleCode: _lastOpts.ruleCode,
+        component: _lastOpts.component,
+    };
+    if (typeof window.openAuditTrail === 'function') {
+        window.openAuditTrail(opts);
+    } else if (typeof window.SwitchTab === 'function') {
+        window.SwitchTab('audit');
+    }
+};
 
 /**
  * Global cross-screen jump: switch to the Audit screen with the given
