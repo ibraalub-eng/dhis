@@ -59,19 +59,18 @@ def test_chain_from_trail_uses_legacy_step_names_and_english_detail():
     assert chain[0]["key"] == "raw_data"
 
 
+from app.engine.audit.explain import (
+    _action_from_narrowed,
+    _impact_from_narrowed,
+    _narrow_root_cause,
+    _recommendation_from_narrowed,
+)
 from app.engine.root_cause import (
     CausalChain,
     PriorityActionDetail,
     QualityDriver,
     RootCauseReport,
     RuleFailurePattern,
-)
-from app.engine.audit.explain import (
-    _action_from_narrowed,
-    _impact_from_narrowed,
-    _load_root_cause_cached,
-    _narrow_root_cause,
-    _recommendation_from_narrowed,
 )
 
 
@@ -211,3 +210,53 @@ def test_issue_stage_is_always_content():
 def test_layered_evidence_stage_links_analysis_view():
     st = _evidence_stage(None, 1, "2026-04", "layered_outlier", {"reproduce": {}})
     assert st["deep_link"]["endpoint"] == "/analysis/layered"
+
+
+from app.engine.audit.explain import _build_issue_trail, _root_cause_stages
+
+
+def test_root_cause_stages_are_na_without_report(monkeypatch, db_session):
+    from app.engine.audit import explain
+
+    monkeypatch.setattr(explain, "_load_root_cause_cached",
+                        lambda db, hid, month, cache: None)
+    stages = _root_cause_stages(
+        db_session, 1, "2026-04", "quality_score",
+        None, None, None, "completeness", {}, {},
+    )
+    assert [s["key"] for s in stages] == ["root_cause", "impact", "recommendation", "action"]
+    assert all(s["status"] == "na" for s in stages)
+    assert all(s["na_reason"]["ar"] and s["na_reason"]["en"] for s in stages)
+
+
+def test_root_cause_stages_use_narrowed_chain(monkeypatch, db_session):
+    from app.engine.audit import explain
+
+    monkeypatch.setattr(explain, "_load_root_cause_cached",
+                        lambda db, hid, month, cache: _sample_report())
+    stages = _root_cause_stages(
+        db_session, 1, "2026-04", "rule", None, "R001", None, None, {}, {},
+    )
+    assert stages[0]["key"] == "root_cause"
+    assert stages[0]["status"] == "has_content"
+    assert stages[0]["deep_link"]["endpoint"] == "/root-cause/1"
+    assert stages[1]["key"] == "impact"
+    assert stages[2]["detail"]["en"] == "Repair totals"
+    assert stages[3]["evidence_items"][0]["value"] == 2  # effort
+
+
+def test_build_issue_trail_has_eight_ordered_stages(monkeypatch, db_session):
+    from app.engine.audit import explain
+
+    monkeypatch.setattr(explain, "_load_root_cause_cached",
+                        lambda db, hid, month, cache: _sample_report())
+    trail = _build_issue_trail(
+        db_session, 1, "2026-04", "rule", None, "R001", None, None,
+        {"kind": "rule", "what": "R001 failed", "failed_rules": [{"rule_code": "R001"}]},
+        {},
+    )
+    assert [s["key"] for s in trail] == [
+        "raw_data", "validation", "issue", "evidence",
+        "root_cause", "impact", "recommendation", "action",
+    ]
+    assert [s["order"] for s in trail] == [1, 2, 3, 4, 5, 6, 7, 8]

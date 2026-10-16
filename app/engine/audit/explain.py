@@ -2300,6 +2300,131 @@ def _evidence_stage(db, hid, month, kind, payload):
                   evidence_items=evidence or None, deep_link=link, source_engine="calculation_steps")
 
 
+def _root_cause_stages(db, hid, month, kind, rate_name, rule_code,
+                       indicator_code, component, payload, rc_cache):
+    report = _load_root_cause_cached(db, hid, month, rc_cache)
+    if report is None:
+        na = _RC_NA_REASON
+        return [
+            _na_stage("root_cause", 5, *_TRAIL_STAGE_META["root_cause"], na["ar"], na["en"]),
+            _na_stage("impact", 6, *_TRAIL_STAGE_META["impact"], na["ar"], na["en"]),
+            _na_stage("recommendation", 7, *_TRAIL_STAGE_META["recommendation"], na["ar"], na["en"]),
+            _na_stage("action", 8, *_TRAIL_STAGE_META["action"], na["ar"], na["en"]),
+        ]
+
+    narrowed = _narrow_root_cause(report, kind, rate_name=rate_name,
+                                  rule_code=rule_code, indicator_code=indicator_code,
+                                  component=component)
+    general_note_en = "general to this hospital/month"
+    general_note_ar = "\u0639\u0627\u0645 \u0644\u0647\u0630\u0627 \u0627\u0644\u0645\u0633\u062a\u0634\u0641\u0649/\u0627\u0644\u0634\u0647\u0631"
+    rc_link = _deep_link(endpoint=f"/root-cause/{hid}",
+                         query={"month": month, "include_history": "true", "compare_peers": "false"})
+
+    chain = narrowed["chain"]
+    fail = narrowed["rule_fail"]
+    driver = narrowed["qdriver"]
+    if chain is not None:
+        rc_en = chain.root_cause or ""
+        rc_ar = chain.root_cause_arabic or rc_en
+        if narrowed["general"]:
+            rc_en = f"{rc_en} ({general_note_en})"
+            rc_ar = f"{rc_ar} ({general_note_ar})"
+        rc_evidence = [_evidence_item("\u0627\u0644\u062b\u0642\u0629", "Confidence", chain.confidence)]
+        if chain.chain_path:
+            rc_evidence.append(_evidence_item(
+                "\u0645\u0633\u0627\u0631 \u0627\u0644\u0633\u0644\u0633\u0644\u0629", "Chain path",
+                chain.chain_path_arabic or " \u2192 ".join(chain.chain_path),
+            ))
+        if chain.affected_factors:
+            rc_evidence.append(_evidence_item(
+                "\u0627\u0644\u0639\u0648\u0627\u0645\u0644 \u0627\u0644\u0645\u062a\u0623\u062b\u0631\u0629",
+                "Affected factors", ", ".join(chain.affected_factors),
+            ))
+        if chain.implementation_priority:
+            rc_evidence.append(_evidence_item(
+                "\u0627\u0644\u0623\u0648\u0644\u0648\u064a\u0629", "Priority", chain.implementation_priority,
+            ))
+        root_stage = _stage("root_cause", 5, rc_ar, rc_en,
+                            evidence_items=rc_evidence, deep_link=rc_link,
+                            source_engine="root_cause")
+    elif fail is not None:
+        rc_en = f"{fail.rule_code}: {fail.primary_cause} ({general_note_en})"
+        rc_ar = fail.primary_cause_ar or fail.primary_cause or fail.rule_code
+        rc_ar = f"{rc_ar} ({general_note_ar})"
+        root_stage = _stage("root_cause", 5, rc_ar, rc_en,
+                            evidence_items=[_evidence_item(
+                                "\u0645\u0639\u062f\u0644 \u0627\u0644\u0641\u0634\u0644", "Failure rate",
+                                fail.failure_rate)],
+                            deep_link=rc_link, source_engine="root_cause")
+    elif driver is not None:
+        rc_en = f"{driver.component} driver ({driver.status}) ({general_note_en})"
+        root_stage = _stage("root_cause", 5, rc_en, rc_en,
+                            evidence_items=[_evidence_item(
+                                "\u0627\u0644\u0642\u064a\u0645\u0629", "Value", driver.value)],
+                            deep_link=rc_link, source_engine="root_cause")
+    else:
+        na = _RC_NA_REASON
+        root_stage = _na_stage("root_cause", 5, *_TRAIL_STAGE_META["root_cause"], na["ar"], na["en"])
+
+    impact = _impact_from_narrowed(narrowed)
+    if impact["quantified"]:
+        impact_en = f"{impact['value']} {impact['unit']} recoverable (severity {impact['severity'] or 'n/a'})"
+        impact_ar = f"{impact['value']} \u0646\u0642\u0637\u0629 \u062c\u0648\u062f\u0629 \u0642\u0627\u0628\u0644\u0629 \u0644\u0644\u0627\u0633\u062a\u0631\u062c\u0627\u0639"
+        impact_evidence = [
+            _evidence_item("\u0627\u0644\u0623\u062b\u0631", "Impact", impact["value"], unit=impact["unit"]),
+            _evidence_item("\u0627\u0644\u062e\u0637\u0648\u0631\u0629", "Severity", impact["severity"]),
+        ]
+    else:
+        sev = impact["severity"] or "n/a"
+        impact_en = f"Not quantified \u2014 severity {sev}"
+        impact_ar = f"\u063a\u064a\u0631 \u0645\u0642\u0627\u0633 \u2014 \u0627\u0644\u062e\u0637\u0648\u0631\u0629 {sev}"
+        impact_evidence = [_evidence_item("\u0627\u0644\u062e\u0637\u0648\u0631\u0629", "Severity", sev)]
+    impact_stage = _stage("impact", 6, impact_ar, impact_en,
+                          evidence_items=impact_evidence, deep_link=rc_link, source_engine="root_cause")
+
+    rec = _recommendation_from_narrowed(narrowed, kind)
+    if rec["en"]:
+        rec_stage = _stage("recommendation", 7, rec["ar"] or rec["en"], rec["en"],
+                           evidence_items=[_evidence_item(
+                               "\u0627\u0644\u0645\u0635\u062f\u0631", "Source", rec["source"])],
+                           deep_link=rc_link, source_engine="root_cause")
+    else:
+        rec_stage = _na_stage("recommendation", 7, *_TRAIL_STAGE_META["recommendation"],
+                              _RC_NA_REASON["ar"], _RC_NA_REASON["en"])
+
+    act = _action_from_narrowed(narrowed, kind)
+    if act["en"]:
+        act_evidence = []
+        if act["effort"] is not None:
+            act_evidence.append(_evidence_item("\u0627\u0644\u062c\u0647\u062f", "Effort", act["effort"]))
+        if act["roi"] is not None:
+            act_evidence.append(_evidence_item("\u0627\u0644\u0639\u0627\u0626\u062f", "ROI", act["roi"]))
+        if act["impact"] is not None:
+            act_evidence.append(_evidence_item("\u0627\u0644\u0623\u062b\u0631", "Impact", act["impact"]))
+        act_evidence.append(_evidence_item("\u0627\u0644\u0645\u0635\u062f\u0631", "Source", act["source"]))
+        act_stage = _stage("action", 8, act["ar"] or act["en"], act["en"],
+                           evidence_items=act_evidence, deep_link=rc_link, source_engine="root_cause")
+    else:
+        act_stage = _na_stage("action", 8, *_TRAIL_STAGE_META["action"],
+                              _RC_NA_REASON["ar"], _RC_NA_REASON["en"])
+
+    return [root_stage, impact_stage, rec_stage, act_stage]
+
+
+def _build_issue_trail(db, hid, month, kind, rate_name, rule_code,
+                       indicator_code, component, payload, rc_cache):
+    stages = [
+        _raw_data_stage(db, hid, month, kind, payload),
+        _validation_stage(db, hid, month, kind, payload),
+        _issue_stage(kind, payload),
+        _evidence_stage(db, hid, month, kind, payload),
+    ]
+    stages.extend(_root_cause_stages(db, hid, month, kind, rate_name,
+                                     rule_code, indicator_code, component,
+                                     payload, rc_cache))
+    return stages
+
+
 def build_explanation(
     db: Session,
     kind: str,
