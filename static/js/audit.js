@@ -649,6 +649,9 @@ function _renderTrail(payload) {
     trail.forEach(function (st) {
         const isNa = st.status !== 'has_content';
         const label = isAr ? (st.ar || st.en) : (st.en || st.ar);
+        const statusLabel = isNa
+            ? (isAr ? '\u063a\u064a\u0631 \u0645\u062a\u0627\u062d' : 'N/A')
+            : (isAr ? '\u0645\u062a\u0627\u062d' : 'Available');
         const detail = typeof st.detail === 'string'
             ? st.detail
             : (st.detail ? (isAr ? st.detail.ar : st.detail.en) : '');
@@ -657,7 +660,7 @@ function _renderTrail(payload) {
         html += '<div style="display:flex;justify-content:space-between;gap:0.6rem;align-items:center;">' +
             '<strong style="font-size:0.8rem;">' + (st.order) + '. ' + esc(label) + '</strong>' +
             '<span class="' + (isNa ? 'badge badge-medium' : 'badge badge-low') + '">' +
-            esc(isNa ? __('N/A') : __('Available')) + '</span></div>';
+            esc(statusLabel) + '</span></div>';
         if (isNa && st.na_reason) {
             html += '<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.2rem;">' +
                 esc(isAr ? st.na_reason.ar : st.na_reason.en) + '</div>';
@@ -695,7 +698,8 @@ export function openAuditTrail(opts) {
         if (!container && ++tries < 80) { setTimeout(_go, 100); return; }
         if (!container) return;
         container.innerHTML = emptyState('\u23f3', __('Loading...'), '');
-        apiGet('/audit/explain?' + _trailQuery(opts)).then(function (payload) {
+        const trailUrl = '/audit/explain?' + _trailQuery(opts);
+        apiGet(trailUrl).then(function (payload) {
             _renderTrail(payload);
         }).catch(function (err) {
             container.innerHTML = '<p style="color:var(--accent-red);padding:1rem;">' + __('Error: ') +
