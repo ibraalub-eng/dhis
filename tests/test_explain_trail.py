@@ -170,3 +170,44 @@ def test_load_root_cause_cached_calls_once(monkeypatch, db_session):
     explain._load_root_cause_cached(db_session, 1, "2026-04", cache)
     explain._load_root_cause_cached(db_session, 1, "2026-04", cache)
     assert calls["n"] == 1
+
+
+from app.engine.audit.explain import (
+    _evidence_stage,
+    _issue_stage,
+    _raw_data_stage,
+    _validation_stage,
+)
+
+
+def test_raw_data_stage_for_anomaly_names_the_indicator(db_session):
+    payload = {
+        "kind": "anomaly", "month": "2026-04", "hospital_id": 1,
+        "where": {"indicator_name": "Caesarean Sections", "source_files": ["upload.xlsx"]},
+    }
+    st = _raw_data_stage(db_session, 1, "2026-04", "anomaly", payload)
+    assert st["key"] == "raw_data"
+    assert "Caesarean Sections" in st["detail"] or "Caesarean Sections" in st["detail"]["en"]
+    assert st["deep_link"]["endpoint"] == "/audit/data-auditor/1"
+
+
+def test_validation_stage_names_failed_rule_codes():
+    payload = {"failed_rules": [
+        {"rule_code": "R_TEST", "severity": "HIGH"},
+        {"rule_code": "R_OTHER", "severity": "LOW"},
+    ]}
+    st = _validation_stage(None, 1, "2026-04", "quality_score", payload)
+    detail = st["detail"] if isinstance(st["detail"], str) else st["detail"]["en"]
+    assert "R_TEST" in detail
+    assert st["status"] == "has_content"
+
+
+def test_issue_stage_is_always_content():
+    st = _issue_stage("quality_score", {"what": "Score 42 for 2026-04"})
+    assert st["status"] == "has_content"
+    assert st["key"] == "issue"
+
+
+def test_layered_evidence_stage_links_analysis_view():
+    st = _evidence_stage(None, 1, "2026-04", "layered_outlier", {"reproduce": {}})
+    assert st["deep_link"]["endpoint"] == "/analysis/layered"

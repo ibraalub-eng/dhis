@@ -2209,6 +2209,97 @@ def _action_from_narrowed(narrowed, kind):
             "impact": None, "source": "derived"}
 
 
+def _raw_data_stage(db, hid, month, kind, payload):
+    where = payload.get("where") or {}
+    sources = where.get("source_files") or []
+    data_audit = None
+    if hid and month and db is not None:
+        try:
+            from app.engine.audit.data_auditor import get_data_audit
+            data_audit = get_data_audit(db, hid, month)
+        except Exception:
+            data_audit = None
+    n = where.get("raw_value_count")
+    if n is None and data_audit:
+        completeness = data_audit.get("completeness") or {}
+        n = (completeness.get("present") or 0) + (completeness.get("covered") or 0)
+    n = n if n is not None else 0
+    suffix_en = f" from {len(sources)} file(s)" if sources else ""
+    suffix_ar = f" \u0645\u0646 {len(sources)} \u0645\u0644\u0641" if sources else ""
+    detail_en = f"{n} indicator values{suffix_en}"
+    detail_ar = f"{n} \u0642\u064a\u0645\u0629 \u0645\u0624\u0634\u0631{suffix_ar}"
+    ind_name = where.get("indicator_name")
+    if ind_name:
+        detail_en = f"{detail_en} \u2014 {ind_name}"
+        detail_ar = f"{detail_ar} \u2014 {ind_name}"
+    evidence = []
+    if data_audit:
+        completeness = data_audit.get("completeness") or {}
+        evidence = [
+            _evidence_item("\u0627\u0644\u062d\u0627\u0636\u0631", "Present", completeness.get("present")),
+            _evidence_item("\u0627\u0644\u0645\u063a\u0637\u0649", "Covered", completeness.get("covered")),
+            _evidence_item("\u0627\u062e\u062a\u064a\u0627\u0631\u064a", "Optional", completeness.get("optional")),
+            _evidence_item("\u0627\u0644\u0645\u0641\u0642\u0648\u062f", "Missing", completeness.get("missing")),
+        ]
+    link = _deep_link(endpoint=f"/audit/data-auditor/{hid}", query={"month": month}) if hid and month else None
+    return _stage("raw_data", 1, detail_ar, detail_en,
+                  evidence_items=evidence or None, deep_link=link, source_engine="data_auditor")
+
+
+def _validation_stage(db, hid, month, kind, payload):
+    failed = payload.get("failed_rules") or []
+    problems = payload.get("data_problems") or []
+    codes = [str(r.get("rule_code")) for r in failed if r.get("rule_code")][:5]
+    codes_str = ", ".join(codes)
+    if failed:
+        detail_en = f"Business rules evaluated on the raw values \u2014 {len(failed)} failed ({codes_str})"
+        detail_ar = f"\u062a\u0645 \u062a\u0642\u064a\u064a\u0645 \u0642\u0648\u0627\u0639\u062f \u0627\u0644\u0639\u0645\u0644 \u2014 \u0641\u0634\u0644 {len(failed)} ({codes_str})"
+    elif problems:
+        detail_en = f"Business rules evaluated \u2014 {len(problems)} raw-data problem(s) detected"
+        detail_ar = f"\u062a\u0645 \u062a\u0642\u064a\u064a\u0645 \u0627\u0644\u0642\u0648\u0627\u0639\u062f \u2014 {len(problems)} \u0645\u0634\u0643\u0644\u0629 \u0641\u064a \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a"
+    else:
+        detail_en = "Business rules evaluated on the raw values \u2014 none failed"
+        detail_ar = "\u062a\u0645 \u062a\u0642\u064a\u064a\u0645 \u0642\u0648\u0627\u0639\u062f \u0627\u0644\u0639\u0645\u0644 \u2014 \u0644\u0645 \u062a\u0641\u0634\u0644 \u0623\u064a \u0642\u0627\u0639\u062f\u0629"
+    evidence = []
+    if failed:
+        evidence.append(_evidence_item("\u0642\u0648\u0627\u0639\u062f \u0641\u0627\u0634\u0644\u0629", "Failed rules", len(failed)))
+        for r in failed[:5]:
+            evidence.append(_evidence_item("\u0642\u0627\u0639\u062f\u0629", "Rule", r.get("rule_code"), unit=r.get("severity")))
+    link = _deep_link(endpoint=f"/audit/data-auditor/{hid}", query={"month": month}) if hid and month else None
+    return _stage("validation", 2, detail_ar, detail_en,
+                  evidence_items=evidence or None, deep_link=link, source_engine="data_auditor")
+
+
+def _issue_stage(kind, payload):
+    detail_en = payload.get("what") or payload.get("description") or "Detected issue"
+    return _stage("issue", 3, detail_en, detail_en, source_engine=payload.get("kind", kind))
+
+
+def _evidence_stage(db, hid, month, kind, payload):
+    repro = payload.get("reproduce") or {}
+    evidence = []
+    for key, ar, en in (
+        ("expected", "\u0627\u0644\u0645\u062a\u0648\u0642\u0639", "Expected"),
+        ("stored", "\u0627\u0644\u0645\u062e\u0632\u0651\u0646", "Stored"),
+        ("expected_rate", "\u0627\u0644\u0645\u0639\u062f\u0644 \u0627\u0644\u0645\u062a\u0648\u0642\u0639", "Expected rate"),
+        ("expected_z", "z \u0627\u0644\u0645\u062a\u0648\u0642\u0639", "Expected z"),
+    ):
+        if repro.get(key) is not None:
+            evidence.append(_evidence_item(ar, en, repro.get(key)))
+    if "verified" in repro:
+        evidence.append(_evidence_item("\u0645\u064f\u062a\u062d\u0642\u0651\u0642", "Verified", bool(repro.get("verified"))))
+    if kind == "layered_outlier":
+        link = _deep_link(endpoint="/analysis/layered")
+    elif hid and month:
+        link = _deep_link(endpoint=f"/audit/calculation-steps/{hid}", query={"month": month})
+    else:
+        link = None
+    return _stage("evidence", 4,
+                  "\u0625\u0639\u0627\u062f\u0629 \u0627\u0644\u0625\u0646\u062a\u0627\u062c \u0648\u0627\u0644\u0645\u062f\u062e\u0644\u0627\u062a \u0645\u0646 \u0627\u0644\u062d\u0633\u0627\u0628",
+                  "Reproduction and inputs from the calculation",
+                  evidence_items=evidence or None, deep_link=link, source_engine="calculation_steps")
+
+
 def build_explanation(
     db: Session,
     kind: str,
