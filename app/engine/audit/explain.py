@@ -2425,6 +2425,39 @@ def _build_issue_trail(db, hid, month, kind, rate_name, rule_code,
     return stages
 
 
+def _build_aggregate_trail(kind, payload):
+    where = payload.get("where") or {}
+    sources = where.get("source_files") or []
+    n = where.get("raw_value_count")
+    hospitals = payload.get("hospitals") or []
+    if n is None and hospitals:
+        n = len(hospitals)
+    if n is not None:
+        raw_en = f"{n} constituent values" + (f" from {len(sources)} file(s)" if sources else "")
+        raw_ar = f"{n} \u0642\u064a\u0645\u0629 \u0645\u0643\u0648\u0651\u0646\u0629" + (f" \u0645\u0646 {len(sources)} \u0645\u0644\u0641" if sources else "")
+    else:
+        raw_en = "Constituent data across the aggregate"
+        raw_ar = "\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0645\u0643\u0648\u0651\u0646\u0627\u062a \u0644\u0644\u062a\u062c\u0645\u064a\u0639"
+    link = None
+    for node in (payload.get("chain") or []):
+        if node.get("endpoint"):
+            link = _deep_link(endpoint=node["endpoint"])
+            break
+    what = payload.get("what") or "Aggregate finding"
+    return [
+        _stage("raw_data", 1, raw_ar, raw_en, deep_link=link, source_engine="data_auditor"),
+        _stage("validation", 2,
+               "\u062a\u062f\u0642\u064a\u0642 \u0642\u0648\u0627\u0639\u062f \u0627\u0644\u0639\u0645\u0644 \u0639\u0644\u0649 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a \u0627\u0644\u0645\u0643\u0648\u0651\u0646\u0629",
+               "Business rules evaluated on the constituent data",
+               deep_link=link, source_engine="data_auditor"),
+        _stage("calculation", 3,
+               "\u062d\u0633\u0627\u0628 \u0627\u0644\u062a\u062c\u0645\u064a\u0639 (\u0645\u062a\u0648\u0633\u0637/\u0646\u0637\u0627\u0642/\u0639\u062f\u062f) \u0639\u0628\u0631 \u0627\u0644\u0645\u0643\u0648\u0651\u0646\u0627\u062a",
+               "Aggregate computed across constituents (average / range / count)",
+               deep_link=link, source_engine="calculation_steps"),
+        _stage("finding", 4, what, what, source_engine=payload.get("kind", kind)),
+    ]
+
+
 def build_explanation(
     db: Session,
     kind: str,

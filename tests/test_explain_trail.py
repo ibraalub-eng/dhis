@@ -260,3 +260,18 @@ def test_build_issue_trail_has_eight_ordered_stages(monkeypatch, db_session):
         "root_cause", "impact", "recommendation", "action",
     ]
     assert [s["order"] for s in trail] == [1, 2, 3, 4, 5, 6, 7, 8]
+
+
+from app.engine.audit.explain import _build_aggregate_trail
+
+
+def test_aggregate_trail_is_four_data_origin_stages():
+    payload = {
+        "kind": "month_overview", "what": "Month average 62 for 2026-04",
+        "chain": [{"step": "Source Data", "detail": "x", "endpoint": "/audit/data-auditor/1?month=2026-04"}],
+    }
+    trail = _build_aggregate_trail("month_overview", payload)
+    assert [s["key"] for s in trail] == ["raw_data", "validation", "calculation", "finding"]
+    assert [s["order"] for s in trail] == [1, 2, 3, 4]
+    assert trail[3]["detail"] == "Month average 62 for 2026-04"
+    assert trail[0]["deep_link"]["endpoint"].startswith("/audit/")
