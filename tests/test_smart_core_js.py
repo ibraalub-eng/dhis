@@ -329,7 +329,7 @@ def test_horizon_select_wired_in_tab_and_init():
     with open(adv_path, encoding="utf-8") as f:
         adv = f.read()
     assert "smart-horizon-select" in adv
-    assert "loadXGBoostTab(_forecastMonth || smartState.month)" in adv
+    assert "smart-forecast:horizon-change" in adv
 
 
 def test_forecast_signals_section_rendered():
@@ -343,11 +343,11 @@ def test_forecast_signals_section_rendered():
     adv_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "smart", "advanced.js")
     with open(adv_path, encoding="utf-8") as f:
         adv = f.read()
-    assert "_renderForecastSignals" in adv
+    assert "renderForecastSignals" in adv
     assert "forecast-signals/${month}" in adv
     assert "Blended indicator forecast" in adv
     assert "correlational, not causal" in adv
-    assert "All forecasts are statistical estimates" not in adv.split("_renderForecastSignals")[1].split("function")[0]  # الإشارات تحمل الإخلاء من الخادم
+    assert "All forecasts are statistical estimates" not in adv.split("renderForecastSignals")[1].split("function")[0]  # الإشارات تحمل الإخلاء من الخادم
 
     api_path = os.path.join(os.path.dirname(__file__), "..", "app", "api", "smart_analytics.py")
     with open(api_path, encoding="utf-8") as f:

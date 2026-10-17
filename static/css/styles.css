@@ -759,6 +759,15 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .smart-tab-btn.active { background: var(--accent-blue); color: #fff; }
 .smart-tab-btn.active:hover { background: #3d7aee; }
 
+/* Smart Forecast screen: sub-tabs + sticky context bar (own namespace) */
+.smart-forecast-subtabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.9rem; }
+.smart-forecast-tab-btn { padding: 0.4rem 0.9rem; border-radius: 6px; border: 1px solid var(--accent-purple, #8b5cf6); background: transparent; color: var(--accent-purple, #8b5cf6); font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.smart-forecast-tab-btn:hover { background: var(--bg-surface-hover); }
+.smart-forecast-tab-btn.active { background: var(--accent-purple, #8b5cf6); color: #fff; }
+.smart-forecast-panel { animation: smart-forecast-fade 0.15s ease-in; }
+@keyframes smart-forecast-fade { from { opacity: 0.4; } to { opacity: 1; } }
+.smart-forecast-context { position: sticky; top: 0; z-index: 5; }
+
 .smart-disclaimer { background: linear-gradient(135deg, var(--severity-warning-bg), rgba(251,146,60,0.06)); border: 1px solid var(--accent-yellow); border-radius: 8px; padding: 0.8rem 1rem; margin-top: 0.5rem; display: flex; align-items: center; gap: 0.6rem; }
 .smart-disclaimer-text { color: var(--accent-orange); font-size: 0.82rem; }
 

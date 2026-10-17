@@ -1,67 +1,37 @@
 // smart-forecast.js — ES-module entry: wires the Smart Forecast (prediction) screen.
 //
+// The screen owns its month + horizon controls and is split into lazy sub-tabs
+// (models / quality / signals / indicator / hospital). Opening the tab loads
+// only the month + hospital lists; each panel fetches its data on first
+// activation. Nothing is registered in core's shared section registry, so a
+// month change on the analytics screen never refetches this screen — and never
+// repaints charts into a hidden tab.
+//
 // The prediction section (XGBoost forecasts, trajectory, accuracy, tracking,
 // early-warning signals, per-indicator forecast, walk-forward, scatter) and the
 // single-hospital forecast were moved here from the Smart Analytics screen.
-// This screen owns its month and horizon controls and loads on its own:
-// nothing is registered in core's shared section registry, so a month change on
-// the analytics screen never refetches this screen — and never repaints charts
-// into a hidden tab.
 
 import { apiSmartGet, setSmartLoader, showSmartSectionError,
          showSmartSectionEmpty, clearSmartSectionState,
-         _smartEscapeHtml, _t, toggleSmartSection } from './smart/core.js';
-import { loadXGBoostTab, initHorizonSelect, getForecastMonth } from './smart/advanced.js';
+         _smartEscapeHtml, _t } from './smart/core.js';
+import { loadXGBoostTab, loadForecastQuality, loadForecastSignalsPanel,
+         initHorizonSelect, getForecastMonth, setForecastMonth,
+         initIndicatorForecast } from './smart/advanced.js';
 import { renderHospitalForecast } from './smart/hospital.js';
 
-// ---- error-banner retry (same contract as smart-analytics.js) ----
-const _retryLoaders = {
-  xgboost: () => refresh(),
-  'hospital-forecast': () => loadHospitalForecast(_selectedHospital()),
-};
-document.addEventListener('click', e => {
-  const banner = e.target.closest('.smart-error-banner.active');
-  if (!banner) return;
-  const key = banner.getAttribute('data-smart-error');
-  const fn = key && _retryLoaders[key];
-  if (!fn) return;
-  setSmartLoader(key, true);
-  fn().catch(() => {}).finally(() => setSmartLoader(key, false));
-});
+// ── Lazy sub-tabs ──────────────────────────────────────────────────────────
+// Each panel is loaded the first time it is activated; switching back to a
+// loaded panel costs nothing. Horizon-dependent panels are marked stale when
+// the month/horizon changes and reload the next time they are shown.
+const HORIZON_PANELS = new Set(['models', 'quality', 'signals', 'indicator']);
+const _loaded = new Set();
+let _active = 'models';
 
-// ---- load one month of forecasts (single entry point for every trigger) ----
-function refresh(month) {
-  const m = month || getForecastMonth();
-  if (!m) return Promise.resolve();
-  clearSmartSectionState('xgboost');
-  setSmartLoader('xgboost', true);
-  return loadXGBoostTab(m).finally(() => setSmartLoader('xgboost', false));
-}
-
-async function loadMonths() {
-  const select = document.getElementById('smart-forecast-month-select');
-  if (!select) return;
-  try {
-    const months = await apiSmartGet('/smart/months');
-    if (!months || !months.length) {
-      showSmartSectionEmpty('xgboost', _t('No data for this period. Upload data and try again.'));
-      return;
-    }
-    select.innerHTML = months.map(m => `<option value="${_smartEscapeHtml(m)}">${_smartEscapeHtml(m)}</option>`).join('');
-    const last = months[months.length - 1];
-    select.value = last;
-    await refresh(last);
-    loadHospitalForecast(_selectedHospital());
-  } catch (e) {
-    showSmartSectionError('xgboost', e.message);
-  }
-}
-
-// ---- single-hospital forecast (moved from the analytics hospital mode) ----
 function _selectedHospital() {
   return document.getElementById('smart-forecast-hospital-select')?.value || '';
 }
 
+// ── single-hospital forecast (moved from the analytics hospital mode) ──
 function loadHospitalForecast(hospitalId) {
   if (!hospitalId) return Promise.resolve();
   clearSmartSectionState('hospital-forecast');
@@ -85,6 +55,68 @@ function loadHospitalForecast(hospitalId) {
     .finally(() => setSmartLoader('hospital-forecast', false));
 }
 
+// One loader per panel — called only when that panel is (re)activated.
+const _panelLoaders = {
+  models: () => loadXGBoostTab(getForecastMonth()),
+  quality: () => loadForecastQuality(getForecastMonth()),
+  signals: () => loadForecastSignalsPanel(getForecastMonth()),
+  indicator: () => initIndicatorForecast(),
+  hospital: () => loadHospitalForecast(_selectedHospital()),
+};
+
+function _loadForecastPanel(name) {
+  const loader = _panelLoaders[name];
+  if (!loader) return Promise.resolve();
+  _loaded.add(name);
+  if (name === 'models') setSmartLoader('xgboost', true);
+  return Promise.resolve(loader()).finally(() => {
+    if (name === 'models') setSmartLoader('xgboost', false);
+  });
+}
+
+function _showPanel(name) {
+  document.querySelectorAll('.smart-forecast-panel[data-forecast-panel]').forEach(p => {
+    p.style.display = (p.dataset.forecastPanel === name) ? '' : 'none';
+  });
+  document.querySelectorAll('.smart-forecast-tab-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.forecastTab === name);
+  });
+}
+
+function _activate(name) {
+  _active = name;
+  _showPanel(name);
+  if (!_loaded.has(name)) _loadForecastPanel(name);
+}
+
+// Drop the loaded flag for every panel the predicate accepts and refresh the
+// visible one; the others reload lazily when the user next opens them.
+function _resetPanels(predicate) {
+  [..._loaded].forEach(n => { if (predicate(n)) _loaded.delete(n); });
+  if (predicate(_active)) _loadForecastPanel(_active);
+}
+
+// ── screen bootstrap ──
+async function loadMonths() {
+  const select = document.getElementById('smart-forecast-month-select');
+  if (!select) return;
+  try {
+    const months = await apiSmartGet('/smart/months');
+    select.innerHTML = (months || []).map(m =>
+      `<option value="${_smartEscapeHtml(m)}">${_smartEscapeHtml(m)}</option>`).join('');
+    if (!months || !months.length) {
+      showSmartSectionEmpty('xgboost', _t('No data for this period. Upload data and try again.'));
+      return;
+    }
+    const latest = months[months.length - 1];
+    select.value = latest;
+    setForecastMonth(latest);
+    _loadForecastPanel(_active);   // lazy: only the visible panel
+  } catch (e) {
+    showSmartSectionError('xgboost', e.message);
+  }
+}
+
 async function loadHospitals() {
   const select = document.getElementById('smart-forecast-hospital-select');
   if (!select) return;
@@ -95,53 +127,45 @@ async function loadHospitals() {
   } catch (e) { /* non-fatal */ }
 }
 
-// ---- screen wiring ----
+// ── screen wiring (idempotent) ──
 let _wired = false;
 function wireScreen() {
   if (_wired) return;
   _wired = true;
 
-  // Collapsible section header — guarded per element because the analytics
-  // entry binds every [data-smart-collapsible] header it finds in the DOM.
-  document.querySelectorAll('[data-smart-collapsible]').forEach(header => {
-    if (header.dataset.smartWired) return;
-    header.dataset.smartWired = '1';
-    header.addEventListener('click', () => {
-      toggleSmartSection(header);
-      // Re-opening a section re-runs its loaders (its Plotly charts were
-      // purged when it collapsed).
-      const card = header.closest('.smart-section-card');
-      if (!card || !card.classList.contains('open')) return;
-      if (header.getAttribute('data-smart-collapsible') === 'smart-hospital-forecast-section') {
-        loadHospitalForecast(_selectedHospital());
-      } else {
-        refresh();
-      }
-    });
+  document.querySelectorAll('.smart-forecast-tab-btn[data-forecast-tab]').forEach(btn => {
+    btn.addEventListener('click', () => _activate(btn.dataset.forecastTab));
   });
-
   document.getElementById('smart-forecast-month-select')?.addEventListener('change', e => {
-    refresh(e.target.value);
-    loadHospitalForecast(_selectedHospital());
+    setForecastMonth(e.target.value);
+    _resetPanels(() => true);   // every panel is anchored on the month
   });
   document.getElementById('smart-forecast-hospital-select')?.addEventListener('change', e => {
-    loadHospitalForecast(e.target.value);
+    if (_active === 'hospital') loadHospitalForecast(e.target.value);
+    else _loaded.delete('hospital');   // reload on next activation
   });
   document.getElementById('smart-forecast-refresh')?.addEventListener('click', () => {
     const status = document.getElementById('smart-forecast-status');
     if (status) status.textContent = _t('Refreshed');
-    refresh();
+    _loaded.delete(_active);
+    _loadForecastPanel(_active);
   });
-  // Horizon select lives on this screen; advanced.js owns its change handler.
+  // Horizon select lives on this screen; advanced.js owns its change handler
+  // and broadcasts the event so the visible horizon-dependent panel reloads.
   initHorizonSelect();
+  document.addEventListener('smart-forecast:horizon-change', () => {
+    _resetPanels(n => HORIZON_PANELS.has(n));
+  });
 }
 
-// ---- startup ----
+// ── startup ──
 let _initDone = false;
 function initSmartForecast() {
   if (!document.getElementById('smart-forecast-section')) return;
   wireScreen();
-  if (_initDone) return; // idempotent — a language toggle re-runs init
+  // Language toggle re-runs init: refresh labels on the already-open panel.
+  if (_loaded.has('indicator')) initIndicatorForecast().catch(() => {});
+  if (_initDone) return;
   _initDone = true;
   loadMonths();
   loadHospitals();

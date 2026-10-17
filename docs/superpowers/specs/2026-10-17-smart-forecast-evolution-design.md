@@ -56,47 +56,41 @@ Add a sub-tab bar at the top of `#tab-smart-forecast` using a **new namespace**:
 
 ```html
 <div class="smart-forecast-subtabs" role="tablist">
-  <button class="smart-forecast-tab-btn active" data-forecast-tab="actions"  data-i18n="Actions">الإجراءات</button>
-  <button class="smart-forecast-tab-btn" data-forecast-tab="models"   data-i18n="Forecasts">التنبؤات</button>
-  <button class="smart-forecast-tab-btn" data-forecast-tab="quality"  data-i18n="Accuracy & validation">الدقة والتحقق</button>
+  <button class="smart-forecast-tab-btn" data-forecast-tab="actions"  data-i18n="Actions">الإجراءات</button>
+  <button class="smart-forecast-tab-btn active" data-forecast-tab="models"   data-i18n="Forecasts">التنبؤات</button>
+  <button class="smart-forecast-tab-btn" data-forecast-tab="quality"  data-i18n="Accuracy and validation">الدقة والتحقق</button>
   <button class="smart-forecast-tab-btn" data-forecast-tab="signals"  data-i18n="Signals">الإشارات</button>
   <button class="smart-forecast-tab-btn" data-forecast-tab="indicator" data-i18n="Indicator forecast">تنبؤ المؤشر</button>
   <button class="smart-forecast-tab-btn" data-forecast-tab="hospital" data-i18n="Hospital forecast">تنبؤ مستشفى</button>
 </div>
 ```
 
-Each panel is `div.smart-forecast-panel` with `id="forecast-panel-<name>"` and `data-forecast-panel="<name>"`. All panels start `style="display:none"` except `actions` (active/default). Existing element IDs move **unchanged** into their panels:
+Each panel is `div.smart-forecast-panel` with `id="forecast-panel-<name>"` and `data-forecast-panel="<name>"`. All panels start `style="display:none"` except `models` (active/default); the `actions` panel is **deferred to Phase 2** and is not rendered in Phase 1. Existing element IDs move **unchanged** into their panels:
 
 | Panel | Moves in (existing element IDs) |
 |---|---|
-| `actions` (default) | *new* action board container `#smart-action-board` + model card `#smart-model-card` |
+| `actions` (Phase 2) | *new* action board container `#smart-action-board` + model card `#smart-model-card` (deferred) |
 | `models` | `#smart-xgboost-predictions`, `#smart-forecast-timeline` |
 | `quality` | `#smart-forecast-accuracy`, `#smart-forecast-tracking`, `#smart-walk-forward`, `#smart-predicted-scatter`, *new* `#smart-backtest` |
 | `signals` | `#smart-forecast-signals` |
 | `indicator` | indicator controls + `#smart-indicator-forecast-output` |
 | `hospital` | `#smart-forecast-hospital-select` + `#smart-hospital-forecast` |
 
-The loader/error/empty placeholders for `xgboost` stay in the `models` panel; `hospital-forecast` placeholders stay in `hospital`. The whole-screen loaders in `actions` are put on the panel that owns them.
+The loader/error/empty placeholders for `xgboost` stay in the `models` panel; `hospital-forecast` placeholders stay in `hospital`.
 
 ### 1.2 Loader contract (`smart-forecast.js`)
-- `_forecastPanelState = { loaded: Set, loading: Set }`.
-- `_loadForecastPanel(name)`: idempotent; if already `loaded` and no forced refresh, no-op. Dispatches to exactly one loader:
-  - `actions` → `loadActionBoard(month, horizon)` (Phase 2; Phase 1 renders model card + placeholder)
-  - `models` → `loadForecastModels(month)` = `loadXGBoostTab` split so it fetches `/xgboost` + `/signals` and renders only predictions + timeline
-  - `quality` → `loadForecastQuality(month)` = accuracy + tracking + walk-forward + scatter (+ backtest in Phase 3)
-  - `signals` → `loadForecastSignalsPanel(month, horizon)`
-  - `indicator` → `initIndicatorForecast()` + rebuild month/horizon references
-  - `hospital` → `loadHospitalForecast(hospitalId)`
-- **Reactivity rule:** on month or horizon change, clear `loaded` for **horizon-dependent** panels (`actions`, `models`, `signals`, `indicator`) and reload **only the currently active panel**. `quality`/`hospital` are month-dependent (quality reloads on month change; hospital on month + hospital change).
-- Tab clicks call `_loadForecastPanel(name)` for the newly activated panel. Charts are not repainted into a hidden panel (load only for the visible one).
-- `initHorizonSelect()` (in `advanced.js`) changes from "reload xgboost" to "notify the forecast screen" — via a `window`-level hook or a callback registered by `smart-forecast.js` (`onHorizonChange(horizon)`), so `advanced.js` stays reusable by the (now separate) analytics screen without referencing forecast element IDs.
-- Extracting `loadXGBoostTab` into per-panel loaders must not break `loadAdvancedSection` in `advanced.js` (which defaults to clusters — unchanged).
+- `_loaded = new Set()` + `_panelLoaders` (a `name → loader` map). `_loadForecastPanel(name)` is idempotent per panel: it marks the panel loaded and, for `models`, toggles the section loader around the fetch. Switching to an already-loaded panel is a no-op.
+- Loader map: `models → loadXGBoostTab(month)` (predictions + timeline + indicator init), `quality → loadForecastQuality(month)` (accuracy + tracking + walk-forward + scatter), `signals → loadForecastSignalsPanel(month)`, `indicator → initIndicatorForecast()`, `hospital → loadHospitalForecast(hospitalId)`. The `actions` loader lands in Phase 2.
+- **Reactivity rule:** `HORIZON_PANELS = {models, quality, signals, indicator}`. On month change every panel's `loaded` flag is cleared (`_resetPanels(() => true)`); on horizon change only `HORIZON_PANELS` are cleared. In both cases only the **currently active** panel reloads immediately; the rest reload on next activation. `getForecastMonth()`/`setForecastMonth()` keep the screen's anchor month in `advanced.js`.
+- Tab clicks (`[data-forecast-tab]`) call `_activate(name)` → `_showPanel` + `_loadForecastPanel`. Charts are not repainted into a hidden panel (load only for the visible one).
+- `initHorizonSelect()` (in `advanced.js`) no longer reloads xgboost itself; it dispatches `new CustomEvent('smart-forecast:horizon-change', {detail:{horizon}})`, and `smart-forecast.js` listens and calls `_resetPanels(...)`. `advanced.js` stays reusable by the (now separate) analytics screen.
+- `initSmartForecast()` guards with `if (_initDone) return;`; a language toggle re-runs init and refreshes the indicator panel's labels. Turning `loadXGBoostTab` into a per-panel loader must not break `loadAdvancedSection` in `advanced.js` (which defaults to clusters — unchanged).
 
 ### 1.3 Sticky context bar
 `.smart-context-bar` (currently the month/horizon bar) becomes `position: sticky; top: 0; z-index` within the tab, with a background matching the panel so content scrolls under it.
 
 ### 1.4 Acceptance
-- Opening the tab fires only `/smart/months` + `/smart/hospitals`; no `/smart/xgboost` until the `models` (or `actions`) panel activates.
+- Opening the tab fires only `/smart/months` + `/smart/hospitals`; no `/smart/xgboost` until the `models` panel activates.
 - First activation of each panel fires exactly its requests; switching back to a loaded panel fires none.
 - Changing the horizon refreshes the active panel and marks the others stale (they reload on next activation).
 - Changing the month refreshes the active panel; `quality`/`hospital` reflect the new month.

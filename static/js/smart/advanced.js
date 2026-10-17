@@ -28,7 +28,7 @@ export function initAdvancedTabs() {
   });
 }
 
-async function fetchSection(path, key, _retries) {
+export async function fetchSection(path, key, _retries) {
   if (_retries === undefined) _retries = 0;
   try {
     const res = await apiSmartGet(path);
@@ -133,32 +133,71 @@ let _forecastMonth = null;
 
 export function getForecastMonth() { return _forecastMonth; }
 
-export function loadXGBoostTab(month) {
-  if (month) _forecastMonth = month;
-  const horizon = document.getElementById('smart-horizon-select')?.value || '1';
+export function setForecastMonth(month) { if (month) _forecastMonth = month; }
+
+// One fetch per (month, horizon): every lazy panel reuses the same payload so
+// switching sub-tabs or a second panel never refetches the forecast.
+let _forecastPayload = null;
+
+function _forecastHorizon() {
+  return document.getElementById('smart-horizon-select')?.value || '1';
+}
+
+function _ensureForecast(month) {
+  const horizon = _forecastHorizon();
+  const key = `${month}|${horizon}`;
+  if (_forecastPayload && _forecastPayload.key === key) return Promise.resolve(_forecastPayload);
   return Promise.all([
     fetchSection(`/smart/xgboost/${month}?horizon=${horizon}`, 'xgboost'),
     apiSmartGet(`/smart/forecast-signals/${month}?horizon=${horizon}`).catch(() => null),
   ]).then(([d, sig]) => {
+    _forecastPayload = { key, xgb: d, sig };
+    return _forecastPayload;
+  });
+}
+
+// Panel `models`: XGBoost predictions table + forecast timeline.
+export function loadXGBoostTab(month) {
+  if (month) _forecastMonth = month;
+  return _ensureForecast(month).then(p => {
+    const d = p.xgb;
     if (!d) return;
-    // Even if empty, try to show the latest month's model info as fallback
     if (d.empty) {
       const c = document.getElementById('smart-xgboost-predictions');
       if (c) c.innerHTML = `<div class="smart-empty-state">${_smartEscapeHtml(_t(d.message) || _t('No predictions for this month'))}</div>`;
-      // Try to load the latest month's model info as reference
       _showLatestModelInfo(month);
       return;
     }
-    renderXGBoost(d.xgboost || {}, { ...d, signals: sig });
+    renderXGBoostPredictions(d.xgboost || {});
+    renderForecastTimeline(d.trajectory);
     // تهيئة قسم تنبؤ المؤشر (مرة واحدة) مع كل تحميل للتبويب
     initIndicatorForecast().catch(() => {});
   });
 }
 
+// Panel `quality`: accuracy + live tracking + walk-forward + scatter + backtest.
+export function loadForecastQuality(month) {
+  if (month) _forecastMonth = month;
+  return _ensureForecast(month).then(p => {
+    const d = p.xgb;
+    if (!d || d.empty) return;
+    renderForecastAccuracy(d.forecast_accuracy, d.peer_percentile);
+    renderForecastTracking(d.forecast_tracking);
+    renderWalkForward(d.xgboost || {});
+    renderPredictedScatter(d.xgboost || {});
+  });
+}
+
+// Panel `signals`: early-warning signals + blended + relationships.
+export function loadForecastSignalsPanel(month) {
+  if (month) _forecastMonth = month;
+  return _ensureForecast(month).then(p => renderForecastSignals(p.sig));
+}
+
 
 // ── إشارات الإنذار المبكر (المرحلة 2) ──
 
-function _renderForecastSignals(sig) {
+export function renderForecastSignals(sig) {
   const c = document.getElementById('smart-forecast-signals');
   if (!c) return;
   if (!sig) { c.innerHTML = ''; return; }
@@ -217,13 +256,45 @@ export function initHorizonSelect() {
   const sel = document.getElementById('smart-horizon-select');
   if (!sel || sel.dataset.bound) return;
   sel.dataset.bound = '1';
-  sel.addEventListener('change', () => loadXGBoostTab(_forecastMonth || smartState.month));
+  sel.addEventListener('change', () => {
+    document.dispatchEvent(new CustomEvent('smart-forecast:horizon-change', {
+      detail: { horizon: sel.value },
+    }));
+  });
 }
 
 // ── تنبؤ مؤشر واحد لعدة مستشفيات يختارها المستخدم (المرحلة 4) ──
 
 let _indicatorCatalog = null;
 let _indicatorHospitals = null;
+
+// بناء خيارات مُحدد المؤشر من الكتالوج المحفوظ: مجموعتان متتاليتان — المعدلات
+// ثم العدّادات الخام (unit === 'count') — لتبقى حركة المؤشر الخام متاحة
+// للتنبؤ بجانب معدلاته (طلب المستخدم)، مع إعادة بناء عند تغيير اللغة.
+function _indicatorLang() {
+  // لغة التطبيق أولاً (window.currentLang محدّثة من i18n)، وإلا لغة شاشة الأذكاء
+  if (typeof window.currentLang !== 'undefined' && window.currentLang) return window.currentLang;
+  return smartState.lang || 'en';
+}
+
+function _renderIndicatorSelectOptions() {
+  const sel = document.getElementById('smart-indicator-select');
+  if (!sel) return;
+  const isAr = _indicatorLang() === 'ar';
+  if (!Array.isArray(_indicatorCatalog) || !_indicatorCatalog.length) {
+    sel.innerHTML = `<option value="">—</option>`;
+  } else {
+    const keep = sel.value;
+    const opt = i => `<option value="${_smartEscapeHtml(i.key)}">${_smartEscapeHtml(isAr ? i.label_ar : i.label_en)}</option>`;
+    const rates = _indicatorCatalog.filter(i => i.unit !== 'count');
+    const counts = _indicatorCatalog.filter(i => i.unit === 'count');
+    sel.innerHTML =
+      `<optgroup label="${_smartEscapeHtml(_t('Rates'))}">${rates.map(opt).join('')}</optgroup>` +
+      `<optgroup label="${_smartEscapeHtml(_t('Raw counts'))}">${counts.map(opt).join('')}</optgroup>`;
+    if (keep && Array.from(sel.options).some(o => o.value === keep)) sel.value = keep;
+  }
+  sel.dataset.lang = _indicatorLang();
+}
 
 export async function initIndicatorForecast() {
   const sel = document.getElementById('smart-indicator-select');
@@ -235,12 +306,10 @@ export async function initIndicatorForecast() {
     try {
       _indicatorCatalog = await apiSmartGet('/smart/indicator-catalog');
     } catch (e) { _indicatorCatalog = []; }
-    if (!Array.isArray(_indicatorCatalog) || !_indicatorCatalog.length) {
-      sel.innerHTML = `<option value="">—</option>`;
-    } else {
-      sel.innerHTML = _indicatorCatalog.map(i =>
-        `<option value="${_smartEscapeHtml(i.key)}">${_smartEscapeHtml(smartState.lang === 'ar' ? i.label_ar : i.label_en)}</option>`).join('');
-    }
+    _renderIndicatorSelectOptions();
+  } else if (sel.dataset.lang !== _indicatorLang()) {
+    // لغة التطبيق/الشاشة تغيّرت: إعادة بناء المجموعات والخيارات من الكاش
+    _renderIndicatorSelectOptions();
   }
   if (!hosp.dataset.bound) {
     hosp.dataset.bound = '1';
@@ -273,8 +342,10 @@ export async function initIndicatorForecast() {
 export function renderIndicatorForecast(d) {
   const out = document.getElementById('smart-indicator-forecast-output');
   if (!out) return;
-  const indLabel = smartState.lang === 'ar' ? (d.indicator_ar || d.indicator) : (d.indicator_en || d.indicator);
-  let html = `<h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.8rem 0 0.4rem;">${_t('Indicator forecast')} — ${_smartEscapeHtml(indLabel)} (${_smartEscapeHtml(d.unit || '')}) · ${_t('base month')}: ${_smartEscapeHtml(d.base_month)}${d.fallback_used ? ' (' + _t('latest available') + ')' : ''} · ${_t('Forecast horizon')}: ${d.horizon}</h4>`;
+  const indLabel = _indicatorLang() === 'ar' ? (d.indicator_ar || d.indicator) : (d.indicator_en || d.indicator);
+  // الوحدة تُترجم للعدّاد الخام ('Count' → عدّاد) بقية الرموز تبقى كما هي
+  const unitTxt = d.unit === 'count' ? _t('Count') : (d.unit || '');
+  let html = `<h4 style="font-size:0.85rem;color:var(--accent-blue);margin:0.8rem 0 0.4rem;">${_t('Indicator forecast')} — ${_smartEscapeHtml(indLabel)} (${_smartEscapeHtml(unitTxt)}) · ${_t('base month')}: ${_smartEscapeHtml(d.base_month)}${d.fallback_used ? ' (' + _t('latest available') + ')' : ''} · ${_t('Forecast horizon')}: ${d.horizon}</h4>`;
   const rows = d.hospitals || [];
   if (rows.length) {
     html += `<div class="smart-table-wrap"><table><thead><tr>
@@ -443,7 +514,7 @@ function _recommendationFor(p, drivers) {
   return `💡 ${_t('Recommendation')}: ${base} — ${_t('verify data accuracy, investigate root cause, and prepare a corrective plan')}`;
 }
 
-function _renderForecastTracking(tracking) {
+export function renderForecastTracking(tracking) {
   const el = document.getElementById('smart-forecast-tracking');
   if (!el) return;
   if (!tracking || !tracking.months || !tracking.months.length) { el.innerHTML = ''; return; }
@@ -742,18 +813,11 @@ function _renderStratifiedChart(indicator) {
   if (textEl) textEl.textContent = `${significant} ${_t('of')} ${filtered.length} ${_t('hospitals deviate >15% from peer average')}`;
 }
 
-export function renderXGBoost(xgb, payload) {
+// Panel `models` body: the model-info header + the predictions table.
+export function renderXGBoostPredictions(xgb) {
   const pred = xgb.predictions || [];
   const c = document.getElementById('smart-xgboost-predictions');
   if (!c) return;
-  const pl = payload || {};
-  renderForecastTimeline(pl.trajectory);
-  renderForecastAccuracy(pl.forecast_accuracy, pl.peer_percentile);
-  _renderForecastSignals(pl.signals);
-  _renderForecastTracking(pl.forecast_tracking);
-  renderWalkForward(xgb);
-  renderPredictedScatter(xgb);
-  // Always show model info header
   const modelInfo = xgb.accuracy_note ? `<div class="smart-empty-state" style="margin-bottom:0.5rem;">
     <div style="font-size:0.78rem;color:var(--text-muted);">${_smartEscapeHtml(xgb.accuracy_note)}</div>
     <div style="font-size:0.78rem;margin-top:0.3rem;">
@@ -780,6 +844,18 @@ export function renderXGBoost(xgb, payload) {
       <td>${chips || '—'}</td>
       <td style="font-size:0.72rem;">${rec || '—'}</td></tr>`;
     }).join('') + `</tbody></table></div>`;
+}
+
+// All-in-one renderer (kept for callers that already hold the full payload).
+export function renderXGBoost(xgb, payload) {
+  const pl = payload || {};
+  renderXGBoostPredictions(xgb);
+  renderForecastTimeline(pl.trajectory);
+  renderForecastAccuracy(pl.forecast_accuracy, pl.peer_percentile);
+  renderForecastSignals(pl.signals);
+  renderForecastTracking(pl.forecast_tracking);
+  renderWalkForward(xgb);
+  renderPredictedScatter(xgb);
 }
 
 

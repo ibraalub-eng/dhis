@@ -9,8 +9,8 @@
     <button id="smart-forecast-refresh" class="btn btn-sm" data-i18n="Refresh">تحديث</button>
   </div>
 
-  <!-- ═══ Context bar: month + horizon + status ═══ -->
-  <div class="smart-context-bar">
+  <!-- ═══ Context bar: month + horizon + status (sticky) ═══ -->
+  <div class="smart-context-bar smart-forecast-context">
     <div style="display:flex;gap:0.8rem;align-items:flex-end;flex-wrap:wrap;width:100%;">
       <div>
         <label style="font-weight:600;font-size:0.82rem;display:block;margin-bottom:0.25rem;color:var(--accent-purple);" data-i18n="Month:">الشهر:</label>
@@ -23,58 +23,103 @@
           <option value="3" data-i18n="Within 3 months">خلال 3 أشهر</option>
           <option value="6" data-i18n="Within 6 months">خلال 6 أشهر</option>
           <option value="9" data-i18n="Within 9 months">خلال 9 أشهر</option>
-          <option value="12" data-i18n="Within 12 months">خلال 12 شهراً</option>
+          <option value="12" data-i18n="Within 12 months">خلال 12 أشهر</option>
         </select>
       </div>
-      <span id="smart-forecast-status" style="font-size:0.8rem;color:var(--text-secondary);align-self:flex-end;"></span>
+      <span id="smart-forecast-status" style="font-size:0.78rem;color:var(--text-muted);align-self:center;"></span>
     </div>
   </div>
 
-  <!-- ═══ Forecasts (moved from the Smart Analytics screen) ═══ -->
-  <div class="smart-section-card open">
-    <div class="smart-section-header" data-smart-collapsible="smart-forecast-section">
-      <span>🔮 <span data-i18n="Forecasts">التنبؤات</span> — <span data-i18n="XGBoost and walk-forward">XGBoost والتحقق الزمني</span></span>
-      <span class="smart-toggle-icon">▾</span>
+  <!-- ═══ Sub-tabs (own namespace — never the analytics `.smart-tab-btn`) ═══ -->
+  <div class="smart-forecast-subtabs" role="tablist">
+    <button type="button" class="smart-forecast-tab-btn active" data-forecast-tab="models" data-i18n="Forecasts">التنبؤات</button>
+    <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="quality" data-i18n="Accuracy and validation">الدقة والتحقق</button>
+    <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="signals" data-i18n="Signals">الإشارات</button>
+    <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="indicator" data-i18n="Indicator forecast">تنبؤ المؤشر</button>
+    <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="hospital" data-i18n="Hospital forecast">تنبؤ مستشفى</button>
+  </div>
+
+  <!-- ═══ Panel: forecasts (XGBoost predictions + trajectory) ═══ -->
+  <div class="smart-forecast-panel" id="forecast-panel-models" data-forecast-panel="models">
+    <div class="smart-section-card open">
+      <div class="smart-section-header" style="cursor:default;">
+        <span>📊 <span data-i18n="Forecasts">التنبؤات</span> — <span data-i18n="XGBoost and walk-forward validation">XGBoost والتحقق الزمني</span></span>
+      </div>
+      <div id="smart-forecast-section" class="smart-section-body">
+        <div class="smart-loader" data-smart-loader="xgboost"><span data-i18n="Computing...">جاري المعالجة...</span></div>
+        <div class="smart-error-banner" data-smart-error="xgboost" role="alert"></div>
+        <div class="smart-empty-state" data-smart-empty="xgboost"></div>
+        <div id="smart-xgboost-predictions"></div>
+        <div id="smart-forecast-timeline" style="min-height:280px;"></div>
+      </div>
     </div>
-    <div id="smart-forecast-section" class="smart-section-body">
-      <div class="smart-loader" data-smart-loader="xgboost"><span data-i18n="Computing...">جاري المعالجة...</span></div>
-      <div class="smart-error-banner" data-smart-error="xgboost" role="alert"></div>
-      <div class="smart-empty-state" data-smart-empty="xgboost"></div>
-      <div id="smart-xgboost-predictions"></div>
-      <div id="smart-forecast-timeline" style="min-height:280px;"></div>
-      <div id="smart-forecast-accuracy"></div>
-      <div id="smart-forecast-tracking"></div>
-      <div id="smart-forecast-signals"></div>
-      <div id="smart-indicator-forecast">
-        <div style="display:flex;align-items:center;gap:0.6rem;margin:0.6rem 0 0.5rem;flex-wrap:wrap;">
-          <label for="smart-indicator-select" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Indicator forecast">تنبؤ مؤشر</span></label>
-          <select id="smart-indicator-select" class="smart-select" style="max-width:220px;"></select>
-          <label for="smart-indicator-hospitals" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Select hospitals to forecast">اختر المستشفيات (متعدد)</span></label>
-          <select id="smart-indicator-hospitals" class="smart-select" multiple size="4" style="min-width:240px;max-width:320px;"></select>
-          <button id="smart-indicator-forecast-run" class="btn btn-sm" data-i18n="Forecast">تنبؤ</button>
+  </div>
+
+  <!-- ═══ Accuracy, tracking, validation, backtesting ═══ -->
+  <div class="smart-forecast-panel" id="forecast-panel-quality" data-forecast-panel="quality" style="display:none;">
+    <div class="smart-section-card open">
+      <div class="smart-section-header" style="cursor:default;">
+        <span>🎯 <span data-i18n="Accuracy and validation">الدقة والتحقق</span></span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-forecast-accuracy"></div>
+        <div id="smart-forecast-tracking"></div>
+        <div id="smart-walk-forward" style="min-height:220px;"></div>
+        <div id="smart-predicted-scatter" style="height:260px;"></div>
+        <div id="smart-backtest"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Early-warning signals + blended + relationships ═══ -->
+  <div class="smart-forecast-panel" id="forecast-panel-signals" data-forecast-panel="signals" style="display:none;">
+    <div class="smart-section-card open">
+      <div class="smart-section-header" style="cursor:default;">
+        <span>🚨 <span data-i18n="Signals">الإشارات</span> — <span data-i18n="Early-warning signals and relationships">الإنذار المبكر والعلاقات</span></span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-forecast-signals"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Per-indicator forecast (one indicator × several hospitals) ═══ -->
+  <div class="smart-forecast-panel" id="forecast-panel-indicator" data-forecast-panel="indicator" style="display:none;">
+    <div class="smart-section-card open">
+      <div class="smart-section-header" style="cursor:default;">
+        <span>📈 <span data-i18n="Indicator forecast">تنبؤ المؤشر</span></span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-indicator-forecast">
+          <div style="display:flex;align-items:center;gap:0.6rem;margin:0.2rem 0 0.8rem;flex-wrap:wrap;">
+            <label for="smart-indicator-select" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Indicator">المؤشر</span></label>
+            <select id="smart-indicator-select" class="smart-select" style="min-width:200px;max-width:300px;"></select>
+            <label for="smart-indicator-hospitals" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Select hospitals to forecast">اختر مستشفيات للتنبؤ</span></label>
+            <select id="smart-indicator-hospitals" class="smart-select" multiple style="min-width:220px;max-width:340px;min-height:110px;"></select>
+            <button id="smart-indicator-forecast-run" class="btn btn-sm" data-i18n="Run forecast">تنبؤ</button>
+          </div>
+          <div id="smart-indicator-forecast-output"></div>
         </div>
-        <div id="smart-indicator-forecast-output"></div>
       </div>
-      <div id="smart-walk-forward" style="min-height:220px;"></div>
-      <div id="smart-predicted-scatter" style="height:260px;"></div>
     </div>
   </div>
 
-  <!-- ═══ Single-hospital forecast (moved from the analytics hospital mode) ═══ -->
-  <div class="smart-section-card open">
-    <div class="smart-section-header" data-smart-collapsible="smart-hospital-forecast-section">
-      <span>🏥 <span data-i18n="Hospital forecast">تنبؤ مستشفى</span> — <span data-i18n="Leading indicators and expected trend">المؤشرات القيادية والاتجاه المتوقع</span></span>
-      <span class="smart-toggle-icon">▾</span>
-    </div>
-    <div id="smart-hospital-forecast-section" class="smart-section-body">
-      <div class="smart-loader" data-smart-loader="hospital-forecast"><span data-i18n="Computing...">جاري المعالجة...</span></div>
-      <div class="smart-error-banner" data-smart-error="hospital-forecast" role="alert"></div>
-      <div class="smart-empty-state" data-smart-empty="hospital-forecast"></div>
-      <div style="display:flex;align-items:center;gap:0.6rem;margin:0.2rem 0 0.8rem;flex-wrap:wrap;">
-        <label for="smart-forecast-hospital-select" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Hospital">مستشفى</span></label>
-        <select id="smart-forecast-hospital-select" class="smart-select" style="min-width:240px;max-width:340px;"></select>
+  <!-- ═══ Single-hospital forecast ═══ -->
+  <div class="smart-forecast-panel" id="forecast-panel-hospital" data-forecast-panel="hospital" style="display:none;">
+    <div class="smart-section-card open">
+      <div class="smart-section-header" style="cursor:default;">
+        <span>🏥 <span data-i18n="Hospital forecast">تنبؤ مستشفى</span> — <span data-i18n="Leading indicators and expected trend">المؤشرات القيادية والاتجاه المتوقع</span></span>
       </div>
-      <div id="smart-hospital-forecast"></div>
+      <div class="smart-section-body">
+        <div class="smart-loader" data-smart-loader="hospital-forecast"><span data-i18n="Computing...">جاري المعالجة...</span></div>
+        <div class="smart-error-banner" data-smart-error="hospital-forecast" role="alert"></div>
+        <div class="smart-empty-state" data-smart-empty="hospital-forecast"></div>
+        <div style="display:flex;align-items:center;gap:0.6rem;margin:0.2rem 0 0.8rem;flex-wrap:wrap;">
+          <label for="smart-forecast-hospital-select" style="font-size:0.82rem;color:var(--text-secondary);"><span data-i18n="Hospital">مستشفى</span></label>
+          <select id="smart-forecast-hospital-select" class="smart-select" style="min-width:240px;max-width:340px;"></select>
+        </div>
+        <div id="smart-hospital-forecast"></div>
+      </div>
     </div>
   </div>
 

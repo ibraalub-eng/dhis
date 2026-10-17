@@ -78,8 +78,9 @@ def test_forecast_month_is_tracked_in_advanced_module():
     adv = _read("static", "js", "smart", "advanced.js")
     assert "export function getForecastMonth" in adv
     assert "if (month) _forecastMonth = month;" in adv
-    # horizon change + indicator forecast reuse the screen's own month
-    assert "loadXGBoostTab(_forecastMonth || smartState.month)" in adv
+    # horizon change is broadcast as an event; the screen decides what to reload
+    assert "smart-forecast:horizon-change" in adv
+    # the indicator forecast reuses the screen's own month
     assert "const month = _forecastMonth || smartState.month;" in adv
     # the analytics-side section entry can no longer route into the forecast screen
     assert "return loadXGBoostTab(month);" not in adv
@@ -91,7 +92,7 @@ def test_single_hospital_forecast_moved_with_its_renderer():
     assert "renderHospitalForecast" in js          # renderer reused from hospital.js
     assert "import { renderHospitalForecast } from './smart/hospital.js'" in js
     assert "/smart/drilldown/" in js               # same endpoint hospital mode used
-    assert "'hospital-forecast': () => loadHospitalForecast" in js   # banner retry
+    assert "loadHospitalForecast(_selectedHospital())" in js   # panel loader
 
     hosp = _read("static", "js", "smart", "hospital.js")
     assert "export function renderHospitalForecast" in hosp
@@ -102,6 +103,25 @@ def test_single_hospital_forecast_moved_with_its_renderer():
     body = hosp[hosp.index("export async function loadHospitalMode"):hosp.index("function computeTrendDirection")]
     assert "renderHospitalForecast(" not in body, (
         "hospital mode must stop rendering a container that moved away")
+
+
+def test_indicator_selector_groups_rates_and_raw_counts():
+    """مُحدد المؤشر يجمّع المعدلات والعدّادات الخام ويتبع لغة الشاشة (طلب المستخدم:
+    التنبؤ بحركة المؤشر الخام أيضاً في شاشة التنبؤ)."""
+    adv = _read("static", "js", "smart", "advanced.js")
+    assert "optgroup" in adv
+    assert "_t('Rates')" in adv and "_t('Raw counts')" in adv
+    assert "unit === 'count'" in adv            # معيار فصل العدّادات الخام
+    assert "_renderIndicatorSelectOptions" in adv
+    assert "dataset.lang" in adv                # إعادة البناء عند تغيير اللغة
+
+    js = _read("static", "js", "smart-forecast.js")
+    # كل تهيئة للشاشة تُعيد بناء التسميات من الكاش (زر اللغة يعيد تشغيل التهيئة)
+    assert "initIndicatorForecast" in js
+
+    i18n = _read("static", "js", "i18n.js")
+    assert "'Rates': 'المعدلات'" in i18n
+    assert "'Raw counts': 'عدّادات خام'" in i18n
 
 
 def test_tab_registered_in_menu_registry():
@@ -156,3 +176,75 @@ def test_upload_reanalysis_resets_the_forecast_tab():
     """بعد رفع ملف جديد يجب أن تُعاد قراءة بيانات التنبؤ عند فتح الشاشة."""
     js = _read("static", "js", "upload.js")
     assert "'smart-forecast'" in js
+
+
+# ── Phase 1: sub-tabs with on-demand loading + reactive horizon ──
+
+SUBTAB_PANELS = ["models", "quality", "signals", "indicator", "hospital"]
+
+
+def test_forecast_subtabs_and_panels_exist():
+    """الشاشة مقسّمة إلى تبويبات فرعية؛ كل تبويب لوح مستقل بمعرّف ثابت."""
+    html = _read("static", "tabs", "smart-forecast.html")
+    for name in SUBTAB_PANELS:
+        assert f'data-forecast-tab="{name}"' in html, name
+        assert f'id="forecast-panel-{name}"' in html, name
+        assert f'data-forecast-panel="{name}"' in html, name
+    # the sub-tab bar uses its own namespace, never the analytics `.smart-tab-btn`
+    assert "smart-forecast-tab-btn" in html
+    assert "smart-forecast-subtabs" in html
+    # markup stays RTL + converted from the old two stacked cards
+    assert 'dir="rtl"' in html
+
+
+def test_forecast_screen_loads_panels_on_demand():
+    """التحميل عند الطلب: init يجهّز الأشهر والمستشفيات فقط، وكل لوح يُحمّل عند تفعيله."""
+    js = _read("static", "js", "smart-forecast.js")
+    assert "_loadForecastPanel" in js
+    assert "data-forecast-tab" in js                 # tab clicks drive the loader
+    assert "data-forecast-panel" in js               # per-panel containers
+    # each panel has a loader, and the heavy fetchers are reached only through it
+    for token in ["loadXGBoostTab", "loadForecastQuality", "loadForecastSignalsPanel",
+                  "initIndicatorForecast", "loadHospitalForecast"]:
+        assert token in js, token
+    # init bootstrap loads only months + hospitals (no forecast on open)
+    assert "loadMonths()" in js and "loadHospitals()" in js
+    # the xgboost loader is invoked from the panel dispatcher, not the tab init body
+    assert "case 'models':" in js or "models:" in js
+
+
+def test_horizon_change_broadcasts_event_and_reloads_active_panel():
+    """تغيير الأفق يُبَثّ كحدث والمتتبّع في شاشة التنبؤ يعيد تحميل اللوح النشط."""
+    adv = _read("static", "js", "smart", "advanced.js")
+    assert "smart-forecast:horizon-change" in adv
+    assert "CustomEvent" in adv
+
+    js = _read("static", "js", "smart-forecast.js")
+    assert "addEventListener('smart-forecast:horizon-change'" in js
+    # horizon-dependent panels are marked stale; only the active one reloads
+    assert "HORIZON_PANELS" in js or "horizon" in js.lower()
+
+
+def test_advanced_exposes_granular_forecast_renderers():
+    """advanced.js يفصل الرسّامات ليتمكن كل لوح من رسم قسمه فقط."""
+    adv = _read("static", "js", "smart", "advanced.js")
+    for name in ["renderXGBoostPredictions", "renderForecastSignals",
+                 "renderForecastTracking", "loadForecastQuality",
+                 "loadForecastSignalsPanel"]:
+        assert (f"export function {name}" in adv
+                or f"export async function {name}" in adv), name
+
+
+def test_forecast_context_bar_is_sticky():
+    """شريط السياق (شهر + أفق) يبقى مرئياً أثناء التمرير."""
+    html = _read("static", "tabs", "smart-forecast.html")
+    assert "smart-forecast-context" in html
+    css = _read("static", "css", "styles.css")
+    assert ".smart-forecast-context" in css
+    assert "position: sticky" in css or "position:sticky" in css
+
+
+def test_forecast_subtab_i18n_keys_present():
+    i18n = _read("static", "js", "i18n.js")
+    for key in ("Forecasts", "Accuracy and validation", "Signals"):
+        assert f"'{key}':" in i18n, key
