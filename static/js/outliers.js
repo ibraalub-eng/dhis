@@ -223,6 +223,14 @@
                 const peerCell = hasPeers && d.peers_detail && d.peers_detail.length
                     ? '<a href="#" onclick="event.preventDefault();togglePeerPopover(this,' + rowIdx + ')" style="text-decoration:underline dotted;cursor:pointer;">' + d.peer_count + '</a>'
                     : (hasPeers ? d.peer_count : '--');
+                const formulaTitle = [
+                    d.formula ? __('Formula: ') + d.formula : '',
+                    d.formula_version ? __('Formula version: ') + d.formula_version : '',
+                    d.indicator_id ? __('Indicator ID: ') + d.indicator_id : ''
+                ].filter(Boolean).join('\n');
+                const indicatorLabel = esc(d.rate_name) + (d.formula_version
+                    ? '<div style="font-size:0.66rem;color:var(--text-muted);">' + __('Formula v') + esc(d.formula_version) + '</div>'
+                    : '');
                 // "Why?" — opens the unified explain popup for this anomaly row:
                 // formula, peer set, threshold that fired, reproduced z ✓/✗.
                 const whyBtn = '<button onclick="window.showWhyPopup(\'anomaly\',' + Number(d.hospital_id) + ',\'' + esc(d.month) + '\',' + JSON.stringify(String(d.rate_name)).replace(/"/g, '&quot;') + ')" '
@@ -231,7 +239,7 @@
                 return '<tr>' +
                     '<td>' + esc(d.hospital) + '</td>' +
                     '<td>' + esc(d.month) + '</td>' +
-                    '<td>' + esc(d.rate_name) + '</td>' +
+                    '<td title="' + esc(formulaTitle) + '">' + indicatorLabel + '</td>' +
                     '<td>' + (d.value !== null ? Number(d.value).toFixed(2) : '--') + '</td>' +
                     '<td>' + (d.benchmark !== null ? Number(d.benchmark).toFixed(2) : '--') + '</td>' +
                     '<td><span class="badge ' + zClass + '">' + (z ? Number(d.z_score).toFixed(2) : '--') + '</span></td>' +
@@ -518,4 +526,3 @@
             }).join('');
             wireRuleFailSort();
         }
-

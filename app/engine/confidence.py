@@ -129,9 +129,6 @@ def _extract_codes_from_params(expr_type: str, params: dict) -> List[str]:
     elif expr_type == "le_sum":
         codes.append(params.get("child", ""))
         codes.extend(params.get("children", []))
-    elif expr_type in ("benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"):
-        codes.append(params.get("num_code", ""))
-        codes.append(params.get("den_code", ""))
     elif expr_type in ("month_over", "month_under"):
         codes.append(params.get("code", ""))
     elif expr_type in ("neg_check", "decimal_check"):

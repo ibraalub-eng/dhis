@@ -139,7 +139,9 @@ function _renderFallback() {
         {id:'fb-1', name:'Home', icon:'🏠', items:[{tab_key:'dashboard', label:'Dashboard', icon:'📊', permission:'dashboard.read'}]},
         {id:'fb-2', name:'Data', icon:'📊', items:[
             {tab_key:'upload', label:'Upload Data', icon:'📤', permission:'data.upload'},
-            {tab_key:'indicator-tree', label:'Indicator Tree', icon:'🌳', permission:'settings.read'},
+            {tab_key:'indicator-tree', label:'Data Tree', icon:'🌳', permission:'settings.read'},
+            {tab_key:'indicator-groups', label:'Data Group', icon:'🗂️', permission:'settings.read'},
+            {tab_key:'indicators', label:'Indicators', icon:'📐', permission:'settings.read'},
             {tab_key:'rules-manager', label:'Validation Rules', icon:'📋', permission:'rules.read'},
         ]},
         {id:'fb-3', name:'Analysis', icon:'📈', items:[
@@ -153,7 +155,7 @@ function _renderFallback() {
             {tab_key:'quality', label:'Quality Reports', icon:'✅', permission:'quality.read'},
             {tab_key:'outliers', label:'Outlier Scan', icon:'⚠️', permission:'outliers.read'},
             {tab_key:'layered', label:'Outlier Diagnostics', icon:'🧱', permission:'analysis.read'},
-            {tab_key:'alerts', label:'Alerts', icon:'🔔', permission:'alerts.read'},
+            {tab_key:'alerts', label:'Validation Alerts', icon:'🔔', permission:'alerts.read'},
             {tab_key:'audit', label:'Audit Log', icon:'📝', permission:'audit.read'},
         ]},
         {id:'fb-5', name:'System', icon:'⚙️', items:[

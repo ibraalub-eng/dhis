@@ -23,7 +23,6 @@
                                     <option value="CLINICAL_CONSISTENCY">CLINICAL_CONSISTENCY</option>
                                     <option value="CLINICAL_LOGIC">CLINICAL_LOGIC</option>
                                     <option value="PLAUSIBILITY">PLAUSIBILITY</option>
-                                    <option value="STATISTICAL_BENCHMARK">STATISTICAL_BENCHMARK</option>
                                     <option value="TREND_DATA_QUALITY">TREND_DATA_QUALITY</option>
                                 </select>
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Type:</label>
@@ -31,7 +30,6 @@
                                     <option value="">All</option>
                                     <option value="LOGIC">Logic</option>
                                     <option value="CLINICAL">Clinical</option>
-                                    <option value="BENCHMARK">Benchmark</option>
                                     <option value="DATA_QUALITY">Data Quality</option>
                                 </select>
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Severity:</label>
@@ -99,9 +97,6 @@
                                 <tr><td><code>lt</code></td><td>child value < parent value (strict, no equality)</td><td><code>child</code>, <code>parent</code></td><td><code>{"child":"5.b.1","parent":"5"}</code></td></tr>
                                 <tr><td><code>le_sum</code></td><td>child value >= sum of children (reverse ge)</td><td><code>child</code>, <code>children[]</code></td><td><code>{"child":"10.a.1","children":["10.a.1.1","10.a.1.2"]}</code></td></tr>
                                 <tr><td><code>parent_le</code></td><td>parent value <= sum of children (reverse of ge)</td><td><code>parent</code>, <code>children[]</code></td><td><code>{"parent":"10.a.1","children":["10.a.1.1","10.a.1.2"]}</code></td></tr>
-                                <tr><td><code>benchmark_rate</code></td><td>FAIL if (num/den*100) > threshold</td><td><code>num_code</code>, <code>den_code</code>, <code>threshold</code></td><td><code>{"num_code":"5","den_code":"2","threshold":80.0}</code></td></tr>
-                                <tr><td><code>benchmark_low_rate</code></td><td>FAIL if (num/den*100) < threshold</td><td><code>num_code</code>, <code>den_code</code>, <code>threshold</code></td><td><code>{"num_code":"3","den_code":"2","threshold":10.0}</code></td></tr>
-                                <tr><td><code>cross_hospital_rate</code></td><td>FAIL if |z-score| > z_threshold across hospitals</td><td><code>num_code</code>, <code>den_code</code>, <code>z_threshold</code></td><td><code>{"num_code":"6.f","den_code":"6","z_threshold":2.5}</code></td></tr>
                                 <tr><td><code>month_over</code></td><td>FAIL if current value > factor * previous month</td><td><code>code</code>, <code>factor</code></td><td><code>{"code":"2","factor":2.0}</code></td></tr>
                                 <tr><td><code>month_under</code></td><td>FAIL if current value < factor * previous month</td><td><code>code</code>, <code>factor</code></td><td><code>{"code":"2","factor":0.5}</code></td></tr>
                                 <tr><td><code>neg_check</code></td><td>FAIL if any listed code has negative value</td><td><code>codes[]</code></td><td><code>{"codes":["2","3","4","5","6","7","8","10","11","16","17"]}</code></td></tr>
@@ -129,4 +124,3 @@
     </div>
     <div class="rule-drawer-body" id="ruleDrawerBody"></div>
 </aside>
-

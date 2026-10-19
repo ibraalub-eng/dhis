@@ -39,6 +39,7 @@ from app.api import facility_ownerships as facility_ownerships_api
 from app.api import facility_types as facility_types_api
 from app.api import governorates as governorates_api
 from app.api import hospital_types as hospital_types_api
+from app.api import indicator_definitions as indicator_definitions_router
 from app.api import indicator_groups as indicator_groups_router
 from app.api import menu as menu_router
 from app.api import regional as regional_router
@@ -65,9 +66,13 @@ from app.monitoring import (  # noqa: E402
 )
 from app.tasks import get_task  # noqa: E402
 from scripts.seed_hospital_metadata import seed_hospital_metadata  # noqa: E402
-from scripts.seed_indicators import seed_indicators, seed_rate_config  # noqa: E402
+from scripts.seed_indicators import (  # noqa: E402
+    seed_indicators,
+    seed_rate_config,
+    seed_system_indicator_definitions,
+)
 from scripts.seed_menu import seed_menu  # noqa: E402
-from scripts.seed_rules import seed_rules  # noqa: E402
+from scripts.seed_rules import remove_benchmark_validation_data, seed_rules  # noqa: E402
 
 setup_structured_logging(logging.INFO)
 
@@ -86,8 +91,6 @@ APP_CONFIG_DEFAULTS = [
     ("confidence_medium", 50.0, "thresholds", "MEDIUM Confidence Cutoff"),
     ("confidence_low", 25.0, "thresholds", "LOW Confidence Cutoff"),
     ("eq_tolerance", 0.01, "rules", "Equality Tolerance"),
-    ("cs_rate_threshold", 80.0, "rules", "C-Section Rate Threshold (%)"),
-    ("nvd_rate_threshold", 10.0, "rules", "NVD Rate Threshold (%)"),
     ("month_over_factor", 2.0, "rules", "Month Over Factor"),
     ("month_under_factor", 0.5, "rules", "Month Under Factor"),
     ("maternal_over_factor", 4.0, "rules", "Maternal Deaths Over Factor"),
@@ -438,7 +441,12 @@ CANONICAL_PERMISSION_CODENAMES = [
     "data.upload", "data.export", "smart_analytics.generate_report",
     "system.manage_users",
     # Extended permissions (e2f3a4b5c6d7)
-    "hospitals.write", "hospitals.manage",
+    # hospitals.unrestricted is not a route guard: it is the authorization that
+    # makes get_user_hospital_ids() return None (every hospital) instead of an
+    # empty assignment. It MUST be canonical, otherwise the row is never seeded,
+    # the admin-role grant below finds nothing to attach, and every non-superuser
+    # admin silently sees zero hospitals — i.e. an empty app.
+    "hospitals.write", "hospitals.manage", "hospitals.unrestricted",
     "governorates.read", "governorates.write", "governorates.manage",
     "hospital_types.read", "hospital_types.write", "hospital_types.manage",
     "facility_ownerships.read", "facility_ownerships.write", "facility_ownerships.manage",
@@ -511,7 +519,7 @@ def _ensure_admin_user(session):
         admin_role = session.query(Role).filter(Role.name == "admin").first()
         if admin_role:
             admin_grant_codenames = [
-    "hospitals.write", "hospitals.manage", "hospitals.unrestricted",
+                    "hospitals.write", "hospitals.manage", "hospitals.unrestricted",
                     "governorates.read", "governorates.write", "governorates.manage",
                     "hospital_types.read", "hospital_types.write", "hospital_types.manage",
                     "facility_ownerships.read", "facility_ownerships.write", "facility_ownerships.manage",
@@ -656,6 +664,19 @@ async def lifespan(app: FastAPI):
                     import traceback
                     traceback.print_exc()
 
+            try:
+                removed_rules, removed_results, removed_settings = remove_benchmark_validation_data(session)
+                if removed_rules or removed_results or removed_settings:
+                    session.commit()
+                    print(
+                        "[startup] Removed legacy benchmark validation data "
+                        f"({removed_rules} rules, {removed_results} results, {removed_settings} settings)."
+                    )
+            except Exception as e:
+                session.rollback()
+                print(f"[startup] Benchmark validation cleanup failed: {e}")
+                raise
+
             # Always ensure auth tables exist (migration may have partially failed)
             # Create a fresh session in case DDL changes were made
             try:
@@ -690,6 +711,15 @@ async def lifespan(app: FastAPI):
                     print(f"[startup] Rate config seeded: {seeded} rows.")
             except Exception as e:
                 print(f"[startup] Rate config seed error (non-fatal): {e}")
+            try:
+                seeded_definitions = seed_system_indicator_definitions(session)
+                if seeded_definitions:
+                    print(
+                        "[startup] System indicator definitions migrated: "
+                        f"{seeded_definitions} rows."
+                    )
+            except Exception as e:
+                print(f"[startup] System indicator migration error (non-fatal): {e}")
 
             # Apply hospital metadata (OrgUnit ID, Ownership, Governorate, Type)
             # from scripts/hospital_metadata.json - safe to run every startup.
@@ -774,6 +804,7 @@ app.include_router(upload.router)
 app.include_router(hospitals.router)
 app.include_router(indicator_config.router)
 app.include_router(indicator_groups_router.router)
+app.include_router(indicator_definitions_router.router)
 app.include_router(tree_config.router)
 app.include_router(reports.router)
 app.include_router(analysis.router)

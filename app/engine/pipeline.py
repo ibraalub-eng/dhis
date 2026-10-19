@@ -417,8 +417,16 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
             if r.details:
                 r.details = _resolve_codes(r.details)
 
-    anomaly_results = detect_anomalies(all_hospital_data, hospital.name, month, anomaly_config)
-    trend_anomalies = detect_monthly_trend(historical, month, values, anomaly_config)
+    from app.engine import indicator_service
+
+    managed_indicators = indicator_service.resolve_active_definitions(
+        session, site="zscore")
+    anomaly_results = detect_anomalies(
+        all_hospital_data, hospital.name, month, anomaly_config,
+        additional_indicators=managed_indicators)
+    trend_anomalies = detect_monthly_trend(
+        historical, month, values, anomaly_config,
+        additional_indicators=managed_indicators)
 
     # Deduplicate by indicator_code — prefer cross-hospital anomaly over trend
     seen_codes: set = set()
@@ -703,6 +711,9 @@ def _save_anomaly_results(session: Session, hospital_id: int, month: str, result
             hospital_id=hospital_id,
             month=month,
             indicator_code=a.indicator_code,
+            indicator_id=getattr(a, "indicator_id", None),
+            formula=getattr(a, "formula", None),
+            formula_version=getattr(a, "formula_version", None),
             rate_name=a.rate_name,
             value=float(a.value) if a.value is not None else None,
             benchmark=float(a.benchmark) if a.benchmark is not None else None,

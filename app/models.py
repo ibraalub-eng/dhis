@@ -227,6 +227,155 @@ class IndicatorValue(Base):
     )
 
 
+class IndicatorDefinition(Base):
+    """Managed derived-indicator definition (Indicators tab).
+
+    A definition is a CONFIGURABLE, derived health metric (e.g. C-Section
+    Rate) computed at read/recompute time from RAW IndicatorValue rows of
+    other indicators — it never writes into indicator_values, and it never
+    touches the Data Tree catalog (app.models.Indicator), so raw-data
+    import, completeness denominators and existing dashboards are
+    completely unaffected (Indicators-management design, 2026-10-18).
+
+    Two formula shapes, both validated by the safe expression parser in
+    app/engine/indicator_calc.py BEFORE they ever reach this table:
+
+    * ``ratio``      — numerator_codes <operator> denominator_codes, times
+                       multiplier (the C-Section Rate shape:
+                       (5 / 2) x 100). Operator is one of / * + -.
+    * ``expression`` — a strict arithmetic ``expression`` string using
+                       {code} references only. Never executed as code: it
+                       is tokenized and evaluated by a fixed-grammar
+                       recursive-descent parser (same language as the
+                       validation-rule formulas).
+
+    All numeric columns are nullable/defaults so the startup
+    _ensure_required_columns() self-heal path stays safe. ``version``
+    increments on every content change; the full snapshot of each version
+    lives in IndicatorDefinitionVersion, so historical results (which
+    stamp the definition_version they were computed with in
+    IndicatorResult) stay auditable after edits.
+    """
+    __tablename__ = "indicator_definitions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(50), nullable=False, index=True)
+    name = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    group_name = Column(String(100), nullable=True)
+    source_site = Column(String(20), nullable=True, index=True)
+    legacy_code = Column(String(100), nullable=True, index=True)
+    is_system = Column(Boolean, nullable=False, server_default=text("false"), default=False)
+
+    # ── formula ──────────────────────────────────────────────────────────
+    formula_type = Column(String(20), nullable=False, server_default="ratio", default="ratio")
+    expression = Column(Text, nullable=True)          # expression-mode source ("{5} / {2} * 100")
+    numerator_codes = Column(JSON, nullable=True)     # ["5"]
+    denominator_codes = Column(JSON, nullable=True)   # ["2"]
+    operator = Column(String(3), nullable=False, server_default="/", default="/")
+    multiplier = Column(Float, nullable=False, server_default="1", default=1.0)
+    aggregation = Column(String(10), nullable=False, server_default="sum", default="sum")
+
+    # ── result semantics ─────────────────────────────────────────────────
+    result_type = Column(String(20), nullable=False, server_default="percentage", default="percentage")
+    unit = Column(String(30), nullable=True)
+    # precision/rounding: how the computed value is rounded for storage and
+    # display. precision NULL = keep the full float (legacy behaviour);
+    # precision N = round to N decimal places with the given mode. Applied
+    # ONLY by the shared engine at compute time — historical rows keep the
+    # rounding they were stored with (no silent rewrite on config change).
+    precision = Column(Integer, nullable=True)
+    rounding = Column(String(10), nullable=False, server_default="half_up", default="half_up")
+    direction = Column(String(20), nullable=True)     # higher/lower_is_better | target_range | none
+    threshold_low = Column(Float, nullable=True)
+    threshold_high = Column(Float, nullable=True)
+    target_min = Column(Float, nullable=True)
+    target_max = Column(Float, nullable=True)
+
+    # ── lifecycle ────────────────────────────────────────────────────────
+    is_active = Column(Boolean, nullable=False, server_default=text("true"), default=True)
+    version = Column(Integer, nullable=False, server_default="1", default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    results = relationship(
+        "IndicatorResult", back_populates="definition",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_indicator_definition_code"),
+    )
+
+
+class IndicatorDefinitionVersion(Base):
+    """Audit trail for derived-indicator definition changes.
+
+    Mirrors RuleHistory: rows outlive the definition — definition_id is
+    SET NULL on deletion while definition_code keeps the trail queryable.
+    ``snapshot`` is the full JSON of the definition AFTER the change, so
+    any historical IndicatorResult stamped with ``version`` can be replayed
+    against the exact formula that produced it.
+    """
+    __tablename__ = "indicator_definition_versions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    definition_id = Column(
+        Integer, ForeignKey("indicator_definitions.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    definition_code = Column(String(50), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    action = Column(String(20), nullable=False)       # created|updated|activated|deactivated|deleted
+    snapshot = Column(Text, nullable=False)           # full definition JSON after the change
+    changed_fields = Column(Text, nullable=True)      # JSON list of changed field names
+    changed_by = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class IndicatorResult(Base):
+    """Stored output of a derived indicator for one hospital x month.
+
+    Deliberately a SEPARATE table from indicator_values (raw data): raw
+    imports never overwrite these, these never masquerade as raw data, and
+    completeness / Data Tree / rules engines — which only read
+    indicator_values — cannot be silently affected by derived-indicator
+    changes.
+
+    ``value`` is NULL whenever ``status`` != 'ok'; ``status`` distinguishes
+    missing data (no reported value) from a legitimate 0.0 result and from
+    a zero denominator. ``definition_version`` records which formula
+    version produced the row — a version mismatch against the current
+    definition shows as "stale" until an EXPLICIT recompute, so editing a
+    definition never silently rewrites historical results.
+    """
+    __tablename__ = "indicator_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    definition_id = Column(
+        Integer, ForeignKey("indicator_definitions.id", ondelete="CASCADE"),
+        nullable=True, index=True,
+    )
+    definition_code = Column(String(50), nullable=False, index=True)
+    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=False, index=True)
+    month = Column(String(7), nullable=False, index=True)
+    value = Column(Float, nullable=True)
+    status = Column(String(20), nullable=False, server_default="ok", default="ok")
+    numerator = Column(Float, nullable=True)
+    denominator = Column(Float, nullable=True)
+    inputs = Column(Text, nullable=True)              # JSON breakdown {code: value|null}
+    definition_version = Column(Integer, nullable=False, server_default="1", default=1)
+    computed_at = Column(DateTime, default=datetime.utcnow)
+
+    definition = relationship("IndicatorDefinition", back_populates="results")
+    hospital = relationship("Hospital")
+
+    __table_args__ = (
+        Index("ix_ir_hosp_month", "hospital_id", "month"),
+        UniqueConstraint("definition_id", "hospital_id", "month", name="uq_indicator_result_def_hosp_month"),
+    )
+
+
 class Rule(Base):
     __tablename__ = "rules"
     id = Column(Integer, primary_key=True, index=True)
@@ -287,6 +436,9 @@ class AnomalyResult(Base):
     hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=False, index=True)
     month = Column(String(7), nullable=False, index=True)
     indicator_code = Column(String(50), nullable=False)
+    indicator_id = Column(String(100), nullable=True)
+    formula = Column(Text, nullable=True)
+    formula_version = Column(String(100), nullable=True)
     rate_name = Column(String(100), nullable=False)
     value = Column(Float, nullable=True)
     benchmark = Column(Float, nullable=True)

@@ -38,7 +38,7 @@ def test_fresh_seed_contains_all_registry_tabs(session):
     assert seeded == set(TAB_REGISTRY.keys())
     data_group = session.query(MenuGroup).filter_by(name="Data").first()
     item_keys = [i.tab_key for i in session.query(MenuItem).filter_by(group_id=data_group.id).all()]
-    assert item_keys == ["upload", "indicator-tree", "indicator-groups", "rules-manager"]
+    assert item_keys == ["upload", "indicator-tree", "indicator-groups", "indicators", "rules-manager"]
 
 
 def test_backfill_adds_new_tab_to_existing_db(session):
@@ -61,7 +61,7 @@ def test_backfill_adds_new_tab_to_existing_db(session):
     assert "indicator-groups" in added
     assert _group_of(session, "indicator-groups").name == "Data"
     keys = [i.tab_key for i in session.query(MenuItem).filter_by(group_id=data.id).all()]
-    assert keys == ["upload", "indicator-tree", "indicator-groups", "rules-manager"]
+    assert keys == ["upload", "indicator-tree", "indicator-groups", "indicators", "rules-manager"]
 
 
 def test_backfill_is_idempotent(session):

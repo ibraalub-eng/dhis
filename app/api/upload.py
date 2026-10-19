@@ -39,7 +39,7 @@ def _process_upload(file_path, file, db):
             os.remove(file_path)
         logger.error(f"Unexpected error processing {file.filename}: {e}", exc_info=True)
         raise HTTPException(status_code=422, detail=f"Error processing file: {str(e)}")
-    for prefix in ("smart_overview_", "smart_anomalies_", "smart_clusters_", "smart_correlations_", "smart_residuals_"):
+    for prefix in ("smart_overview_", "smart_anomalies_", "smart_clusters_", "smart_correlations_", "smart_residuals_", "smart_analysis_indicators_"):
         cache.invalidate(prefix)
     return result
 
@@ -281,6 +281,7 @@ def save_manual_entry(
     cache.invalidate("smart_clusters_")
     cache.invalidate("smart_correlations_")
     cache.invalidate("smart_residuals_")
+    cache.invalidate("smart_analysis_indicators_")
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
     cache.invalidate("smart_timeline")
@@ -333,6 +334,7 @@ async def upload_excel(file: UploadFile = File(...), override: bool = Query(Fals
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
     cache.invalidate("smart_timeline")
+    cache.invalidate("smart_analysis_indicators_")
     invalidate_report_cache(db)
     # Pre-compute smart analytics in background so the dashboard loads instantly
     _precompute_smart_bg(db, result.get("months", []))
@@ -383,6 +385,7 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
     cache.invalidate("smart_stratified_")
     cache.invalidate("smart_geo_")
     cache.invalidate("smart_timeline")
+    cache.invalidate("smart_analysis_indicators_")
     invalidate_report_cache(db)
 
     hospitals = result["hospitals"]

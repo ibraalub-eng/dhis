@@ -89,7 +89,7 @@
         function renderAlertOverview(data) {
             const sev = data.by_severity;
             const order = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
-            const colors = { CRITICAL: '#b71c1c', HIGH: '#c62828', MEDIUM: '#e65100', LOW: '#1565c0', OUTLIER: '#7b1fa2', TOTAL: '#333' };
+            const colors = { CRITICAL: '#b71c1c', HIGH: '#c62828', MEDIUM: '#e65100', LOW: '#1565c0', TOTAL: '#333' };
 
             // Summary bar
             let barHtml = '';
@@ -100,10 +100,6 @@
                     '<span style="color:' + colors[s] + '66;">' + s + '</span>' +
                     '</span>';
             });
-            barHtml += '<span style="display:inline-flex;align-items:center;gap:0.3rem;background:#7b1fa211;border:1px solid #7b1fa244;border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;">' +
-                '<span style="font-weight:700;color:#7b1fa2;">' + (data.outlier_count || 0) + '</span>' +
-                '<span style="color:#7b1fa266;">Outliers</span>' +
-                '</span>';
             barHtml += '<span style="display:inline-flex;align-items:center;gap:0.3rem;border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;">' +
                 '<span style="font-weight:700;color:var(--text-primary);">' + (data.total_alerts || 0) + '</span>' +
                 '<span style="color:var(--text-muted);">Total</span>' +
@@ -153,5 +149,4 @@
             }
             document.getElementById('alertCriticalList').innerHTML = critHtml;
         }
-
 

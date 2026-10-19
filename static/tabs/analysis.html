@@ -9,10 +9,10 @@
                     <div style="display:flex;gap:0.3rem;margin-bottom:1rem;border-bottom:2px solid var(--border-default);flex-wrap:wrap;">
                         <button class="analysis-subtab active" data-subtab="trend" onclick="switchAnalysisSubtab('trend')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--accent-blue);border-bottom:2px solid var(--accent-blue);margin-bottom:-2px;cursor:pointer;font-size:0.82rem;">📈 Trend Analysis</button>
                         <button class="analysis-subtab" data-subtab="compare" onclick="switchAnalysisSubtab('compare')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">🏥 Hospital Comparison</button>
-                        <button class="analysis-subtab" data-subtab="governorates" onclick="switchAnalysisSubtab('governorates')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">🗺️ Governorates</button>
+                        <button class="analysis-subtab" data-subtab="governorates" data-requires="smart_analytics.read" onclick="switchAnalysisSubtab('governorates')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">🗺️ Governorates</button>
                         <button class="analysis-subtab" data-subtab="indicators" onclick="switchAnalysisSubtab('indicators')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">📊 Indicators</button>
                         <button class="analysis-subtab" data-subtab="timeperiods" onclick="switchAnalysisSubtab('timeperiods')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">📅 Time Periods</button>
-                        <button class="analysis-subtab" data-subtab="performance" onclick="switchAnalysisSubtab('performance')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">📈 Performance Levels</button>
+                        <button class="analysis-subtab" data-subtab="performance" data-requires="dashboard.read" onclick="switchAnalysisSubtab('performance')" style="padding:0.4rem 0.9rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;">📈 Performance Levels</button>
                     </div>
 
                     <!-- ── Trend Analysis ─────────────────────────────── -->
@@ -69,7 +69,7 @@
                     </div>
 
                     <!-- ── Governorates ───────────────────────────────── -->
-                    <div id="analysisSub-governorates" class="analysis-subtab-content" style="display:none;">
+                    <div id="analysisSub-governorates" class="analysis-subtab-content" data-requires="smart_analytics.read" style="display:none;">
                         <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
                             <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
@@ -135,7 +135,7 @@
                     </div>
 
                     <!-- ── Performance Levels ─────────────────────────── -->
-                    <div id="analysisSub-performance" class="analysis-subtab-content" style="display:none;">
+                    <div id="analysisSub-performance" class="analysis-subtab-content" data-requires="dashboard.read" style="display:none;">
                         <div class="card" style="padding:0.6rem 0.8rem;margin-bottom:1rem;">
                             <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;">
                                 <button class="btn btn-sm" onclick="loadPerformanceLevels()" style="font-size:0.78rem;padding:0.3rem 0.8rem;">Load Rankings</button>

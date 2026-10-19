@@ -498,6 +498,7 @@
     'tab-audit': 'audit.read',
     'tab-settings': 'system.manage_users',
     'tab-guides': 'dashboard.read',
+    'tab-indicators': 'settings.read',
     // tab-admin uses data-requires-superadmin instead of permission check
   };
 

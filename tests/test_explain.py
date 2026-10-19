@@ -673,11 +673,7 @@ def test_failing_rule_is_only_a_data_problem_when_its_own_input_is_missing(db_se
     assert c["data_problems"] == []
 
 
-def test_cross_hospital_rule_explains_peer_breakdown(db_session, client):
-    """A cross-hospital benchmark rule (R049/R050) must break its one-line
-    message ("Rate=27.5%, mean=14.4%, z=1.41 (outlier)") into the numbers
-    behind it: every hospital's rate for the month, the mean/std those rates
-    produce, and the z recomputed from them."""
+def test_benchmark_validation_failure_cannot_be_explained(db_session, client):
     hospitals = db_session.query(Hospital).order_by(Hospital.id).all()
     assert len(hospitals) >= 3
     per_hospital = {
@@ -698,37 +694,8 @@ def test_cross_hospital_rule_explains_peer_breakdown(db_session, client):
     resp = client.get(
         f"/audit/explain?kind=rule&hospital_id={hospitals[0].id}&month=2026-08&rule_code=R049"
     )
-    assert resp.status_code == 200, resp.text
-    p = resp.json()
-
-    inputs = {i["input"]: i["value"] for i in p["how"]["inputs"]}
-
-    # every hospital's rate for the month, by name
-    assert inputs[f"Rate — {hospitals[0].name}"] == pytest.approx(27.5, abs=1e-2)
-    assert inputs[f"Rate — {hospitals[1].name}"] == pytest.approx(4 / 60 * 100, abs=1e-2)
-    assert inputs[f"Rate — {hospitals[2].name}"] == pytest.approx(5 / 55 * 100, abs=1e-2)
-
-    # mean/std reproduce from exactly those rates (rule engine: all
-    # hospitals incl. this one, population std)
-    expected_rates = [27.5, 4 / 60 * 100, 5 / 55 * 100]
-    mean = inputs["Mean of hospital rates"]
-    std = inputs["Std of hospital rates"]
-    assert mean == pytest.approx(sum(expected_rates) / len(expected_rates), abs=1e-2)
-    assert std == pytest.approx(
-        (sum((r - sum(expected_rates) / len(expected_rates)) ** 2 for r in expected_rates)
-         / len(expected_rates)) ** 0.5, abs=1e-2
-    )
-
-    # the listed z reproduces from the listed mean/std
-    assert inputs["z = (rate - mean) / std"] == pytest.approx((27.5 - mean) / std, abs=1e-2)
-    assert inputs["Z threshold"] == 2.5
-
-    # the readable formula spells out the calculation with live numbers
-    fr = p["how"]["formula_readable"]
-    assert "27.5" in fr
-    assert "Total Deliveries" in fr
-    assert "Severe Maternal Morbidity" in fr
-    assert "outlier" in fr.lower()
+    assert resp.status_code == 404, resp.text
+    assert "No validation result" in resp.json()["detail"]
 
 
 # ───────────────────── month aggregate (no hospital) ─────────────────

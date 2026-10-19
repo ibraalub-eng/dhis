@@ -197,8 +197,8 @@ def get_month_settings(
     db: Session = Depends(get_db),
 ):
     """Get list of enabled months for a specific hospital."""
-    from app.api.analysis import list_months_with_data
-    all_months = list_months_with_data(db)
+    from app.api.analysis import _list_months_with_data
+    all_months = _list_months_with_data(db, None)
     prefix = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_"
     rows = db.query(SystemSetting).filter(
         SystemSetting.key.like(prefix + "%")

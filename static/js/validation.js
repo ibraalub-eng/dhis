@@ -10,6 +10,8 @@
         const _analysisTabInits = { trend: initTrends, compare: initCompare, governorates: initGovTab, indicators: initIndTab, timeperiods: initTpTab, performance: initPerfTab };
 
         export function switchAnalysisSubtab(name) {
+            const requestedButton = document.querySelector('.analysis-subtab[data-subtab="' + name + '"]');
+            if (requestedButton && requestedButton.style.display === 'none') name = 'trend';
             document.querySelectorAll('.analysis-subtab').forEach(btn => {
                 const isActive = btn.getAttribute('data-subtab') === name;
                 btn.style.fontWeight = isActive ? '600' : '400';
@@ -27,6 +29,8 @@
             let tab = 'trend';
             try { tab = localStorage.getItem('analysisSubtab') || 'trend'; } catch(e) {}
             if (!_analysisTabs.includes(tab)) tab = 'trend';
+            if (tab === 'governorates' && window.hasPermission && !window.hasPermission('smart_analytics.read')) tab = 'trend';
+            if (tab === 'performance' && window.hasPermission && !window.hasPermission('dashboard.read')) tab = 'trend';
             switchAnalysisSubtab(tab);
         }
 
@@ -1058,4 +1062,3 @@
             html += '</div>';
             container.innerHTML = html;
         }
-

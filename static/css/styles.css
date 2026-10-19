@@ -420,9 +420,6 @@ canvas { background: transparent !important; }
 .vb-num-input:focus { border-color:var(--border-focus); outline:none; box-shadow:0 0 0 2px rgba(79,140,255,0.15); }
 .vb-text-input { padding:0.35rem 0.5rem; border:1px solid var(--border-default); border-radius:6px; font-size:0.85rem; background:var(--bg-input); color:var(--text-primary); }
 .vb-text-input:focus { border-color:var(--border-focus); outline:none; box-shadow:0 0 0 2px rgba(79,140,255,0.15); }
-.vb-threshold-track { flex:1; min-width:100px; height:6px; background:var(--border-default); border-radius:3px; position:relative; }
-.vb-threshold-fill { height:100%; border-radius:3px; background: linear-gradient(90deg, var(--accent-green), var(--accent-orange), var(--accent-red)); }
-.vb-threshold-dot { position:absolute; top:50%; transform:translate(-50%,-50%); width:16px; height:16px; border-radius:50%; background:var(--accent-blue); border:2px solid var(--bg-elevated); box-shadow:0 1px 4px rgba(0,0,0,0.3); cursor:pointer; }
 .vb-divider { height:1px; background:var(--border-default); margin:0.6rem 0; }
 .vb-relation-box { display:flex; align-items:center; justify-content:center; gap:0.75rem; padding:0.5rem 1rem; background:var(--bg-input); border-radius:10px; border:1px solid var(--border-default); margin:0.4rem 0; font-size:0.82rem; color:var(--text-secondary); }
 .vb-formula-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:0.3rem; margin:0.5rem 0; }

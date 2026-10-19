@@ -114,7 +114,7 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _vbHandleDrop(zoneId, code) {
-            const isSingle = ['vb_zone_parent','vb_zone_child','vb_zone_numerator','vb_zone_denominator','vb_zone_indicator','vb_zone_target'].includes(zoneId);
+            const isSingle = ['vb_zone_parent','vb_zone_child','vb_zone_indicator','vb_zone_target'].includes(zoneId);
             if (isSingle) {
                 _vbState[zoneId.replace('vb_zone_', '')] = code;
             } else if (zoneId === 'vb_zone_children' || zoneId === 'vb_zone_codes') {
@@ -136,7 +136,7 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _vbStateReset(expr) {
-            _vbState = { _expr: expr, parent:'', child:'', children:[], numerator:'', denominator:'', threshold:80, z_threshold:2.5, indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], target:'', op:'=' };
+            _vbState = { _expr: expr, parent:'', child:'', children:[], indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], target:'', op:'=' };
         }
 
         // ── Formula comparison operator helpers ────────────────────
@@ -210,11 +210,6 @@ import { confirmDestructive } from './confirm-modal.js';
                     return JSON.stringify({ child: _vbState.child || '', parent: _vbState.parent || '' });
                 case 'le_sum':
                     return JSON.stringify({ child: _vbState.child || '', children: _vbState.children || [] });
-                case 'benchmark_rate':
-                case 'benchmark_low_rate':
-                    return JSON.stringify({ num_code: _vbState.numerator || '', den_code: _vbState.denominator || '', threshold: parseFloat(_vbState.threshold) || 80 });
-                case 'cross_hospital_rate':
-                    return JSON.stringify({ num_code: _vbState.numerator || '', den_code: _vbState.denominator || '', z_threshold: parseFloat(_vbState.z_threshold) || 2.5 });
                 case 'month_over':
                 case 'month_under':
                     return JSON.stringify({ code: _vbState.indicator || '', factor: parseFloat(_vbState.factor) || 1.0 });
@@ -299,9 +294,6 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'le': cond = chip(p.child) + ' ≤ ' + chip(p.parent); break;
                 case 'lt': cond = chip(p.child) + ' < ' + chip(p.parent); break;
                 case 'le_sum': cond = chip(p.child) + ' ≥ ' + chips(p.children); break;
-                case 'benchmark_rate': cond = '(' + chip(p.num_code) + ' ÷ ' + chip(p.den_code) + ') × 100 ≤ ' + num(p.threshold) + '%'; break;
-                case 'benchmark_low_rate': cond = '(' + chip(p.num_code) + ' ÷ ' + chip(p.den_code) + ') × 100 ≥ ' + num(p.threshold) + '%'; break;
-                case 'cross_hospital_rate': cond = '|z(' + chip(p.num_code) + ' ÷ ' + chip(p.den_code) + ')| ≤ ' + num(p.z_threshold); break;
                 case 'month_over': cond = chip(p.code) + ' ≤ ' + num(p.factor) + ' × ' + __('previous month'); break;
                 case 'month_under': cond = chip(p.code) + ' ≥ ' + num(p.factor) + ' × ' + __('previous month'); break;
                 case 'neg_check': cond = chips(p.codes) + ' ≥ 0'; break;
@@ -366,35 +358,6 @@ import { confirmDestructive } from './confirm-modal.js';
                 html += _vbZoneHTML('vb_zone_child', __('Child'), _vbState.child ? [_vbState.child] : [], false, __('Drop child indicator here'));
                 html += '<div class="vb-relation-box"><span class="vb-relation-symbol ge">' + symbol + '</span> ' + __('child \u2265 sum(children)') + '</div>';
                 html += _vbZoneHTML('vb_zone_children', __('Children'), _vbState.children || [], true, __('Drop child indicators here'));
-            }
-
-            html += '</div>';
-            return html;
-        }
-
-        function _buildVBRate(expr) {
-            const isLow = expr === 'benchmark_low_rate';
-            const cssClass = isLow ? 'lt' : 'ge';
-            const symbol = isLow ? '\u2264' : '\u2265';
-            const th = parseFloat(_vbState.threshold) || (isLow ? 10 : 80);
-            _vbState.threshold = th;
-            let relText = isLow ? __('rate <= threshold') : __('rate >= threshold');
-
-            let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
-            html += '<div style="display:flex;gap:0.75rem;">';
-            html += _vbZoneHTML('vb_zone_numerator', __('Numerator'), _vbState.numerator ? [_vbState.numerator] : [], false, __('Drop numerator'));
-            html += _vbZoneHTML('vb_zone_denominator', __('Denominator'), _vbState.denominator ? [_vbState.denominator] : [], false, __('Drop denominator'));
-            html += '</div>';
-            html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + cssClass + '">' + symbol + '</span> ' + relText + '</div>';
-            html += '<div class="vb-row"><span class="vb-label">' + __('Threshold') + '%</span>';
-            html += '<input type="number" class="vb-num-input" id="vb_threshold_input" value="' + th + '" min="0" max="100" step="0.1" onchange="_vbOnThresholdChange()">';
-            html += '<div class="vb-threshold-track"><div class="vb-threshold-fill" style="width:' + th + '%"></div><div class="vb-threshold-dot" style="left:' + th + '%"></div></div></div>';
-
-            if (expr === 'cross_hospital_rate') {
-                const zth = parseFloat(_vbState.z_threshold) || 2.5;
-                _vbState.z_threshold = zth;
-                html += '<div class="vb-row"><span class="vb-label">z-threshold</span>';
-                html += '<input type="number" class="vb-num-input" id="vb_zthreshold_input" value="' + zth + '" min="0" max="10" step="0.1" onchange="_vbOnZThresholdChange()"></div>';
             }
 
             html += '</div>';
@@ -483,18 +446,6 @@ import { confirmDestructive } from './confirm-modal.js';
             if (itemsContainer) itemsContainer.innerHTML = _vbPaletteItemsHTML();
         }
 
-        export function _vbOnThresholdChange() {
-            const inp = document.getElementById('vb_threshold_input');
-            _vbState.threshold = inp ? parseFloat(inp.value) : 80;
-            _vbUpdateHidden();
-        }
-
-        export function _vbOnZThresholdChange() {
-            const inp = document.getElementById('vb_zthreshold_input');
-            _vbState.z_threshold = inp ? parseFloat(inp.value) : 2.5;
-            _vbUpdateHidden();
-        }
-
         export function _vbOnFactorChange() {
             const inp = document.getElementById('vb_factor_input');
             _vbState.factor = inp ? parseFloat(inp.value) : 1.0;
@@ -570,13 +521,10 @@ import { confirmDestructive } from './confirm-modal.js';
             _vbState._expr = expr;
             let html = '';
             const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le'];
-            const rateTypes = ['benchmark_rate', 'benchmark_low_rate', 'cross_hospital_rate'];
             const trendTypes = ['month_over', 'month_under'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
             if (parentChild.includes(expr)) {
                 html = _buildVBParentChild(expr);
-            } else if (rateTypes.includes(expr)) {
-                html = _buildVBRate(expr);
             } else if (trendTypes.includes(expr)) {
                 html = _buildVBTrend(expr);
             } else if (listTypes.includes(expr)) {
@@ -613,7 +561,6 @@ import { confirmDestructive } from './confirm-modal.js';
             try { params = typeof paramsStr === 'string' ? JSON.parse(paramsStr) : paramsStr; } catch(e) {}
             _vbStateReset(expr);
             const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le'];
-            const rateTypes = ['benchmark_rate', 'benchmark_low_rate', 'cross_hospital_rate'];
             const trendTypes = ['month_over', 'month_under'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
 
@@ -622,11 +569,6 @@ import { confirmDestructive } from './confirm-modal.js';
                 _vbState.child = params.child || '';
                 _vbState.children = params.children || [];
                 if (expr === 'ge_factor') _vbState.ge_factor = params.factor || 1.1;
-            } else if (rateTypes.includes(expr)) {
-                _vbState.numerator = params.num_code || '';
-                _vbState.denominator = params.den_code || '';
-                _vbState.threshold = params.threshold || (expr === 'benchmark_low_rate' ? 10 : 80);
-                if (expr === 'cross_hospital_rate') _vbState.z_threshold = params.z_threshold || 2.5;
             } else if (trendTypes.includes(expr)) {
                 _vbState.indicator = params.code || '';
                 _vbState.factor = params.factor || (expr === 'month_over' ? 2.0 : 0.5);
@@ -678,13 +620,6 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'le_sum':
                     if (!_vbState.child || !(_vbState.children || []).length) return '';
                     return child + ' >= ' + joinNames(_vbState.children);
-                case 'benchmark_rate':
-                case 'benchmark_low_rate':
-                    if (!_vbState.numerator || !_vbState.denominator) return '';
-                    return indName(_vbState.numerator) + ' Rate ' + (expr === 'benchmark_low_rate' ? '< ' : '> ') + (parseFloat(_vbState.threshold) || (expr === 'benchmark_low_rate' ? 10 : 80)) + '% alert';
-                case 'cross_hospital_rate':
-                    if (!_vbState.numerator || !_vbState.denominator) return '';
-                    return indName(_vbState.numerator) + '/' + indName(_vbState.denominator) + ' rate outlier across hospitals';
                 case 'month_over':
                 case 'month_under':
                     if (!_vbState.indicator) return '';
@@ -1064,4 +999,3 @@ import { confirmDestructive } from './confirm-modal.js';
                 toastError('Delete failed: ' + e.message);
             }
         }
-

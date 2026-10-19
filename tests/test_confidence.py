@@ -30,10 +30,9 @@ class TestExtractCodesFromParams:
         assert "5" in codes
         assert "2" in codes
 
-    def test_benchmark_rate(self):
+    def test_removed_benchmark_expression_is_not_mapped(self):
         codes = _extract_codes_from_params("benchmark_rate", {"num_code": "5", "den_code": "2"})
-        assert "5" in codes
-        assert "2" in codes
+        assert codes == []
 
     def test_month_over(self):
         codes = _extract_codes_from_params("month_over", {"code": "2"})
@@ -430,7 +429,7 @@ class TestCalculateConfidence:
     def test_with_rule_failures(self):
         values = {"2": 300, "5": 80}
         rule_results = [
-            RuleResult("R041", "C-section rate high", RuleStatus.FAIL, Severity.HIGH, RuleType.BENCHMARK, "Rate exceeds threshold"),
+            RuleResult("R001", "Delivery sum mismatch", RuleStatus.FAIL, Severity.HIGH, RuleType.LOGIC, "Delivery sum mismatch"),
         ]
         result = calculate_confidence(
             hospital_name="Test",
@@ -441,7 +440,7 @@ class TestCalculateConfidence:
             all_hospital_data={},
             indicator_map={"2": "Total", "5": "CS"},
             indicator_children={},
-            indicator_rule_map={"5": ["R041"]},
+            indicator_rule_map={"5": ["R001"]},
         )
         assert result.indicator_count >= 2
         ind5 = [i for i in result.indicators if i.indicator_code == "5"]

@@ -6,7 +6,11 @@ from sqlalchemy.orm import sessionmaker
 from app.core.deps import get_current_user
 from app.database import Base, get_db
 from app.models import Hospital
-from scripts.seed_indicators import seed_indicators, seed_rate_config
+from scripts.seed_indicators import (
+    seed_indicators,
+    seed_rate_config,
+    seed_system_indicator_definitions,
+)
 from scripts.seed_menu import seed_menu  # noqa: E402
 from scripts.seed_rules import seed_rules
 
@@ -187,6 +191,7 @@ def db_session():
     try:
         seed_indicators(session)
         seed_rate_config(session)
+        seed_system_indicator_definitions(session)
         _seed_hospitals(session)
         seed_rules(session)
         seed_menu(session)

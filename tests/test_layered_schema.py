@@ -241,5 +241,5 @@ def test_migration_revision_is_new_head():
 
     from app.config import BASE_DIR
     script = ScriptDirectory.from_config(AlembicConfig(os.path.join(BASE_DIR, "alembic.ini")))
-    assert script.get_current_head() == "e5f6a7b8c9d0"
-    assert script.get_revision("e5f6a7b8c9d0").down_revision == "b1c2d3e4f5a6"
+    assert script.get_current_head() == "e3f4a5b6c7d8"
+    assert script.get_revision("e3f4a5b6c7d8").down_revision == "c2d3e4f5a6b7"

@@ -5,8 +5,6 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.engine.rate_config import iter_site
-
 from .definitions import _RULES_CONFIG, RULE_REF_CODES
 
 
@@ -24,7 +22,6 @@ class Severity(str, Enum):
 class RuleType(str, Enum):
     LOGIC = "LOGIC"
     CLINICAL = "CLINICAL"
-    BENCHMARK = "BENCHMARK"
     DATA_QUALITY = "DATA_QUALITY"
 
 
@@ -68,14 +65,6 @@ def _vs(ctx: ValidationContext, codes: List[str]) -> float:
 
 def _has_any(ctx: ValidationContext, codes: List[str]) -> bool:
     return any(ctx.values.get(c) is not None for c in codes)
-
-
-def _rate(ctx: ValidationContext, num_code: str, den_code: str) -> Optional[float]:
-    num = _v(ctx, num_code)
-    den = _v(ctx, den_code)
-    if num is None or den is None or den == 0:
-        return None
-    return (num / den) * 100
 
 
 def _ge(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
@@ -233,49 +222,6 @@ def _missing(indicator_code: str, code: str, desc: str, sev: Severity, ctx: Vali
     if val is None:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, RuleType.DATA_QUALITY, f"Missing value for indicator {indicator_code}")
     return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY, f"{indicator_code}={val}")
-
-
-def _benchmark_rate(num_code: str, den_code: str, threshold: float, code: str, desc: str, sev: Severity, ctx: ValidationContext) -> RuleResult:
-    rate = _rate(ctx, num_code, den_code)
-    if rate is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.BENCHMARK, "Missing data for rate calculation")
-    if rate > threshold:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, RuleType.BENCHMARK, f"Rate={rate:.1f}% exceeds threshold {threshold:.1f}%")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.BENCHMARK, f"Rate={rate:.1f}% (<= {threshold:.1f}%)")
-
-
-def _rate_low(num_code: str, den_code: str, threshold: float, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
-    rate = _rate(ctx, num_code, den_code)
-    if rate is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Missing data for rate calculation")
-    if rate < threshold:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"Rate={rate:.1f}% is below {threshold:.1f}%")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Rate={rate:.1f}% (>= {threshold:.1f}%)")
-
-
-def _cross_hospital_rate(num_code: str, den_code: str, z_thresh: float, code: str, desc: str, sev: Severity, ctx: ValidationContext) -> RuleResult:
-    import numpy as np
-    if ctx.all_hospital_data is None or len(ctx.all_hospital_data) < 2:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.BENCHMARK, "Not enough hospitals for comparison")
-    rates = {}
-    for name, vals in ctx.all_hospital_data.items():
-        r = _rate(ValidationContext(values=vals, hospital_name=name, month=ctx.month), num_code, den_code)
-        if r is not None:
-            rates[name] = r
-    cur_rate = _rate(ctx, num_code, den_code)
-    if cur_rate is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.BENCHMARK, "Missing data for rate")
-    if len(rates) < 2:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.BENCHMARK, "Not enough hospital data for comparison")
-    vals_list = list(rates.values())
-    mean_r = float(np.mean(vals_list))
-    std_r = float(np.std(vals_list))
-    if std_r == 0:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.BENCHMARK, f"Rate={cur_rate:.1f}%, no variation across hospitals")
-    z = (cur_rate - mean_r) / std_r
-    if abs(z) > z_thresh:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, RuleType.BENCHMARK, f"Rate={cur_rate:.1f}%, mean={mean_r:.1f}%, z={z:.2f} (outlier)")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.BENCHMARK, f"Rate={cur_rate:.1f}%, z={z:.2f} (OK)")
 
 
 def _parse_formula_tokens(formula: str):
@@ -513,25 +459,6 @@ def _build_rules():
     ALL_RULES.append(lambda ctx: _le("10.n", "10", "R065", "Self-Harm/Suicide Attempt <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
     ALL_RULES.append(lambda ctx: _le("10.o", "10", "R066", "Other Morbidity <= SMM", Severity.MEDIUM, RuleType.CLINICAL, ctx))
 
-    ALL_RULES.append(lambda ctx: _benchmark_rate("5", "2", _RULES_CONFIG["cs_rate_threshold"], "R041", "C-section rate > 80%", Severity.HIGH, ctx))
-    ALL_RULES.append(lambda ctx: _rate_low("3", "2", _RULES_CONFIG["nvd_rate_threshold"], "R042", "Normal Vaginal Delivery Rate < 10%", Severity.HIGH, RuleType.BENCHMARK, ctx))
-    # Numerator/denominator pairs live in the central registry (rate_config,
-    # site "rules"); code/description/severity are rule metadata and stay here.
-    _rule_rate_meta = [
-        ("R043", "Preterm Birth Rate outlier across hospitals", Severity.MEDIUM),
-        ("R044", "Low Birth Weight Rate outlier across hospitals", Severity.MEDIUM),
-        ("R045", "Maternal Mortality Ratio outlier across hospitals", Severity.HIGH),
-        ("R046", "Neonatal Mortality Rate outlier across hospitals", Severity.HIGH),
-        ("R047", "Stillbirth Rate outlier across hospitals", Severity.MEDIUM),
-        ("R048", "NICU Admission Rate outlier across hospitals", Severity.MEDIUM),
-        ("R049", "SMM Rate outlier across hospitals", Severity.HIGH),
-        ("R050", "Hemorrhage Rate outlier across hospitals", Severity.HIGH),
-    ]
-    for spec, (code, desc, sev) in zip(iter_site("rules"), _rule_rate_meta, strict=True):
-        ALL_RULES.append(lambda ctx, s=spec, c=code, d=desc, v=sev:
-                         _cross_hospital_rate(s.numerator_codes[0], s.denominator_codes[0],
-                                              _RULES_CONFIG["zscore_threshold"], c, d, v, ctx))
-
     ALL_RULES.append(lambda ctx: _month_over("2", ctx.historical_data, _RULES_CONFIG["month_over_factor"], "R051", "Deliveries > 2x previous month", Severity.HIGH, ctx))
     ALL_RULES.append(lambda ctx: _month_under("2", ctx.historical_data, _RULES_CONFIG["month_under_factor"], "R052", "Deliveries < 50% of previous month", Severity.HIGH, ctx))
     ALL_RULES.append(lambda ctx: _month_over("6", ctx.historical_data, _RULES_CONFIG["month_over_factor"], "R053", "Live Births > 2x previous month", Severity.HIGH, ctx))
@@ -570,8 +497,21 @@ def run_all_rules(ctx: ValidationContext) -> List[RuleResult]:
 
 
 def load_rules_from_db(session: Session) -> list:
+    from sqlalchemy import func
     from app.models import Rule
-    return session.query(Rule).filter(Rule.enabled).order_by(Rule.sort_order, Rule.code).all()
+    return (
+        session.query(Rule)
+        .filter(
+            Rule.enabled,
+            func.upper(Rule.rule_type) != "BENCHMARK",
+            func.upper(Rule.category) != "STATISTICAL_BENCHMARK",
+            func.lower(Rule.expression_type).notin_(
+                ("benchmark_rate", "benchmark_low_rate", "cross_hospital_rate")
+            ),
+        )
+        .order_by(Rule.sort_order, Rule.code)
+        .all()
+    )
 
 
 def _iter_sum_rules(session: Session = None):
@@ -670,8 +610,6 @@ def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
         return [c for c in codes if c]
     if expr in ("le", "lt"):
         return [params.get("child"), params.get("parent")] if params.get("parent") else [params.get("child")]
-    if expr in ("benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"):
-        return [params.get("num_code"), params.get("den_code")]
     if expr in ("month_over", "month_under", "missing"):
         return [params.get("code")]
     if expr in ("neg_check", "decimal_check"):
@@ -700,8 +638,15 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
     code = rule.code
     desc = rule.name
     sev = Severity(rule.severity)
-    rtype = RuleType(rule.rule_type)
     expr = rule.expression_type
+    rule_type = getattr(rule.rule_type, "value", rule.rule_type)
+    if (
+        str(rule_type).upper() == "BENCHMARK"
+        or str(getattr(rule, "category", "")).upper() == "STATISTICAL_BENCHMARK"
+        or expr in {"benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"}
+    ):
+        return None
+    rtype = RuleType(rule.rule_type)
 
     ref_codes = _get_rule_ref_codes_from_expr(expr, params)
     if _all_codes_disabled(ctx, ref_codes):
@@ -723,12 +668,6 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
         return _ge(params["child"], params["children"], code, desc, sev, rtype, ctx)
     elif expr == "parent_le":
         return _parent_le(params["parent"], params["children"], code, desc, sev, rtype, ctx)
-    elif expr == "benchmark_rate":
-        return _benchmark_rate(params["num_code"], params["den_code"], params["threshold"], code, desc, sev, ctx)
-    elif expr == "benchmark_low_rate":
-        return _rate_low(params["num_code"], params["den_code"], params["threshold"], code, desc, sev, rtype, ctx)
-    elif expr == "cross_hospital_rate":
-        return _cross_hospital_rate(params["num_code"], params["den_code"], params["z_threshold"], code, desc, sev, ctx)
     elif expr == "month_over":
         return _month_over(params["code"], ctx.historical_data, params["factor"], code, desc, sev, ctx)
     elif expr == "month_under":

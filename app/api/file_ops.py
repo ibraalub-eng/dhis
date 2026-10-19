@@ -675,6 +675,9 @@ def _run_quality_reports(db: Session, hospitals_list: list, hospital_months: dic
 
 def _run_trend_analyses(db: Session, hospitals_list: list, hospital_months: dict) -> dict:
     result = {}
+    from app.engine import indicator_service
+    managed_indicators = indicator_service.resolve_active_definitions(
+        db, site="zscore")
     for h in hospitals_list:
         h_monthly = {}
         for m in hospital_months.get(h.id, []):
@@ -683,7 +686,9 @@ def _run_trend_analyses(db: Session, hospitals_list: list, hospital_months: dict
                 h_monthly[m] = vals
         if len(h_monthly) >= 2:
             try:
-                trends = analyze_historical_trends(h.name, h_monthly)
+                trends = analyze_historical_trends(
+                    h.name, h_monthly,
+                    additional_indicators=managed_indicators)
                 if trends:
                     result[str(h.id)] = [
                         {
@@ -711,6 +716,9 @@ def _run_trend_analyses(db: Session, hospitals_list: list, hospital_months: dict
 
 def _run_hospital_comparisons(db: Session, hospitals_list: list, all_months: set) -> dict:
     result = {}
+    from app.engine import indicator_service
+    managed_indicators = indicator_service.resolve_active_definitions(
+        db, site="zscore")
     for m in all_months:
         all_monthly = {}
         for h in hospitals_list:
@@ -719,7 +727,9 @@ def _run_hospital_comparisons(db: Session, hospitals_list: list, all_months: set
                 all_monthly[h.name] = {m: hv}
         if len(all_monthly) >= 2:
             try:
-                comparisons = compare_hospitals(all_monthly, m)
+                comparisons = compare_hospitals(
+                    all_monthly, m,
+                    additional_indicators=managed_indicators)
                 result[m] = [
                     {
                         "hospital_name": c.hospital,

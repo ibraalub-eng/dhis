@@ -9,7 +9,7 @@ from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.cache import cache
-from app.core.deps import require_permission
+from app.core.deps import get_user_hospital_ids, require_permission
 from app.database import SessionLocal, get_db
 from app.engine.anomaly import (
     analyze_historical_trends,
@@ -72,8 +72,16 @@ class QualityTrendOut(BaseModel):
 
 
 @router.get("/historical/{hospital_id}", response_model=HistoricalAnalysisOut)
-def historical_analysis(hospital_id: int, db: Session = Depends(get_db)):
-    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+def historical_analysis(
+    hospital_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_permission("analysis.read")),
+):
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    hospital_query = db.query(Hospital).filter(Hospital.id == hospital_id)
+    if user_hosp_ids is not None:
+        hospital_query = hospital_query.filter(Hospital.id.in_(user_hosp_ids))
+    hospital = hospital_query.first()
     if not hospital:
         raise HTTPException(status_code=404, detail=f"Hospital id {hospital_id} not found")
 
@@ -97,10 +105,18 @@ def historical_analysis(hospital_id: int, db: Session = Depends(get_db)):
     if len(monthly_data) < 2:
         raise HTTPException(status_code=400, detail="Not enough data for historical analysis")
 
-    trends = analyze_historical_trends(hospital.name, monthly_data)
+    from app.engine import indicator_service
+
+    managed_indicators = indicator_service.resolve_active_definitions(
+        db, site="zscore")
+    trends = analyze_historical_trends(
+        hospital.name, monthly_data, additional_indicators=managed_indicators)
     last_month = months[-1]
 
-    all_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
+    hospitals_query = db.query(Hospital).filter(Hospital.is_active.is_(True))
+    if user_hosp_ids is not None:
+        hospitals_query = hospitals_query.filter(Hospital.id.in_(user_hosp_ids))
+    all_hospitals = hospitals_query.all()
     all_monthly_data = {}
     for h in all_hospitals:
         h_rows = (
@@ -118,17 +134,31 @@ def historical_analysis(hospital_id: int, db: Session = Depends(get_db)):
         if h_data:
             all_monthly_data[h.name] = h_data
 
-    comparisons = compare_hospitals(all_monthly_data, last_month)
-    cross_hospital_data = get_all_hospital_data_for_month(db, last_month)
-    cross_anomalies = detect_anomalies(cross_hospital_data, hospital.name, last_month)
-    trend_anomaly_results = detect_trend_anomalies(hospital.name, monthly_data)
+    comparisons = compare_hospitals(
+        all_monthly_data, last_month,
+        additional_indicators=managed_indicators)
+    allowed_names = {h.name for h in all_hospitals}
+    cross_hospital_data = {
+        name: values
+        for name, values in get_all_hospital_data_for_month(db, last_month).items()
+        if name in allowed_names
+    }
+    cross_anomalies = detect_anomalies(
+        cross_hospital_data, hospital.name, last_month,
+        additional_indicators=managed_indicators)
+    trend_anomaly_results = detect_trend_anomalies(
+        hospital.name, monthly_data,
+        additional_indicators=managed_indicators)
     summary = generate_historical_summary(trends, comparisons, trend_anomaly_results, cross_anomalies)
 
     def _trend_to_dict(t):
         return {
             "hospital": t.hospital,
             "indicator_code": t.indicator_code,
+            "indicator_id": t.indicator_id,
             "rate_name": t.rate_name,
+            "formula": t.formula,
+            "formula_version": t.formula_version,
             "months": t.months,
             "values": t.values,
             "mean": t.mean,
@@ -149,6 +179,9 @@ def historical_analysis(hospital_id: int, db: Session = Depends(get_db)):
         return {
             "hospital": c.hospital,
             "indicator_code": c.indicator_code,
+            "indicator_id": c.indicator_id,
+            "formula": c.formula,
+            "formula_version": c.formula_version,
             "rate_name": c.rate_name,
             "value": c.value,
             "benchmark": c.benchmark,
@@ -160,6 +193,9 @@ def historical_analysis(hospital_id: int, db: Session = Depends(get_db)):
     def _anomaly_to_dict(a):
         return {
             "indicator_code": a.indicator_code,
+            "indicator_id": a.indicator_id,
+            "formula": a.formula,
+            "formula_version": a.formula_version,
             "rate_name": a.rate_name,
             "value": round(a.value, 2) if a.value is not None else None,
             "benchmark": round(a.benchmark, 2) if a.benchmark is not None else None,
@@ -179,15 +215,26 @@ def historical_analysis(hospital_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/quality-trend/{hospital_id}")
-def quality_trend(hospital_id: int, db: Session = Depends(get_db)):
-    cache_key = cache.make_key("analysis:quality-trend", hospital_id=hospital_id)
+def quality_trend(
+    hospital_id: int,
+    db: Session = Depends(get_db),
+    user=Depends(require_permission("analysis.read")),
+):
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    hospital_query = db.query(Hospital).filter(Hospital.id == hospital_id)
+    if user_hosp_ids is not None:
+        hospital_query = hospital_query.filter(Hospital.id.in_(user_hosp_ids))
+    hospital = hospital_query.first()
+    if not hospital or not hospital.is_active:
+        raise HTTPException(status_code=404, detail="Hospital not found")
+
+    scope_key = "*" if user_hosp_ids is None else ",".join(map(str, sorted(user_hosp_ids)))
+    cache_key = cache.make_key(
+        "analysis:quality-trend", hospital_id=hospital_id, hospital_scope=scope_key,
+    )
     cached = cache.get(cache_key)
     if cached:
         return cached
-
-    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
-    if not hospital or not hospital.is_active:
-        raise HTTPException(status_code=404, detail="Hospital not found")
 
     scores = (
         db.query(QualityScore)
@@ -221,15 +268,16 @@ def quality_trend(hospital_id: int, db: Session = Depends(get_db)):
     peer_avgs = {}
     if peer_months:
         from sqlalchemy import func as sa_func
-        peer_rows = (
+        peer_query = (
             db.query(
                 QualityScore.month,
                 sa_func.avg(QualityScore.score).label("peer_avg"),
             )
             .filter(QualityScore.month.in_(peer_months))
-            .group_by(QualityScore.month)
-            .all()
         )
+        if user_hosp_ids is not None:
+            peer_query = peer_query.filter(QualityScore.hospital_id.in_(user_hosp_ids))
+        peer_rows = peer_query.group_by(QualityScore.month).all()
         peer_avgs = {r.month: round(r.peer_avg, 1) for r in peer_rows if r.peer_avg is not None}
 
     for d in data:
@@ -283,8 +331,13 @@ def quality_trend(hospital_id: int, db: Session = Depends(get_db)):
 def compare_all_hospitals(
     month: str = Query(..., description="Month YYYY-MM"),
     db: Session = Depends(get_db),
+    user=Depends(require_permission("analysis.read")),
 ):
-    all_hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    hospitals_query = db.query(Hospital).filter(Hospital.is_active.is_(True))
+    if user_hosp_ids is not None:
+        hospitals_query = hospitals_query.filter(Hospital.id.in_(user_hosp_ids))
+    all_hospitals = hospitals_query.all()
     if not all_hospitals:
         return []
 
@@ -340,7 +393,11 @@ def compare_all_hospitals(
     if len(all_monthly_data) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 hospitals with data for comparison")
 
-    comparisons = compare_hospitals(all_monthly_data, month)
+    from app.engine import indicator_service
+
+    comparisons = compare_hospitals(
+        all_monthly_data, month,
+        additional_indicators=indicator_service.resolve_active_definitions(db))
     # Enrich with hospital_ids
     by_name = {h.name: h.id for h in all_hospitals}
     out = []
@@ -362,7 +419,7 @@ def list_outliers(
 ):
     # v4: layered_type/layered_level/layered_interpretation added below — a
     # cached v3 payload would hide the classification column for up to 24h.
-    cache_key = cache.make_key("analysis:outliers_v4", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
+    cache_key = cache.make_key("analysis:outliers_v5", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -410,6 +467,9 @@ def list_outliers(
             "hospital": hosp.name if hosp else "Unknown",
             "month": r.month,
             "indicator_code": r.indicator_code,
+            "indicator_id": r.indicator_id,
+            "formula": r.formula,
+            "formula_version": r.formula_version,
             "rate_name": r.rate_name,
             "value": r.value,
             "benchmark": r.benchmark,
@@ -778,6 +838,7 @@ def layered_heatmap(
 def get_ml_analysis(
     month: str = Query(..., description="Month YYYY-MM"),
     db: Session = Depends(get_db),
+    user=Depends(require_permission("analysis.read")),
 ):
     """Run ML analysis (clustering, anomaly detection, PCA) for a given month."""
     from app.config_utils import get_config_dict
@@ -789,7 +850,11 @@ def get_ml_analysis(
     if not ml_config.get("enabled", False):
         return {}
 
-    hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).all()
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    hospitals_query = db.query(Hospital).filter(Hospital.is_active.is_(True))
+    if user_hosp_ids is not None:
+        hospitals_query = hospitals_query.filter(Hospital.id.in_(user_hosp_ids))
+    hospitals = hospitals_query.all()
     if not hospitals:
         return {}
 
@@ -821,12 +886,14 @@ def get_ml_analysis(
 
     hosp_map = {h.id: h for h in hospitals}
 
-    value_rows = (
+    value_query = (
         db.query(IndicatorValue, Indicator)
         .join(Indicator, IndicatorValue.indicator_id == Indicator.id)
         .filter(IndicatorValue.month == month)
-        .all()
     )
+    if user_hosp_ids is not None:
+        value_query = value_query.filter(IndicatorValue.hospital_id.in_(user_hosp_ids))
+    value_rows = value_query.all()
     all_hospital_data: dict[str, dict[str, float]] = {}
     for val, ind in value_rows:
         if (val.hospital_id, ind.id) in disabled_ids or val.value is None:
@@ -857,12 +924,19 @@ def list_rule_failures(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    cache_key = cache.make_key("analysis:rule-failures_v3", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, q=q, sort_by=sort_by, order=order, skip=skip, limit=limit)
+    cache_key = cache.make_key("analysis:rule-failures_v4", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, q=q, sort_by=sort_by, order=order, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
 
-    query = db.query(ValidationResult).options(selectinload(ValidationResult.hospital)).join(Hospital, ValidationResult.hospital_id == Hospital.id).filter(ValidationResult.status == "FAIL", Hospital.is_active.is_(True))
+    query = db.query(ValidationResult).options(selectinload(ValidationResult.hospital)).join(Hospital, ValidationResult.hospital_id == Hospital.id).filter(
+        ValidationResult.status == "FAIL",
+        Hospital.is_active.is_(True),
+        or_(
+            ValidationResult.rule_type.is_(None),
+            func.upper(ValidationResult.rule_type) != "BENCHMARK",
+        ),
+    )
     if hospital_id:
         enabled_months = get_enabled_months(db, hospital_id=hospital_id)
         if enabled_months:
@@ -954,7 +1028,10 @@ def list_rule_failures(
 
 
 @router.get("/months")
-def list_months_with_data(db: Session = Depends(get_db)):
+def list_months_with_data(
+    db: Session = Depends(get_db),
+    user=Depends(require_permission("analysis.read")),
+):
     """Months that actually have data.
 
     Derived from IndicatorValue only — the tables where analysis results are
@@ -963,11 +1040,27 @@ def list_months_with_data(db: Session = Depends(get_db)):
     months that were never analyzed (ghost rows), which used to leak into
     every month/year dropdown as months that have no data at all.
     """
-    cache_key = "analysis:months"
+    # In-process callers may invoke this directly with only a session (e.g.
+    # the smart-analytics months endpoint reuses this source). In that case
+    # ``user`` is still the FastAPI Depends sentinel — not a user — so fall
+    # back to the unscoped list, exactly like a superadmin HTTP call.
+    user_hosp_ids = (None if not hasattr(user, "id")
+                     else get_user_hospital_ids(user, db))
+    return _list_months_with_data(db, user_hosp_ids)
+
+
+def _list_months_with_data(db: Session, user_hosp_ids: list[int] | None) -> list[str]:
+    scope_key = "*" if user_hosp_ids is None else ",".join(map(str, sorted(user_hosp_ids)))
+    cache_key = f"analysis:months|hospital_scope={scope_key}"
     cached = cache.get(cache_key)
     if cached:
         return cached
-    rows = db.query(IndicatorValue.month).distinct().all()
+    if user_hosp_ids == []:
+        return []
+    months_query = db.query(IndicatorValue.month)
+    if user_hosp_ids is not None:
+        months_query = months_query.filter(IndicatorValue.hospital_id.in_(user_hosp_ids))
+    rows = months_query.distinct().all()
     # Defense in depth: only real YYYY-MM months pass. The synthetic '__all__'
     # selector (and any other malformed value) must never reach a dropdown —
     # a poisoned row used to surface as an '__all__' month and '__all__' year.
@@ -981,7 +1074,7 @@ def get_enabled_months(db: Session, hospital_id: int = None) -> list:
     """Get list of months enabled for analysis (filters out disabled months)."""
     from app.api.config_api import MONTH_SETTINGS_PREFIX
     from app.models import SystemSetting
-    all_months = list_months_with_data(db)
+    all_months = _list_months_with_data(db, None)
     if hospital_id is not None:
         prefix = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_"
     else:

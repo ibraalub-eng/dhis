@@ -403,6 +403,12 @@ function renderAudit() {
             html += '<strong>' + esc(rname) + '</strong>';
             html += '<span>' + sevClass(c.status) + ' <span style="font-weight:600;">' + arrow + ' ' + Math.abs(c.percent_deviation || 0).toFixed(1) + '% ' + __('vs avg') + '</span></span>';
             html += '</div>';
+            if (c.formula || c.formula_version) {
+                html += '<div style="font-size:0.7rem;color:var(--text-muted);">'
+                    + (c.formula ? __('Formula: ') + esc(c.formula) : '')
+                    + (c.formula_version ? ' · ' + __('Version: ') + esc(c.formula_version) : '')
+                    + '</div>';
+            }
             // position on peer range
             const lo = c.peer_min, hi = c.peer_max;
             const span = (hi != null && lo != null) ? (hi - lo) : 0;

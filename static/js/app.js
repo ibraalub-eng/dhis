@@ -146,6 +146,15 @@ window.initIndicatorTree = _stub('initIndicatorTree');
 window.loadIndicatorTree = _stub('loadIndicatorTree');
 window.initIndicatorGroups = _stub('initIndicatorGroups');
 window.refreshIndicatorGroups = _stub('refreshIndicatorGroups');
+window.initIndicators = _stub('initIndicators');
+window.openIndicatorBuilder = _stub('openIndicatorBuilder');
+window.closeIndicatorBuilder = _stub('closeIndicatorBuilder');
+window.saveIndicator = _stub('saveIndicator');
+window.validateIndicatorDraft = _stub('validateIndicatorDraft');
+window.closeIndicatorDrawer = _stub('closeIndicatorDrawer');
+window.toggleIndicatorActive = _stub('toggleIndicatorActive');
+window.deleteIndicator = _stub('deleteIndicator');
+window.recomputeIndicators = _stub('recomputeIndicators');
 window.openGroupModal = _stub('openGroupModal');
 window.closeGroupModal = _stub('closeGroupModal');
 window.saveGroupModal = _stub('saveGroupModal');
@@ -165,8 +174,6 @@ window._vbDragLeave = _stub('_vbDragLeave');
 window._vbDrop = _stub('_vbDrop');
 window._vbRemoveFromZone = _stub('_vbRemoveFromZone');
 window._vbOnPaletteSearch = _stub('_vbOnPaletteSearch');
-window._vbOnThresholdChange = _stub('_vbOnThresholdChange');
-window._vbOnZThresholdChange = _stub('_vbOnZThresholdChange');
 window._vbOnFactorChange = _stub('_vbOnFactorChange');
 window._vbOnGeFactorChange = _stub('_vbOnGeFactorChange');
 window.ruleExprTemplate = _stub('ruleExprTemplate');
@@ -202,6 +209,7 @@ async function _loadModules() {
     ['clinical',    () => import('./clinical.js')],
     ['tree',        () => import('./tree.js')],
     ['indicatorGroups', () => import('./indicator-groups.js')],
+    ['indicators', () => import('./indicators.js')],
     ['rules',       () => import('./rules.js')],
     ['audit',       () => import('./audit.js')],
     ['hospitals',   () => import('./hospitals.js')],
@@ -304,11 +312,17 @@ function _bindAll(mod, label) {
       _bind(mod, 'igDeleteGroup'); _bind(mod, 'igPreviewImpact');
       _bind(mod, 'closeImpactModal');
       break;
+    case 'indicators':
+      _bind(mod, 'initIndicators');
+      _bind(mod, 'openIndicatorBuilder'); _bind(mod, 'closeIndicatorBuilder');
+      _bind(mod, 'saveIndicator'); _bind(mod, 'validateIndicatorDraft');
+      _bind(mod, 'closeIndicatorDrawer'); _bind(mod, 'toggleIndicatorActive');
+      _bind(mod, 'deleteIndicator'); _bind(mod, 'recomputeIndicators');
+      break;
     case 'rules':
       _bind(mod, '_vbDragStart'); _bind(mod, '_vbDragOver'); _bind(mod, '_vbDragEnter');
       _bind(mod, '_vbDragLeave'); _bind(mod, '_vbDrop'); _bind(mod, '_vbRemoveFromZone');
-      _bind(mod, '_vbOnPaletteSearch'); _bind(mod, '_vbOnThresholdChange');
-      _bind(mod, '_vbOnZThresholdChange'); _bind(mod, '_vbOnFactorChange');
+      _bind(mod, '_vbOnPaletteSearch'); _bind(mod, '_vbOnFactorChange');
       _bind(mod, '_vbOnGeFactorChange'); _bind(mod, '_vbOnOpChange');
       _bind(mod, 'ruleExprTemplate'); _bind(mod, 'toggleExprHelp');
       _bind(mod, 'openRuleModal'); _bind(mod, 'closeRuleModal');

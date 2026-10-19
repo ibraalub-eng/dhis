@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from scipy import stats as scipy_stats
 
+from app.engine import indicator_service
 from app.engine.rate_config import compute_rate as _registry_compute_rate
 from app.engine.rate_config import zscore_spec_for, zscore_specs
 
@@ -28,12 +29,36 @@ class AnomalyResultData:
     # the peer drill-down popover on the outliers screen. None for trend
     # anomalies and rows computed before this field existed.
     peers_detail: Optional[List[Dict[str, Any]]] = None
+    indicator_id: Optional[str] = None
+    formula: Optional[str] = None
+    formula_version: Optional[str] = None
 
 
 def compute_rate(values: Dict[str, float], numerator_code: str, denominator_code: str) -> Optional[float]:
     spec = zscore_spec_for(numerator_code, denominator_code)
     multiplier = spec.rate_multiplier if spec else 100.0
     return _registry_compute_rate(values, (numerator_code,), (denominator_code,), multiplier)
+
+
+def _indicator_candidates(additional_indicators=None):
+    if additional_indicators is not None:
+        for resolved in additional_indicators:
+            yield resolved, resolved.code, resolved.name, None, None
+        return
+    for rate_name, numerator_code, denominator_code, _typical_pct in RATE_DEFINITIONS:
+        spec = zscore_spec_for(numerator_code, denominator_code)
+        resolved = indicator_service.resolve_spec(spec) if spec else None
+        yield resolved, numerator_code, rate_name, numerator_code, denominator_code
+    for resolved in additional_indicators or ():
+        yield resolved, resolved.code, resolved.name, None, None
+
+
+def _calculate_candidate(resolved, values, numerator_code, denominator_code, month):
+    if resolved is None:
+        return compute_rate(values, numerator_code, denominator_code)
+    result = indicator_service.calculate_from_values(
+        resolved, values, hospital_id=0, month=month)
+    return result.value if result.status == "ok" else None
 
 
 # View over the registry's "zscore:*" slice — tuple shape kept so explain.py
@@ -49,17 +74,20 @@ def detect_anomalies(
     current_hospital: str,
     month: str,
     config: Optional[dict] = None,
+    additional_indicators=None,
 ) -> List[AnomalyResultData]:
     results = []
     z_thresh = (config or {}).get("zscore_threshold", 2.5)
-    for rate_name, num_code, den_code, _typical_pct in RATE_DEFINITIONS:
+    for resolved, indicator_code, rate_name, num_code, den_code in _indicator_candidates(additional_indicators):
         rates = {}
         for hosp_name, hosp_values in all_hospital_data.items():
-            rate = compute_rate(hosp_values, num_code, den_code)
+            rate = _calculate_candidate(
+                resolved, hosp_values, num_code, den_code, month)
             if rate is not None:
                 rates[hosp_name] = rate
         current_values = all_hospital_data.get(current_hospital, {})
-        current_rate = compute_rate(current_values, num_code, den_code)
+        current_rate = _calculate_candidate(
+            resolved, current_values, num_code, den_code, month)
         if current_rate is None:
             continue
         # Benchmark = peer mean EXCLUDING the hospital itself (same as audit screen)
@@ -77,7 +105,7 @@ def detect_anomalies(
         is_outlier = abs(z_score) > z_thresh
         results.append(
             AnomalyResultData(
-                indicator_code=num_code,
+                indicator_code=indicator_code,
                 rate_name=rate_name,
                 value=round(current_rate, 2),
                 benchmark=round(mean_rate, 2),
@@ -92,6 +120,9 @@ def detect_anomalies(
                     {"hospital": h, "rate": round(float(r), 4)}
                     for h, r in sorted(peers_map.items(), key=lambda kv: kv[1])
                 ],
+                indicator_id=resolved.indicator_id if resolved else None,
+                formula=resolved.formula if resolved else None,
+                formula_version=resolved.formula_version if resolved else None,
             )
         )
     return results
@@ -102,20 +133,23 @@ def detect_monthly_trend(
     current_month: str,
     current_values: Dict[str, float],
     config: Optional[dict] = None,
+    additional_indicators=None,
 ) -> List[AnomalyResultData]:
     results = []
     z_thresh = (config or {}).get("zscore_threshold", 2.5)
     if len(historical_months) < 2:
         return results
-    for rate_name, num_code, den_code, _typical_pct in RATE_DEFINITIONS:
-        current_rate = compute_rate(current_values, num_code, den_code)
+    for resolved, indicator_code, rate_name, num_code, den_code in _indicator_candidates(additional_indicators):
+        current_rate = _calculate_candidate(
+            resolved, current_values, num_code, den_code, current_month)
         if current_rate is None:
             continue
         historical_rates = []
         for month, m_values in historical_months.items():
             if month >= current_month:
                 continue
-            rate = compute_rate(m_values, num_code, den_code)
+            rate = _calculate_candidate(
+                resolved, m_values, num_code, den_code, month)
             if rate is not None:
                 historical_rates.append(rate)
         if len(historical_rates) < 2:
@@ -130,12 +164,15 @@ def detect_monthly_trend(
         is_outlier = abs(z) > z_thresh
         results.append(
             AnomalyResultData(
-                indicator_code=num_code,
+                indicator_code=indicator_code,
                 rate_name=f"{rate_name} (trend)",
                 value=round(current_rate, 2),
                 benchmark=round(mean_h, 2),
                 z_score=round(z, 2),
                 is_outlier=is_outlier,
+                indicator_id=resolved.indicator_id if resolved else None,
+                formula=resolved.formula if resolved else None,
+                formula_version=resolved.formula_version if resolved else None,
             )
         )
     return results

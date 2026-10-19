@@ -1,0 +1,280 @@
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+  <div>
+    <h2 style="margin:0;" data-i18n="Indicators">Indicators</h2>
+    <span style="font-size:0.82rem;color:var(--text-muted);" data-i18n="Derived indicators computed from raw data elements — new ones need no code changes">Derived indicators computed from raw data elements — new ones need no code changes</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:0.4rem;">
+    <button class="btn btn-sm btn-outline" id="btnRecomputeAll" data-requires="settings.write" onclick="recomputeIndicators()" title="Recompute stored results for the latest data month">↻ <span data-i18n="Recompute latest">Recompute latest</span></button>
+    <button class="btn btn-sm" id="btnNewIndicator" data-requires="settings.write" onclick="openIndicatorBuilder()">＋ <span data-i18n="New Indicator">New Indicator</span></button>
+  </div>
+</div>
+
+<div class="card" style="padding:0.8rem 1rem;">
+  <!-- toolbar -->
+  <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;margin-bottom:0.7rem;">
+    <input id="indSearch" data-i18n-placeholder="Search name, ID, category, formula…" placeholder="Search name, ID, category, formula…" oninput="window._indFilterChange && window._indFilterChange()" style="flex:1;min-width:180px;font-size:0.78rem;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+    <select id="indCategoryFilter" onchange="window._indFilterChange && window._indFilterChange()" style="font-size:0.76rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);"><option value="" data-i18n="All categories">All categories</option></select>
+    <select id="indTypeFilter" onchange="window._indFilterChange && window._indFilterChange()" style="font-size:0.76rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);"><option value="" data-i18n="All types">All types</option></select>
+    <select id="indStatusFilter" onchange="window._indFilterChange && window._indFilterChange()" style="font-size:0.76rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+      <option value="" data-i18n="All statuses">All statuses</option>
+      <option value="active" data-i18n="Active">Active</option>
+      <option value="inactive" data-i18n="Inactive">Inactive</option>
+      <option value="catalog" data-i18n="Catalog">Catalog</option>
+    </select>
+    <span id="indCount" style="font-size:0.72rem;color:var(--text-muted);"></span>
+  </div>
+
+  <div id="indLoading" style="display:none;text-align:center;padding:1.5rem;color:var(--text-muted);"><span class="spinner"></span> <span style="font-size:0.8rem;" data-i18n="Loading indicators…">Loading indicators…</span></div>
+  <div id="indEmpty" style="display:none;text-align:center;padding:2rem 1rem;color:var(--text-muted);">
+    <div style="font-size:1.6rem;margin-bottom:0.4rem;opacity:0.35;">📐</div>
+    <p style="margin:0;font-size:0.85rem;" data-i18n="No indicators match the current filters.">No indicators match the current filters.</p>
+  </div>
+
+  <div style="overflow-x:auto;">
+    <table class="tbl" style="width:100%;font-size:0.78rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left;" data-i18n="Status">Status</th>
+          <th style="text-align:left;" data-i18n="Name">Name</th>
+          <th style="text-align:left;" data-i18n="Category">Category</th>
+          <th style="text-align:left;" data-i18n="Type">Type</th>
+          <th style="text-align:left;" data-i18n="Unit">Unit</th>
+          <th style="text-align:left;" data-i18n="Formula">Formula</th>
+          <th style="text-align:right;" data-i18n="Actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="indTbody">
+        <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:1rem;" data-i18n="Loading indicators…">Loading indicators…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Detail drawer (view: derived / rate_spec / raw) -->
+<div id="indDrawerOverlay" onclick="closeIndicatorDrawer()" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:none;"></div>
+<div id="indDrawer" style="position:fixed;top:0;right:0;bottom:0;width:min(720px,94vw);background:var(--bg-surface);border-left:1px solid var(--border-default);z-index:10001;display:none;flex-direction:column;box-shadow:-12px 0 40px rgba(0,0,0,0.35);">
+  <div style="display:flex;justify-content:space-between;align-items:center;padding:0.9rem 1.1rem;border-bottom:1px solid var(--border-default);">
+    <h3 id="indDrawerTitle" style="margin:0;font-size:1rem;color:var(--text-primary);">Indicator</h3>
+    <div style="display:flex;gap:0.4rem;align-items:center;">
+      <button class="btn btn-sm btn-outline" id="btnDrawerEdit" data-requires="settings.write" onclick="window._indEditFromDrawer()" style="display:none;" data-i18n="Edit">Edit</button>
+      <button class="btn btn-sm btn-outline" id="btnDrawerToggle" data-requires="settings.write" onclick="window._indToggleFromDrawer()" style="display:none;"></button>
+      <button class="btn btn-sm btn-outline" id="btnDrawerDelete" data-requires="settings.write" onclick="window._indDeleteFromDrawer()" style="display:none;color:var(--accent-red);border-color:var(--accent-red);" data-i18n="Delete">Delete</button>
+      <button onclick="closeIndicatorDrawer()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">&times;</button>
+    </div>
+  </div>
+  <div id="indDrawerBody" style="flex:1;overflow-y:auto;padding:1rem 1.1rem;font-size:0.82rem;">
+    <div id="indDefSection"></div>
+
+    <!-- preview controls (managed indicators only) -->
+    <div id="indPreviewSection" style="display:none;margin-top:1rem;border-top:1px solid var(--border-default);padding-top:0.7rem;">
+      <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;" data-i18n="Preview against real data">Preview against real data</div>
+      <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;">
+        <select id="indPrevHosp" style="font-size:0.76rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);"><option value="" data-i18n="All hospitals">All hospitals</option></select>
+        <select id="indPrevMonth" style="font-size:0.76rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;"><option value="" data-i18n="Latest month">Latest month</option></select>
+        <button class="btn btn-sm btn-outline" onclick="window._indRunPreview && window._indRunPreview()" data-i18n="Run preview">Run preview</button>
+      </div>
+      <div id="indPreviewResult" style="margin-top:0.4rem;font-size:0.78rem;color:var(--text-secondary);"></div>
+    </div>
+
+    <!-- data references (managed indicators only) -->
+    <div id="indRefsSection" style="display:none;margin-top:1rem;border-top:1px solid var(--border-default);padding-top:0.7rem;">
+      <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;" data-i18n="Data references">Data references</div>
+      <table class="tbl" style="width:100%;font-size:0.74rem;">
+        <thead>
+          <tr>
+            <th style="text-align:left;" data-i18n="Code">Code</th>
+            <th style="text-align:left;" data-i18n="Name">Name</th>
+            <th style="text-align:left;" data-i18n="Group">Group</th>
+            <th style="text-align:right;" data-i18n="Level">Level</th>
+            <th style="text-align:right;" data-i18n="Data rows">Data rows</th>
+          </tr>
+        </thead>
+        <tbody id="indRefsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- stored results (managed indicators only) -->
+    <div id="indResultsSection" style="display:none;margin-top:1rem;border-top:1px solid var(--border-default);padding-top:0.7rem;">
+      <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;" data-i18n="Stored results">Stored results</div>
+      <table class="tbl" style="width:100%;font-size:0.74rem;">
+        <thead>
+          <tr>
+            <th style="text-align:left;" data-i18n="Month">Month</th>
+            <th style="text-align:left;" data-i18n="Hospital">Hospital</th>
+            <th style="text-align:right;" data-i18n="Value">Value</th>
+            <th style="text-align:left;" data-i18n="Status">Status</th>
+            <th style="text-align:right;" data-i18n="Version">Version</th>
+          </tr>
+        </thead>
+        <tbody id="indResultsBody"></tbody>
+      </table>
+    </div>
+
+    <!-- version history (managed indicators only) -->
+    <div id="indVersionsSection" style="display:none;margin-top:1rem;border-top:1px solid var(--border-default);padding-top:0.7rem;">
+      <div style="font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;" data-i18n="Version history">Version history</div>
+      <table class="tbl" style="width:100%;font-size:0.74rem;">
+        <thead>
+          <tr>
+            <th style="text-align:right;" data-i18n="Version">Version</th>
+            <th style="text-align:left;" data-i18n="Action">Action</th>
+            <th style="text-align:left;" data-i18n="Changed">Changed</th>
+            <th style="text-align:left;" data-i18n="By">By</th>
+            <th style="text-align:left;" data-i18n="When">When</th>
+          </tr>
+        </thead>
+        <tbody id="indVersionsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Builder modal (create / edit managed indicator) -->
+<div id="indBuilderModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10001;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--bg-surface);border:1px solid var(--border-default);border-radius:12px;padding:1.3rem;max-width:760px;width:95%;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:92vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+      <h3 id="indBuilderTitle" style="margin:0;font-size:1.05rem;color:var(--text-primary);" data-i18n="New indicator">New indicator</h3>
+      <button onclick="closeIndicatorBuilder()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--text-muted);">&times;</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+      <div>
+        <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Name">Name</label>
+        <input id="indName" placeholder="e.g. C-Section Rate" autocomplete="off" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+      </div>
+      <div>
+        <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Category">Category</label>
+        <input id="indGroup" placeholder="e.g. SRMNH Inpatient Indicators" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+      </div>
+      <div>
+        <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Result type">Result type</label>
+        <select id="indResultType" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+          <option value="percentage" data-i18n="Percentage">Percentage</option>
+          <option value="rate" data-i18n="Rate">Rate</option>
+          <option value="ratio" data-i18n="Ratio">Ratio</option>
+          <option value="count" data-i18n="Count">Count</option>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Multiplier">Multiplier</label>
+          <input id="indMultiplier" type="number" step="any" value="100" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Unit">Unit</label>
+          <input id="indUnit" placeholder="e.g. %" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+        </div>
+      </div>
+    </div>
+
+    <!-- palette -->
+    <div style="margin-top:0.8rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.4rem;">
+        <div>
+          <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);" data-i18n="Data elements">Data elements</div>
+          <div style="font-size:0.72rem;color:var(--text-muted);" data-i18n="Select data elements; indicator name and ID are generated automatically">Select data elements; indicator name and ID are generated automatically</div>
+        </div>
+        <input id="indPaletteSearch" placeholder="Search elements…" oninput="window._indPaletteRender && window._indPaletteRender()" style="font-size:0.76rem;padding:0.25rem 0.5rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);min-width:180px;">
+      </div>
+      <div id="indPalette" style="max-height:190px;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.4rem;font-size:0.76rem;background:var(--bg-input);">
+        <div style="text-align:center;color:var(--text-muted);padding:1rem;" data-i18n="Loading data elements…">Loading data elements…</div>
+      </div>
+    </div>
+
+    <!-- ratio panel -->
+    <div id="indRatioPanel" style="margin-top:0.8rem;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Numerator">Numerator</label>
+          <div id="indNumZone" data-ind-zone="num" style="min-height:54px;max-height:120px;overflow-y:auto;border:1px dashed var(--border-default);border-radius:6px;padding:0.4rem;background:var(--bg-input);display:flex;flex-wrap:wrap;gap:0.3rem;align-content:flex-start;"></div>
+        </div>
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Denominator">Denominator</label>
+          <div id="indDenZone" data-ind-zone="den" style="min-height:54px;max-height:120px;overflow-y:auto;border:1px dashed var(--border-default);border-radius:6px;padding:0.4rem;background:var(--bg-input);display:flex;flex-wrap:wrap;gap:0.3rem;align-content:flex-start;"></div>
+        </div>
+      </div>
+    </div>
+
+    <details id="indAdvancedOptions" style="margin-top:0.8rem;border-top:1px solid var(--border-default);padding-top:0.6rem;">
+      <summary style="cursor:pointer;font-size:0.82rem;font-weight:600;color:var(--text-secondary);" data-i18n="Advanced options">Advanced options</summary>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.7rem;">
+        <div style="grid-column:1/-1;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Identifier (ID)">Identifier (ID)</label>
+          <input id="indCode" placeholder="Automatically created from the name" disabled style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-muted);direction:ltr;opacity:0.75;">
+          <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.15rem;" data-i18n="Automatically generated from the indicator name and cannot be edited">Automatically generated from the indicator name and cannot be edited</div>
+        </div>
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Description">Description</label>
+          <input id="indDesc" placeholder="Optional" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+        </div>
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Formula type">Formula type</label>
+          <select id="indFormulaMode" onchange="window._indModeChange && window._indModeChange()" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+            <option value="ratio" data-i18n="Ratio (numerator ÷ denominator)">Ratio (numerator ÷ denominator)</option>
+            <option value="expression" data-i18n="Expression ({code} grammar)">Expression ({code} grammar)</option>
+          </select>
+        </div>
+        <div id="indAggregationWrap">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Aggregation">Aggregation</label>
+          <select id="indAggregation" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+            <option value="sum" data-i18n="Sum">Sum</option>
+            <option value="avg" data-i18n="Average">Average</option>
+            <option value="min" data-i18n="Min">Min</option>
+            <option value="max" data-i18n="Max">Max</option>
+          </select>
+        </div>
+        <div id="indOperatorWrap">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Operator">Operator</label>
+          <select id="indOperator" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+            <option value="/" data-i18n="Divide (÷)">Divide (÷)</option>
+            <option value="+" data-i18n="Plus (+)">Plus (+)</option>
+            <option value="-" data-i18n="Minus (−)">Minus (−)</option>
+            <option value="*" data-i18n="Multiply (×)">Multiply (×)</option>
+          </select>
+        </div>
+        <div id="indExprPanel" style="display:none;grid-column:1/-1;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Expression">Expression</label>
+          <textarea id="indExpr" rows="3" placeholder="e.g. ({5} / {2}) * 100 — use {code} references, + - * / and parentheses" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.8rem;direction:ltr;"></textarea>
+        </div>
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Direction">Direction</label>
+          <select id="indDirection" onchange="window._indDirectionChange && window._indDirectionChange()" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+            <option value="none" data-i18n="None">None</option>
+            <option value="higher_is_better" data-i18n="Higher is better">Higher is better</option>
+            <option value="lower_is_better" data-i18n="Lower is better">Lower is better</option>
+            <option value="target_range" data-i18n="Target range">Target range</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Threshold low">Threshold low</label>
+          <input id="indThresholdLow" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Threshold high">Threshold high</label>
+          <input id="indThresholdHigh" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+        <div id="indTargetMinWrap" style="display:none;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Target min">Target min</label>
+          <input id="indTargetMin" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+        <div id="indTargetMaxWrap" style="display:none;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Target max">Target max</label>
+          <input id="indTargetMax" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+      </div>
+    </details>
+
+    <!-- validation + preview -->
+    <div id="indValidationMsgs" style="display:none;margin-top:0.8rem;font-size:0.78rem;"></div>
+    <div style="margin-top:0.7rem;font-size:0.8rem;color:var(--text-secondary);background:var(--bg-input);border:1px solid var(--border-default);border-radius:6px;padding:0.4rem 0.6rem;min-height:1.6rem;">
+      <span style="opacity:0.7;" data-i18n="Formula preview:">Formula preview:</span>
+      <span id="indFormulaPreview" style="font-family:monospace;color:var(--text-primary);direction:ltr;display:inline-block;">—</span>
+    </div>
+
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.9rem;">
+      <button class="btn btn-sm btn-outline" onclick="closeIndicatorBuilder()" data-i18n="Cancel">Cancel</button>
+      <button class="btn btn-sm btn-outline" id="btnValidateIndicator" onclick="validateIndicatorDraft()" data-i18n="Validate">Validate</button>
+      <button class="btn btn-sm" id="btnSaveIndicator" data-requires="settings.write" onclick="saveIndicator()" data-i18n="Save">Save</button>
+    </div>
+  </div>
+</div>

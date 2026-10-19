@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 from typing import Optional
 from app.database import get_db
-from app.models import Hospital, ValidationResult, AnomalyResult
+from app.models import Hospital, ValidationResult
 from app.core.deps import require_permission, get_user_hospital_ids
 
 router = APIRouter(prefix="/alerts", tags=["alerts"], dependencies=[Depends(require_permission("alerts.read"))])
@@ -15,6 +15,15 @@ SEVERITY_ORDER = case(
     (ValidationResult.severity == "LOW", 3),
     else_=4,
 )
+
+
+def _non_benchmark_failures(query):
+    return query.filter(
+        or_(
+            ValidationResult.rule_type.is_(None),
+            func.upper(ValidationResult.rule_type) != "BENCHMARK",
+        )
+    )
 
 
 def _severity_color(sev: str) -> str:
@@ -33,7 +42,9 @@ def alerts_overview(
     user=Depends(require_permission("alerts.read")),
 ):
     user_hosp_ids = get_user_hospital_ids(user, db)
-    q = db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
+    q = _non_benchmark_failures(
+        db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
+    )
     if user_hosp_ids is not None:
         q = q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:
@@ -58,7 +69,7 @@ def alerts_overview(
         if s not in sev_map:
             sev_map[s] = {"count": 0, "color": _severity_color(s), "icon": _severity_icon(s)}
 
-    hospital_counts = (
+    hospital_counts = _non_benchmark_failures(
         db.query(
             ValidationResult.hospital_id,
             func.count().label("cnt"),
@@ -77,9 +88,11 @@ def alerts_overview(
         hosp = db.query(Hospital).filter(Hospital.id == row.hospital_id).first()
         hc.append({"hospital_id": row.hospital_id, "hospital": hosp.name if hosp else "Unknown", "alert_count": row.cnt})
 
-    critical_q = db.query(ValidationResult).filter(
-        ValidationResult.status == "FAIL",
-        ValidationResult.severity == "CRITICAL",
+    critical_q = _non_benchmark_failures(
+        db.query(ValidationResult).filter(
+            ValidationResult.status == "FAIL",
+            ValidationResult.severity == "CRITICAL",
+        )
     )
     if user_hosp_ids is not None:
         critical_q = critical_q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
@@ -103,22 +116,11 @@ def alerts_overview(
             "details": vr.details,
         })
 
-    outlier_count = 0
-    oq = db.query(AnomalyResult).filter(AnomalyResult.is_outlier)
-    if user_hosp_ids is not None:
-        oq = oq.filter(AnomalyResult.hospital_id.in_(user_hosp_ids))
-    if month:
-        oq = oq.filter(AnomalyResult.month == month)
-    if hospital_id:
-        oq = oq.filter(AnomalyResult.hospital_id == hospital_id)
-    outlier_count = oq.count()
-
     return {
         "total_alerts": total,
         "by_severity": sev_map,
         "top_hospitals": hc,
         "recent_critical": critical,
-        "outlier_count": outlier_count,
     }
 
 
@@ -134,7 +136,9 @@ def alerts_list(
     user=Depends(require_permission("alerts.read")),
 ):
     user_hosp_ids = get_user_hospital_ids(user, db)
-    q = db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
+    q = _non_benchmark_failures(
+        db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
+    )
     if user_hosp_ids is not None:
         q = q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:

@@ -62,20 +62,17 @@ def test_live_births_eq_sex_split():
     assert r11.status == RuleStatus.PASS
 
 
-def test_csection_rate_high():
-    ctx = _make_ctx({"5": 250, "2": 300})
+def test_benchmark_rules_are_not_in_validation_engine():
+    ctx = _make_ctx(
+        {"2": 300, "3": 200, "5": 250, "6": 280, "6.f": 200},
+        all_hospital_data={
+            "Test Hospital": {"2": 300, "5": 250, "6": 280, "6.f": 200},
+            "Peer Hospital": {"2": 300, "5": 50, "6": 280, "6.f": 1},
+        },
+    )
     results = run_all_rules(ctx)
-    r41 = _find(results, "R041")
-    assert r41 is not None
-    assert r41.status == RuleStatus.FAIL
-
-
-def test_csection_rate_ok():
-    ctx = _make_ctx({"5": 80, "2": 300})
-    results = run_all_rules(ctx)
-    r41 = _find(results, "R041")
-    assert r41 is not None
-    assert r41.status == RuleStatus.PASS
+    assert all(result.rule_type.value != "BENCHMARK" for result in results)
+    assert not any(result.rule_code in {f"R{i:03d}" for i in range(41, 51)} for result in results)
 
 
 def test_missing_data_passes():
@@ -113,15 +110,13 @@ def test_all_rules_return_rule_result():
 
 
 def test_rules_config_override():
-    original_config = {"cs_rate_threshold": 80.0}
-    set_rules_config({"cs_rate_threshold": 5.0})
-    # 30/300*100 = 10% which is > 5% threshold → FAIL
-    ctx = _make_ctx({"5": 30, "2": 300})
-    results = run_all_rules(ctx)
-    r41 = _find(results, "R041")
-    assert r41 is not None
-    assert r41.status == RuleStatus.FAIL
-    set_rules_config(original_config)
+    original_tolerance = 0.01
+    set_rules_config({"eq_tolerance": 10.0})
+    try:
+        results = run_all_rules(_make_ctx({"2": 100, "2.a": 105, "2.b": 0}))
+        assert _find(results, "R002").status == RuleStatus.PASS
+    finally:
+        set_rules_config({"eq_tolerance": original_tolerance})
 
 
 def test_smm_eq_sum_of_sub_indicators():

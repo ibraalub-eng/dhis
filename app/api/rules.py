@@ -4,7 +4,7 @@ import time
 from typing import List, Union
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_permission
@@ -21,6 +21,48 @@ from app.models import Hospital, Indicator, IndicatorValue, Rule, RuleHistory, V
 from app.schemas import RuleCreate, RuleOut, RuleUpdate
 
 router = APIRouter(prefix="/rules", tags=["rules"], dependencies=[Depends(require_permission("rules.read"))])
+
+_REMOVED_BENCHMARK_RULE_TYPES = {"BENCHMARK"}
+_REMOVED_BENCHMARK_CATEGORIES = {"STATISTICAL_BENCHMARK"}
+_REMOVED_BENCHMARK_EXPRESSIONS = {
+    "benchmark_rate",
+    "benchmark_low_rate",
+    "cross_hospital_rate",
+}
+
+
+def _is_removed_benchmark_rule(rule) -> bool:
+    def value(key):
+        return rule.get(key) if isinstance(rule, dict) else getattr(rule, key, None)
+
+    return (
+        value("rule_type") in _REMOVED_BENCHMARK_RULE_TYPES
+        or value("category") in _REMOVED_BENCHMARK_CATEGORIES
+        or value("expression_type") in _REMOVED_BENCHMARK_EXPRESSIONS
+    )
+
+
+def _visible_rules_query(db: Session):
+    return db.query(Rule).filter(
+        Rule.rule_type.notin_(_REMOVED_BENCHMARK_RULE_TYPES),
+        Rule.category.notin_(_REMOVED_BENCHMARK_CATEGORIES),
+        Rule.expression_type.notin_(_REMOVED_BENCHMARK_EXPRESSIONS),
+    )
+
+
+def _reject_removed_benchmark_rule(rule) -> None:
+    if _is_removed_benchmark_rule(rule):
+        raise HTTPException(
+            status_code=422,
+            detail="Benchmark rules are not supported in the Rule Validation screen",
+        )
+
+
+def _visible_rule_or_404(db: Session, rule_id: int) -> Rule:
+    rule = db.query(Rule).filter(Rule.id == rule_id).first()
+    if rule is None or _is_removed_benchmark_rule(rule):
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return rule
 
 
 # ── Impact cache ─────────────────────────────────────────────────
@@ -276,11 +318,11 @@ def rules_impact(
                 "enabled": bool(r.enabled),
                 "alert_count": 0, "alert_hospitals": 0, "last_alert_month": None,
             }
-            for r in db.query(Rule).order_by(Rule.code).all()
+            for r in _visible_rules_query(db).order_by(Rule.code).all()
         ]
 
     hospitals = db.query(Hospital).filter(Hospital.is_active.is_(True)).order_by(Hospital.id).all()
-    rules = db.query(Rule).order_by(Rule.code).all()
+    rules = _visible_rules_query(db).order_by(Rule.code).all()
     ind_map = {i.code: i.name for i in db.query(Indicator).all()}
 
     # ── pre-fetch shared data once per month ────────────────────
@@ -320,6 +362,12 @@ def rules_impact(
             func.max(ValidationResult.month).label("last_month"),
         )
         .filter(ValidationResult.status == "FAIL")
+        .filter(
+            or_(
+                ValidationResult.rule_type.is_(None),
+                ValidationResult.rule_type != "BENCHMARK",
+            )
+        )
         .group_by(ValidationResult.rule_code)
         .all()
     )
@@ -397,6 +445,7 @@ def test_rule(body: dict, db: Session = Depends(get_db)):
     - hospital_id omitted -> evaluates every active hospital for the month
     Returns PASS/FAIL with a per-hospital breakdown and the actual values used.
     """
+    _reject_removed_benchmark_rule(body)
     from types import SimpleNamespace
     hospital_id = body.get("hospital_id")
     month = body.get("month")
@@ -555,6 +604,7 @@ def _normalize_rule_params(params: dict) -> dict:
 def validate_rule(body: dict, db: Session = Depends(get_db)):
     """Pre-save check: detect duplicate code, near-duplicate params, and
     logical conflicts with existing rules. Returns {errors: [], warnings: []}."""
+    _reject_removed_benchmark_rule(body)
     params_raw = body.get("params") or {}
     if isinstance(params_raw, str):
         try:
@@ -598,11 +648,6 @@ def validate_rule(body: dict, db: Session = Depends(get_db)):
             if (params_raw.get("code") or "").strip() and params_raw.get("code") == other_params.get("code"):
                 warnings.append(f"Conflicts with '{other.code}': opposite monthly trend directions on same indicator.")
 
-        # Conflict: benchmark_rate vs benchmark_low_rate on the same numerator/denominator pair
-        if expr in ("benchmark_rate", "benchmark_low_rate") and other.expression_type in ("benchmark_rate", "benchmark_low_rate") and expr != other.expression_type:
-            if params_raw.get("num_code") == other_params.get("num_code") and params_raw.get("den_code") == other_params.get("den_code"):
-                warnings.append(f"Conflicts with '{other.code}': opposite threshold directions on same rate.")
-
         # Conflict: ge vs gt on identical parent+children
         if expr in ("ge", "gt") and other.expression_type in ("ge", "gt") and expr != other.expression_type:
             same_parent = params_raw.get("parent") == other_params.get("parent") and params_raw.get("parent")
@@ -621,6 +666,9 @@ def rule_failures(
 ):
     """Historical failures for a rule code (optionally filtered to one hospital).
     Returns the months in which the rule failed, sorted descending."""
+    rule = db.query(Rule).filter(Rule.code == rule_code).first()
+    if rule is not None and _is_removed_benchmark_rule(rule):
+        raise HTTPException(status_code=404, detail="Rule not found")
     query = db.query(
         ValidationResult.month,
         ValidationResult.hospital_id,
@@ -628,6 +676,10 @@ def rule_failures(
     ).filter(
         ValidationResult.rule_code == rule_code,
         ValidationResult.status == "FAIL",
+        or_(
+            ValidationResult.rule_type.is_(None),
+            ValidationResult.rule_type != "BENCHMARK",
+        ),
     )
     if hospital_id:
         query = query.filter(ValidationResult.hospital_id == hospital_id)
@@ -654,7 +706,7 @@ def list_rules(
     severity: str = None,
     db: Session = Depends(get_db),
 ):
-    query = db.query(Rule)
+    query = _visible_rules_query(db)
     if rule_type:
         query = query.filter(Rule.rule_type == rule_type)
     if category:
@@ -680,7 +732,7 @@ def save_rules_enabled(body: dict, db: Session = Depends(get_db)):
     count = 0
     for item in items:
         rule = db.query(Rule).filter(Rule.id == item.get("id")).first()
-        if rule:
+        if rule and not _is_removed_benchmark_rule(rule):
             new_enabled = bool(item.get("enabled", True))
             if rule.enabled != new_enabled:
                 rule.enabled = new_enabled
@@ -698,7 +750,7 @@ def export_rules(db: Session = Depends(get_db)):
     """Export the full rule catalog as JSON for backup/restore and
     environment-to-environment copying."""
     from datetime import datetime
-    rules = db.query(Rule).order_by(Rule.code).all()
+    rules = _visible_rules_query(db).order_by(Rule.code).all()
     return {
         "version": 1,
         "exported_at": datetime.utcnow().isoformat(),
@@ -738,7 +790,13 @@ def import_rules(body: Union[dict, List[dict]] = Body(...), db: Session = Depend
             "params": params if isinstance(params, str) else (params or "{}"),
             "description": item.get("description") or "",
         }
+        if _is_removed_benchmark_rule(fields):
+            skipped.append({"code": code, "reason": "benchmark rules are not supported in the Rule Validation screen"})
+            continue
         existing = db.query(Rule).filter(Rule.code == code).first()
+        if existing and _is_removed_benchmark_rule(existing):
+            skipped.append({"code": code, "reason": "benchmark rules are not supported in the Rule Validation screen"})
+            continue
         if existing:
             changed = [k for k, v in fields.items() if getattr(existing, k, None) != v]
             for k, v in fields.items():
@@ -778,6 +836,9 @@ def rule_history(
 ):
     """Audit trail for a rule (by code, so it survives rule deletion).
     Returns newest-first entries with parsed snapshots and changed fields."""
+    rule = db.query(Rule).filter(Rule.code == rule_code).first()
+    if rule is not None and _is_removed_benchmark_rule(rule):
+        raise HTTPException(status_code=404, detail="Rule not found")
     limit = max(1, min(limit, 200))
     rows = (
         db.query(RuleHistory)
@@ -792,6 +853,8 @@ def rule_history(
             snap = json.loads(row.snapshot) if row.snapshot else None
         except Exception:
             snap = None
+        if _is_removed_benchmark_rule(snap or {}):
+            continue
         try:
             changed = json.loads(row.changed_fields) if row.changed_fields else []
         except Exception:
@@ -810,14 +873,12 @@ def rule_history(
 
 @router.get("/{rule_id}", response_model=RuleOut)
 def get_rule(rule_id: int, db: Session = Depends(get_db)):
-    rule = db.query(Rule).filter(Rule.id == rule_id).first()
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
-    return rule
+    return _visible_rule_or_404(db, rule_id)
 
 
 @router.post("/", response_model=RuleOut, dependencies=[Depends(require_permission("rules.write"))])
 def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
+    _reject_removed_benchmark_rule(rule)
     existing = db.query(Rule).filter(Rule.code == rule.code).first()
     if existing:
         raise HTTPException(status_code=400, detail=f"Rule with code {rule.code} already exists")
@@ -843,10 +904,13 @@ def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
 
 @router.put("/{rule_id}", response_model=RuleOut, dependencies=[Depends(require_permission("rules.write"))])
 def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_db)):
-    db_rule = db.query(Rule).filter(Rule.id == rule_id).first()
-    if not db_rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
+    db_rule = _visible_rule_or_404(db, rule_id)
     update_data = rule.model_dump(exclude_unset=True)
+    _reject_removed_benchmark_rule({
+        "rule_type": update_data.get("rule_type", db_rule.rule_type),
+        "category": update_data.get("category", db_rule.category),
+        "expression_type": update_data.get("expression_type", db_rule.expression_type),
+    })
     changed = [k for k, v in update_data.items() if getattr(db_rule, k, None) != v]
     for key, val in update_data.items():
         setattr(db_rule, key, val)
@@ -862,9 +926,7 @@ def update_rule(rule_id: int, rule: RuleUpdate, db: Session = Depends(get_db)):
 
 @router.delete("/{rule_id}", dependencies=[Depends(require_permission("rules.write"))])
 def delete_rule(rule_id: int, db: Session = Depends(get_db)):
-    db_rule = db.query(Rule).filter(Rule.id == rule_id).first()
-    if not db_rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
+    db_rule = _visible_rule_or_404(db, rule_id)
     code = db_rule.code
     snap = _rule_snapshot(db_rule)
     db.delete(db_rule)
@@ -883,19 +945,19 @@ def bulk_reorder_rules(
 ):
     """Bulk reorder: pass {"items": [{"id": 1, "sort_order": 0}, {"id": 2, "sort_order": 1}, ...]}"""
     items = body.get("items", [])
+    updated = 0
     for item in items:
         rule = db.query(Rule).filter(Rule.id == item["id"]).first()
-        if rule:
+        if rule and not _is_removed_benchmark_rule(rule):
             rule.sort_order = item["sort_order"]
+            updated += 1
     db.commit()
-    return {"message": f"{len(items)} rules reordered"}
+    return {"message": f"{updated} rules reordered"}
 
 
 @router.put("/{rule_id}/toggle", dependencies=[Depends(require_permission("rules.write"))])
 def toggle_rule(rule_id: int, db: Session = Depends(get_db)):
-    rule = db.query(Rule).filter(Rule.id == rule_id).first()
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
+    rule = _visible_rule_or_404(db, rule_id)
     rule.enabled = not rule.enabled
     _record_rule_history(db, rule, "enabled" if rule.enabled else "disabled", ["enabled"])
     db.commit()

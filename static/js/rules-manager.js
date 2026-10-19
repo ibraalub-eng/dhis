@@ -13,6 +13,12 @@ import { showWhyPopup } from './explain.js';
 
         // ── Rules Manager ─────────────────────────────────────────
         export let rulesManagerData = [];
+        const _REMOVED_BENCHMARK_EXPR_TYPES = ['benchmark_rate', 'benchmark_low_rate', 'cross_hospital_rate'];
+        function _isRemovedBenchmarkRule(rule) {
+            return rule && (rule.rule_type === 'BENCHMARK' ||
+                rule.category === 'STATISTICAL_BENCHMARK' ||
+                _REMOVED_BENCHMARK_EXPR_TYPES.includes(rule.expression_type));
+        }
         let _rulesImpactMap = {};
         let _rulesSortCol = null;   // null = default order (code asc)
         let _rulesSortAsc = true;
@@ -3088,7 +3094,7 @@ function loadHospitalsSettings() {
             ['quality_rule_compliance', 'quality_completeness', 'quality_consistency', 'quality_outlier_penalty',
              'outlier_multiplier', 'severity_high', 'severity_medium', 'severity_low',
              'confidence_high', 'confidence_medium', 'confidence_low', 'zscore_threshold',
-             'eq_tolerance', 'cs_rate_threshold', 'nvd_rate_threshold',
+             'eq_tolerance',
              'month_over_factor', 'month_under_factor', 'maternal_over_factor', 'neonatal_over_factor'
              // clinical thresholds
             ].concat([
@@ -3411,11 +3417,12 @@ function loadHospitalsSettings() {
                     });
                 }
                 if (!Array.isArray(data)) throw new Error('Unexpected response from /rules');
-                rulesManagerData = data;
+                rulesManagerData = data.filter(rule => !_isRemovedBenchmarkRule(rule));
                 _rulesImpactMap = {};
                 if (Array.isArray(impact)) {
-                    impact.forEach(imp => { _rulesImpactMap[imp.code] = imp; });
-                    const scope = impact.length ? impact[0].month : null;
+                    const visibleImpact = impact.filter(imp => !_isRemovedBenchmarkRule(imp));
+                    visibleImpact.forEach(imp => { _rulesImpactMap[imp.code] = imp; });
+                    const scope = visibleImpact.length ? visibleImpact[0].month : null;
                     _updateRulesImpactHeader(scope);
                 }
                 // Always display sorted by code
@@ -3475,7 +3482,7 @@ function loadHospitalsSettings() {
             }
             const searchBox = document.getElementById('rulesSearchInput');
             const q = (searchBox ? searchBox.value : '').trim().toLowerCase();
-            const typeColors = {'LOGIC': 'var(--accent-blue)', 'CLINICAL': 'var(--accent-purple)', 'BENCHMARK': 'var(--accent-orange)', 'DATA_QUALITY': 'var(--accent-red)'};
+            const typeColors = {'LOGIC': 'var(--accent-blue)', 'CLINICAL': 'var(--accent-purple)', 'DATA_QUALITY': 'var(--accent-red)'};
             const sevClass = {'CRITICAL': 'badge-critical', 'HIGH': 'badge-high', 'MEDIUM': 'badge-medium', 'LOW': 'badge-low'};
 
             let visible = rulesManagerData;
@@ -3692,9 +3699,6 @@ function loadHospitalsSettings() {
             if (["le", "lt"].indexOf(expr) !== -1) {
                 return (params.parent ? [params.child, params.parent] : [params.child]).filter(Boolean);
             }
-            if (["benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"].indexOf(expr) !== -1) {
-                return [params.num_code, params.den_code].filter(Boolean);
-            }
             if (["month_over", "month_under", "missing"].indexOf(expr) !== -1) {
                 return [params.code].filter(Boolean);
             }
@@ -3745,12 +3749,6 @@ function loadHospitalsSettings() {
                 row("Child", codeName(params.child)); row("Children", childrenList(params.children));
             } else if (["le", "lt"].indexOf(expr) !== -1) {
                 row("Child", codeName(params.child)); row("Parent", codeName(params.parent));
-            } else if (["benchmark_rate", "benchmark_low_rate"].indexOf(expr) !== -1) {
-                row("Numerator", codeName(params.num_code)); row("Denominator", codeName(params.den_code));
-                row("Threshold", esc(params.threshold) + '%');
-            } else if (expr === "cross_hospital_rate") {
-                row("Numerator", codeName(params.num_code)); row("Denominator", codeName(params.den_code));
-                row("Z-Threshold", esc(params.z_threshold));
             } else if (["month_over", "month_under"].indexOf(expr) !== -1) {
                 row("Indicator", codeName(params.code)); row("Factor", esc(params.factor));
             } else if (["neg_check", "decimal_check", "all_zero"].indexOf(expr) !== -1) {
@@ -3857,7 +3855,7 @@ function loadHospitalsSettings() {
             if (!Object.keys(params).length) {
                 try { params = JSON.parse(rule.params || '{}'); } catch (e) { params = {}; }
             }
-            const typeColors = { LOGIC: 'var(--accent-blue)', CLINICAL: 'var(--accent-purple)', BENCHMARK: 'var(--accent-orange)', DATA_QUALITY: 'var(--accent-red)' };
+            const typeColors = { LOGIC: 'var(--accent-blue)', CLINICAL: 'var(--accent-purple)', DATA_QUALITY: 'var(--accent-red)' };
             const tc = typeColors[rule.rule_type] || '#666';
             const sevClass = { CRITICAL: 'badge-critical', HIGH: 'badge-high', MEDIUM: 'badge-medium', LOW: 'badge-low' };
 
@@ -4350,9 +4348,6 @@ function loadHospitalsSettings() {
             'lt': {title: 'child < parent', text: 'FAILs when the child value is greater than or equal to the parent value. Strict version of le — equality does not pass. Use when the child must be strictly below the parent.'},
             'le_sum': {title: 'child >= sum(children)', text: 'FAILs when child value is less than sum of its sub-children. Reverse of ge — use when a parent should be >= its breakdown.'},
             'parent_le': {title: 'parent <= sum(children)', text: 'FAILs when the parent value is greater than the sum of its children. True reverse of ge — use when the children must account for at least the whole parent. Example params: {"parent":"10.a.1","children":["10.a.1.1","10.a.1.2"]}'},
-            'benchmark_rate': {title: 'FAIL if (num/den*100) > threshold', text: 'Flags when a calculated rate exceeds a fixed threshold. Example: C/S rate > 80%. Requires num_code (numerator indicator), den_code (denominator), threshold (percentage).'},
-            'benchmark_low_rate': {title: 'FAIL if (num/den*100) < threshold', text: 'Flags when a rate drops below a minimum threshold. Example: NVD rate < 10%. Same params as benchmark_rate.'},
-            'cross_hospital_rate': {title: 'FAIL if |z-score| > z_threshold', text: 'Compares a hospital\'s rate against all other hospitals for the same month. FAIL if the hospital is a statistical outlier (|z| > threshold). Requires num_code, den_code, z_threshold.'},
             'month_over': {title: 'FAIL if current > factor * previous', text: 'Detects unusual spikes. FAIL when current month value exceeds (previous month × factor). Example: factor=2.0 means >200% increase triggers alert.'},
             'month_under': {title: 'FAIL if current < factor * previous', text: 'Detects unusual drops. FAIL when current month value is below (previous month × factor). Example: factor=0.5 means <50% of previous month triggers alert.'},
             'neg_check': {title: 'FAIL if any listed code is negative', text: 'Checks that all listed indicator codes have non-negative values (counts should always be >= 0). Takes codes[] list.'},

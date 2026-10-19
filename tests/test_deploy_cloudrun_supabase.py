@@ -66,8 +66,13 @@ def test_builds_and_smoke_checks_like_cloudsql_script():
 
 
 def test_script_is_valid_bash():
+    import shutil
     import subprocess
 
+    import pytest
+
+    if shutil.which("bash") is None:
+        pytest.skip("bash not available on this machine (Windows)")
     result = subprocess.run(
         ["bash", "-n", SCRIPT], capture_output=True, text=True
     )

@@ -88,6 +88,9 @@ def _result_to_schema(result):
             {
                 "indicator_code": c.indicator_code,
                 "rate_name": c.rate_name,
+                "indicator_id": c.indicator_id,
+                "formula": c.formula,
+                "formula_version": c.formula_version,
                 "value": c.value,
                 "unit": c.unit,
                 "classification": c.classification,

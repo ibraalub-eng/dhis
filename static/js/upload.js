@@ -444,7 +444,7 @@
                 filterQualityReports();
             } catch(e) {
                 document.getElementById('qualityLoading').classList.add('hidden');
-                document.getElementById('reportsGrid').innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">Unable to load cached reports. Upload data first.</p>';
+                document.getElementById('reportsGrid').innerHTML = '<p style="color:var(--accent-red);text-align:center;padding:2rem;">' + __('Quality reports unavailable') + ': ' + esc(e.message) + '</p>';
             }
         }
 
@@ -525,7 +525,7 @@
                 currentAnomalies = report.anomaly_results || [];
                 renderDetail(body, report);
             } catch(e) {
-                body.innerHTML = '<p style="color:var(--accent-red);">Error: ' + e.message + '</p>';
+                body.innerHTML = '<p style="color:var(--accent-red);">' + __('Quality report unavailable') + ': ' + esc(e.message) + '</p>';
             }
         }
 
@@ -556,9 +556,10 @@
             data.sort((a, b) => {
                 let va, vb;
                 if (anomSortCol === 'rate_name') { va = a.rate_name||''; vb = b.rate_name||''; }
-                else if (anomSortCol === 'value') { va = a.value||0; vb = b.value||0; }
-                else if (anomSortCol === 'benchmark') { va = a.benchmark||0; vb = b.benchmark||0; }
-                else if (anomSortCol === 'z_score') { va = a.z_score||0; vb = b.z_score||0; }
+                // A missing value is not zero: sort it below measured values.
+                else if (anomSortCol === 'value') { va = (a.value===null||a.value===undefined)?-Infinity:a.value; vb = (b.value===null||b.value===undefined)?-Infinity:b.value; }
+                else if (anomSortCol === 'benchmark') { va = (a.benchmark===null||a.benchmark===undefined)?-Infinity:a.benchmark; vb = (b.benchmark===null||b.benchmark===undefined)?-Infinity:b.benchmark; }
+                else if (anomSortCol === 'z_score') { va = (a.z_score===null||a.z_score===undefined)?-Infinity:a.z_score; vb = (b.z_score===null||b.z_score===undefined)?-Infinity:b.z_score; }
                 else if (anomSortCol === 'is_outlier') { va = a.is_outlier?1:0; vb = b.is_outlier?1:0; }
                 else { va = a[anomSortCol]||''; vb = b[anomSortCol]||''; }
                 if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
@@ -837,7 +838,11 @@
             if (hasAnom) {
                 const outC = r.anomaly_results.filter(a=>a.is_outlier===true).length;
                 const normC = r.anomaly_results.filter(a=>a.is_outlier===false).length;
-                html += '<div class="filter-bar"><label>Outlier:</label><select id="filterOutlier" onchange="anomFilterOutlier=this.value;rerenderAnom();"><option value="all">All (' + anomCount + ')</option><option value="yes">Outliers (' + outC + ')</option><option value="no">Normal (' + normC + ')</option></select></div><table><thead><tr>' + sh('Rate','rate_name',anomSortCol,anomSortDir) + sh(__('Value'),'value',anomSortCol,anomSortDir) + sh(__('Benchmark'),'benchmark',anomSortCol,anomSortDir) + sh(__('Z-Score'),'z_score',anomSortCol,anomSortDir) + sh(__('Peers'),'peer_count',anomSortCol,anomSortDir) + sh(__('Peer Range'),'peer_range',anomSortCol,anomSortDir) + sh(__('Outlier'),'is_outlier',anomSortCol,anomSortDir) + '</tr></thead><tbody id="anomTbody"></tbody></table>';
+                const staleCount = r.anomaly_results.filter(a => a.formula_status && a.formula_status !== 'current').length;
+                if (staleCount) {
+                    html += '<div style="padding:0.55rem 0.75rem;margin-bottom:0.6rem;background:rgba(230,81,0,0.08);border:1px solid rgba(230,81,0,0.25);border-radius:6px;font-size:0.76rem;color:var(--accent-orange);">' + staleCount + ' ' + __('anomaly value(s) use an outdated or unverified formula — re-run analysis to refresh their registry values.') + '</div>';
+                }
+                html += '<div class="filter-bar"><label>Outlier:</label><select id="filterOutlier" onchange="anomFilterOutlier=this.value;rerenderAnom();"><option value="all">All (' + anomCount + ')</option><option value="yes">Outliers (' + outC + ')</option><option value="no">Normal (' + normC + ')</option></select></div><table><thead><tr>' + sh('Rate','rate_name',anomSortCol,anomSortDir) + sh(__('Value'),'value',anomSortCol,anomSortDir) + sh(__('Benchmark'),'benchmark',anomSortCol,anomSortDir) + sh(__('Z-Score'),'z_score',anomSortCol,anomSortDir) + sh(__('Peers'),'peer_count',anomSortCol,anomSortDir) + sh(__('Peer Range'),'peer_range',anomSortCol,anomSortDir) + sh(__('Unit'),'unit',anomSortCol,anomSortDir) + sh(__('Formula status'),'formula_status',anomSortCol,anomSortDir) + sh(__('Outlier'),'is_outlier',anomSortCol,anomSortDir) + '</tr></thead><tbody id="anomTbody"></tbody></table>';
             } else {
                 html += '<p style="color:var(--text-muted);padding:1rem;">No anomaly results available.</p>';
             }
@@ -889,7 +894,7 @@
         export function rerenderVal() {
             const tbody = document.getElementById('valTbody'); if (!tbody) return;
             const data = sortAndFilterValidation();
-            const typeColors = {'LOGIC': '#1565c0', 'CLINICAL': '#6a1b9a', 'BENCHMARK': '#e65100', 'DATA_QUALITY': '#c62828'};
+            const typeColors = {'LOGIC': '#1565c0', 'CLINICAL': '#6a1b9a', 'DATA_QUALITY': '#c62828'};
             let html = '';
             data.forEach(v => {
                 const sB = v.status==='PASS'?'<span class="badge badge-pass">PASS</span>':'<span class="badge badge-fail">FAIL</span>';
@@ -903,6 +908,44 @@
             tbody.innerHTML = html;
             const c = document.getElementById('valCount'); if (c) c.textContent = data.length;
         }
+        // Registry unit formatting: a rate is never shown as a bare number when
+        // its unit/multiplier is known (2% and 2 per 1,000 are different).
+        function _fmtAnomalyValue(value, unit) {
+            if (value === null || value === undefined) {
+                return '<span style="color:var(--accent-red);">' + __('unavailable') + '</span>';
+            }
+            var text = Number(value).toFixed(2);
+            if (!unit) return text;
+            if (unit === '%') return text + '%';
+            return text + ' ' + unit;
+        }
+
+        function _formulaStatusBadge(status, currentVersion) {
+            if (!status || status === 'current') return '';
+            var labels = {
+                stale: __('stale formula'),
+                unverified: __('unverified formula'),
+                unregistered: __('unregistered indicator')
+            };
+            var label = labels[status] || status;
+            var critical = status === 'unregistered';
+            var color = critical ? '#c62828' : '#e65100';
+            var bg = critical ? 'rgba(198,40,40,0.12)' : 'rgba(230,81,0,0.12)';
+            var title = currentVersion ? __('current formula version') + ': ' + currentVersion : '';
+            return '<span class="badge" style="background:' + bg + ';color:' + color + ';border:1px solid ' + color + '44;font-size:0.66rem;" title="' + esc(title) + '">' + label + '</span>';
+        }
+
+        function _formulaCell(status, storedVersion, currentVersion) {
+            if (!status) return '--';
+            if (status === 'current') {
+                return '<span style="color:var(--text-muted);font-size:0.72rem;">v' + esc(currentVersion || '?') + '</span>';
+            }
+            var versions = (storedVersion && currentVersion)
+                ? ' <span style="font-size:0.66rem;color:var(--text-muted);">v' + esc(storedVersion) + ' \u2192 v' + esc(currentVersion) + '</span>'
+                : '';
+            return _formulaStatusBadge(status, currentVersion) + versions;
+        }
+
         export function rerenderAnom() {
             const tbody = document.getElementById('anomTbody'); if (!tbody) return;
             const data = sortAndFilterAnomalies();
@@ -912,10 +955,11 @@
                 const rs = isO ? 'style="background:var(--severity-warning-bg);"':'';
                 const aRange = (a.peer_min !== null && a.peer_min !== undefined && a.peer_max !== null && a.peer_max !== undefined)
                     ? a.peer_min.toFixed(2) + ' – ' + a.peer_max.toFixed(2) : '--';
-                html += '<tr '+rs+'><td>'+a.rate_name+'</td><td>'+(a.value!==null&&a.value!==undefined?a.value.toFixed(2):'--')+'</td><td>'+(a.benchmark!==null&&a.benchmark!==undefined?a.benchmark.toFixed(2):'--')+'</td><td>'+(a.z_score!==null&&a.z_score!==undefined?a.z_score.toFixed(2):'--')+'</td><td>'+(a.peer_count!==null&&a.peer_count!==undefined?a.peer_count:'--')+'</td><td>'+aRange+'</td><td>'+(isO?'<span class="badge badge-fail">YES</span>':'<span class="badge badge-pass">No</span>')+'</td></tr>';
+                const unit = a.unit || '';
+                const provenanceTip = (a.indicator_id || '') + (a.formula ? ' | ' + a.formula : '');
+                html += '<tr '+rs+'><td title="'+esc(provenanceTip)+'">'+esc(a.rate_name)+'</td><td>'+_fmtAnomalyValue(a.value, unit)+'</td><td>'+_fmtAnomalyValue(a.benchmark, unit)+'</td><td>'+(a.z_score!==null&&a.z_score!==undefined?a.z_score.toFixed(2):'--')+'</td><td>'+(a.peer_count!==null&&a.peer_count!==undefined?a.peer_count:'--')+'</td><td>'+aRange+'</td><td>'+(unit?esc(unit):'--')+'</td><td>'+_formulaCell(a.formula_status, a.formula_version, a.current_formula_version)+'</td><td>'+(isO?'<span class="badge badge-fail">YES</span>':'<span class="badge badge-pass">No</span>')+'</td></tr>';
             });
-            if (!data.length) html = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No matching results</td></tr>';
+            if (!data.length) html = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No matching results</td></tr>';
             tbody.innerHTML = html;
             const c = document.getElementById('anomCount'); if (c) c.textContent = data.length;
         }
-

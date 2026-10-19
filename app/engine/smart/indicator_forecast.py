@@ -7,7 +7,10 @@
 - **تعريفات مؤشرات** (INDICATOR_DEFS): مؤشرات مشتقة بصيغ مطابقة تماماً لما
   يحسبه المحرك في xgboost_predictor (cs_rate=5/2×100، stillbirth_rate=sb/6×1000
   — المقام المواليد الأحياء هو التعريف المعتمد في النظام —، preterm/lbw/
-  high_risk/adolescent من مقام المواليد الأحياء، total_births عدّاد خام).
+  high_risk/adolescent من مقام المواليد الأحياء، total_births عدّاد خام)،
+  إضافةً إلى العدّادات الخام (cs_count/sb/preterm/lbw/high_risk/adolescent/
+  smm_total/mat_deaths/nd) بمفاتيح مطابقة لـ FEATURE_KEYS في التحليل الذكي
+  (طلب المستخدم: التنبؤ بحركة المؤشر الخام أيضاً).
 - **سلسلة شهرية لكل مستشفى**: من قيم المؤشرات المخزنة مباشرة، والشهر الناقص
   مقامه أو بسطه يُسقط (بيانات ناقصة لا صفر صامت — نفس مبدأ _hospital_rate_series).
 - **مسار لكل مستشفى**: نفس منهجية trajectory.py — اتجاه خطي إذا R²≥0.6 وإلا
@@ -55,7 +58,22 @@ _FORECAST_LABEL_AR = {
     "lbw_rate": "معدل نقص وزن الولادة",
     "high_risk_rate": "نسبة حالات الخطر العالي",
     "adolescent_rate": "نسبة حالات المراهقات",
+    "smm_per_1000": "المضاعفات الخطيرة لكل 1000 مولود حي",
+    "smm_per_1000_deliveries": "المضاعفات الخطيرة لكل 1000 ولادة",
+    "mat_mortality_rate": "الوفيات الأمومية لكل 100000 مولود حي",
+    "nd_per_1000": "وفيات حديثي الولادة لكل 1000 مولود حي",
     "total_births": "إجمالي المواليد الأحياء",
+    # عدّادات خام — التسميات مطابقة لـ ARABIC_NAMES في explainability.py
+    # لتظهر بنفس الاسم في شاشتي التحليل الذكي والتنبؤ
+    "cs_count": "عدد العمليات القيصارية",
+    "sb": "الولادات الميتة",
+    "preterm": "الولادات السابقة لأوانها",
+    "lbw": "نقص وزن الولادة",
+    "high_risk": "حالات الخطر العالي",
+    "adolescent": "الحالات المراهقة",
+    "smm_total": "المضاعفات الخطيرة",
+    "mat_deaths": "الوفيات الأمومية",
+    "nd": "الوفيات الجديدة",
 }
 
 INDICATOR_DEFS: Dict[str, Dict] = {
@@ -87,23 +105,21 @@ def indicator_rate_from_values(indicator: str, values: Dict[str, float]) -> Opti
     d = INDICATOR_DEFS.get(indicator)
     if d is None:
         raise ValueError(f"مؤشر غير معروف: {indicator}")
-    num = 0.0
-    for code in d["numerator"]:
-        v = values.get(code)
-        if v is None:
-            return None
-        num += float(v)
-    if d["denominator"] is None:
-        return float(num) * d["per"]
-    den = 0.0
-    for code in d["denominator"]:
-        v = values.get(code)
-        if v is None:
-            return None
-        den += float(v)
-    if den <= 0:
+    from app.engine import indicator_calc
+
+    denominator_codes = d["denominator"] or ()
+    outcome = indicator_calc.evaluate_ratio_values(
+        numerator_codes=d["numerator"],
+        denominator_codes=denominator_codes,
+        raw=values,
+        multiplier=d["per"],
+        operator="/" if denominator_codes else "*",
+    )
+    if outcome.status != indicator_calc.STATUS_OK:
         return None
-    return num / den * d["per"]
+    if outcome.denominator is not None and outcome.denominator <= 0:
+        return None
+    return outcome.value
 
 
 def load_indicator_series(session, indicator: str) -> Dict[str, List]:

@@ -4,8 +4,9 @@ from collections import OrderedDict
 TAB_REGISTRY = OrderedDict([
     ("dashboard",       {"label": "Dashboard",            "icon": "📊", "permission": "dashboard.read"}),
     ("upload",          {"label": "Upload Data",          "icon": "📤", "permission": "data.upload"}),
-    ("indicator-tree",  {"label": "Indicator Tree",       "icon": "🌳", "permission": "settings.read"}),
-    ("indicator-groups", {"label": "Indicator Groups",   "icon": "🗂️", "permission": "settings.read"}),
+    ("indicator-tree",  {"label": "Data Tree",            "icon": "🌳", "permission": "settings.read"}),
+    ("indicator-groups", {"label": "Data Group",         "icon": "🗂️", "permission": "settings.read"}),
+    ("indicators",       {"label": "Indicators",          "icon": "📐", "permission": "settings.read"}),
     ("rules-manager",   {"label": "Validation Rules",     "icon": "📋", "permission": "rules.read"}),
     ("analysis",        {"label": "Hospital Comparisons", "icon": "📈", "permission": "analysis.read"}),
     ("root-cause",      {"label": "Root Cause",           "icon": "🔍", "permission": "root_cause.read"}),
@@ -15,7 +16,7 @@ TAB_REGISTRY = OrderedDict([
     ("clinical",        {"label": "Clinical Intelligence","icon": "🏥", "permission": "clinical.read"}),
     ("outliers",        {"label": "Outlier Scan",          "icon": "⚠️", "permission": "outliers.read"}),
     ("layered",         {"label": "Outlier Diagnostics",   "icon": "🧱", "permission": "analysis.read"}),
-    ("alerts",          {"label": "Alerts",                "icon": "🔔", "permission": "alerts.read"}),
+    ("alerts",          {"label": "Validation Alerts",     "icon": "🔔", "permission": "alerts.read"}),
     ("audit",           {"label": "Audit Log",             "icon": "📝", "permission": "audit.read"}),
     ("admin",           {"label": "System Control",       "icon": "⚙️", "permission": "system.manage_users", "superadmin_only": True}),
     ("guides",          {"label": "Guides",               "icon": "📚", "permission": "dashboard.read"}),
@@ -24,7 +25,7 @@ TAB_REGISTRY = OrderedDict([
 
 DEFAULT_GROUPS = [
     {"name": "Home",      "icon": "🏠", "items": ["dashboard"]},
-    {"name": "Data",      "icon": "📊", "items": ["upload", "indicator-tree", "indicator-groups", "rules-manager"]},
+    {"name": "Data",      "icon": "📊", "items": ["upload", "indicator-tree", "indicator-groups", "indicators", "rules-manager"]},
     {"name": "Analysis",  "icon": "📈", "items": ["analysis", "smart-analytics", "smart-forecast", "clinical", "root-cause"]},
     {"name": "Oversight", "icon": "🛡️", "items": ["quality", "outliers", "layered", "alerts", "audit"]},
     {"name": "System",    "icon": "⚙️", "items": ["admin", "guides", "settings"]},

@@ -391,6 +391,7 @@ def test_alerts_page_has_rule_failures_table():
     assert soup.find(id="ruleFailSummary") is not None
     assert soup.find(id="ruleFailHospitalFilter") is not None
     assert soup.find(id="alertSummaryBar") is not None
+    assert soup.find("h2", string="Validation Alerts") is not None
 
 
 def test_alerts_js_still_has_overview_handlers():
@@ -403,6 +404,8 @@ def test_alerts_js_still_has_overview_handlers():
     assert "function updateAlertBadge" in content
     assert "renderAlertOverview" in content
     assert "renderAlertTable" not in content
+    assert "Outliers" not in content
+    assert "data.outlier_count" not in content
 
 
 def test_alert_badge_matches_alerts_page_total():
@@ -442,6 +445,8 @@ def test_analysis_page_has_both_modes():
     # Mode switcher (sub-tabs trend/compare of the merged analysis tab)
     assert soup.select_one('.analysis-subtab[data-subtab="trend"]') is not None
     assert soup.select_one('.analysis-subtab[data-subtab="compare"]') is not None
+    assert soup.select_one('.analysis-subtab[data-subtab="governorates"][data-requires="smart_analytics.read"]') is not None
+    assert soup.select_one('.analysis-subtab[data-subtab="performance"][data-requires="dashboard.read"]') is not None
     # Trend mode elements
     assert soup.find(id="analysisSub-trend") is not None
     assert soup.find(id="trendHospitalSelect") is not None

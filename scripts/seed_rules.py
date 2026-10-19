@@ -1,11 +1,15 @@
-"""Seed the 60 validation rules into the database."""
+"""Seed supported validation rules and retire legacy benchmark validations."""
 import json
 import sys
 import os
+from sqlalchemy import case, func, or_, tuple_
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from app.database import SessionLocal, init_db
-from app.models import Rule
+from app.models import AppConfig, QualityScore, Rule, ValidationResult
+
+BENCHMARK_RULE_CODES = tuple(f"R{code:03d}" for code in range(41, 51))
+BENCHMARK_EXPRESSIONS = ("benchmark_rate", "benchmark_low_rate", "cross_hospital_rate")
 
 
 RULES = [
@@ -416,110 +420,7 @@ RULES = [
         "description": "Renal failure/dialysis must not exceed total Severe Maternal Morbidity",
     },
     # ============================================
-    # GROUP 3: STATISTICAL & BENCHMARK (R041-R050)
-    # ============================================
-    {
-        "code": "R041",
-        "name": "C-Section Rate > 80% alert",
-        "rule_type": "BENCHMARK",
-        "severity": "HIGH",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "benchmark_rate",
-        "params": json.dumps({"num_code": "5", "den_code": "2", "threshold": 80.0}),
-        "description": "C-Section rate exceeding 80% triggers an alert",
-    },
-    {
-        "code": "R042",
-        "name": "NVD Rate < 10% alert",
-        "rule_type": "BENCHMARK",
-        "severity": "HIGH",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "benchmark_low_rate",
-        "params": json.dumps({"num_code": "3", "den_code": "2", "threshold": 10.0}),
-        "description": "Normal vaginal delivery rate below 10% triggers an alert",
-    },
-    {
-        "code": "R043",
-        "name": "Preterm Birth Rate outlier detection",
-        "rule_type": "BENCHMARK",
-        "severity": "MEDIUM",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "cross_hospital_rate",
-        "params": json.dumps({"num_code": "6.f", "den_code": "6", "z_threshold": 2.5}),
-        "description": "Preterm birth rate compared across hospitals for outlier detection",
-    },
-    {
-        "code": "R044",
-        "name": "Low Birth Weight Rate outlier detection",
-        "rule_type": "BENCHMARK",
-        "severity": "MEDIUM",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "cross_hospital_rate",
-        "params": json.dumps({"num_code": "6.g", "den_code": "6", "z_threshold": 2.5}),
-        "description": "Low birth weight rate compared across hospitals for outlier detection",
-    },
-    {
-        "code": "R045",
-        "name": "Maternal Mortality Ratio cross-hospital comparison",
-        "rule_type": "BENCHMARK",
-        "severity": "HIGH",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "cross_hospital_rate",
-        "params": json.dumps({"num_code": "11", "den_code": "6", "z_threshold": 2.5}),
-        "description": "Maternal mortality ratio compared across hospitals",
-    },
-    {
-        "code": "R046",
-        "name": "Neonatal Mortality Rate cross-hospital comparison",
-        "rule_type": "BENCHMARK",
-        "severity": "HIGH",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "cross_hospital_rate",
-        "params": json.dumps({"num_code": "17", "den_code": "6", "z_threshold": 2.5}),
-        "description": "Neonatal mortality rate compared across hospitals",
-    },
-    {
-        "code": "R047",
-        "name": "Stillbirth Rate cross-hospital comparison",
-        "rule_type": "BENCHMARK",
-        "severity": "MEDIUM",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "cross_hospital_rate",
-        "params": json.dumps({"num_code": "7", "den_code": "2", "z_threshold": 2.5}),
-        "description": "Stillbirth rate compared across hospitals",
-    },
-    {
-        "code": "R048",
-        "name": "NICU Admission Rate cross-hospital comparison",
-        "rule_type": "BENCHMARK",
-        "severity": "MEDIUM",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "cross_hospital_rate",
-        "params": json.dumps({"num_code": "16", "den_code": "6", "z_threshold": 2.5}),
-        "description": "NICU admission rate compared across hospitals",
-    },
-    {
-        "code": "R049",
-        "name": "SMM Rate cross-hospital comparison",
-        "rule_type": "BENCHMARK",
-        "severity": "HIGH",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "cross_hospital_rate",
-        "params": json.dumps({"num_code": "10", "den_code": "2", "z_threshold": 2.5}),
-        "description": "Severe Maternal Morbidity rate compared across hospitals",
-    },
-    {
-        "code": "R050",
-        "name": "Hemorrhage Rate cross-hospital comparison",
-        "rule_type": "BENCHMARK",
-        "severity": "HIGH",
-        "category": "STATISTICAL_BENCHMARK",
-        "expression_type": "cross_hospital_rate",
-        "params": json.dumps({"num_code": "10.a", "den_code": "2", "z_threshold": 2.5}),
-        "description": "Hemorrhage rate compared across hospitals",
-    },
-    # ============================================
-    # GROUP 4: TREND & DATA QUALITY (R051-R060)
+    # GROUP 3: TREND & DATA QUALITY (R051-R060)
     # ============================================
     {
         "code": "R051",
@@ -790,6 +691,134 @@ RULES = [
 ]
 
 
+def remove_benchmark_validation_data(session):
+    """Remove legacy benchmark validations and refresh affected quality scores."""
+    benchmark_rule_filter = or_(
+        func.upper(Rule.rule_type) == "BENCHMARK",
+        func.upper(Rule.category) == "STATISTICAL_BENCHMARK",
+        func.lower(Rule.expression_type).in_(BENCHMARK_EXPRESSIONS),
+        Rule.code.in_(BENCHMARK_RULE_CODES),
+    )
+    benchmark_rule_codes = {
+        rule.code for rule in session.query(Rule).filter(benchmark_rule_filter).all()
+    } | set(BENCHMARK_RULE_CODES)
+    benchmark_codes_for_query = tuple(sorted(benchmark_rule_codes))
+    benchmark_result_filter = or_(
+        func.upper(ValidationResult.rule_type) == "BENCHMARK",
+        ValidationResult.rule_code.in_(benchmark_codes_for_query),
+    )
+    benchmark_results = (
+        session.query(
+            ValidationResult.hospital_id,
+            ValidationResult.month,
+            ValidationResult.rule_code,
+        )
+        .filter(benchmark_result_filter)
+        .all()
+    )
+    affected_pairs = {(row.hospital_id, row.month) for row in benchmark_results}
+    benchmark_rule_codes.update(row.rule_code for row in benchmark_results)
+    removed_results = (
+        session.query(ValidationResult)
+        .filter(benchmark_result_filter)
+        .delete(synchronize_session=False)
+    )
+    removed_rules = (
+        session.query(Rule)
+        .filter(benchmark_rule_filter)
+        .delete(synchronize_session=False)
+    )
+    removed_settings = (
+        session.query(AppConfig)
+        .filter(AppConfig.key.in_(("cs_rate_threshold", "nvd_rate_threshold")))
+        .delete(synchronize_session=False)
+    )
+
+    if affected_pairs:
+        is_benchmark = case(
+            (benchmark_result_filter, 1),
+            else_=0,
+        )
+        grouped_results = (
+            session.query(
+                ValidationResult.hospital_id,
+                ValidationResult.month,
+                ValidationResult.status,
+                ValidationResult.severity,
+                is_benchmark.label("is_benchmark"),
+                func.count().label("count"),
+            )
+            .filter(tuple_(ValidationResult.hospital_id, ValidationResult.month).in_(tuple(sorted(affected_pairs))))
+            .group_by(
+                ValidationResult.hospital_id,
+                ValidationResult.month,
+                ValidationResult.status,
+                ValidationResult.severity,
+                is_benchmark,
+            )
+            .all()
+        )
+        stats_by_pair = {}
+        for row in grouped_results:
+            stats_by_pair.setdefault((row.hospital_id, row.month), []).append(row)
+
+        from app.config_utils import get_config_dict
+        from app.engine.quality.scoring import combine_quality_score
+
+        quality_config = get_config_dict(session, "quality")
+        severity_weights = {
+            "HIGH": float(quality_config.get("severity_high", 3)),
+            "MEDIUM": float(quality_config.get("severity_medium", 2)),
+            "LOW": float(quality_config.get("severity_low", 1)),
+        }
+        scores = (
+            session.query(QualityScore)
+            .filter(tuple_(QualityScore.hospital_id, QualityScore.month).in_(tuple(sorted(affected_pairs))))
+            .all()
+        )
+        for score in scores:
+            non_benchmark = [
+                row for row in stats_by_pair.get((score.hospital_id, score.month), [])
+                if not row.is_benchmark
+            ]
+            total = sum(row.count for row in non_benchmark)
+            passed = sum(row.count for row in non_benchmark if row.status.upper() == "PASS")
+            fail_weight = sum(
+                severity_weights.get((row.severity or "").upper(), 1) * row.count
+                for row in non_benchmark
+                if row.status.upper() == "FAIL"
+            )
+            total_weight = sum(
+                severity_weights.get((row.severity or "").upper(), 1) * row.count
+                for row in non_benchmark
+            )
+            rule_compliance = 100.0 * passed / total if total else 100.0
+            consistency = 100.0 * (1.0 - fail_weight / total_weight) if total_weight else 100.0
+            score.rule_compliance = round(rule_compliance, 1)
+            score.consistency = round(consistency, 1)
+            score.score = combine_quality_score(
+                rule_compliance,
+                score.completeness,
+                consistency,
+                score.outlier_penalty,
+                quality_config,
+            )
+            if score.issues:
+                issues = json.loads(score.issues)
+                if not isinstance(issues, list):
+                    raise ValueError(f"QualityScore {score.id} issues must be a JSON list")
+                score.issues = json.dumps(
+                    [
+                        issue for issue in issues
+                        if not isinstance(issue, str)
+                        or issue.split(":", 1)[0].strip() not in benchmark_rule_codes
+                    ],
+                    ensure_ascii=False,
+                )
+
+    return removed_rules, removed_results, removed_settings
+
+
 def seed_rules(session=None):
     """Seed rules into the database. If no session given, creates one.
 
@@ -802,6 +831,7 @@ def seed_rules(session=None):
         init_db()
         session = SessionLocal()
     try:
+        removed_rules, removed_failures, removed_settings = remove_benchmark_validation_data(session)
         existing = {r.code: r for r in session.query(Rule).all()}
         added = 0
         synced = 0
@@ -826,7 +856,7 @@ def seed_rules(session=None):
                 row.name = r["name"]
                 row.description = r["description"]
                 synced += 1
-        if added or synced:
+        if added or synced or removed_rules or removed_failures or removed_settings:
             session.commit()
         if own_session:
             total = session.query(Rule).count()

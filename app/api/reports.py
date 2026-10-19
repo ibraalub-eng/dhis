@@ -105,7 +105,14 @@ def list_reports(
         hosp = hospitals.get(s.hospital_id)
         issues = json.loads(s.issues) if s.issues else []
         outliers = [
-            {"indicator": a.rate_name, "value": a.value, "benchmark": a.benchmark}
+            {
+                "indicator": a.rate_name,
+                "indicator_id": a.indicator_id,
+                "formula": a.formula,
+                "formula_version": a.formula_version,
+                "value": a.value,
+                "benchmark": a.benchmark,
+            }
             for a in anomaly_by_key.get((s.hospital_id, s.month), [])
         ]
         is_enabled = s.month in enabled_by_hospital.get(s.hospital_id, set())
@@ -212,6 +219,26 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
         AnomalyResult.hospital_id == hospital_id,
         AnomalyResult.month == month,
     ).all()
+
+    # Every anomaly row is a stored result: attach the live registry unit and
+    # verify the formula version it was computed with. The Quality tab must
+    # never present an outdated value as if it were current, and it must not
+    # guess a unit from the number.
+    from app.engine import indicator_service
+    from app.schemas import AnomalyOut
+
+    anomaly_items = []
+    for row in anomaly_rows:
+        item = AnomalyOut.model_validate(row)
+        provenance = indicator_service.registry_provenance(
+            db, row.indicator_id, row.formula_version, row.formula)
+        item.unit = provenance["unit"]
+        item.formula_status = provenance["formula_status"]
+        item.current_formula_version = provenance["current_formula_version"]
+        if not item.formula:
+            item.formula = provenance["formula"]
+        anomaly_items.append(item)
+
     return ReportSummaryOut(
         hospital=hosp.name,
         month=month,
@@ -222,7 +249,7 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
         outlier_penalty=outlier_penalty,
         issues=issues,
         validation_results=validation_rows,
-        anomaly_results=anomaly_rows,
+        anomaly_results=anomaly_items,
         confidence=confidence,
     )
 
@@ -272,7 +299,21 @@ def _get_export_data(db: Session, hospital_id: int, month: str, user=None) -> di
         AnomalyResult.hospital_id == hospital_id,
         AnomalyResult.month == month,
     ).all()
-    return {"hospital": hosp.name, "month": month, "report": report, "validations": vrows, "anomalies": arows}
+    from app.engine import indicator_service
+
+    anomaly_provenance = {
+        a.id: indicator_service.registry_provenance(
+            db, a.indicator_id, a.formula_version, a.formula)
+        for a in arows
+    }
+    return {
+        "hospital": hosp.name,
+        "month": month,
+        "report": report,
+        "validations": vrows,
+        "anomalies": arows,
+        "anomaly_provenance": anomaly_provenance,
+    }
 
 
 def _esc(text: str) -> str:
@@ -334,13 +375,19 @@ def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = D
         story.append(Spacer(1, 4*mm))
 
         r = d["report"]
-        score = r.get("data_quality_score", 0)
-        score_color = colors.HexColor("#2e7d32") if score >= 80 else colors.HexColor("#e65100") if score >= 50 else colors.HexColor("#c62828")
+        score = r.get("data_quality_score")
+        if score is None:
+            # A missing score is not zero — report it as unavailable.
+            score_display = "--/100"
+            score_color = colors.HexColor("#777777")
+        else:
+            score_display = f"{score:.0f}/100"
+            score_color = colors.HexColor("#2e7d32") if score >= 80 else colors.HexColor("#e65100") if score >= 50 else colors.HexColor("#c62828")
 
         sc_style = ParagraphStyle("Score", parent=styles["Normal"], fontSize=28, textColor=score_color, alignment=1)
         if uni_name:
             sc_style.fontName = uni_name
-        story.append(Paragraph(f"{score:.0f}/100", sc_style))
+        story.append(Paragraph(score_display, sc_style))
         story.append(Spacer(1, 3*mm))
 
         sub_data = [
@@ -395,20 +442,24 @@ def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = D
         story.append(Spacer(1, 2*mm))
 
         arows = d["anomalies"]
+        provenance = d.get("anomaly_provenance", {})
         story.append(Paragraph(f"<b>Anomaly Detection ({len(arows)})</b>", styles["Heading2"]))
-        adata = [["Rate", "Value", "Benchmark", "Z-Score", "Outlier"]]
+        adata = [["Rate", "Value", "Benchmark", "Z-Score", "Unit", "Formula", "Outlier"]]
         outlier_count = 0
         for a in arows:
+            prov = provenance.get(a.id, {})
             adata.append([
                 _esc(a.rate_name),
                 f"{a.value:.2f}" if a.value is not None else "--",
                 f"{a.benchmark:.2f}" if a.benchmark is not None else "--",
                 f"{a.z_score:.2f}" if a.z_score is not None else "--",
+                _esc(prov.get("unit") or "--"),
+                _esc(prov.get("formula_status") or "--"),
                 "Yes" if a.is_outlier else "No",
             ])
             if a.is_outlier:
                 outlier_count += 1
-        at = Table(adata, colWidths=[100, 60, 60, 50, 40], repeatRows=1)
+        at = Table(adata, colWidths=[120, 50, 55, 45, 70, 80, 40], repeatRows=1)
         at.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a237e")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -455,6 +506,7 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
     issues = r.get("issues", [])
     vrows = d["validations"]
     arows = d["anomalies"]
+    anomaly_provenance = d.get("anomaly_provenance", {})
 
     row = 1
     ws.cell(row, 1, f"Quality Report - {hospital_name}").font = Font(bold=True, size=14, color="1A237E")
@@ -535,10 +587,11 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
     # Anomalies
     ws.cell(row, 1, "Anomaly Detection").font = hdr_font
     ws.cell(row, 1).fill = hdr_fill
-    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=5)
+    ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=7)
     ws.cell(row, 1).border = border
     row += 1
-    for col, h in enumerate(["Rate Name", "Value", "Benchmark", "Z-Score", "Outlier"], 1):
+    anomaly_headers = ["Rate Name", "Value", "Benchmark", "Z-Score", "Unit", "Formula", "Outlier"]
+    for col, h in enumerate(anomaly_headers, 1):
         c = ws.cell(row, col, h)
         c.font = hdr_font
         c.fill = hdr_fill
@@ -546,6 +599,7 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
         c.alignment = Alignment(horizontal="center")
     row += 1
     for a in arows:
+        prov = anomaly_provenance.get(a.id, {})
         ws.cell(row, 1, a.rate_name).border = border
         ws.cell(row, 2, f"{a.value:.2f}" if a.value is not None else "--").border = border
         ws.cell(row, 2).alignment = Alignment(horizontal="center")
@@ -553,7 +607,14 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
         ws.cell(row, 3).alignment = Alignment(horizontal="center")
         ws.cell(row, 4, f"{a.z_score:.2f}" if a.z_score is not None else "--").border = border
         ws.cell(row, 4).alignment = Alignment(horizontal="center")
-        oc = ws.cell(row, 5, "Yes" if a.is_outlier else "No")
+        ws.cell(row, 5, prov.get("unit") or "--").border = border
+        ws.cell(row, 5).alignment = Alignment(horizontal="center")
+        status_cell = ws.cell(row, 6, prov.get("formula_status") or "--")
+        status_cell.border = border
+        status_cell.alignment = Alignment(horizontal="center")
+        if prov.get("formula_status") not in (None, "current"):
+            status_cell.font = Font(color="E65100", bold=True)
+        oc = ws.cell(row, 7, "Yes" if a.is_outlier else "No")
         oc.border = border
         oc.alignment = Alignment(horizontal="center")
         if a.is_outlier:
@@ -565,7 +626,9 @@ def export_report_excel(hospital_id: int, month: str = Query(...), db: Session =
     ws.column_dimensions["B"].width = 40
     ws.column_dimensions["C"].width = 14
     ws.column_dimensions["D"].width = 14
-    ws.column_dimensions["E"].width = 30
+    ws.column_dimensions["E"].width = 16
+    ws.column_dimensions["F"].width = 16
+    ws.column_dimensions["G"].width = 12
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -27,15 +27,19 @@ ZSCORE_LITERALS = [
 ]
 
 # (rate_code, numerator_codes, denominator_code, multiplier, unit) — clinical
-# slice values exactly as in thresholds.py CLINICAL_THRESHOLDS (line 20-216),
-# multiplier derived by the current rule `100 if "%" in unit else 1`.
+# slice values exactly as in thresholds.py CLINICAL_THRESHOLDS (line 20-216);
+# the multiplier is the unit's real display scaling (% = x100, per-1,000 =
+# x1,000, per-100,000 = x100,000 — same convention as the forecast slice).
+# 2026-10-19: the mortality trio + hysterectomy were corrected from a legacy
+# x1 that made clinical classification read ~1,000x too low once it moved
+# onto spec.rate_multiplier (test_clinical's regression matrix pins this).
 CLINICAL_LITERALS = [
     ("rate_cs", ("5",), "2", 100.0, "%"),
-    ("rate_mmr", ("11",), "2", 1.0, "per 100,000"),
-    ("rate_nmr", ("17",), "6", 1.0, "per 1,000"),
+    ("rate_mmr", ("11",), "2", 100000.0, "per 100,000"),
+    ("rate_nmr", ("17",), "6", 1000.0, "per 1,000"),
     ("rate_preterm", ("6.f",), "6", 100.0, "%"),
     ("rate_smm", ("10",), "2", 100.0, "%"),
-    ("rate_stillbirth", ("7",), "2", 1.0, "per 1,000"),
+    ("rate_stillbirth", ("7",), "2", 1000.0, "per 1,000"),
     ("rate_nicu", ("16",), "6", 100.0, "%"),
     ("rate_lbw", ("6.g",), "6", 100.0, "%"),
     ("rate_bf", ("13",), "6", 100.0, "%"),
@@ -44,7 +48,7 @@ CLINICAL_LITERALS = [
     ("rate_smm_hypertensive_proportion", ("10.e",), "10", 100.0, "%"),
     ("rate_adolescent", ("2.c", "2.d"), "2", 100.0, "%"),
     ("rate_high_risk", ("2.n",), "2", 100.0, "%"),
-    ("rate_hysterectomy", ("10.d",), "2", 1.0, "per 1,000"),
+    ("rate_hysterectomy", ("10.d",), "2", 1000.0, "per 1,000"),
 ]
 
 # forecast INDICATOR_DEFS: (key, numerator, denominator-or-None, per/unit)
@@ -55,23 +59,22 @@ FORECAST_LITERALS = [
     ("lbw_rate", ("6.g",), ("6",), 100.0),
     ("high_risk_rate", ("2.n",), ("6",), 100.0),
     ("adolescent_rate", ("2.c", "2.d"), ("6",), 100.0),
+    ("smm_per_1000", ("10",), ("6",), 1000.0),
+    ("smm_per_1000_deliveries", ("10",), ("2",), 1000.0),
+    ("mat_mortality_rate", ("11",), ("6",), 100000.0),
+    ("nd_per_1000", ("17",), ("6",), 1000.0),
     ("total_births", ("6",), None, 1.0),
+    # عدّادات خام — numerator مطابق لـ FEATURE_SOURCE_CODES
+    ("cs_count", ("5",), None, 1.0),
+    ("sb", ("7",), None, 1.0),
+    ("preterm", ("6.f",), None, 1.0),
+    ("lbw", ("6.g",), None, 1.0),
+    ("high_risk", ("2.n",), None, 1.0),
+    ("adolescent", ("2.c", "2.d"), None, 1.0),
+    ("smm_total", ("10",), None, 1.0),
+    ("mat_deaths", ("11",), None, 1.0),
+    ("nd", ("17",), None, 1.0),
 ]
-
-# rules R043-R050: (rule code, numerator, denominator) — R045 MMR uses
-# denominator "6" here (disagrees with zscore/clinical "2"); that disagreement
-# is the point of the per-site registry.
-RULES_LITERALS = [
-    ("R043", "6.f", "6"),
-    ("R044", "6.g", "6"),
-    ("R045", "11", "6"),
-    ("R046", "17", "6"),
-    ("R047", "7", "2"),
-    ("R048", "16", "6"),
-    ("R049", "10", "2"),
-    ("R050", "10.a", "2"),
-]
-
 
 def test_zscore_slice_matches_rate_definitions_literals():
     specs = zscore_specs()
@@ -100,24 +103,15 @@ def test_clinical_slice_matches_threshold_literals():
 
 def test_forecast_slice_matches_indicator_defs_literals():
     specs = iter_site("forecast")
-    assert len(specs) == 7
+    assert len(specs) == 20
     for spec, (key, num, den, per) in zip(specs, FORECAST_LITERALS, strict=False):
         assert spec.rate_code == key
         assert spec.numerator_codes == num
         assert spec.denominator_codes == (() if den is None else den)
         assert spec.rate_multiplier == per
-    assert iter_site("forecast")[-1].is_rate is False  # total_births = count
-
-
-def test_rules_slice_matches_cross_hospital_rule_literals():
-    specs = iter_site("rules")
-    assert len(specs) == 8
-    for spec, (code, num, den) in zip(specs, RULES_LITERALS, strict=False):
-        assert spec.spec_key == f"rules:{code}"
-        assert spec.numerator_codes == (num,)
-        assert spec.denominator_codes == (den,)
-        assert spec.rate_multiplier == 100.0  # rules._rate hardcodes x100
-        assert spec.site == "rules"
+    assert iter_site("forecast")[-1].is_rate is False  # nd = count (last entry)
+    # المقاسم التسعة الأخيرة عدّادات خام كلها
+    assert all(s.is_rate is False for s in iter_site("forecast")[10:])
 
 
 def test_registry_keys_are_site_scoped():
@@ -125,7 +119,6 @@ def test_registry_keys_are_site_scoped():
     assert len(keys) == len(set(keys))
     # The known disagreements must coexist under separate keys.
     assert BUILTIN_RATE_SPECS["zscore:Maternal mortality ratio"].denominator_codes == ("2",)
-    assert BUILTIN_RATE_SPECS["rules:R045"].denominator_codes == ("6",)
     assert BUILTIN_RATE_SPECS["zscore:Stillbirth rate"].denominator_codes == ("2",)
     assert BUILTIN_RATE_SPECS["forecast:stillbirth_rate"].denominator_codes == ("6",)
 
@@ -149,8 +142,8 @@ def test_compute_rate_missing_or_zero_denominator_is_none():
 def test_compute_spec_rate_uses_spec_multiplier():
     spec = BUILTIN_RATE_SPECS["zscore:C-section rate"]
     assert compute_spec_rate(spec, {"5": 30, "2": 300}) == 10.0
-    spec_mmr = BUILTIN_RATE_SPECS["clinical:rate_mmr"]  # x1, per 100,000
-    assert compute_spec_rate(spec_mmr, {"11": 2, "2": 300}) == 2 / 300 * 1
+    spec_mmr = BUILTIN_RATE_SPECS["clinical:rate_mmr"]  # x100,000, per 100,000
+    assert compute_spec_rate(spec_mmr, {"11": 2, "2": 300}) == 2 / 300 * 100000
 
 
 def test_zscore_spec_for_lookup_and_miss():
@@ -161,8 +154,8 @@ def test_zscore_spec_for_lookup_and_miss():
 
 def test_multiplier_for_unit():
     assert multiplier_for_unit("%") == 100.0
-    assert multiplier_for_unit("per 1,000") == 1.0
-    assert multiplier_for_unit("per 100,000") == 1.0
+    assert multiplier_for_unit("per 1,000") == 1000.0
+    assert multiplier_for_unit("per 100,000") == 100000.0
     assert multiplier_for_unit("") == 1.0
     assert multiplier_for_unit(None) == 1.0
 
@@ -211,8 +204,8 @@ def test_clinical_threshold_ranges_and_guidelines_spot_check():
 def test_clinical_compute_rate_multiplier_comes_from_registry():
     from app.engine.clinical.thresholds import compute_rate
     assert compute_rate(80, 300, "%") == 80 / 300 * 100
-    assert compute_rate(2, 300, "per 1,000") == 2 / 300
-    assert compute_rate(2, 300, "per 100,000") == 2 / 300
+    assert compute_rate(2, 300, "per 1,000") == 2 / 300 * 1000
+    assert compute_rate(2, 300, "per 100,000") == 2 / 300 * 100000
     assert compute_rate(5, 0, "%") is None
     assert compute_rate(5, None, "%") is None
 
@@ -221,7 +214,11 @@ def test_forecast_indicator_defs_built_from_registry_slice():
     from app.engine.smart.indicator_forecast import INDICATOR_DEFS
     assert list(INDICATOR_DEFS.keys()) == [
         "cs_rate", "stillbirth_rate", "preterm_rate", "lbw_rate",
-        "high_risk_rate", "adolescent_rate", "total_births",
+        "high_risk_rate", "adolescent_rate", "smm_per_1000",
+        "smm_per_1000_deliveries", "mat_mortality_rate", "nd_per_1000",
+        "total_births",
+        "cs_count", "sb", "preterm", "lbw", "high_risk", "adolescent",
+        "smm_total", "mat_deaths", "nd",
     ]
     assert INDICATOR_DEFS["cs_rate"] == {
         "label_ar": "\u0645\u0639\u062f\u0644 \u0627\u0644\u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u0642\u064a\u0635\u0627\u0631\u064a\u0629",
@@ -236,17 +233,50 @@ def test_forecast_indicator_defs_built_from_registry_slice():
     assert INDICATOR_DEFS["adolescent_rate"]["numerator"] == ("2.c", "2.d")
     assert INDICATOR_DEFS["total_births"]["denominator"] is None
     assert INDICATOR_DEFS["total_births"]["per"] == 1.0
+    # عدّادات خام (طلب المستخدم): بلا مقام وبلا مضاعف — numerator مطابق
+    # لـ FEATURE_SOURCE_CODES في التحليل الذكي
+    assert INDICATOR_DEFS["sb"] == {
+        "label_ar": "الولادات الميتة",
+        "label_en": "Stillbirths (count)",
+        "unit": "count",
+        "numerator": ("7",),
+        "denominator": None,
+        "per": 1.0,
+    }
+    assert INDICATOR_DEFS["nd"]["numerator"] == ("17",)
+    assert INDICATOR_DEFS["smm_total"]["numerator"] == ("10",)
+    assert INDICATOR_DEFS["mat_deaths"]["numerator"] == ("11",)
+    assert INDICATOR_DEFS["adolescent"]["numerator"] == ("2.c", "2.d")
+    for key in ("cs_count", "sb", "preterm", "lbw", "high_risk",
+                "adolescent", "smm_total", "mat_deaths", "nd"):
+        assert INDICATOR_DEFS[key]["denominator"] is None, key
+        assert INDICATOR_DEFS[key]["per"] == 1.0, key
 
 
 def test_forecast_rate_computation_parity():
     from app.engine.smart.indicator_forecast import available_indicators, indicator_rate_from_values
     assert [i["key"] for i in available_indicators()] == list(
         ["cs_rate", "stillbirth_rate", "preterm_rate", "lbw_rate",
-         "high_risk_rate", "adolescent_rate", "total_births"])
+         "high_risk_rate", "adolescent_rate", "smm_per_1000",
+         "smm_per_1000_deliveries", "mat_mortality_rate", "nd_per_1000",
+         "total_births",
+         "cs_count", "sb", "preterm", "lbw", "high_risk", "adolescent",
+         "smm_total", "mat_deaths", "nd"])
     assert indicator_rate_from_values("cs_rate", {"5": 80, "2": 300}) == 80 / 300 * 100
     assert indicator_rate_from_values("stillbirth_rate", {"7": 6, "6": 300}) == 6 / 300 * 1000
+    assert indicator_rate_from_values("smm_per_1000", {"10": 4, "6": 300}) == 4 / 300 * 1000
+    assert indicator_rate_from_values("smm_per_1000_deliveries", {"10": 4, "2": 200}) == 4 / 200 * 1000
+    assert indicator_rate_from_values("mat_mortality_rate", {"11": 2, "6": 300}) == 2 / 300 * 100000
+    assert indicator_rate_from_values("nd_per_1000", {"17": 3, "6": 300}) == 3 / 300 * 1000
     assert indicator_rate_from_values("total_births", {"6": 300}) == 300.0
     assert indicator_rate_from_values("adolescent_rate", {"2.c": 40, "2.d": 20, "6": 300}) == 60 / 300 * 100
+    # عدّادات خام: القيمة نفسها بلا تحويل — المراهقات مجموع رمزين
+    assert indicator_rate_from_values("sb", {"7": 6}) == 6.0
+    assert indicator_rate_from_values("nd", {"17": 3}) == 3.0
+    assert indicator_rate_from_values("smm_total", {"10": 4}) == 4.0
+    assert indicator_rate_from_values("cs_count", {"5": 80}) == 80.0
+    assert indicator_rate_from_values("adolescent", {"2.c": 40, "2.d": 20}) == 60.0
+    assert indicator_rate_from_values("sb", {"6": 300}) is None  # البسط ناقص
     assert indicator_rate_from_values("cs_rate", {"5": 80}) is None
     assert indicator_rate_from_values("cs_rate", {"5": 80, "2": 0}) is None
 
@@ -263,22 +293,10 @@ def _quality_ctx(values, all_hospital_data, month="2026-01"):
     )
 
 
-def test_r043_to_r050_exist_and_use_registry_rates():
-    """R045 (MMR) must use denominator "6" — the rules-site value that
-    disagrees with zscore/clinical "2" — proving the loop reads the registry."""
+def test_quality_validation_has_no_benchmark_rules():
     from app.engine.quality import run_all_rules
     values = {"11": 6, "6": 300, "2": 100, "7": 3, "10": 4, "10.a": 2,
               "16": 8, "17": 5, "6.f": 20, "6.g": 30}
-    peers = {
-        "General Hospital": dict(values),
-        "Central Medical": dict(values, **{"11": 12, "6": 600}),
-        "Community Clinic": dict(values, **{"11": 3, "6": 150}),
-    }
-    results = run_all_rules(_quality_ctx(values, peers))
-    by_code = {r.rule_code: r for r in results}
-    for code in ("R043", "R044", "R045", "R046", "R047", "R048", "R049", "R050"):
-        assert code in by_code, code
-    # R045: 6/300*100 = 2.0 with the rules denominator "6"
-    # (the zscore/clinical denominator "2" would give 6.0).
-    assert "Rate=2.0%" in by_code["R045"].details, by_code["R045"].details
-
+    results = run_all_rules(_quality_ctx(values, {"General Hospital": values}))
+    assert all(r.rule_type.value != "BENCHMARK" for r in results)
+    assert not any(41 <= int(r.rule_code[1:]) <= 50 for r in results if r.rule_code.startswith("R") and r.rule_code[1:].isdigit())

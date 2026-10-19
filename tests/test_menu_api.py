@@ -44,11 +44,12 @@ def test_list_tabs(client):
     resp = client.get("/menu/tabs")
     assert resp.status_code == 200
     tabs = resp.json()["tabs"]
-    assert len(tabs) == 18
+    assert len(tabs) == 19
     keys = [t["key"] for t in tabs]
     assert "dashboard" in keys
     assert "smart-analytics" in keys
     assert "smart-forecast" in keys
+    assert "indicators" in keys
     assert "indicator-groups" in keys
     assert "layered" in keys
     assert "guides" in keys

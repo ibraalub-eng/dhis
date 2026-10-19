@@ -136,6 +136,8 @@
 
         <div id="tab-indicator-groups" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-indicator-groups" data-src="/static/tabs/indicator-groups.html"></div>
 
+        <div id="tab-indicators" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-indicators" data-src="/static/tabs/indicators.html"></div>
+
         <div id="tab-rules-manager" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-rules-manager" data-src="/static/tabs/rules-manager.html"></div>
 
         <div id="tab-root-cause" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-root-cause" data-src="/static/tabs/root-cause.html"></div>
@@ -182,7 +184,6 @@
                         <select id="ruleEditType" style="width:100%;">
                             <option value="LOGIC">LOGIC</option>
                             <option value="CLINICAL">CLINICAL</option>
-                            <option value="BENCHMARK">BENCHMARK</option>
                             <option value="DATA_QUALITY">DATA_QUALITY</option>
                         </select>
                     </div>
@@ -198,7 +199,6 @@
                         <select id="ruleEditCategory" style="width:100%;">
                             <option value="BASIC_LOGIC">BASIC_LOGIC</option>
                             <option value="CLINICAL_CONSISTENCY">CLINICAL_CONSISTENCY</option>
-                            <option value="STATISTICAL_BENCHMARK">STATISTICAL_BENCHMARK</option>
                             <option value="TREND_DATA_QUALITY">TREND_DATA_QUALITY</option>
                         </select>
                     </div>
@@ -212,9 +212,6 @@
                             <option value="lt">lt — child &lt; parent</option>
                             <option value="le_sum">le_sum — child >= sum(children)</option>
                             <option value="parent_le">parent_le — parent &lt;= sum(children)</option>
-                            <option value="benchmark_rate">benchmark_rate — rate > threshold</option>
-                            <option value="benchmark_low_rate">benchmark_low_rate — rate < threshold</option>
-                            <option value="cross_hospital_rate">cross_hospital_rate — z-score outlier</option>
                             <option value="month_over">month_over — current > factor * prev</option>
                             <option value="month_under">month_under — current < factor * prev</option>
                             <option value="neg_check">neg_check — negative values</option>

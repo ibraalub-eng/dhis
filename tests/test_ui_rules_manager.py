@@ -244,8 +244,10 @@ def test_rules_html_has_category_filter():
     assert 'id="rulesCategoryFilter"' in html
     assert html.count('onchange="onRulesFilterChange()"') == 4
     for cat in ("BASIC_LOGIC", "CLINICAL_CONSISTENCY", "CLINICAL_LOGIC",
-                "PLAUSIBILITY", "STATISTICAL_BENCHMARK", "TREND_DATA_QUALITY"):
+                "PLAUSIBILITY", "TREND_DATA_QUALITY"):
         assert cat in html, f"missing category option {cat}"
+    assert "STATISTICAL_BENCHMARK" not in html
+    assert 'value="BENCHMARK"' not in html
 
 
 def test_rules_filters_apply_client_side():
@@ -342,6 +344,12 @@ def _read_index_html():
         return f.read()
 
 
+def _read_rules_html():
+    path = os.path.join(os.path.dirname(__file__), "..", "static", "tabs", "rules-manager.html")
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+
 def _read_i18n_js():
     path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "i18n.js")
     with open(path, encoding="utf-8") as f:
@@ -350,10 +358,24 @@ def _read_i18n_js():
 
 RULES_MANAGER_EXPRS = [
     "ge", "gt", "ge_factor", "eq", "le", "lt", "le_sum", "parent_le",
-    "benchmark_rate", "benchmark_low_rate", "cross_hospital_rate",
     "month_over", "month_under", "neg_check", "decimal_check",
     "missing", "all_zero", "formula",
 ]
+
+
+def test_benchmark_rule_editing_is_removed_from_interface():
+    html = _read_index_html()
+    tab = _read_rules_html()
+    js = _read_rules_js()
+    manager = _read_settings_js()
+    for expr in ("benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"):
+        assert f'value="{expr}"' not in html
+        assert f"<code>{expr}</code>" not in tab
+        assert f"case '{expr}'" not in js
+        assert f"case '{expr}'" not in manager
+    assert 'value="BENCHMARK"' not in html
+    assert 'value="STATISTICAL_BENCHMARK"' not in html
+    assert "_isRemovedBenchmarkRule" in manager
 
 
 def test_suggest_rule_name_function_exists():

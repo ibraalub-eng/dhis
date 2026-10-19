@@ -44,6 +44,7 @@ def _data_epoch() -> Optional[str]:
     except Exception:
         return None
 
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -150,6 +151,15 @@ def _zscore_threshold(db: Session) -> float:
     if "zscore_threshold" in rates_cfg:
         return float(rates_cfg["zscore_threshold"])
     return float(get_config_dict(db, "thresholds").get("zscore_threshold", 2.5))
+
+
+def _rate_multiplier(num_code: Optional[str], den_code: Optional[str]) -> float:
+    """Multiplier of the zscore rate spec for a legacy code pair; 100.0
+    when no spec matches (the historical audit default)."""
+    from app.engine.rate_config import zscore_spec_for
+
+    spec = zscore_spec_for(num_code, den_code) if num_code and den_code else None
+    return spec.rate_multiplier if spec else 100.0
 
 
 def _raw_values(db: Session, hospital_id: int, month: str):
@@ -545,9 +555,11 @@ def explain_anomaly(
         if row.peers_detail:
             for p in row.peers_detail[:10]:
                 inputs.append({"input": f"Peer: {p.get('hospital')}", "value": p.get("rate"), "role": "peer rate"})
-        formula = "rate = numerator/denominator×100;  z = (rate − peer_mean) / peer_std  (hospital excluded from its own benchmark)"
+        formula = (f"rate = numerator/denominator×{_rate_multiplier(num_code, den_code):g};  "
+                   "z = (rate − peer_mean) / peer_std  (hospital excluded from its own benchmark)")
     else:
-        formula = "rate = numerator/denominator×100;  z = (rate − historical_mean) / historical_std  (trend anomaly)"
+        formula = (f"rate = numerator/denominator×{_rate_multiplier(num_code, den_code):g};  "
+                   "z = (rate − historical_mean) / historical_std  (trend anomaly)")
 
     num_v = by_code.get(num_code, {}).get("value")
     den_v = by_code.get(den_code, {}).get("value") if den_code else None
@@ -565,8 +577,32 @@ def explain_anomaly(
         })
 
     data_problem_flags = [p for p in problems]
-    if row.value is not None and num_v is not None and den_v is not None and den_v:
-        expected_rate = round(num_v / den_v * 100, 2)
+    if row.formula:
+        from app.engine import indicator_calc
+
+        try:
+            formula_ast = indicator_calc.parse_expression(row.formula)
+            formula_values = {
+                code: by_code[code]["value"]
+                for code in indicator_calc.ast_codes(formula_ast)
+                if code in by_code and by_code[code].get("value") is not None
+            }
+            calculated, formula_status = indicator_calc.evaluate(
+                formula_ast, formula_values)
+            expected_rate = (
+                round(calculated, 2)
+                if formula_status == indicator_calc.STATUS_OK else None
+            )
+        except indicator_calc.FormulaError:
+            expected_rate = None
+    elif row.value is not None and num_v is not None and den_v is not None and den_v:
+        # Legacy rows without a stored formula: use the spec multiplier so
+        # NMR (x30) / MMR (x1) reproduce; x100 only when no spec is known.
+        from app.engine.rate_config import zscore_spec_for
+
+        spec = zscore_spec_for(num_code, den_code) if num_code and den_code else None
+        expected_rate = round(
+            num_v / den_v * (spec.rate_multiplier if spec else 100.0), 2)
     else:
         expected_rate = None
 
@@ -686,7 +722,10 @@ def explain_anomaly(
         "why": why,
         "how": {
             "formula": formula,
+            "indicator_formula": row.formula,
+            "formula_version": row.formula_version,
             "formula_readable": (
+                row.formula if row.formula else
                 f"{base_name} = ({num_code} — {num_name}) / ({den_code} — {den_name}) × 100"
                 if den_code and num_name and den_name else
                 f"{base_name} = ({num_code}) / ({den_code}) × 100" if den_code else row.rate_name
@@ -776,45 +815,6 @@ def _rule_indicator_codes(rule) -> set:
     return out
 
 
-def _rule_cross_hospital_breakdown(db: Session, month: str, hospital_name: str,
-                                   num_code: str, den_code: str) -> Optional[dict]:
-    """Rebuild the benchmark a cross-hospital rule (R043-R050) compared against.
-
-    The rule engine (``_cross_hospital_rate``) computes every active hospital's
-    rate for the month, then mean/std over ALL of them — including the hospital
-    itself, population std (ddof=0). That differs from the anomaly pipeline
-    (which excludes the hospital, ddof=1), so this rebuild follows the RULE's
-    math exactly, through the same data helper the pipeline feeds the rules.
-    """
-    try:
-        import numpy as np
-
-        from app.engine.anomaly.zscore import compute_rate
-        from app.engine.pipeline import get_all_hospital_data_for_month
-
-        data = get_all_hospital_data_for_month(db, month)
-        rates = {}
-        for name, values in data.items():
-            rate = compute_rate(values, num_code, den_code)
-            if rate is not None:
-                rates[name] = rate
-        if hospital_name not in rates or len(rates) < 2:
-            return None
-        vals = list(rates.values())
-        mean = float(np.mean(vals))
-        std = float(np.std(vals))
-        if not std:
-            return None
-        return {
-            "rates": rates,
-            "mean": mean,
-            "std": std,
-            "z": (rates[hospital_name] - mean) / std,
-        }
-    except Exception:
-        return None
-
-
 def explain_rule(db: Session, hospital_id: int, month: str, rule_code: str) -> dict:
     vr = (
         db.query(ValidationResult)
@@ -822,6 +822,13 @@ def explain_rule(db: Session, hospital_id: int, month: str, rule_code: str) -> d
             ValidationResult.hospital_id == hospital_id,
             ValidationResult.month == month,
             ValidationResult.rule_code == rule_code,
+            or_(
+                ValidationResult.rule_type.is_(None),
+                func.upper(ValidationResult.rule_type) != "BENCHMARK",
+            ),
+            ValidationResult.rule_code.notin_(
+                tuple(f"R{code:03d}" for code in range(41, 51))
+            ),
         )
         .order_by(ValidationResult.id.desc())
         .first()
@@ -843,8 +850,6 @@ def explain_rule(db: Session, hospital_id: int, month: str, rule_code: str) -> d
         classification = None
     elif related:
         classification = CLASS_DATA
-    elif vr.rule_type == "BENCHMARK":
-        classification = CLASS_STAT
     else:
         classification = CLASS_CLIN
 
@@ -854,65 +859,6 @@ def explain_rule(db: Session, hospital_id: int, month: str, rule_code: str) -> d
         {"input": "Details", "value": vr.details, "role": "rule message"},
     ]
     formula_readable = rule.description if rule else vr.rule_description
-
-    # Cross-hospital benchmark rules (R043-R050) compare this hospital's rate
-    # with every other hospital's rate for the month — break the one-line
-    # message into those rates, the mean/std they produce, and the z recomputed
-    # from them, using the RULE engine's math (all hospitals incl. this one,
-    # population std).
-    params = rule.params if rule is not None else None
-    if isinstance(params, str):
-        try:
-            params = json.loads(params)
-        except Exception:
-            params = None
-    if not isinstance(params, dict):
-        params = {}
-    num_code = params.get("num_code")
-    den_code = params.get("den_code")
-    try:
-        z_thresh = float(params.get("z_threshold"))
-    except (TypeError, ValueError):
-        z_thresh = _zscore_threshold(db)
-
-    if num_code and den_code and hosp is not None:
-        bd = _rule_cross_hospital_breakdown(db, month, hosp.name, num_code, den_code)
-        if bd:
-            def _ind_name(code):
-                for v in values:
-                    if v.get("code") == code and v.get("name"):
-                        return v["name"]
-                for ind in _indicator_name_map(db).values():
-                    if ind.code == code:
-                        return ind.name
-                return code
-
-            num_name = _ind_name(num_code)
-            den_name = _ind_name(den_code)
-            cur = bd["rates"][hosp.name]
-            n = len(bd["rates"])
-            inputs.append({"input": f"Rate — {hosp.name}", "value": round(cur, 2),
-                           "role": f"{num_name} ({num_code}) / {den_name} ({den_code}) x 100"})
-            for name in sorted(bd["rates"], key=lambda nm: bd["rates"][nm], reverse=True):
-                if name == hosp.name:
-                    continue
-                inputs.append({"input": f"Rate — {name}", "value": round(bd["rates"][name], 2),
-                               "role": "peer hospital, same month"})
-            inputs.append({"input": "Mean of hospital rates", "value": round(bd["mean"], 2),
-                           "role": f"average of {n} hospital rates (incl. this hospital)"})
-            inputs.append({"input": "Std of hospital rates", "value": round(bd["std"], 2),
-                           "role": "population standard deviation across those rates (ddof=0)"})
-            inputs.append({"input": "z = (rate - mean) / std", "value": round(bd["z"], 2),
-                           "role": "standard deviations from the mean rate"})
-            inputs.append({"input": "Z threshold", "value": z_thresh,
-                           "role": "rule param z_threshold / AppConfig zscore_threshold"})
-            formula_readable = (
-                f"{formula_readable} — rate = {num_name} ({num_code}) / {den_name} ({den_code}) "
-                f"x 100 for each of the {n} hospitals in {month}: "
-                f"mean={bd['mean']:.2f}%, std={bd['std']:.2f}%; "
-                f"z = ({cur:.2f} - {bd['mean']:.2f}) / {bd['std']:.2f} = {bd['z']:.2f}; "
-                f"outlier if |z| > {z_thresh:g}"
-            )
 
     return {
         "kind": "rule",
@@ -1116,7 +1062,13 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
     data = get_all_hospital_data_for_month(db, month)
     if hosp.name not in data:
         return {"error": f"No enabled indicator values for {hospital_name} in {month}"}
-    comparisons = compare_hospitals({k: {month: v} for k, v in data.items()}, month)
+    from app.engine import indicator_service
+
+    managed_indicators = indicator_service.resolve_active_definitions(
+        db, site="zscore")
+    comparisons = compare_hospitals(
+        {k: {month: v} for k, v in data.items()}, month,
+        additional_indicators=managed_indicators)
     row = next((c for c in comparisons
                 if c.hospital == hospital_name and c.rate_name == rate_name), None)
     if row is None:
@@ -1147,7 +1099,35 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
 
     num_v = data.get(hospital_name, {}).get(num_code)
     den_v = data.get(hospital_name, {}).get(den_code)
-    expected_rate = round(num_v / den_v * 100, 2) if (num_v is not None and den_v) else None
+    # Reproduce the value through the SAME central formula the comparison
+    # engine used (row.formula); fall back to the spec multiplier for legacy
+    # rows, and to x100 only when nothing else is known.
+    expected_rate = None
+    hosp_vals = data.get(hospital_name, {})
+    if row.formula:
+        from app.engine import indicator_calc
+
+        try:
+            formula_ast = indicator_calc.parse_expression(row.formula)
+            formula_values = {
+                code: hosp_vals[code]
+                for code in indicator_calc.ast_codes(formula_ast)
+                if hosp_vals.get(code) is not None
+            }
+            calculated, formula_status = indicator_calc.evaluate(
+                formula_ast, formula_values)
+            expected_rate = (
+                round(calculated, 2)
+                if formula_status == indicator_calc.STATUS_OK else None
+            )
+        except indicator_calc.FormulaError:
+            expected_rate = None
+    elif num_v is not None and den_v:
+        from app.engine.rate_config import zscore_spec_for
+
+        spec = zscore_spec_for(num_code, den_code) if num_code and den_code else None
+        expected_rate = round(
+            num_v / den_v * (spec.rate_multiplier if spec else 100.0), 2)
 
     values = _raw_values(db, hosp.id, month)
     problems = [p for p in find_data_problems(values, db)
@@ -1181,7 +1161,10 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
         },
         "why": ". ".join(why_bits) + ".",
         "how": {
-            "formula": "rate = numerator/denominator×100;  benchmark = mean(rate of the OTHER hospitals, self excluded);  deviation% = (rate − benchmark)/benchmark×100;  percentile = (peers below + 0.5×peers equal)/peers ×100",
+            "formula": (f"rate = numerator/denominator×{_rate_multiplier(num_code, den_code):g};  "
+                        "benchmark = mean(rate of the OTHER hospitals, self excluded);  "
+                        "deviation% = (rate − benchmark)/benchmark×100;  "
+                        "percentile = (peers below + 0.5×peers equal)/peers ×100"),
             "formula_readable": (
                 (
                     f"{rate_name} = ({num_code} — {ind_names.get(num_code)}) / ({den_code} — {ind_names.get(den_code)}) × 100"
@@ -1232,7 +1215,7 @@ def explain_comparison_row(db: Session, month: str, hospital_name: str,
         "chain": [
             {"step": "Source Data", "detail": f"{len(values)} enabled indicator values for {hospital_name}",
              "endpoint": f"/audit/data-auditor/{hosp.id}?month={month}"},
-            {"step": "Calculation", "detail": "rate = numerator/denominator×100 for every hospital; mean → benchmark",
+            {"step": "Calculation", "detail": f"rate = numerator/denominator×{_rate_multiplier(num_code, den_code):g} for every hospital; mean → benchmark",
              "endpoint": f"/audit/benchmark/{hosp.id}?month={month}"},
             {"step": "Finding", "detail": f"Comparison row: {row.value} vs {row.benchmark} ({label})"},
         ],
@@ -1388,9 +1371,11 @@ def explain_indicator_aggregate(db: Session, month: str, rate_name: str) -> dict
             + f"; coverage {coverage}% ({n} of {total_hospitals} active hospitals compute this rate)"
         ),
         "how": {
-            "formula": "rate per hospital = numerator/denominator×100;  avg = sum/n;  std = population std-dev;  coverage% = computing hospitals / active hospitals × 100",
+            "formula": (f"rate per hospital = numerator/denominator×{_rate_multiplier(num_code, den_code):g};  "
+                        "avg = sum/n;  std = population std-dev;  "
+                        "coverage% = computing hospitals / active hospitals × 100"),
             "formula_readable": (
-                f"Each hospital's {rate_name} = ({num_code}) / ({den_code}) × 100 from its enabled values. "
+                f"Each hospital's {rate_name} = ({num_code}) / ({den_code}) × {_rate_multiplier(num_code, den_code):g} from its enabled values. "
                 "Avg / min / max / std are computed across those hospital rates; "
                 "coverage counts the hospitals whose rate could be computed."
             ),
@@ -1420,7 +1405,7 @@ def explain_indicator_aggregate(db: Session, month: str, rate_name: str) -> dict
         "chain": [
             {"step": "Source Data", "detail": f"Enabled values of {n} hospitals in {month}",
              "endpoint": (f"/audit/data-auditor/{worst_hid}?month={month}" if worst_hid else None)},
-            {"step": "Calculation", "detail": "per-hospital rate = num/den×100, then avg/min/max/std across hospitals"},
+            {"step": "Calculation", "detail": f"per-hospital rate = num/den×{_rate_multiplier(num_code, den_code):g}, then avg/min/max/std across hospitals"},
             {"step": "Finding", "detail": f"avg {avg:.2f} over {n} hospitals (coverage {coverage}%)"},
         ],
     }
@@ -1558,7 +1543,13 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
             monthly_data[m] = vals
     if len(monthly_data) < 2:
         return {"error": f"Need at least 2 months of data for a trend explanation ({hosp.name})"}
-    trends = analyze_historical_trends(hosp.name, monthly_data)
+    from app.engine import indicator_service
+
+    managed_indicators = indicator_service.resolve_active_definitions(
+        db, site="zscore")
+    trends = analyze_historical_trends(
+        hosp.name, monthly_data,
+        additional_indicators=managed_indicators)
     row = next((t for t in trends if t.rate_name == rate_name), None)
     if row is None:
         return {"error": f"No trend row for {rate_name} / {hosp.name}"}
@@ -1622,10 +1613,15 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
             + f"last vs mean {last_vs_mean:+.1f}%; CV {cv:.1f}%"
         ),
         "how": {
-            "formula": "rate per month = numerator/denominator×100;  slope = linear regression over month index;  slope% = slope/mean×100;  CV% = std/mean×100;  last_vs_mean% = (last−mean)/mean×100",
+            "formula": (
+                (f"rate per month = {row.formula};  " if row.formula
+                 else "rate per month = numerator/denominator×100;  ")
+                + "slope = linear regression over month index;  slope% = slope/mean×100;  "
+                + "CV% = std/mean×100;  last_vs_mean% = (last−mean)/mean×100"),
             "formula_readable": (
-                f"Each month's {rate_name} = ({row.indicator_code} numerator / denominator) × 100. "
-                "A linear regression over the month index gives the slope; direction/severity "
+                (f"Each month's {rate_name} = {row.formula}. " if row.formula
+                 else f"Each month's {rate_name} = ({row.indicator_code} numerator / denominator) × 100. ")
+                + "A linear regression over the month index gives the slope; direction/severity "
                 "classify it against the thresholds below; findings are appended for each "
                 "threshold the series crosses."
             ),

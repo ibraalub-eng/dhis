@@ -8,7 +8,7 @@ from sqlalchemy import func
 
 from app.database import get_db
 from app.main import app
-from app.models import Hospital, Indicator, IndicatorValue, Rule, ValidationResult
+from app.models import AppConfig, Hospital, Indicator, IndicatorValue, QualityScore, Rule, ValidationResult
 
 
 @pytest.fixture
@@ -117,21 +117,19 @@ class TestCreateRule:
         resp = client.post("/rules/", json=payload)
         assert resp.status_code == 400
 
-    def test_create_disabled(self, client):
+    def test_create_benchmark_rule_is_rejected(self, client):
         payload = {
             "code": "R998",
-            "name": "Disabled Rule",
-            "rule_type": "THRESHOLD",
+            "name": "Benchmark Rule",
+            "rule_type": "BENCHMARK",
             "severity": "MEDIUM",
-            "category": "test",
+            "category": "STATISTICAL_BENCHMARK",
             "expression_type": "benchmark_rate",
             "params": '{"num_code": "5", "den_code": "2"}',
-            "description": "Test",
+            "description": "Benchmark rules are no longer managed here",
         }
         resp = client.post("/rules/", json=payload)
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["enabled"] is True
+        assert resp.status_code == 422
 
 
 class TestUpdateRule:
@@ -152,6 +150,77 @@ class TestUpdateRule:
     def test_update_nonexistent(self, client):
         resp = client.put("/rules/99999", json={"name": "Test"})
         assert resp.status_code == 404
+
+    def test_benchmark_rule_is_removed_from_storage_and_api(self, client, db_session):
+        from scripts.seed_rules import remove_benchmark_validation_data
+        from app.engine.quality import ValidationContext, dispatch_rule, run_rules_from_db
+
+        hospital = db_session.query(Hospital).first()
+        benchmark = Rule(
+            code="R041", name="Legacy benchmark", rule_type="BENCHMARK",
+            severity="HIGH", category="STATISTICAL_BENCHMARK",
+            expression_type="benchmark_rate", params="{}",
+            description="Legacy benchmark rule",
+        )
+        db_session.add(benchmark)
+        db_session.flush()
+        benchmark_id = benchmark.id
+        db_session.add(ValidationResult(
+            hospital_id=hospital.id, month="2026-01", rule_code="R041",
+            rule_description="Legacy benchmark", status="FAIL",
+            severity="HIGH", rule_type="BENCHMARK", details="Legacy result",
+        ))
+        db_session.commit()
+
+        ctx = ValidationContext(
+            values={"2": 100, "5": 90},
+            hospital_name=hospital.name,
+            month="2026-01",
+        )
+        assert dispatch_rule(benchmark, ctx) is None
+        assert all(result.rule_code != "R041" for result in run_rules_from_db(db_session, ctx))
+
+        db_session.add(ValidationResult(
+            hospital_id=hospital.id, month="2026-02", rule_code="R041",
+            rule_description="Legacy benchmark pass", status="PASS",
+            severity="HIGH", rule_type="BENCHMARK", details="Historical pass",
+        ))
+        db_session.add(ValidationResult(
+            hospital_id=hospital.id, month="2026-01", rule_code="R001",
+            rule_description="Logic rule", status="PASS",
+            severity="HIGH", rule_type="LOGIC", details="Passed",
+        ))
+        score = QualityScore(
+            hospital_id=hospital.id, month="2026-01", score=70,
+            rule_compliance=50, completeness=80, consistency=50,
+            outlier_penalty=0,
+            issues=json.dumps(["R041: Legacy benchmark", "Anomaly: test"]),
+        )
+        db_session.add(score)
+        db_session.add_all([
+            AppConfig(key="cs_rate_threshold", value=80, category="rules"),
+            AppConfig(key="nvd_rate_threshold", value=10, category="rules"),
+        ])
+        db_session.commit()
+
+        removed_rules, removed_results, removed_settings = remove_benchmark_validation_data(db_session)
+        db_session.commit()
+        assert removed_rules == 1
+        assert removed_results == 2
+        assert removed_settings == 2
+        assert db_session.query(Rule).filter_by(code="R041").first() is None
+        assert db_session.query(ValidationResult).filter_by(rule_code="R041").count() == 0
+        db_session.refresh(score)
+        assert score.rule_compliance == 100
+        assert score.consistency == 100
+        assert score.score == 95.0
+        assert json.loads(score.issues) == ["Anomaly: test"]
+        assert db_session.query(AppConfig).filter(
+            AppConfig.key.in_(("cs_rate_threshold", "nvd_rate_threshold"))
+        ).count() == 0
+        listed = client.get("/rules/").json()
+        assert all(rule["rule_type"] != "BENCHMARK" for rule in listed)
+        assert client.get(f"/rules/{benchmark_id}").status_code == 404
 
     def test_partial_update(self, client, db_session):
         rule = db_session.query(Rule).first()
@@ -231,6 +300,16 @@ class TestSaveEnabled:
 
 
 class TestRuleFailures:
+    def test_benchmark_failures_are_not_exposed(self, client, db_session):
+        db_session.add(Rule(
+            code="R041", name="Legacy benchmark", rule_type="BENCHMARK",
+            severity="HIGH", category="STATISTICAL_BENCHMARK",
+            expression_type="benchmark_rate", params="{}", description="Legacy",
+        ))
+        db_session.commit()
+        resp = client.get("/rules/failures?rule_code=R041")
+        assert resp.status_code == 404
+
     def test_failures_unknown_code(self, client):
         resp = client.get("/rules/failures?rule_code=NOPE_NOT_EXISTS")
         assert resp.status_code == 200
@@ -274,6 +353,16 @@ class TestRuleFailureSearchAndSort:
                     status="FAIL", severity=sev, rule_type="LOGIC",
                     details=f"{code} details needle-{i}",
                 ))
+        db_session.add(ValidationResult(
+            hospital_id=self.hospitals[0].id,
+            month="2026-08",
+            rule_code="R_BENCHMARK",
+            rule_description="Benchmark-only failure",
+            status="FAIL",
+            severity="CRITICAL",
+            rule_type="BENCHMARK",
+            details="Must not appear in Validation Alerts",
+        ))
         db_session.commit()
         _cache._cache.clear()
         yield
@@ -315,6 +404,28 @@ class TestRuleFailureSearchAndSort:
         body, codes = self._codes(client, q="zzz-no-such-thing", limit=100)
         assert body["total"] == 0
         assert codes == []
+
+    def test_benchmark_failures_are_hidden_from_validation_alerts(self, client):
+        body, codes = self._codes(client, limit=100)
+        assert body["total"] == 9
+        assert "R_BENCHMARK" not in codes
+
+        overview = client.get("/alerts/overview")
+        assert overview.status_code == 200, overview.text
+        assert overview.json()["total_alerts"] == 9
+        assert "outlier_count" not in overview.json()
+        assert all(
+            alert["rule_code"] != "R_BENCHMARK"
+            for alert in overview.json()["recent_critical"]
+        )
+
+        listing = client.get("/alerts/list?limit=100")
+        assert listing.status_code == 200, listing.text
+        assert listing.json()["total"] == 9
+        assert all(
+            alert["rule_code"] != "R_BENCHMARK"
+            for alert in listing.json()["items"]
+        )
 
     def test_search_combines_with_existing_filters(self, client):
         body, codes = self._codes(client, q="R_", month="2026-01", limit=100)
@@ -409,6 +520,11 @@ def _seed_impact_data(db_session, parent_value=42.0, child_value=50.0,
 
 
 class TestRuleImpact:
+    def test_benchmark_rules_are_not_returned(self, client):
+        result = client.get("/rules/impact?refresh=true").json()
+        assert all(rule["rule_type"] != "BENCHMARK" for rule in result)
+        assert all(rule["category"] != "STATISTICAL_BENCHMARK" for rule in result)
+
     def test_impact_shape(self, client):
         resp = client.get("/rules/impact")
         assert resp.status_code == 200
@@ -550,7 +666,7 @@ class TestRuleImpact:
     def test_impact_passed_rule_still_reports_old_alerts(self, client, db_session):
         """The exact confusion this fixes: a rule passing in the latest month
         while carrying FAIL rows from earlier months."""
-        rule = db_session.query(Rule).filter(Rule.code == "R049").first()
+        rule = db_session.query(Rule).filter(Rule.code == "R051").first()
         hosp = db_session.query(Hospital).first()
         db_session.add(ValidationResult(
             hospital_id=hosp.id, month="2020-01", rule_code=rule.code,
@@ -720,6 +836,16 @@ class TestStoredScoreRefresh:
 
 
 class TestRuleValidate:
+    def test_validate_benchmark_rule_is_rejected(self, client):
+        resp = client.post("/rules/validate", json={
+            "code": "RBENCH",
+            "rule_type": "BENCHMARK",
+            "category": "STATISTICAL_BENCHMARK",
+            "expression_type": "cross_hospital_rate",
+            "params": {"num_code": "5", "den_code": "2", "z_threshold": 2.5},
+        })
+        assert resp.status_code == 422
+
     def test_validate_nonexistent_code_clean(self, client):
         payload = {
             "code": "RAAAA",
@@ -791,6 +917,14 @@ class TestRuleValidate:
 
 
 class TestRuleTestDryRun:
+    def test_test_benchmark_rule_is_rejected(self, client):
+        resp = client.post("/rules/test", json={
+            "rule_type": "BENCHMARK",
+            "expression_type": "benchmark_rate",
+            "params": {"num_code": "5", "den_code": "2", "threshold": 80},
+        })
+        assert resp.status_code == 422
+
     def test_test_unknown_hospital_404(self, client):
         resp = client.post("/rules/test", json={"hospital_id": 99999, "month": "2025-01"})
         assert resp.status_code == 404
@@ -911,6 +1045,24 @@ class TestRulesExportImport:
         assert data["count"] > 0
         for r in data["rules"]:
             assert {"code", "name", "expression_type", "params", "enabled"} <= set(r.keys())
+            assert r["rule_type"] != "BENCHMARK"
+            assert r["category"] != "STATISTICAL_BENCHMARK"
+            assert r["expression_type"] not in {"benchmark_rate", "benchmark_low_rate", "cross_hospital_rate"}
+
+    def test_import_skips_benchmark_rule(self, client, db_session):
+        resp = client.post("/rules/import", json={"rules": [{
+            "code": "TESTIMP_BENCH",
+            "name": "Benchmark Rule",
+            "rule_type": "BENCHMARK",
+            "severity": "HIGH",
+            "category": "STATISTICAL_BENCHMARK",
+            "expression_type": "benchmark_rate",
+            "params": {"num_code": "5", "den_code": "2", "threshold": 80},
+        }]})
+        assert resp.status_code == 200
+        assert resp.json()["created"] == 0
+        assert resp.json()["skipped"][0]["code"] == "TESTIMP_BENCH"
+        assert db_session.query(Rule).filter_by(code="TESTIMP_BENCH").first() is None
 
     def test_import_roundtrip(self, client, db_session):
         resp = client.get("/rules/export")

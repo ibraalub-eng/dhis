@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
+from app.engine import indicator_service
 from app.engine.rate_config import iter_site, multiplier_for_unit
 
 
@@ -11,12 +12,16 @@ class ClinicalThreshold:
     numerator_codes: List[str]
     denominator_code: str
     unit: str
+    multiplier: float
     normal_range: tuple
     elevated_range: tuple
     high_range: tuple
     critical_threshold: float
     clinical_guideline: str
     higher_is_worse: bool = True
+    indicator_id: Optional[str] = None
+    formula: Optional[str] = None
+    formula_version: Optional[str] = None
 
 
 # Clinical ranges/guidelines are display/classification metadata, NOT rate
@@ -79,15 +84,41 @@ _CLINICAL_META = {
 def _build_clinical_thresholds() -> List[ClinicalThreshold]:
     out = []
     for spec in iter_site("clinical"):
+        resolved = indicator_service.resolve_spec(spec)
         out.append(ClinicalThreshold(
             indicator_code=spec.rate_code,
             rate_name=spec.rate_name,
             numerator_codes=list(spec.numerator_codes),
             denominator_code=spec.denominator_codes[0],
             unit=spec.unit,
+            multiplier=spec.rate_multiplier,
+            indicator_id=resolved.indicator_id,
+            formula=resolved.formula,
+            formula_version=resolved.formula_version,
             **_CLINICAL_META[spec.rate_code],
         ))
     return out
+
+
+def clinical_threshold_for_definition(resolved) -> Optional[ClinicalThreshold]:
+    """Attach clinical interpretation metadata to a registry definition."""
+    legacy_code = getattr(resolved.definition, "legacy_code", None)
+    metadata = _CLINICAL_META.get(legacy_code)
+    if metadata is None or not resolved.definition.denominator_codes:
+        return None
+    denominator_codes = list(resolved.definition.denominator_codes or [])
+    return ClinicalThreshold(
+        indicator_code=resolved.code,
+        rate_name=resolved.name,
+        numerator_codes=list(resolved.definition.numerator_codes or []),
+        denominator_code=denominator_codes[0] if len(denominator_codes) == 1 else "",
+        unit=resolved.unit or "",
+        multiplier=float(resolved.definition.multiplier or 1),
+        indicator_id=resolved.indicator_id,
+        formula=resolved.formula,
+        formula_version=resolved.formula_version,
+        **metadata,
+    )
 
 
 CLINICAL_THRESHOLDS: List[ClinicalThreshold] = _build_clinical_thresholds()

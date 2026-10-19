@@ -1,8 +1,8 @@
 """Central rate-definition registry.
 
-The four hardcoded rate sites (anomaly/zscore, clinical/thresholds,
-smart/indicator_forecast, quality/rules) disagree today — MMR denominator 2
-vs 6, stillbirth denominator 2 vs 6, multipliers x1 / x100 / x1000. This
+The three hardcoded rate sites (anomaly/zscore, clinical/thresholds,
+smart/indicator_forecast) disagree today — MMR denominator 2 vs 6, stillbirth
+denominator 2 vs 6, multipliers x1 / x100 / x1000. This
 registry therefore guarantees one MECHANISM and LOCATION, not one value:
 every spec is stored VERBATIM under a site-scoped key so the disagreements
 sit side by side and can be reconciled later without silent behavior change
@@ -19,7 +19,6 @@ logger = logging.getLogger(__name__)
 SITE_ZSCORE = "zscore"
 SITE_CLINICAL = "clinical"
 SITE_FORECAST = "forecast"
-SITE_RULES = "rules"
 
 
 @dataclass(frozen=True)
@@ -86,13 +85,19 @@ def _build_builtin() -> Dict[str, RateSpec]:
                            (num,), (den,), 100.0, unit, typical_pct=pct))
 
     # ── clinical slice — thresholds.py CLINICAL_THRESHOLDS (lines 20-216) ──
+    # The registry stores the display unit AND its numeric display scaling
+    # together (same convention as the forecast slice): % = x100,
+    # per-1,000 = x1,000, per-100,000 = x100,000. The earlier "x100, else x1"
+    # rule lost the scaling when clinical classification moved onto
+    # spec.rate_multiplier (fixed 2026-10-19: MMR/NMR/stillbirth classified
+    # ~1,000x too low and test_clinical's regression matrix caught it).
     cl = [
         ("rate_cs", "C-Section Rate", ("5",), "2", "%", 100.0),
-        ("rate_mmr", "Maternal Mortality Ratio", ("11",), "2", "per 100,000", 1.0),
-        ("rate_nmr", "Neonatal Mortality Rate", ("17",), "6", "per 1,000", 1.0),
+        ("rate_mmr", "Maternal Mortality Ratio", ("11",), "2", "per 100,000", 100000.0),
+        ("rate_nmr", "Neonatal Mortality Rate", ("17",), "6", "per 1,000", 1000.0),
         ("rate_preterm", "Preterm Birth Rate", ("6.f",), "6", "%", 100.0),
         ("rate_smm", "Severe Maternal Morbidity Rate", ("10",), "2", "%", 100.0),
-        ("rate_stillbirth", "Stillbirth Rate", ("7",), "2", "per 1,000", 1.0),
+        ("rate_stillbirth", "Stillbirth Rate", ("7",), "2", "per 1,000", 1000.0),
         ("rate_nicu", "NICU Admission Rate", ("16",), "6", "%", 100.0),
         ("rate_lbw", "Low Birth Weight Rate", ("6.g",), "6", "%", 100.0),
         ("rate_bf", "Breastfeeding within 1 Hour", ("13",), "6", "%", 100.0),
@@ -101,7 +106,7 @@ def _build_builtin() -> Dict[str, RateSpec]:
         ("rate_smm_hypertensive_proportion", "Hypertensive Proportion of SMM", ("10.e",), "10", "%", 100.0),
         ("rate_adolescent", "Adolescent Pregnancy Rate (10-19)", ("2.c", "2.d"), "2", "%", 100.0),
         ("rate_high_risk", "High-Risk Delivery Rate", ("2.n",), "2", "%", 100.0),
-        ("rate_hysterectomy", "Hysterectomy per 1,000 Deliveries", ("10.d",), "2", "per 1,000", 1.0),
+        ("rate_hysterectomy", "Hysterectomy per 1,000 Deliveries", ("10.d",), "2", "per 1,000", 1000.0),
     ]
     for code, name, num, den, unit, mult in cl:
         itype = "percentage" if unit == "%" else "rate"
@@ -116,27 +121,28 @@ def _build_builtin() -> Dict[str, RateSpec]:
         ("lbw_rate", "Low birth weight rate", "معدل نقص وزن الولادة", ("6.g",), ("6",), 100.0, "%"),
         ("high_risk_rate", "High-risk share", "نسبة حالات الخطر العالي", ("2.n",), ("6",), 100.0, "%"),
         ("adolescent_rate", "Adolescent share", "نسبة حالات المراهقات", ("2.c", "2.d"), ("6",), 100.0, "%"),
+        ("smm_per_1000", "Severe maternal morbidity per 1,000 live births", "المضاعفات الخطيرة لكل 1000 مولود حي", ("10",), ("6",), 1000.0, "per 1000"),
+        ("smm_per_1000_deliveries", "Severe maternal morbidity per 1,000 deliveries", "المضاعفات الخطيرة لكل 1000 ولادة", ("10",), ("2",), 1000.0, "per 1000"),
+        ("mat_mortality_rate", "Maternal deaths per 100,000 live births", "الوفيات الأمومية لكل 100000 مولود حي", ("11",), ("6",), 100000.0, "per 100000"),
+        ("nd_per_1000", "Neonatal deaths per 1,000 live births", "وفيات حديثي الولادة لكل 1000 مولود حي", ("17",), ("6",), 1000.0, "per 1000"),
         ("total_births", "Total live births", "إجمالي المواليد الأحياء", ("6",), (), 1.0, "count"),
+        # ── عدّادات خام (طلب المستخدم): حركة المؤشر الخام بجانب معدلاته،
+        # بمفاتيح مطابقة لمفاتيح FEATURE_KEYS في التحليل الذكي لتربط الشاشتان
+        # نفس المؤشر — numerator مطابق لـ FEATURE_SOURCE_CODES (engine/smart) ──
+        ("cs_count", "C-section deliveries (count)", "عدد العمليات القيصارية", ("5",), (), 1.0, "count"),
+        ("sb", "Stillbirths (count)", "الولادات الميتة", ("7",), (), 1.0, "count"),
+        ("preterm", "Preterm births (count)", "الولادات السابقة لأوانها", ("6.f",), (), 1.0, "count"),
+        ("lbw", "Low birth weight newborns (count)", "نقص وزن الولادة", ("6.g",), (), 1.0, "count"),
+        ("high_risk", "High-risk cases (count)", "حالات الخطر العالي", ("2.n",), (), 1.0, "count"),
+        ("adolescent", "Adolescent cases (count)", "الحالات المراهقة", ("2.c", "2.d"), (), 1.0, "count"),
+        ("smm_total", "Severe maternal morbidity (count)", "المضاعفات الخطيرة", ("10",), (), 1.0, "count"),
+        ("mat_deaths", "Maternal deaths (count)", "الوفيات الأمومية", ("11",), (), 1.0, "count"),
+        ("nd", "Neonatal deaths (count)", "الوفيات الجديدة", ("17",), (), 1.0, "count"),
     ]
     for key, en, _ar, num, den, per, unit in fc:
         itype = "count" if not den else ("percentage" if unit == "%" else "rate")
         specs.append(_spec(SITE_FORECAST, key, key, en, itype,
                            num, den, per, unit))
-
-    # ── rules slice — quality/rules.py R043-R050 (lines 515-522) ──
-    rl = [
-        ("R043", "Preterm Birth Rate outlier across hospitals", "6.f", "6"),
-        ("R044", "Low Birth Weight Rate outlier across hospitals", "6.g", "6"),
-        ("R045", "Maternal Mortality Ratio outlier across hospitals", "11", "6"),
-        ("R046", "Neonatal Mortality Rate outlier across hospitals", "17", "6"),
-        ("R047", "Stillbirth Rate outlier across hospitals", "7", "2"),
-        ("R048", "NICU Admission Rate outlier across hospitals", "16", "6"),
-        ("R049", "SMM Rate outlier across hospitals", "10", "2"),
-        ("R050", "Hemorrhage Rate outlier across hospitals", "10.a", "2"),
-    ]
-    for code, desc, num, den in rl:
-        specs.append(_spec(SITE_RULES, code, f"rules_{code.lower()}", desc,
-                           "percentage", (num,), (den,), 100.0, "%"))
 
     return {s.spec_key: s for s in specs}
 
@@ -161,34 +167,42 @@ def zscore_spec_for(numerator_code: str, denominator_code: str) -> Optional[Rate
 
 
 def multiplier_for_unit(unit: Optional[str]) -> float:
-    """100 for percent units, 1 otherwise."""
+    """Return the numeric display scaling implied by a unit.
+
+    % (or "percent") = x100, per-1,000 = x1,000, per-100,000 = x100,000,
+    anything else (counts) = x1. The unit string is normalized (comma-free)
+    so the clinical slice's "per 1,000"/"per 100,000" and the forecast
+    slice's "per 1000"/"per 100000" resolve identically. This matches each
+    spec's ``rate_multiplier`` (the registry stores the scaling right next
+    to the unit), so unit-based scaling and ratio evaluation can never
+    disagree — the earlier "x1 otherwise" rule classified the mortality
+    trio ~1,000x too low once classification moved onto spec multipliers
+    (caught by test_clinical's regression matrix, fixed 2026-10-19).
+    """
     if not unit:
         return 1.0
-    for s in iter_site(SITE_CLINICAL):
-        if s.unit == unit:
-            return s.rate_multiplier
-    return 100.0 if "%" in unit else 1.0
+    normalized = unit.strip().lower().replace(",", "")
+    if "%" in normalized or normalized == "percent":
+        return 100.0
+    for scale in (1000, 100000):
+        if normalized == f"per {scale}":
+            return float(scale)
+    return 1.0
 
 
 def compute_rate(values: Dict[str, float],
                  numerator_codes: Sequence[str],
                  denominator_codes: Sequence[str],
                  rate_multiplier: float) -> Optional[float]:
-    num = 0.0
-    for code in numerator_codes:
-        v = values.get(code)
-        if v is None:
-            return None
-        num += float(v)
-    den = 0.0
-    for code in denominator_codes:
-        v = values.get(code)
-        if v is None:
-            return None
-        den += float(v)
-    if den == 0:
-        return None
-    return (num / den) * float(rate_multiplier)
+    from app.engine import indicator_calc
+
+    outcome = indicator_calc.evaluate_ratio_values(
+        numerator_codes=numerator_codes,
+        denominator_codes=denominator_codes,
+        raw=values,
+        multiplier=rate_multiplier,
+    )
+    return outcome.value if outcome.status == indicator_calc.STATUS_OK else None
 
 
 def compute_spec_rate(spec: RateSpec, values: Dict[str, float]) -> Optional[float]:

@@ -122,6 +122,9 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
     for o in outliers_q:
         outlier_details.append({
             "indicator_code": o.indicator_code,
+            "indicator_id": o.indicator_id,
+            "formula": o.formula,
+            "formula_version": o.formula_version,
             "rate_name": o.rate_name,
             "value": o.value,
             "benchmark": o.benchmark,

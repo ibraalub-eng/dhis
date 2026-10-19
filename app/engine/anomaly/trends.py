@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
 from scipy import stats as scipy_stats
@@ -51,6 +51,9 @@ class TrendResult:
     consecutive_direction: str
     consecutive_count: int
     findings: List[str]
+    indicator_id: Optional[str] = None
+    formula: Optional[str] = None
+    formula_version: Optional[str] = None
 
 
 def _linear_regression(x: List[float], y: List[float]) -> Tuple[float, float, float]:
@@ -120,6 +123,7 @@ def _compute_consecutive_trend(values: List[float]) -> Tuple[str, int]:
 def analyze_historical_trends(
     hospital_name: str,
     monthly_data: Dict[str, Dict[str, float]],
+    additional_indicators=None,
 ) -> List[TrendResult]:
     results = []
     if len(monthly_data) < 2:
@@ -127,12 +131,30 @@ def analyze_historical_trends(
 
     sorted_months = sorted(monthly_data.keys())
 
-    for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
+    if additional_indicators is None:
+        candidates = [
+            (None, rate_name, num_code, den_code)
+            for rate_name, num_code, den_code, _typical_pct in RATE_DEFINITIONS
+        ]
+    else:
+        candidates = [
+            (resolved, resolved.name, resolved.code, None)
+            for resolved in additional_indicators
+        ]
+
+    from app.engine import indicator_service
+
+    for resolved, rate_name, indicator_code, den_code in candidates:
         rate_values = []
         valid_months = []
         for month in sorted_months:
             vals = monthly_data[month]
-            rate = compute_rate(vals, num_code, den_code)
+            if resolved is None:
+                rate = compute_rate(vals, indicator_code, den_code)
+            else:
+                result = indicator_service.calculate_from_values(
+                    resolved, vals, hospital_id=0, month=month)
+                rate = result.value if result.status == "ok" else None
             if rate is not None:
                 rate_values.append(rate)
                 valid_months.append(month)
@@ -172,7 +194,7 @@ def analyze_historical_trends(
 
         results.append(TrendResult(
             hospital=hospital_name,
-            indicator_code=num_code,
+            indicator_code=indicator_code,
             rate_name=rate_name,
             months=valid_months,
             values=[round(v, 2) for v in rate_values],
@@ -188,6 +210,9 @@ def analyze_historical_trends(
             consecutive_direction=consec_dir,
             consecutive_count=consec_count,
             findings=findings,
+            indicator_id=resolved.indicator_id if resolved else None,
+            formula=resolved.formula if resolved else None,
+            formula_version=resolved.formula_version if resolved else None,
         ))
 
     return results
@@ -196,6 +221,7 @@ def analyze_historical_trends(
 def detect_trend_anomalies(
     hospital_name: str,
     monthly_data: Dict[str, Dict[str, float]],
+    additional_indicators=None,
 ) -> List[AnomalyResultData]:
     results = []
     if len(monthly_data) < 3:
@@ -205,14 +231,37 @@ def detect_trend_anomalies(
     current_month = sorted_months[-1]
     current_values = monthly_data[current_month]
 
-    for rate_name, num_code, den_code, typical_pct in RATE_DEFINITIONS:
-        current_rate = compute_rate(current_values, num_code, den_code)
+    if additional_indicators is None:
+        candidates = [
+            (None, rate_name, num_code, den_code)
+            for rate_name, num_code, den_code, _typical_pct in RATE_DEFINITIONS
+        ]
+    else:
+        candidates = [
+            (resolved, resolved.name, resolved.code, None)
+            for resolved in additional_indicators
+        ]
+
+    from app.engine import indicator_service
+
+    for resolved, rate_name, indicator_code, den_code in candidates:
+        if resolved is None:
+            current_rate = compute_rate(current_values, indicator_code, den_code)
+        else:
+            current = indicator_service.calculate_from_values(
+                resolved, current_values, hospital_id=0, month=current_month)
+            current_rate = current.value if current.status == "ok" else None
         if current_rate is None:
             continue
 
         historical_rates = []
         for m in sorted_months[:-1]:
-            rate = compute_rate(monthly_data[m], num_code, den_code)
+            if resolved is None:
+                rate = compute_rate(monthly_data[m], indicator_code, den_code)
+            else:
+                result = indicator_service.calculate_from_values(
+                    resolved, monthly_data[m], hospital_id=0, month=m)
+                rate = result.value if result.status == "ok" else None
             if rate is not None:
                 historical_rates.append(rate)
 
@@ -237,12 +286,15 @@ def detect_trend_anomalies(
                 is_outlier = True
 
         results.append(AnomalyResultData(
-            indicator_code=num_code,
+            indicator_code=indicator_code,
             rate_name=f"{rate_name} (trend)",
             value=round(current_rate, 2),
             benchmark=round(mean_h, 2),
             z_score=round(float(z), 2),
             is_outlier=is_outlier,
+            indicator_id=resolved.indicator_id if resolved else None,
+            formula=resolved.formula if resolved else None,
+            formula_version=resolved.formula_version if resolved else None,
         ))
 
     return results
