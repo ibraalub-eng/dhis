@@ -39,6 +39,8 @@ const _KIND_LABEL = {
 
 let _items = [];        // last catalog payload from GET /indicators
 let _palette = [];      // raw data elements offered by the builder
+let _groupChips = [];   // dynamic groups from GET /indicators/groups
+let _activeGroup = '';  // selected group chip ('' = all groups)
 let _hospitals = [];    // preview scope: hospital dropdown
 let _months = [];       // preview scope: month dropdown
 let _numCodes = [];     // ratio builder — numerator zone
@@ -173,6 +175,21 @@ function _wire() {
     ['indCategoryFilter', 'indTypeFilter', 'indStatusFilter'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.addEventListener('change', _onFilterChange);
+    });
+
+    // Group chips — one click per clinical domain; click again to clear.
+    const chipsBox = document.getElementById('indGroupChips');
+    if (chipsBox) chipsBox.addEventListener('click', ev => {
+        const chip = ev.target.closest('[data-ind-group]');
+        if (!chip) return;
+        const name = chip.dataset.indGroup; // '' for All
+        if (name === '') {
+            if (_activeGroup === '') return;
+            _activeGroup = '';
+        } else {
+            _activeGroup = (name === _activeGroup) ? '' : name;
+        }
+        _loadList();
     });
 
     const tbody = document.getElementById('indTbody');
@@ -328,8 +345,11 @@ async function _loadList() {
     push('category', 'indCategoryFilter');
     push('type', 'indTypeFilter');
     push('status', 'indStatusFilter');
+    if (_activeGroup) qs.push('group=' + encodeURIComponent(_activeGroup));
 
     let data;
+    const groupsP = apiGet('/indicators/groups', _FRESH)
+        .catch(() => null);              // chips never break the table
     try {
         data = await apiGet('/indicators' + (qs.length ? '?' + qs.join('&') : ''), _FRESH);
     } catch (err) {
@@ -338,9 +358,44 @@ async function _loadList() {
         return;
     }
     _items = (data && data.items) || [];
+    // Chips come from the dedicated groups endpoint (counts across the full
+    // catalog) — fetched alongside the list so a new/deleted group appears
+    // without a second round-trip.
+    const groups = await groupsP;
+    if (Array.isArray(groups)) _groupChips = groups;
     _fillSelect('indCategoryFilter', (data && data.categories) || [], 'All categories');
     _fillSelect('indTypeFilter', (data && data.types) || [], 'All types');
+    _renderGroupChips();
     _renderRows();
+}
+
+// One chip per catalog group (canonical clinical domains first) plus an
+// "All" toggle — the visible, dynamic group navigation of the tab.
+function _renderGroupChips() {
+    const box = document.getElementById('indGroupChips');
+    if (!box) return;
+    if (!Array.isArray(_groupChips) || !_groupChips.length) {
+        box.innerHTML = '';
+        box.style.display = 'none';
+        return;
+    }
+    box.style.display = '';
+    const allTotal = _groupChips.reduce((n, g) => n + (g.total || 0), 0);
+    const chip = (name, count) => {
+        const isAll = (name === '');
+        const active = isAll ? (_activeGroup === '') : (_activeGroup === name);
+        return '<button type="button" data-ind-group="' + esc(name) + '"' +
+            ' style="font-size:0.72rem;padding:0.18rem 0.55rem;border-radius:999px;cursor:pointer;' +
+            'border:1px solid ' + (active ? 'transparent' : 'var(--border-default)') + ';' +
+            'background:' + (active ? 'var(--accent, #4a9)' : 'var(--bg-input)') + ';' +
+            'color:' + (active ? '#fff' : 'var(--text-secondary)') + ';">' +
+            esc(_t(name || 'All groups')) +
+            (count != null ? ' <span style="opacity:0.75;">' + count + '</span>' : '') +
+            '</button>';
+    };
+    const parts = [chip('', allTotal)];
+    _groupChips.forEach(g => parts.push(chip(g.name, g.total)));
+    box.innerHTML = parts.join('');
 }
 
 function _fillSelect(id, values, allLabel) {
