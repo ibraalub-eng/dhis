@@ -14,7 +14,6 @@ from app.main import app
 from app.database import get_db
 
 from app.engine.smart.regional import (
-    _safe_rate,
     _gov_metrics,
     _benchmarks,
     _percentile_rank,
@@ -94,10 +93,12 @@ def _seed_gov(db_session, gov_name, hospitals, month="2026-06", values_by_hosp=N
 
 def test_safe_rate_denominator_gate():
     """لا تُحسب نسبة بمقام صفر أو غائب — تُرجع None (لا نسبة وهمية)."""
-    assert _safe_rate(5.0, 0.0, 1000.0) is None
-    assert _safe_rate(5.0, None, 1000.0) is None
-    assert _safe_rate(None, 100.0, 1000.0) is None
-    assert _safe_rate(5.0, 100.0, 1000.0) == 50.0
+    from app.engine.smart.indicator_forecast import indicator_rate_from_values
+
+    assert indicator_rate_from_values("cs_rate", {"5": 5.0, "2": 0.0}) is None
+    assert indicator_rate_from_values("cs_rate", {"5": 5.0}) is None
+    assert indicator_rate_from_values("cs_rate", {"2": 100.0}) is None
+    assert indicator_rate_from_values("cs_rate", {"5": 5.0, "2": 100.0}) == 5.0
 
 
 def test_gov_metrics_pooled_rates(db_session):

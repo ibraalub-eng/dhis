@@ -197,15 +197,22 @@ def test_catalog_merges_kind_and_group_into_one_category(client, db_session):
 
     # explicit group wins over the kind fallback
     assert by_code["managed_cs_rate"]["category"] == "SRMNH Inpatient Indicators"
-    # an ungrouped raw element falls back to its kind label
-    assert by_code["zz_ungrouped"]["category"] == "Data elements"
+    # an ungrouped raw element falls back to its kind label — the registry
+    # exposes exactly TWO categories: Data Element and Derivative Indicator
+    assert by_code["zz_ungrouped"]["category"] == "Data Element"
     assert all(item["category"] for item in data["items"])
     assert "SRMNH Inpatient Indicators" in data["categories"]
-    assert "Data elements" in data["categories"]
+    assert "Data Element" in data["categories"]
+    assert "Derivative Indicator" in data["categories"]
+    assert not {"Managed indicators", "System rates"} & set(data["categories"])
 
-    filtered = client.get("/indicators", params={"category": "Data elements"}).json()
+    filtered = client.get("/indicators", params={"category": "Data Element"}).json()
     assert [item["code"] for item in filtered["items"]] == ["zz_ungrouped"]
     assert filtered["categories"] == data["categories"]
+
+    derived_cat = client.get("/indicators",
+                             params={"category": "Derivative Indicator"}).json()
+    assert "managed_cs_rate" in [i["code"] for i in derived_cat["items"]]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -636,3 +643,40 @@ def test_expression_mode_indicator_computes(client, db_session):
 
     # canonical expression is stored for audit
     assert "{10.a.1}" in created["expression"]
+
+
+# ── dynamic groups (reuse surface for other screens) ────────────────────────
+
+def test_groups_endpoint_reports_dynamic_suitable_groups(client):
+    """GET /indicators/groups reports whatever the active catalog contains:
+    canonical clinical domains first, no technical site-key labels."""
+    resp = client.get("/indicators/groups")
+    assert resp.status_code == 200
+    rows = resp.json()
+    names = [r["name"] for r in rows]
+
+    assert names[0] == "Delivery & Surgery"   # canonical order first
+    assert "Maternal Outcomes" in names
+    assert "Newborn Outcomes" in names
+    assert not any(n.startswith("System indicators /") for n in names)
+    for r in rows:
+        assert r["total"] >= 1, "empty groups are never reported"
+
+    maternal = next(r for r in rows if r["name"] == "Maternal Outcomes")
+    assert maternal["total"] >= 2
+    assert maternal["active"] >= 1
+    assert "rate_spec" in maternal["kinds"] or "derived" in maternal["kinds"]
+    assert "clinical" in maternal["sites"]
+
+
+def test_group_filter_agrees_with_groups_counts(client):
+    """The catalog's group= filter returns exactly the members the groups
+    endpoint counted — one shared source of truth."""
+    rows = client.get("/indicators/groups").json()
+    maternal = next(r for r in rows if r["name"] == "Maternal Outcomes")
+
+    listed = client.get("/indicators",
+                        params={"group": "Maternal Outcomes"}).json()
+    assert listed["count"] == maternal["total"]
+    assert all(i["group_name"] == "Maternal Outcomes"
+               for i in listed["items"])

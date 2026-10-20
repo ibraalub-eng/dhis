@@ -573,6 +573,22 @@ def compute_for_hospital_month(db, definition, hospital_id: int,
         outcome = ComputeOutcome(status=STATUS_ERROR, message=str(exc))
         return outcome
     raw = load_raw_values(db, codes, hospital_id, month)
+    missing = [c for c in codes if c not in raw]
+    if missing:
+        # Indicator-on-indicator dependencies: referenced codes that are
+        # themselves indicators are computed on demand (late import — the
+        # service imports this module).
+        try:
+            from app.engine import indicator_service as _svc
+        except Exception:  # pragma: no cover — registry is optional context
+            _svc = None
+        if _svc is not None:
+            try:
+                values, _reasons = _svc._resolve_indicator_refs(
+                    db, missing, {getattr(definition, "code", None)}, hospital_id, month)
+                raw.update(values)
+            except Exception:  # pragma: no cover — never block raw compute
+                pass
     return evaluate_definition(definition, raw)
 
 

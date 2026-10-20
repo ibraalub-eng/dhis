@@ -60,3 +60,57 @@ def test_seed_sync_is_idempotent(db_session):
     assert first == 1
     assert second == 0  # no drift left — no extra version bump
     assert _clinical_nmr(db_session).version == version_after_first
+
+
+def test_system_definitions_carry_suitable_clinical_groups(db_session):
+    """System definitions are grouped by clinical domain — reusable work
+    units other screens select — never by the technical site key."""
+    from app.engine.indicator_groups import (
+        GROUP_DELIVERY,
+        GROUP_MATERNAL,
+        GROUP_NEWBORN,
+        GROUP_ORDER,
+    )
+
+    rows = db_session.query(IndicatorDefinition).filter(
+        IndicatorDefinition.is_system.is_(True)).all()
+    assert rows, "seed must create system definitions"
+    groups = {r.group_name for r in rows}
+    assert not any(g and g.startswith("System indicators /") for g in groups)
+    assert all(g in GROUP_ORDER for g in groups if g)
+
+    by_key = {(r.source_site, r.legacy_code): r for r in rows}
+    assert by_key[("clinical", "rate_mmr")].group_name == GROUP_MATERNAL
+    assert by_key[("clinical", "rate_nmr")].group_name == GROUP_NEWBORN
+    assert by_key[("clinical", "rate_cs")].group_name == GROUP_DELIVERY
+    assert by_key[("zscore", "rate_cs")].group_name == GROUP_DELIVERY
+    # one domain spans the sites where it applies — that cross-site span is
+    # what makes the group reusable as a unit (outlier sets, report sections)
+    maternal = {r.source_site for r in rows if r.group_name == GROUP_MATERNAL}
+    assert maternal >= {"clinical", "zscore"}
+
+
+def test_seed_sync_heals_group_name_drift_with_history(db_session):
+    """A legacy site-key group label heals through the sync phase as a
+    versioned content change with history — never silently."""
+    from app.engine.indicator_groups import GROUP_NEWBORN
+
+    definition = _clinical_nmr(db_session)
+    definition.group_name = "System indicators / clinical"  # pre-fix label
+    db_session.commit()
+
+    updated = seed_system_indicator_definitions(db_session)
+
+    assert updated == 1
+    healed = _clinical_nmr(db_session)
+    assert healed.group_name == GROUP_NEWBORN
+    assert healed.version >= 2
+
+    history = db_session.query(IndicatorDefinitionVersion).filter(
+        IndicatorDefinitionVersion.definition_id == healed.id,
+        IndicatorDefinitionVersion.version == healed.version,
+    ).one()
+    assert history.action == "migrated"
+    assert "group_name" in json.loads(history.changed_fields)
+    snapshot = json.loads(history.snapshot)
+    assert snapshot["group_name"] == GROUP_NEWBORN

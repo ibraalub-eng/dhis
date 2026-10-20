@@ -270,21 +270,51 @@ def load_rate_specs(db) -> Dict[str, RateSpec]:
     Falls back entirely to the builtin slice when the table is empty
     (pre-seed operation) or unreadable. In-process cache — call
     invalidate_rate_specs_cache() after seeding/saving rate_config rows.
+
+    The Indicators registry is the active/inactive source of truth: a spec
+    whose seed record is deactivated on the Indicators screen is filtered
+    out of the CURRENT set (freshly queried on every call so a toggle takes
+    effect immediately — the raw merge stays process-cached). Inactive
+    indicators keep their historical results and audit records; only new
+    calculation runs skip them.
     """
     global _RATE_SPECS_CACHE
-    if _RATE_SPECS_CACHE is not None:
-        return _RATE_SPECS_CACHE
-    specs: Dict[str, RateSpec] = {s.rate_code: s for s in zscore_specs()}
+    if _RATE_SPECS_CACHE is None:
+        specs: Dict[str, RateSpec] = {s.rate_code: s for s in zscore_specs()}
+        try:
+            from app.models import RateConfig  # local: this module stays leaf-importable
+            rows = db.query(RateConfig).order_by(RateConfig.rate_code).all()
+        except Exception as exc:
+            logger.warning("rate_config unreadable (%s); using builtin zscore slice", exc)
+            rows = []
+        for row in rows:
+            spec = _spec_from_rate_config_row(row, specs.get(row.rate_code))
+            if spec.is_active is False:
+                # RateConfig explicitly switched OFF: remove the rate entirely
+                # (its builtin base must not resurface as a silent default).
+                specs.pop(row.rate_code, None)
+                continue
+            specs[row.rate_code] = spec
+        _RATE_SPECS_CACHE = specs
+
     try:
-        from app.models import RateConfig  # local: this module stays leaf-importable
-        rows = db.query(RateConfig).order_by(RateConfig.rate_code).all()
-    except Exception as exc:
-        logger.warning("rate_config unreadable (%s); using builtin zscore slice", exc)
+        from app.models import IndicatorDefinition
+        rows = (db.query(IndicatorDefinition.code, IndicatorDefinition.legacy_code)
+                .filter(IndicatorDefinition.is_active.is_(False)).all())
+    except Exception:
         rows = []
-    for row in rows:
-        specs[row.rate_code] = _spec_from_rate_config_row(row, specs.get(row.rate_code))
-    _RATE_SPECS_CACHE = specs
-    return specs
+    if not rows:
+        return _RATE_SPECS_CACHE
+    inactive: set = set()
+    for canonical, legacy in rows:
+        if canonical:
+            inactive.add(canonical)
+        if legacy:
+            inactive.add(legacy)
+    if not inactive:
+        return _RATE_SPECS_CACHE
+    return {code: spec for code, spec in _RATE_SPECS_CACHE.items()
+            if code not in inactive}
 
 
 def get_spec(db, rate_code: str) -> Optional[RateSpec]:

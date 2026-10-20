@@ -68,6 +68,8 @@ class RoleUpdate(BaseModel):
 
 
 def _user_dict(u: User) -> dict:
+    # Hospital scope travels with every user row so the admin UI can explain
+    # an empty dashboard: no assignment + no unrestricted grant = NO data.
     return {
         "id": u.id, "username": u.username, "email": u.email,
         "full_name": u.full_name, "is_active": u.is_active,
@@ -75,6 +77,8 @@ def _user_dict(u: User) -> dict:
         "roles": [{"id": r.id, "name": r.name} for r in u.roles],
         "direct_permissions": [{"id": p.id, "codename": p.codename} for p in u.permissions],
         "permissions": sorted({p.codename for p in u.permissions} | {p.codename for r in u.roles for p in r.permissions}),
+        "hospital_count": len(u.hospitals),
+        "unrestricted_hospitals": user_has_unrestricted_hospitals(u),
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
 

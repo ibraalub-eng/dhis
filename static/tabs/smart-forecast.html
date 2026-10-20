@@ -31,13 +31,14 @@
   </div>
 
   <!-- ═══ Sub-tabs (own namespace — never the analytics `.smart-tab-btn`) ═══ -->
-  <div class="smart-forecast-subtabs" role="tablist">
-    <button type="button" class="smart-forecast-tab-btn active" data-forecast-tab="models" data-i18n="Forecasts">التنبؤات</button>
-    <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="quality" data-i18n="Accuracy and validation">الدقة والتحقق</button>
-    <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="signals" data-i18n="Signals">الإشارات</button>
-    <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="indicator" data-i18n="Indicator forecast">تنبؤ المؤشر</button>
-    <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="hospital" data-i18n="Hospital forecast">تنبؤ مستشفى</button>
-  </div>
+<div class="smart-forecast-subtabs" role="tablist">
+  <button type="button" class="smart-forecast-tab-btn active" data-forecast-tab="models" data-i18n="Forecasts">التنبؤات</button>
+  <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="quality" data-i18n="Accuracy and validation">الدقة والتحقق</button>
+  <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="signals" data-i18n="Signals">الإشارات</button>
+  <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="indicator" data-i18n="Indicator forecast">تنبؤ المؤشر</button>
+  <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="hospital" data-i18n="Hospital forecast">تنبؤ مستشفى</button>
+  <button type="button" class="smart-forecast-tab-btn" data-forecast-tab="actions" data-i18n="Action board">لوحة العمل</button>
+</div>
 
   <!-- ═══ Panel: forecasts (XGBoost predictions + trajectory) ═══ -->
   <div class="smart-forecast-panel" id="forecast-panel-models" data-forecast-panel="models">
@@ -120,6 +121,25 @@
         </div>
         <div id="smart-hospital-forecast"></div>
       </div>
+    </div>
+  </div>
+
+  <!-- ACTIONS PANEL -->
+  <div id="forecast-panel-actions" class="smart-forecast-panel" data-forecast-panel="actions" style="display:none;">
+    <div class="smart-section-card open">
+      <div class="smart-section-header" style="cursor:default;">
+        <span>📋 <span data-i18n="Action board">لوحة العمل</span></span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-action-board" class="smart-table-wrap"></div>
+        <div class="smart-empty-state" id="smart-action-board-empty" style="display:none;" data-i18n="No actionable items for this month">لا توجد بنود عملية لهذا الشهر</div>
+      </div>
+    </div>
+    <div class="smart-section-card open" style="margin-top:0.8rem;">
+      <div class="smart-section-header" style="cursor:default;">
+        <span>ℹ️ <span data-i18n="Model card">بطاقة النموذج</span></span>
+      </div>
+      <div class="smart-section-body" id="smart-model-card"></div>
     </div>
   </div>
 

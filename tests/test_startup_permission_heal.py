@@ -6,6 +6,8 @@ so a missing `dashboard.write` row silently yields "Missing permission:
 dashboard.write" 403s for every non-superuser. _ensure_admin_user must create
 missing rows AND grant them to the admin role.
 """
+from app.core.deps import UNRESTRICTED_HOSPITALS_PERMISSION, get_user_hospital_ids
+from app.core.security import hash_password
 from app.main import _ensure_admin_user, CANONICAL_PERMISSION_CODENAMES
 from app.models import User, Role, Permission
 
@@ -79,3 +81,35 @@ class TestStartupPermissionHeal:
         existing = {row[0] for row in db_session.query(Permission.codename).all()}
         for code in CANONICAL_PERMISSION_CODENAMES:
             assert code in existing, f'missing canonical permission row: {code}'
+
+    def test_admin_role_grants_unrestricted_hospital_scope(self, db_session):
+        """Regression: an admin-role user with no hospital assignment saw an
+        empty app.
+
+        ``hospitals.unrestricted`` is not a route guard, so it was missing
+        from CANONICAL_PERMISSION_CODENAMES. The row was therefore never
+        seeded, the admin-role grant had nothing to attach, and
+        ``get_user_hospital_ids`` returned ``[]`` for every non-superuser
+        admin — zero hospitals, zero data everywhere.
+        """
+        _recreate_admin_state(db_session, include_dashboard_write=False)
+
+        _ensure_admin_user(db_session)
+
+        admin_role = db_session.query(Role).filter_by(name='admin').first()
+        codes = {p.codename for p in admin_role.permissions}
+        assert UNRESTRICTED_HOSPITALS_PERMISSION in codes
+
+        user = User(
+            username='loai',
+            email='loai@scope.test',
+            full_name='Loai',
+            password_hash=hash_password('scope-pw-123'),
+            is_superuser=False,
+            roles=[admin_role],
+        )
+        db_session.add(user)
+        db_session.commit()
+
+        # None means unrestricted (every hospital), [] means no access at all.
+        assert get_user_hospital_ids(user, db_session) is None

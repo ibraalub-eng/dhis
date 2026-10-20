@@ -940,9 +940,13 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
     enabled_months = get_enabled_months(db)
 
     user_hosp_ids = get_user_hospital_ids(user, db)
+    if hospital_id is not None and user_hosp_ids is not None and hospital_id not in user_hosp_ids:
+        raise HTTPException(status_code=404, detail="Hospital not found")
     hospitals_q = db.query(Hospital).filter(Hospital.is_active.is_(True))
     if user_hosp_ids is not None:
         hospitals_q = hospitals_q.filter(Hospital.id.in_(user_hosp_ids))
+    if hospital_id is not None:
+        hospitals_q = hospitals_q.filter(Hospital.id == hospital_id)
     hospitals = hospitals_q.all()
 
     rows = []
@@ -1000,7 +1004,7 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
                 if values:
                     # include_ai=False: نحتاج قيم المعدلات فقط — لا توصيات AI لكل مستشفى
                     result = run_clinical_analysis(hospital=h.name, month=latest_month,
-                                                   values=values, include_ai=False)
+                                                   values=values, include_ai=False, session=db)
                     clinical_rates = {
                         c.rate_name: round(c.value, 1)
                         for c in result.classifications
@@ -1075,14 +1079,17 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db), user=D
             # empty chart.
             from app.engine.clinical import run_clinical_analysis
             result = run_clinical_analysis(hospital=hospital.name, month=latest_month,
-                                           values=values, include_ai=False)
+                                           values=values, include_ai=False, session=db)
             for c in result.classifications:
-                if c.rate_name in _MAIN_CLINICAL_RATES:
+                if c.rate_name in _MAIN_CLINICAL_RATES or c.indicator_id:
                     # Keep None as None (missing denominator = no data) instead of
                     # flattening to 0, so the UI can distinguish "reported zero"
                     # from "no data available".
                     clinical_rates.append({
                         "rate_name": c.rate_name,
+                        "indicator_id": c.indicator_id,
+                        "formula": c.formula,
+                        "formula_version": c.formula_version,
                         "value": round(c.value, 1) if c.value is not None else None,
                         "unit": c.unit,
                         "classification": c.classification,
@@ -1100,7 +1107,13 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db), user=D
                     continue
                 from app.engine.clinical import run_clinical_analysis as rca_peer
                 try:
-                    pr = rca_peer(hospital=ph.name, month=latest_month, values=pv, include_ai=False)
+                    pr = rca_peer(
+                        hospital=ph.name,
+                        month=latest_month,
+                        values=pv,
+                        include_ai=False,
+                        session=db,
+                    )
                 except Exception as e:
                     logger.debug("Peer clinical analysis failed for %s: %s", ph.name, e)
                     continue

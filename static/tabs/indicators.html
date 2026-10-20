@@ -24,6 +24,10 @@
     <span id="indCount" style="font-size:0.72rem;color:var(--text-muted);"></span>
   </div>
 
+  <!-- dynamic group chips — one reusable clinical domain per chip, driven
+       by GET /indicators/groups (click = filter, click again = all) -->
+  <div id="indGroupChips" style="display:flex;gap:0.35rem;flex-wrap:wrap;align-items:center;margin-bottom:0.7rem;"></div>
+
   <div id="indLoading" style="display:none;text-align:center;padding:1.5rem;color:var(--text-muted);"><span class="spinner"></span> <span style="font-size:0.8rem;" data-i18n="Loading indicators…">Loading indicators…</span></div>
   <div id="indEmpty" style="display:none;text-align:center;padding:2rem 1rem;color:var(--text-muted);">
     <div style="font-size:1.6rem;margin-bottom:0.4rem;opacity:0.35;">📐</div>

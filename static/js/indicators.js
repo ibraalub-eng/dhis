@@ -32,9 +32,9 @@ const _STATUS = {
 // Fallback category labels when a row has no explicit group name — kept in
 // sync with _CATEGORY_FALLBACK in app/api/indicator_definitions.py.
 const _KIND_LABEL = {
-    derived: 'Managed indicators',
-    rate_spec: 'System rates',
-    raw: 'Data elements',
+    derived: 'Derivative Indicator',
+    rate_spec: 'Derivative Indicator',
+    raw: 'Data Element',
 };
 
 let _items = [];        // last catalog payload from GET /indicators
@@ -455,8 +455,8 @@ function _rowHtml(it) {
           esc(_t('Edit')) + '</button>'
         : '';
     return '<tr style="border-bottom:1px solid var(--border-default);">' +
-        '<td style="padding:0.35rem 0.4rem;white-space:nowrap;font-size:0.75rem;">' + esc(statusLabel) +
-            '<span style="color:' + statusColor + ';"></span></td>' +
+        '<td style="padding:0.35rem 0.4rem;white-space:nowrap;font-size:0.75rem;">' +
+            '<span style="color:' + statusColor + ';">\u25cf</span> ' + esc(statusLabel) + '</td>' +
         '<td style="padding:0.35rem 0.4rem;color:var(--text-primary);">' +
             '<span style="font-weight:600;">' + esc(it.name) + '</span> ' +
             '<code style="font-size:0.7rem;color:var(--text-muted);direction:ltr;">' + esc(it.code) + '</code>' + version +
@@ -938,7 +938,8 @@ async function _fillBuilder(id) {
 // form-header label — both are left out.
 async function fetchPalette() {
     const box = document.getElementById('indPalette');
-    if (_palette.length) { _renderPalette(); return _palette; }
+    const cached = _palette.length;
+    if (cached) { _renderPalette(); return _palette; }
     if (box) {
         box.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:1rem;">' +
             esc(_t('Loading data elements…')) + '</div>';
@@ -951,7 +952,26 @@ async function fetchPalette() {
                 code: String(r.code),
                 name: r.name || String(r.code),
                 group: r.group_name || '',
+                isIndicator: false,
             }));
+        // Other indicators may also feed a new indicator (dependency refs):
+        // the server validates them and blocks circular dependencies, so
+        // offer managed + system indicators alongside raw data elements.
+        try {
+            const cat = await apiGet('/indicators', _FRESH);
+            const seen = new Set(_palette.map(p => p.code));
+            ((cat && cat.items) || []).forEach(it => {
+                if (it && it.kind !== 'raw' && it.code && !seen.has(it.code)) {
+                    seen.add(it.code);
+                    _palette.push({
+                        code: it.code,
+                        name: it.name || it.code,
+                        group: it.group_name || it.category || '',
+                        isIndicator: true,
+                    });
+                }
+            });
+        } catch (e) { /* raw elements alone remain usable */ }
         _renderPalette();
         return _palette;
     } catch (err) {
@@ -982,8 +1002,13 @@ function _renderPalette() {
         const tint = inNum ? 'border-color:var(--accent-green);'
             : inDen ? 'border-color:var(--accent-purple);' : '';
         return '<span class="vb-drag-chip" draggable="true" data-ind-code="' + esc(p.code) +
-            '" title="' + esc(p.name) + '" style="cursor:grab;' + tint + '">' +
+            '" title="' + esc(p.name + (p.isIndicator ? ' — indicator reference' : '')) +
+            '" style="cursor:grab;' + tint + '">' +
             '<code style="font-size:0.7rem;color:var(--accent-blue);direction:ltr;">' + esc(p.code) + '</code>' +
+            (p.isIndicator
+                ? '<b style="font-size:0.62rem;color:var(--accent-purple);margin:0 0.2rem;">IND</b>'
+                : '') +
+            '<span style="color:var(--text-muted);">—</span>' +
             '<span data-ind-add="num" style="cursor:pointer;">' + esc(p.name) + '</span>' +
             (ratioMode
                 ? '<b data-ind-add="den" title="' + esc(_t('Add to the denominator')) +
@@ -1040,16 +1065,25 @@ function _removeFromZone(zone, code) {
 }
 
 function _renderZones() {
+    const byCode = {};
+    _palette.forEach(item => { byCode[item.code] = item; });
     const paint = (elId, codes, zone) => {
         const el = document.getElementById(elId);
         if (!el) return;
         el.innerHTML = codes.length
-            ? codes.map(c =>
-                '<span class="vb-drag-chip" draggable="true" data-ind-code="' + esc(c) +
-                '" data-ind-zone-chip="' + zone + '">' +
-                '<code style="font-size:0.72rem;color:var(--accent-blue);direction:ltr;">' + esc(c) + '</code>' +
-                '<b data-ind-remove="' + zone + '" data-ind-code="' + esc(c) + '" title="' +
-                esc(_t('Remove')) + '" style="cursor:pointer;color:var(--accent-red);">×</b></span>').join('')
+            ? codes.map(c => {
+                const itemName = byCode[c] ? byCode[c].name : '';
+                return '<span class="vb-drag-chip" draggable="true" data-ind-code="' + esc(c) +
+                    '" data-ind-zone-chip="' + zone + '" title="' +
+                    esc(itemName ? c + ' — ' + itemName : c) + '">' +
+                    '<code style="font-size:0.72rem;color:var(--accent-blue);direction:ltr;">' + esc(c) + '</code>' +
+                    (itemName
+                        ? '<span style="color:var(--text-muted);font-size:0.72rem;">—</span>' +
+                          '<span style="font-size:0.72rem;">' + esc(itemName) + '</span>'
+                        : '') +
+                    '<b data-ind-remove="' + zone + '" data-ind-code="' + esc(c) + '" title="' +
+                    esc(_t('Remove')) + '" style="cursor:pointer;color:var(--accent-red);">×</b></span>';
+            }).join('')
             : '<span style="font-size:0.72rem;color:var(--text-muted);">' +
               esc(_t('Empty — pick data elements from the list below')) + '</span>';
     };
@@ -1112,9 +1146,10 @@ function _renderPreview() {
     if (_val('indFormulaMode') === 'expression') {
         const expr = _val('indExpr').trim();
         el.textContent = expr ? '= ' + expr : '—';
+        el.title = '';
         return;
     }
-    if (!_numCodes.length) { el.textContent = '—'; return; }
+    if (!_numCodes.length) { el.textContent = '—'; el.title = ''; return; }
     const agg = (_val('indAggregation') || 'sum').toUpperCase();
     const op = _val('indOperator') || '/';
     const sym = { '/': '÷', '*': '×', '+': '+', '-': '−' }[op] || op;
@@ -1126,6 +1161,11 @@ function _renderPreview() {
     const mult = parseFloat(_val('indMultiplier'));
     if (isFinite(mult) && mult !== 1) text += ' × ' + mult;
     el.textContent = text;
+    // A division formula without a denominator cannot compute — say so
+    // immediately, not only in the server validation on save.
+    el.title = (op === '/' && !_denCodes.length)
+        ? _t('Division requires a denominator — the formula will not compute without one')
+        : '';
 }
 
 function _collectDraft() {

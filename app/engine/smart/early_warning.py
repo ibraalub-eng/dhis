@@ -229,6 +229,31 @@ def blended_indicator_forecast(
     }
 
 
+_ACTION_RISING_SEVERITIES = ("high", "critical")
+_ACTION_RECOMMENDATION_KEY = "act_on_rising_risk"
+
+
+def recommend_forecast_action(
+    risk_change: str, severity: str, driver_name: str = "",
+) -> Dict[str, str]:
+    """توصية إجرائية واحدة لقرار اللوحة — نسخة الخادم من قاعدة الواجهة.
+
+    تعكس ``_recommendationFor`` في ``advanced.js``: لا توصية جاهزة إلا إذا كان
+    الخطر **صاعداً** ودرجته **عالية/حرجة**؛ وإلا فراغ صريح بدل توصية عامة.
+    """
+    if risk_change != "increasing" or severity not in _ACTION_RISING_SEVERITIES:
+        return {"recommendation": "", "recommendation_key": ""}
+    base = (f"معالجة الارتفاع في {driver_name}" if driver_name
+            else "مراجعة عوامل الخطر")
+    return {
+        "recommendation": (
+            f"💡 التوصية: {base} — "
+            "تحقق من دقة البيانات، وافحص السبب الجذري، وجهّز خطة تصحيحية"
+        ),
+        "recommendation_key": _ACTION_RECOMMENDATION_KEY,
+    }
+
+
 def indicator_relationships(lag_results: Optional[Dict]) -> List[Dict]:
     """علاقات المؤشرات القيادية من نتائج lag_analysis — بصياغة ارتباطية صريحة.
 

@@ -40,6 +40,7 @@ from app.core.deps import require_permission
 from app.database import get_db
 from app.engine import indicator_calc as calc
 from app.engine import indicator_service
+from app.engine.indicator_groups import group_sort_key
 from app.indicators import PARENT_CHILD_MAP, SYNTHETIC_INDICATOR_CODES
 from app.models import (
     Hospital,
@@ -49,6 +50,7 @@ from app.models import (
     IndicatorValue,
 )
 from app.schemas import (
+    IndicatorCatalogGroupOut,
     IndicatorCatalogItem,
     IndicatorDefinitionCreate,
     IndicatorDefinitionOut,
@@ -84,10 +86,13 @@ _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 # The catalog exposes one Category dimension instead of separate kind/group
 # columns: an explicit group name wins, otherwise the row falls back to its
 # kind. The kind stays in the payload for the drawer and legacy clients.
+# Only two categories exist: raw source data ("Data Element") and anything
+# calculated ("Derivative Indicator" — managed definitions AND system rate
+# specs; the kind column in each payload tells them apart).
 _CATEGORY_FALLBACK = {
-    "derived": "Managed indicators",
-    "rate_spec": "System rates",
-    "raw": "Data elements",
+    "derived": "Derivative Indicator",
+    "rate_spec": "Derivative Indicator",
+    "raw": "Data Element",
 }
 
 # columns whose change bumps the definition version
@@ -404,22 +409,66 @@ def _validate_draft(db: Session, draft, exclude_id: Optional[int] = None,
             errors.append("An indicator cannot reference itself")
 
     known: Dict[str, Indicator] = {}
+    dep_defs: Dict[str, IndicatorDefinition] = {}
     checkable = [c for c in dict.fromkeys(refs)
                  if c not in SYNTHETIC_INDICATOR_CODES and c != code]
     if checkable:
         rows = db.query(Indicator).filter(Indicator.code.in_(checkable)).all()
         known = {r.code: r for r in rows}
+        remaining = [c for c in checkable if c not in known]
+        if remaining:
+            # A reference may also point at ANOTHER (managed or system)
+            # indicator — indicator-on-indicator dependencies are supported
+            # and computed on demand at calculation time.
+            dep_defs = {d.code: d for d in db.query(IndicatorDefinition)
+                        .filter(IndicatorDefinition.code.in_(remaining)).all()}
         for c in checkable:
-            if c not in known:
-                errors.append(f"Unknown data element '{c}' — it does not exist in the Data Tree")
+            if c not in known and c not in dep_defs:
+                errors.append(
+                    "Unknown data element '" + c + "' — it does not exist in "
+                    "the Data Tree or the indicator registry")
 
+        # Circular-dependency protection: from every referenced indicator,
+        # follow the reference graph of other definitions; any path that
+        # reaches back to this indicator is a cycle.
+        if dep_defs:
+            graph: Dict[str, List[str]] = {}
+            rows_q = db.query(IndicatorDefinition)
+            if exclude_id:
+                rows_q = rows_q.filter(IndicatorDefinition.id != exclude_id)
+            for d in rows_q.all():
+                if d.code == code or d.code in known:
+                    continue  # raw elements terminate the walk
+                try:
+                    graph[d.code] = [c2 for c2 in calc.definition_codes(d)
+                                     if c2 and c2 not in SYNTHETIC_INDICATOR_CODES]
+                except calc.FormulaError:
+                    graph[d.code] = []
+            for start in dict.fromkeys(refs):
+                if start not in graph:
+                    continue
+                visited = {start}
+                stack = [(start, [start])]
+                while stack:
+                    node, path = stack.pop()
+                    if node == code:
+                        errors.append(
+                            "Circular dependency: " + " → ".join(path))
+                        stack = []
+                        break
+                    for nxt in graph.get(node, []):
+                        if nxt not in visited:
+                            visited.add(nxt)
+                            stack.append((nxt, path + [nxt]))
     ref_infos = [
         IndicatorRefInfo(
             code=c,
-            name=known[c].name if c in known else None,
-            group_name=known[c].group_name if c in known else None,
+            name=known[c].name if c in known else (
+                dep_defs[c].name if c in dep_defs else None),
+            group_name=known[c].group_name if c in known else (
+                dep_defs[c].group_name if c in dep_defs else None),
             level=known[c].level if c in known else None,
-            exists=c in known,
+            exists=c in known or c in dep_defs,
         )
         for c in dict.fromkeys(refs)
     ]
@@ -431,7 +480,9 @@ def _validate_draft(db: Session, draft, exclude_id: Optional[int] = None,
         month = None
     if refs and month and not errors:
         counts = calc.codes_with_data(db, refs, month, hospital_id)
-        empty = [c for c, n in counts.items() if n == 0]
+        # Indicator dependencies are not raw rows — their values compute on
+        # demand, so "no stored data" does not apply to them.
+        empty = [c for c, n in counts.items() if n == 0 and c not in dep_defs]
         if empty:
             where = "this hospital" if hospital_id else "any hospital"
             warnings.append(
@@ -530,6 +581,19 @@ def _draft_fields(draft, canonical: Optional[str]) -> dict:
 def _preview(db: Session, spec, hospital_id: int, month: str) -> IndicatorPreviewOut:
     codes = _spec_codes(spec)
     raw = calc.load_raw_values(db, codes, hospital_id, month)
+    extra_reasons: List[str] = []
+    missing = [c for c in codes if c not in raw]
+    if missing:
+        # Indicator-on-indicator dependencies compute on demand; a
+        # resolvable dep supplies its value here.
+        try:
+            from app.engine import indicator_service as indsvc
+            values, reasons = indsvc._resolve_indicator_refs(
+                db, missing, set(), hospital_id, month)
+            raw.update(values)
+            extra_reasons = reasons
+        except Exception:  # pragma: no cover — preview never hard-fails
+            extra_reasons = []
     outcome = calc.evaluate_definition(spec, raw)
     names = _name_map(db, codes)
     inputs = [
@@ -537,13 +601,16 @@ def _preview(db: Session, spec, hospital_id: int, month: str) -> IndicatorPrevie
          "missing": c not in raw or raw.get(c) is None}
         for c in codes
     ]
+    message = outcome.message
+    if extra_reasons and outcome.value is None:
+        message = (message.rstrip(".") + "; " if message else "") + "; ".join(extra_reasons)
     return IndicatorPreviewOut(
         status=outcome.status,
         value=outcome.value,
         numerator=outcome.numerator,
         denominator=outcome.denominator,
         inputs=inputs,
-        message=outcome.message,
+        message=message,
     )
 
 
@@ -699,8 +766,11 @@ def list_indicators(
     items.extend(system_rate_items)
 
     for item in items:
-        item.category = ((item.group_name or "").strip()
-                         or _CATEGORY_FALLBACK.get(item.kind, item.kind))
+        # Strict two-value category axis: raw source rows are "Data Element",
+        # everything calculated is "Derivative Indicator". group_name stays a
+        # separate grouping dimension (the chips) — it never leaks into the
+        # category filter, which supports exactly these two values.
+        item.category = _CATEGORY_FALLBACK.get(item.kind, item.kind)
 
     # ── filter options (computed from the full catalog, before filtering) ─
     categories = sorted({i.category for i in items if i.category})
@@ -713,13 +783,26 @@ def list_indicators(
     if kind:
         items = [i for i in items if i.kind == kind]
     if group:
-        items = [i for i in items if (i.group_name or "") == group]
+        # Group chips come from /indicators/groups, whose names are the
+        # explicit group name or the kind's category fallback ("Data
+        # Element"/"Derivative Indicator" for UNGROUPED rows). Matching on
+        # group_name alone made those fallback chips filter every row away;
+        # match the exact group name, plus ungrouped rows whose fallback
+        # label equals the chip name — keeping filter results in sync with
+        # the chip counts.
+        items = [
+            i for i in items
+            if (i.group_name or "").strip() == group
+            or (not (i.group_name or "").strip()
+                and group in _CATEGORY_FALLBACK.values()
+                and (i.category or "") == group)
+        ]
     if type:
         items = [i for i in items if (i.indicator_type or "") == type]
     if status:
         items = [i for i in items if i.status == status]
     if q:
-        needle = q.strip().lower()
+        needle = str(q).strip().lower()
 
         def _hay(i: IndicatorCatalogItem) -> str:
             return " ".join(str(x or "") for x in
@@ -830,6 +913,55 @@ def indicator_dependencies(code: str = Query(...),
         "formula_version": resolved.formula_version,
         "modules": indicator_service.dependencies(resolved),
     }
+
+
+@router.get("/groups", response_model=List[IndicatorCatalogGroupOut])
+def indicator_groups(db: Session = Depends(get_db)):
+    """Distinct groups of the catalog, with counts — the reuse surface for
+    other screens. Built DYNAMICALLY from the full catalog (raw + system
+    rates + derived, active and inactive): whatever groups exist are
+    reported, canonical clinical-domain groups first (see
+    app.engine.indicator_groups), then everything else alphabetically.
+    Any screen that wants "a group of indicators" — an audit scope, an
+    outlier set, a report section, a forecast board — filters the
+    catalog by these names; empty groups are never returned."""
+    # NB: never call the route function with only db= — the remaining
+    # parameters would keep their Query(None) sentinels, which are truthy
+    # and would filter the whole catalog away. Pass the filters explicitly.
+    catalog = list_indicators(q=None, category=None, kind=None, group=None,
+                              type=None, status=None, db=db)
+    agg: Dict[str, dict] = {}
+    for item in catalog.items:
+        name = ((item.group_name or "").strip()
+                or _CATEGORY_FALLBACK.get(item.kind, item.kind))
+        rec = agg.get(name)
+        if rec is None:
+            rec = agg[name] = {
+                "name": name, "total": 0, "active": 0,
+                "kinds": set(), "sites": set(), "types": set(),
+            }
+        rec["total"] += 1
+        if item.status == "active":
+            rec["active"] += 1
+        if item.kind:
+            rec["kinds"].add(item.kind)
+        if item.site:
+            rec["sites"].add(item.site)
+        if item.indicator_type:
+            rec["types"].add(item.indicator_type)
+    groups = [
+        IndicatorCatalogGroupOut(
+            name=rec["name"],
+            total=rec["total"],
+            active=rec["active"],
+            kinds=sorted(rec["kinds"]),
+            sites=sorted(rec["sites"]),
+            types=sorted(rec["types"]),
+        )
+        for rec in agg.values()
+    ]
+    groups.sort(key=lambda g: group_sort_key(g.name))
+    return groups
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -1052,27 +1052,48 @@ static_dir = os.path.join(BASE_DIR, "static")
 if os.path.isdir(static_dir):
     app.mount("/static", CachedStaticFiles(directory=static_dir), name="static")
 
-# بصمة إصدار تلقائية للملفات الثابتة: أي تعديل على أي ملف JS/CSS/HTML يغيّر
-# الرقم فتُعاد عناوين الأصول في index.html بمعامل ?v= جديد — فيجبر المتصفح
-# على جلب النسخ الحديثة بدل العمل بنسخ قديمة مخزنة (cache-busting نهائي).
+# بصمة إصدار لكل ملف على حدة: تعديل أي ملف JS/CSS يغيّر بصفته معامله ?v= فقط،
+# فيجبر المتصفح على جلب النسخة الحديثة بدل نسخة مخزنة قديمة (cache-busting نهائي).
+# كانت البصمة سابقاً رقمياً واحداً مشتركاً بين كل الأصول (أعلى mtime): ملف
+# أُعيدت كتابته لكن mtime أقدم من أخ ملف آخر ظل URL القديم له فيستعمل المتصفح
+# نسخة قديمة مخزنة — وهو ما فسّد جلسات auth.js أكثر من مرة.
 _STATIC_ASSET_RE = re.compile(
     r'(?P<url>/static/(?:js|css|vendor)/[^"\' ]+\.(?:js|css))(?P<query>\?[^"\' ]*)?'
 )
 
+_ASSET_VERSIONS: dict = {}
+_ASSET_SCAN_LATEST = 0.0
 
-def _static_assets_version() -> str:
+
+def _per_file_asset_versions() -> dict:
+    """Per-asset cache-busting stamps keyed by URL path.
+
+    The tree is rescanned only when the newest mtime changed — because any
+    write bumps an mtime to "now", that catches every edit, while keeping
+    repeated /dashboard requests cheap.
+    """
+    global _ASSET_VERSIONS, _ASSET_SCAN_LATEST
     latest = 0.0
+    versions: dict = {}
     try:
         for root, _, files in os.walk(static_dir):
             for f in files:
-                if f.endswith((".js", ".css", ".html")):
-                    try:
-                        latest = max(latest, os.path.getmtime(os.path.join(root, f)))
-                    except OSError:
-                        continue
+                if not f.endswith((".js", ".css")):
+                    continue
+                path = os.path.join(root, f)
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    continue
+                latest = max(latest, mtime)
+                rel = os.path.relpath(path, static_dir).replace("\\", "/")
+                versions["/static/" + rel] = str(int(mtime * 1000))
     except OSError:
         pass
-    return str(int(latest * 1000))
+    if latest != _ASSET_SCAN_LATEST or not _ASSET_VERSIONS:
+        _ASSET_SCAN_LATEST = latest
+        _ASSET_VERSIONS = versions
+    return _ASSET_VERSIONS
 
 
 @app.get("/dashboard")
@@ -1082,8 +1103,16 @@ def dashboard():
         return {"error": "Dashboard not found"}
     with open(index_path, encoding="utf-8") as fh:
         html = fh.read()
-    v = _static_assets_version()
-    html = _STATIC_ASSET_RE.sub(lambda m: m.group("url") + "?v=" + v, html)
+    versions = _per_file_asset_versions()
+
+    def _bust(match):
+        url = match.group("url")
+        # Editing one file only changes THAT file's stamp; unknown URLs fall
+        # back to the tree-wide newest stamp so nothing ever loses busting.
+        stamp = versions.get(url) or str(int(_ASSET_SCAN_LATEST * 1000) or 0)
+        return url + "?v=" + stamp
+
+    html = _STATIC_ASSET_RE.sub(_bust, html)
     return HTMLResponse(
         content=html,
         media_type="text/html",

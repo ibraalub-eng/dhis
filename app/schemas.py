@@ -255,6 +255,20 @@ class IndicatorListOut(BaseModel):
     types: List[str] = []
 
 
+class IndicatorCatalogGroupOut(BaseModel):
+    """One dynamic group of the catalog — a reusable work unit that other
+    screens (audit scopes, outlier sets, report sections, forecast boards…)
+    can select by name. Built from whatever the active catalog contains;
+    system definitions carry the canonical clinical-domain groups from
+    app.engine.indicator_groups, user definitions their own group_name."""
+    name: str
+    total: int = 0
+    active: int = 0
+    kinds: List[str] = []                # raw | rate_spec | derived
+    sites: List[str] = []                # zscore | clinical | forecast
+    types: List[str] = []
+
+
 class IndicatorValidateIn(BaseModel):
     """A definition draft plus optional preview scope."""
     draft: IndicatorDefinitionBase

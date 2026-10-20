@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 # إصدار مخطط الميزات: أي تغيير في بنية المتجه الفائق (تأخرات/فروق/ترتيب أعمدة)
 # يجب أن يرفع هذا الرقم ليبطل النماذج المحفوظة القديمة — البصمة وحدها لا تكفي
 # لأنها تعكس البيانات لا الكود.
-FEATURE_SCHEMA_VERSION = "2"  # v2: superset مع lag1/lag2 + delta_ لكل المؤشرات
+FEATURE_SCHEMA_VERSION = "3"  # v3: rate features are evaluated from the indicator registry
 
 # استمرارية النموذج: يُحفظ مجمّع XGBoost المدرب على القرص ويُعاد تدريبه فقط
 # عند تغيّر بيانات المصدر (بصمة البيانات) أو الشهر الحالي أو الإعدادات.
@@ -100,6 +100,7 @@ def _load_multi_month_data(
     session, months: List[str]
 ) -> Tuple[Dict[str, Any], List[str]]:
     from app.models import Hospital, IndicatorValue, Indicator
+    from app.engine.smart.indicator_forecast import indicator_rate_from_values
 
     hospitals = session.query(Hospital).filter(Hospital.is_active).all()
     indicators = session.query(Indicator).all()
@@ -121,15 +122,11 @@ def _load_multi_month_data(
                 if code and iv.value is not None:
                     indicator_values[code] = float(iv.value)
 
-            total_deliveries = indicator_values.get("2", 0)
-            cs_count = indicator_values.get("5")  # None إذا غاب المؤشر — لا صفر صامت
             live_births = indicator_values.get("6", 0)
 
+            cs_rate = indicator_rate_from_values("cs_rate", indicator_values)
             derived = {
-                # مقام صالح فقط: بلا ولادات/قيصرية صالحة => NaN (بيانات ناقصة)
-                # لا صفر صامت يُضلّل النموذج
-                "cs_rate": (cs_count / total_deliveries * 100)
-                           if (total_deliveries > 0 and cs_count is not None) else np.nan,
+                "cs_rate": cs_rate if cs_rate is not None else np.nan,
                 "smm_total": indicator_values.get("10", 0),
                 "mat_deaths": indicator_values.get("11", 0),
                 "nd": indicator_values.get("17", 0),
@@ -163,20 +160,47 @@ def _compute_derived_features(values: Dict[str, float]) -> Dict[str, float]:
     SimpleImputer (وسيط) في _build_supervised_dataset ويُتجاهل عبر .dropna()
     في governorate_analysis — فيُعلَّم «بيانات ناقصة» بدل «صفر» وهمي.
     """
-    total = values.get("total_births", 0)
-    derived = {}
-    valid = total is not None and total > 0
+    from app.engine.smart.indicator_forecast import (
+        INDICATOR_DEFS,
+        indicator_rate_from_values,
+    )
 
-    derived["cs_per_birth"] = values.get("cs_rate", 0) / 100.0 if valid else np.nan
-    derived["smm_per_1000"] = (values.get("smm_total", 0) / total * 1000) if valid else np.nan
-    derived["mat_mortality_rate"] = (values.get("mat_deaths", 0) / total * 100000) if valid else np.nan
-    derived["stillbirth_rate"] = (values.get("sb", 0) / total * 1000) if valid else np.nan
-    derived["preterm_rate"] = (values.get("preterm", 0) / total * 100) if valid else np.nan
-    derived["lbw_rate"] = (values.get("lbw", 0) / total * 100) if valid else np.nan
-    derived["high_risk_rate"] = (values.get("high_risk", 0) / total * 100) if valid else np.nan
-    derived["adolescent_rate"] = (values.get("adolescent", 0) / total * 100) if valid else np.nan
+    raw_values = dict(values)
+    for alias, definition in INDICATOR_DEFS.items():
+        numerator = definition["numerator"]
+        if (
+            definition["denominator"] is None
+            and len(numerator) == 1
+            and alias in values
+        ):
+            raw_values.setdefault(numerator[0], values[alias])
 
-    nd_per = (values.get("nd", 0) / total * 1000) if valid else np.nan
+    def _registered_rate(code: str) -> float:
+        result = indicator_rate_from_values(code, raw_values)
+        return float(result) if result is not None else np.nan
+
+    cs_rate = values.get("cs_rate")
+    total_births = values.get("total_births")
+    derived = {
+        "cs_per_birth": (
+            float(cs_rate) / 100.0
+            if (
+                cs_rate is not None
+                and np.isfinite(cs_rate)
+                and total_births is not None
+                and total_births > 0
+            )
+            else np.nan
+        ),
+        "smm_per_1000": _registered_rate("smm_per_1000"),
+        "mat_mortality_rate": _registered_rate("mat_mortality_rate"),
+        "stillbirth_rate": _registered_rate("stillbirth_rate"),
+        "preterm_rate": _registered_rate("preterm_rate"),
+        "lbw_rate": _registered_rate("lbw_rate"),
+        "high_risk_rate": _registered_rate("high_risk_rate"),
+        "adolescent_rate": _registered_rate("adolescent_rate"),
+    }
+    nd_per = _registered_rate("nd_per_1000")
     derived["cs_x_highrisk"] = derived["cs_per_birth"] * derived["high_risk_rate"]
     derived["preterm_x_lbw"] = derived["preterm_rate"] * derived["lbw_rate"]
     derived["smm_x_matdeaths"] = derived["smm_per_1000"] * derived["mat_mortality_rate"]
@@ -1017,6 +1041,8 @@ def run_xgboost_predictions(
         for r in ensemble_results
     ]
 
+    wf_r2 = None
+    wf_mae = None
     if walk_forward:
         wf_r2 = float(np.mean([f["r2"] for f in walk_forward]))
         wf_mae = float(np.mean([f["mae"] for f in walk_forward]))
@@ -1033,6 +1059,29 @@ def run_xgboost_predictions(
         f"Model loaded from disk (trained at {trained_at}, variant {variant_label})." if not retrained
         else f"Retrained on data fingerprint {fingerprint}, best feature set {variant_label} (via walk-forward R²)."
     )
+    n_categorical = len(encoder.get_feature_names_out(['governorate', 'hospital_type']))
+    # نفس محتوى الفقرة الإنجليزية أعلاه لكن كأرقام منظّمة، لتبنيها الواجهة
+    # بلغة المستخدم بدل عرض نص إنجليزي طويل داخل واجهة عربية.
+    note_facts = {
+        "ensemble_models": len(ENSEMBLE_CONFIGS),
+        "best_model": ensemble_results[best_idx]["name"],
+        "best_r2": round(float(best_r2), 3),
+        "best_mae": round(float(best_mae), 3),
+        "classifier_accuracy": round(float(clf_accuracy), 4),
+        "training_months": len(train_months),
+        "hospitals_trained": len(hospital_names),
+        "labeled_rows": len(X_defined),
+        "n_features": len(feature_names),
+        "n_base_features": len(FEATURE_KEYS),
+        "n_derived_features": len(feature_names) - len(FEATURE_KEYS) - n_categorical,
+        "feature_variant": variant_label,
+        "walk_forward_folds": len(walk_forward),
+        "walk_forward_mean_r2": None if wf_r2 is None else round(wf_r2, 3),
+        "walk_forward_mean_mae": None if wf_mae is None else round(wf_mae, 3),
+        "retrained": bool(retrained),
+        "trained_at": trained_at,
+        "data_fingerprint": fingerprint,
+    }
     accuracy_note = (
         f"Ensemble of {len(ENSEMBLE_CONFIGS)} models | "
         f"Best: {ensemble_results[best_idx]['name']} (R²={best_r2:.3f}, MAE={best_mae:.3f}) | "
@@ -1067,4 +1116,5 @@ def run_xgboost_predictions(
         walk_forward=walk_forward,
         fold_predictions=fold_predictions,
         feature_variant=feature_variant,
+        note_facts=note_facts,
     )

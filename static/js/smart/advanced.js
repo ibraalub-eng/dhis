@@ -394,41 +394,80 @@ export function renderIndicatorForecast(d) {
   if (!rows.length && !un.length) html += `<div class="smart-empty-state">${_t('No data for this period. Upload data and try again.')}</div>`;
   // خطوط المسار لكل المستشفيات المختارة على رسم واحد
   if (rows.some(h => (h.points || []).length)) {
-    html += `<div id="smart-indicator-forecast-plot" style="min-height:280px;margin-top:0.5rem;"></div>`;
+    html += `<div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.5rem;">` +
+      `${_t('Solid line = actual, dashed line = forecast')} · ${_t('The dotted vertical line marks the base month')}</div>` +
+      `<div id="smart-indicator-forecast-plot" style="min-height:300px;margin-top:0.4rem;"></div>`;
   }
   html += `<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem;">${_smartEscapeHtml(d.note || '')}</div>`;
   html += `<div class="smart-empty-state" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.3rem;">${_t('All forecasts are statistical estimates, not certain predictions')}</div>`;
   out.innerHTML = html;
   if (rows.some(h => (h.points || []).length)) {
     const palette = ['#6366f1', '#ef4444', '#22c55e', '#f59e0b', '#06b6d4', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#84cc16', '#3b82f6', '#94a3b8'];
-    const traces = rows.filter(h => (h.points || []).length).map((h, i) => {
-      const months = (h.series || []).map(s => s.month).concat(h.points.map(p => p.month));
-      const vals = (h.series || []).map(s => s.value).concat(h.points.map(p => p.value));
-      const nHist = (h.series || []).length;
-      const split = Math.max(1, nHist - 1);
-      return {
-        type: 'scatter', mode: 'lines+markers', x: months, y: vals,
-        name: h.hospital_name,
-        line: { color: palette[i % palette.length], width: 2 },
-        marker: { size: 5 },
-        // الفاصل التاريخ/توقع: نقطة صلبة للتاريخ، مفرغة للتوقع عبر وضعين
-        text: months.map((m, j) => `${h.hospital_name}<br>${m}<br>${_t('Expected')}: ${vals[j]}`),
-        hovertemplate: '%{text}<extra></extra>',
-        _split: split,
-      };
+    // خطان مختلفان لكل مستشفى: «الفعلي» متصل بنقاط ممتلئة، و«المتوقع» متقطع
+    // بنقاط مفرغة، فالمستشفى يميّزه اللون والفعلي/المتوقع يميّزه نمط الخط.
+    const draw = rows.filter(h => (h.series || []).length || (h.points || []).length);
+    const allVals = [];
+    draw.forEach(h => {
+      (h.series || []).forEach(s => allVals.push(s.value));
+      (h.points || []).forEach(p => {
+        allVals.push(p.value);
+        if (p.lower != null) allVals.push(p.lower);
+        if (p.upper != null) allVals.push(p.upper);
+      });
     });
-    // أول مقطع تاريخي (خط متصل) ثم توقع (خط متقطع) لكل مستشفى
+    const nums = allVals.filter(v => typeof v === 'number' && isFinite(v));
+    let yMin = nums.length ? Math.min(...nums) : 0;
+    let yMax = nums.length ? Math.max(...nums) : 1;
+    const pad = Math.max((yMax - yMin) * 0.08, Math.abs(yMax) * 0.02, 0.01);
+    yMin -= pad; yMax += pad;
     const finalTraces = [];
-    traces.forEach(t => {
-      const histN = (t._split || 0) + 1;
-      finalTraces.push({ ...t, x: t.x.slice(0, histN), y: t.y.slice(0, histN), mode: 'lines+markers', line: { ...t.line, dash: 'solid' }, showlegend: true });
-      finalTraces.push({ ...t, x: t.x.slice(Math.max(0, histN - 1)), y: t.y.slice(Math.max(0, histN - 1)), mode: 'lines+markers', line: { ...t.line, dash: 'dot' }, showlegend: false });
+    draw.forEach((h, i) => {
+      const color = palette[i % palette.length];
+      const hist = (h.series || []).map(s => ({ month: s.month, value: s.value }));
+      const histText = hist.map(p => `${h.hospital_name}<br>${p.month}<br>${_t('Actual')}: ${p.value}`);
+      if (hist.length) {
+        finalTraces.push({
+          type: 'scatter', mode: 'lines+markers',
+          x: hist.map(p => p.month), y: hist.map(p => p.value),
+          name: `${h.hospital_name} — ${_t('Actual')}`,
+          line: { color, width: 2.4, dash: 'solid' },
+          marker: { size: 5, color },
+          text: histText,
+          hovertemplate: '%{text}<extra></extra>',
+        });
+      }
+      const fc = h.points || [];
+      if (fc.length) {
+        // يبدأ خط التوقع من آخر نقطة فعلية فيلتحم الخطان عند الشهر الأساس
+        const anchor = hist.length ? [hist[hist.length - 1]] : [];
+        const path = anchor.concat(fc.map(p => ({ month: p.month, value: p.value, lower: p.lower, upper: p.upper })));
+        finalTraces.push({
+          type: 'scatter', mode: 'lines+markers',
+          x: path.map(p => p.month), y: path.map(p => p.value),
+          name: `${h.hospital_name} — ${_t('Expected')}`,
+          line: { color, width: 2, dash: 'dash' },
+          marker: { size: 7, symbol: 'diamond-open', color },
+          text: path.map(p => (p.lower != null
+            ? `${h.hospital_name}<br>${p.month}<br>${_t('Expected')}: ${p.value} (${p.lower}–${p.upper})`
+            : `${h.hospital_name}<br>${p.month}<br>${_t('Actual')}: ${p.value}`)),
+          hovertemplate: '%{text}<extra></extra>',
+        });
+      }
     });
+    // فاصل الشهر الأساس: يساره فعلي مسجّل ويمينه متوقع
+    if (d.base_month) {
+      finalTraces.push({
+        type: 'scatter', mode: 'lines',
+        x: [d.base_month, d.base_month], y: [yMin, yMax],
+        line: { color: '#94a3b8', width: 1, dash: 'dot' },
+        hoverinfo: 'skip', showlegend: false,
+      });
+    }
     renderPlot('smart-indicator-forecast-plot', finalTraces, {
-      margin: { t: 15, b: 40, l: 55, r: 15 }, height: 280,
+      margin: { t: 15, b: 55, l: 55, r: 15 }, height: 300,
       xaxis: { tickfont: { size: 9 } },
-      yaxis: { title: { text: indLabel, font: { size: 9 } }, gridcolor: '#f0f0f0' },
-      showlegend: true, legend: { font: { size: 9 } },
+      yaxis: { title: { text: indLabel, font: { size: 9 } }, gridcolor: '#f0f0f0', range: [yMin, yMax] },
+      showlegend: true, legend: { font: { size: 9 }, orientation: 'h', y: -0.28, x: 0.5, xanchor: 'center' },
     });
   }
 }
@@ -588,14 +627,9 @@ async function _showLatestModelInfo(currentMonth) {
       const c = document.getElementById('smart-xgboost-predictions');
       if (c) {
         const xgb = d.xgboost;
-        c.innerHTML = `<div class="smart-empty-state" style="margin-bottom:0.5rem;">
+        c.innerHTML = `<div style="margin-bottom:0.5rem;">
           <div style="font-weight:600;margin-bottom:0.3rem;">${_t('Latest model')} (${_smartEscapeHtml(latest)})</div>
-          <div style="font-size:0.78rem;color:var(--text-muted);">${_smartEscapeHtml(xgb.accuracy_note || '')}</div>
-          <div style="font-size:0.78rem;margin-top:0.3rem;">
-            <span>${_t('R²')}: ${_fmtNum(xgb.model_r2, 3)}</span> · 
-            <span>${_t('MAE')}: ${_fmtNum(xgb.model_mae, 3)}</span> · 
-            <span>${_t('Trained on')}: ${xgb.training_months} ${_t('months')}, ${xgb.hospitals_trained} ${_t('hospitals')}</span>
-          </div>
+          ${_modelInfoHtml(xgb)}
         </div>`;
       }
     }
@@ -813,19 +847,68 @@ function _renderStratifiedChart(indicator) {
   if (textEl) textEl.textContent = `${significant} ${_t('of')} ${filtered.length} ${_t('hospitals deviate >15% from peer average')}`;
 }
 
+// ── بطاقة النموذج ─────────────────────────────────────────────────────────
+// الخادم يرسل فقرة إنجليزية واحدة (accuracy_note) وأرقاماً منظّمة (note_facts).
+// في الواجهة العربية نبني من الأرقام ملخصاً عربياً ونعزل كل قيمة لاتينية/رقمية
+// داخل <bdi dir="ltr">، وإلا خلطت خوارزمية الاتجاه الأرقام والنصوص فظهرت
+// سطور مثل «8 مشافي,18 أشهر,R²: 0.019» مبعثرة.
+function _isArabicUi() {
+  return (document.documentElement.lang || '').toLowerCase().startsWith('ar');
+}
+
+function _ltr(v) {
+  return `<bdi dir="ltr" style="unicode-bidi:isolate;">${_smartEscapeHtml(String(v))}</bdi>`;
+}
+
+function _fact(label, value) {
+  return `<span style="white-space:nowrap;"><span style="color:var(--text-muted);">${_smartEscapeHtml(label)}:</span> ${value}</span>`;
+}
+
+function _modelInfoHtml(xgb) {
+  const f = xgb.note_facts || null;
+  const arabic = _isArabicUi();
+  const stats = `<div style="display:flex;flex-wrap:wrap;gap:0.25rem 0.9rem;margin-top:0.35rem;font-size:0.78rem;direction:${arabic ? 'rtl' : 'ltr'};">` +
+    `<span>${_t('R²')}: ${_ltr(_fmtNum(xgb.model_r2, 3))}</span>` +
+    `<span>${_t('MAE')}: ${_ltr(_fmtNum(xgb.model_mae, 3))}</span>` +
+    `<span>${_t('Trained on')}: ${_ltr(`${xgb.training_months} ${_t('months')}, ${xgb.hospitals_trained} ${_t('hospitals')}`)}</span></div>`;
+  // الإنجليزية: الفقرة التقنية كما هي (LTR فلا مشكلة اتجاه).
+  if (!arabic && xgb.accuracy_note) {
+    return `<div class="smart-empty-state" style="margin-bottom:0.5rem;">
+      <div style="font-size:0.78rem;color:var(--text-muted);">${_smartEscapeHtml(xgb.accuracy_note)}</div>${stats}</div>`;
+  }
+  if (!f || !f.ensemble_models) {
+    // لا أرقام منظّمة (نموذج قديم/محفوظ): نكتفي بالإحصاءات القصيرة بدل الفقرة الإنجليزية.
+    return `<div class="smart-empty-state" style="margin-bottom:0.5rem;">${stats}</div>`;
+  }
+  const facts = [];
+  facts.push(_fact(_t('Model ensemble'), `${_ltr(f.ensemble_models)} ${_t('models')}`));
+  facts.push(_fact(_t('Best model'), `${_ltr(f.best_model)} (R²=${_ltr(_fmtNum(f.best_r2, 3))}, MAE=${_ltr(_fmtNum(f.best_mae, 3))})`));
+  if (f.classifier_accuracy != null) facts.push(_fact(_t('Classifier accuracy'), _ltr(`${(f.classifier_accuracy * 100).toFixed(1)}%`)));
+  facts.push(_fact(_t('Training data'), `${_ltr(`${f.training_months} ${_t('months')}`)} · ${_ltr(`${f.hospitals_trained} ${_t('hospitals')}`)} · ${_ltr(`${f.labeled_rows} ${_t('labeled rows')}`)}`));
+  if (f.n_features) {
+    facts.push(_fact(_t('Features'), `${_ltr(f.n_features)} (${_ltr(`${f.n_base_features} ${_t('base')}`)} + ${_ltr(`${f.n_derived_features} ${_t('derived')}`)} + ${_t('categorical')})`));
+  }
+  if (f.walk_forward_folds) {
+    facts.push(_fact(_t('Walk-forward'), `${_ltr(`${f.walk_forward_folds} ${_t('folds')}`)} · ${_t('mean')} R² ${_ltr(_fmtNum(f.walk_forward_mean_r2, 3))} · MAE ${_ltr(_fmtNum(f.walk_forward_mean_mae, 3))}`));
+  }
+  if (f.retrained) {
+    facts.push(_fact(_t('Data fingerprint'), `${_ltr(f.data_fingerprint)} (${_t('feature set')}: ${_ltr(f.feature_variant)})`));
+  } else if (f.trained_at) {
+    facts.push(_fact(_t('Loaded from disk'), `${_t('trained at')} ${_ltr(f.trained_at)}`));
+  }
+  return `<div class="smart-empty-state" style="margin-bottom:0.5rem;">
+    <div style="display:flex;flex-wrap:wrap;gap:0.25rem 0.9rem;font-size:0.78rem;color:var(--text-muted);line-height:1.9;direction:rtl;">${facts.join('')}</div>
+    ${stats}
+    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;">${_t('Predictions are estimates based on historical patterns.')}</div>
+  </div>`;
+}
+
 // Panel `models` body: the model-info header + the predictions table.
 export function renderXGBoostPredictions(xgb) {
   const pred = xgb.predictions || [];
   const c = document.getElementById('smart-xgboost-predictions');
   if (!c) return;
-  const modelInfo = xgb.accuracy_note ? `<div class="smart-empty-state" style="margin-bottom:0.5rem;">
-    <div style="font-size:0.78rem;color:var(--text-muted);">${_smartEscapeHtml(xgb.accuracy_note)}</div>
-    <div style="font-size:0.78rem;margin-top:0.3rem;">
-      <span>${_t('R²')}: ${_fmtNum(xgb.model_r2, 3)}</span> · 
-      <span>${_t('MAE')}: ${_fmtNum(xgb.model_mae, 3)}</span> · 
-      <span>${_t('Trained on')}: ${xgb.training_months} ${_t('months')}, ${xgb.hospitals_trained} ${_t('hospitals')}</span>
-    </div>
-  </div>` : '';
+  const modelInfo = (xgb.accuracy_note || xgb.note_facts) ? _modelInfoHtml(xgb) : '';
   if (!pred.length) {
     c.innerHTML = modelInfo + `<div class="smart-empty-state">${_t('Not enough predictions for this month')}</div>`;
     return;
@@ -930,3 +1013,7 @@ function _riskLevel(score) {
   const cls = score >= 0.6 ? 'smart-badge smart-badge-critical' : score >= 0.3 ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-normal';
   return `<span class="${cls}">${_smartEscapeHtml(label)}</span>`;
 }
+
+// Forecast action board table (rendered on the Smart Forecast screen, lazy panel)
+function renderActionBoard(board) { const c=document.getElementById("smart-action-board"); const empty=document.getElementById("smart-action-board-empty"); if(!c)return; if(!board||!Array.isArray(board.items)||!board.items.length){ c.innerHTML=""; if(empty) empty.style.display=""; return; } if(empty) empty.style.display="none"; const headers=[_t("Hospital"),_t("Axis"),_t("Direction"),_t("Expected"),_t("Range"),_t("Risk"),_t("Severity"),_t("Confidence"),_t("Recommendation")]; const rows=board.items.map(it=>{ const dir=it.direction||"stable"; const dirLabel=dir==="rising"?_t("Rising"):(dir==="falling"?_t("Falling"):_t("Stable")); const sev=(it.severity||"").toLowerCase(); const sevClass=sev==="critical"?"smart-badge-critical":(sev==="warning"?"smart-badge-warning":(sev==="normal"?"smart-badge-normal":"smart-badge-info")); const rec=it.recommendation||""; const drill=it.drilldown||{}; const link=drill.hospital_id?`<a href="#" data-action="open-hospital" data-hid="${_smartEscapeHtml(String(drill.hospital_id))}">${_smartEscapeHtml(it.hospital||"")}</a>`:_smartEscapeHtml(it.hospital||""); return `<tr><td>${link}</td><td>${_smartEscapeHtml(it.axis||"")}</td><td>${dirLabel}</td><td>${it.expected!=null?_fmtNum(it.expected,3):"—"}</td><td>${it.lower!=null&&it.upper!=null?_fmtNum(it.lower,3)+"–"+_fmtNum(it.upper,3):"—"}</td><td>${it.risk_score!=null?_fmtNum(it.risk_score,3):"—"}</td><td><span class="smart-badge ${sevClass}">${_t(sev)}</span></td><td>${it.confidence!=null?Math.round(it.confidence*100)+"%":"—"}</td><td style="font-size:0.75rem;">${_smartEscapeHtml(rec)}</td></tr>`; }).join(""); c.innerHTML=`<div class="smart-table-wrap"><table><thead><tr>${headers.map(h=>"<th>"+_smartEscapeHtml(h)+"</th>").join("")}</tr></thead><tbody>${rows}</tbody></table></div>`; c.querySelectorAll("[data-action=open-hospital]").forEach(a=>{ a.addEventListener("click",e=>{ e.preventDefault(); const hid=a.getAttribute("data-hid"); if(hid){ const sel=document.getElementById("smart-forecast-hospital-select"); if(sel){ sel.value=hid; sel.dispatchEvent(new Event("change",{bubbles:true})); } document.querySelectorAll(".smart-forecast-tab-btn").forEach(b=>{ if(b.dataset.forecastTab==="hospital") b.click(); }); } }); }); }
+export { renderActionBoard };

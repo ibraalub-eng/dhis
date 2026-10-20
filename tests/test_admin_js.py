@@ -104,6 +104,21 @@ def test_admin_user_edit_fills_direct_permissions():
     assert "data.direct_permissions" in js
 
 
+def test_admin_warns_when_user_has_no_hospital_scope():
+    """A user with no hospital assignment and no unrestricted grant is scoped
+    to zero hospitals and sees empty dashboards. The users panel must surface
+    that state (banner + per-row badge) instead of staying silent, and the
+    assignment modal must no longer claim that empty means all hospitals."""
+    js = _read("admin.js")
+    assert "adminNoScopeWarning" in js
+    assert "unrestricted_hospitals" in js
+    assert "hospital_count" in js
+    assert "hospAssignNoneWarning" in js
+    # Stale, now-dangerous hint must be gone: empty means NO access.
+    assert "Leave empty = all hospitals" not in js
+    assert "Empty selection = no hospital access" in js
+
+
 def test_admin_users_roles_permissions_are_separate_tabs():
     """Users, Roles, and Permissions must be separate admin tab buttons
     backed by distinct sub-panels (no longer one combined Users & Roles tab)."""

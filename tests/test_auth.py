@@ -213,6 +213,54 @@ def test_refresh_token(client, db_session):
     assert "access_token" in resp.json()
 
 
+def test_refresh_single_use_rotation_matches_cross_tab_reality(client, db_session):
+    """The race that broke logins: two tabs share one stored refresh token.
+
+    Tab A rotates it (200). Tab B then reuses the STALE token — the server
+    MUST still reject it (single-use rotation is intentional security), and
+    the rejection must say "revoked" so the frontend can tell "another tab
+    rotated for me" (heal: adopt the new token) apart from "dead session".
+    """
+    from app.models import SessionLog
+    _seed_user(db_session)
+    login_resp = client.post("/auth/login", json={
+        "username": "testuser", "password": "test123", "remember_me": True})
+    first = login_resp.json()["refresh_token"]
+
+    rotated = client.post("/auth/refresh", json={"refresh_token": first})
+    assert rotated.status_code == 200
+    second = rotated.json()["refresh_token"]
+    assert second != first
+
+    reused = client.post("/auth/refresh", json={"refresh_token": first})
+    assert reused.status_code == 401
+    assert "revo" in reused.json()["detail"].lower()
+
+    # But the CURRENT rotated token still refreshes — a healed tab works.
+    healed = client.post("/auth/refresh", json={"refresh_token": second})
+    assert healed.status_code == 200
+
+    # Rotation keeps the remember-me window (claim "rm" round-trips).
+    payload = decode_token(second)
+    assert payload.get("rm") is True
+
+    # Refresh events are logged so /auth/sessions counts online users.
+    events = db_session.query(SessionLog).filter(
+        SessionLog.event == "refresh").all()
+    assert len(events) >= 1
+
+
+def test_refresh_preserves_default_window_without_remember_me(client, db_session):
+    """A plain login (no remember-me) rotates to a plain refresh token."""
+    _seed_user(db_session)
+    login_resp = client.post("/auth/login", json={
+        "username": "testuser", "password": "test123", "remember_me": False})
+    first = login_resp.json()["refresh_token"]
+    rotated = client.post("/auth/refresh", json={"refresh_token": first})
+    assert rotated.status_code == 200
+    assert decode_token(rotated.json()["refresh_token"]).get("rm") is False
+
+
 def test_refresh_revoked_token(client, db_session):
     _seed_user(db_session)
     login_resp = client.post("/auth/login", json={"username": "testuser", "password": "test123"})

@@ -124,7 +124,8 @@ def test_fragment_has_catalog_and_builder_and_drawer():
     for el_id in (
         # catalog toolbar
         "indSearch", "indCategoryFilter", "indTypeFilter",
-        "indStatusFilter", "indCount", "btnNewIndicator", "btnRecomputeAll",
+        "indStatusFilter", "indGroupChips", "indCount",
+        "btnNewIndicator", "btnRecomputeAll",
         "indTbody",
         # detail drawer
         "indDrawerOverlay", "indDrawer", "indDrawerBody",

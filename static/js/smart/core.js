@@ -207,6 +207,15 @@ export function registerSectionLoaders(registry) {
 function runSectionLoader(key) {
   const entryItem = _sectionRegistry[key];
   if (!entryItem || typeof entryItem.load !== 'function') return;
+  // لا قسم يُحمَّل قبل معرفة الشهر: الطلب المبكر كان يبني مساراً مثل
+  // /smart/analysis-indicators/null فيرسم جدولاً فارغاً فوق بيانات صحيحة.
+  if (!smartState.month) return;
+  // المنطقة المرصودة هي شريحة التحميل نفسها؛ إظهارها أثناء التحميل يُنتج
+  // تقاطعاً جديداً فيُكرَّر الجلب — نفصلها بمجرد أن يبدأ القسم.
+  if (_sectionObserver) {
+    const chip = document.querySelector(`[data-smart-loader="${key}"]`);
+    if (chip) _sectionObserver.unobserve(chip);
+  }
   _loadedKeys.add(key);
   setSmartLoader(key, true);
   entryItem.load().catch(() => {}).finally(() => setSmartLoader(key, false));
@@ -215,8 +224,19 @@ function runSectionLoader(key) {
 // Reload sections whose data is tied to the current month (CRIT-1: month change
 // must refresh anomaly/geo/advanced/forecast/timeline content), and re-arm the
 // IntersectionObserver so not-yet-loaded sections pick up the new month lazily.
+// Run the loader of every section that is currently laid out on screen.
+export function runVisibleSectionLoaders() {
+  document.querySelectorAll('[data-smart-loader]').forEach(el => {
+    const key = el.getAttribute('data-smart-loader');
+    // المحمَّل سابقاً يُعاد عبر reloadSmartSections فقط، لا هنا — وإلا تكرّر الجلب.
+    if (key && !_loadedKeys.has(key) && _sectionIsLaidOut(el)) runSectionLoader(key);
+  });
+}
+
 export function reloadSmartSections() {
   _loadedKeys.forEach(key => runSectionLoader(key));
+  // الأقسام المفتوحة التي لم تُحمَّل بعد (لأنها انتظرت الشهر) تبدأ الآن.
+  runVisibleSectionLoaders();
   if (_sectionObserver) {
     document.querySelectorAll('[data-smart-loader]').forEach(el => {
       const key = el.getAttribute('data-smart-loader');
@@ -228,6 +248,20 @@ export function reloadSmartSections() {
 // IntersectionObserver: lazily load each registered section when visible.
 // IMP-1: when a collapsible section is re-opened after being collapsed (and its
 // Plotly charts purged), re-run that section's loaders.
+// A section can only load if its subtree is actually laid out: a closed
+// card, a hidden mode panel or the hidden report block all keep it out of
+// flow (the loader chip itself is display:none until it becomes active).
+function _sectionIsLaidOut(el) {
+  // يبدأ الفحص من الأب: شريحة التحميل نفسها hidden (.smart-loader) حتى تصبح
+  // active، وفحصها هي كان يجعل كل قسم يُعدّ «غير معروض» فلا يُحمَّل أبداً.
+  let node = el.parentElement;
+  while (node && node !== document.body && node !== document.documentElement) {
+    if (getComputedStyle(node).display === 'none') return false;
+    node = node.parentElement;
+  }
+  return true;
+}
+
 export function initSectionObserver() {
   if (_sectionObserver) _sectionObserver.disconnect();
   const observer = new IntersectionObserver((entries) => {
@@ -252,7 +286,14 @@ export function initSectionObserver() {
         if (key) runSectionLoader(key);
       });
     });
+    // Cards that start open get no smart-section-opened click, so mode
+    // panels (time/hospital start display:none) kick their loaders on switch.
+    document.addEventListener('smart-mode-changed', runVisibleSectionLoaders);
   }
+  // Sections already on screen at init must start themselves — the observer
+  // alone would wait for an intersection change that a display:none loader
+  // chip can never produce.
+  runVisibleSectionLoaders();
   return observer;
 }
 

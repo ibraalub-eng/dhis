@@ -180,6 +180,31 @@ window._adminAssignHospitals = function(id, btn) {
     var roles = rolesData.roles || [];
     var perms = permsData.permissions || [];
 
+    // Empty hospital assignment is NOT "all hospitals": a non-superuser with
+    // no assignment and no hospitals.unrestricted grant is scoped to ZERO
+    // hospitals, so every dashboard renders blank. Surface that state here
+    // instead of leaving the user to guess why they see no data.
+    var noScopeUsers = users.filter(function(u) {
+      return u.is_active !== false && !u.is_superuser &&
+        !u.unrestricted_hospitals && !(u.hospital_count > 0);
+    });
+
+    function _hospAccessCell(u) {
+      if (u.is_superuser) {
+        return '<span style="color:var(--accent-purple);font-weight:600;" title="' +
+          esc(__('Superadmin: sees every hospital')) + '">\u2605 ' + esc(__('All hospitals')) + '</span>';
+      }
+      if (u.unrestricted_hospitals) {
+        return '<span style="color:var(--accent-green);font-weight:600;">' + esc(__('All hospitals')) + '</span>';
+      }
+      if ((u.hospital_count || 0) > 0) {
+        return '<span style="color:var(--accent-blue);">' + u.hospital_count + ' ' + esc(__('hospitals')) + '</span>';
+      }
+      return '<span style="color:var(--accent-red);font-weight:700;" title="' +
+        esc(__('No hospitals assigned and no unrestricted grant — this user sees empty dashboards.')) +
+        '">\u26a0 ' + esc(__('No access')) + '</span>';
+    }
+
     container.innerHTML = `
       <div style="padding:1rem;">
         <!-- KPI Summary -->
@@ -209,6 +234,15 @@ window._adminAssignHospitals = function(id, btn) {
         <div id="adminUsersSubPanel">
         <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">User Management</h2>
         <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Create, edit, and deactivate user accounts. Assign roles and direct permissions to control access.</p>
+        ${noScopeUsers.length ? `
+        <div id="adminNoScopeWarning" style="margin-bottom:1rem;padding:0.8rem 1rem;border-radius:8px;border:1px solid #fcd34d;border-left:5px solid #d97706;background:#fffbeb;color:#92400e;">
+          <div style="font-weight:700;font-size:0.9rem;margin-bottom:0.25rem;">\u26a0 ${__('Active users with no hospital access')}: ${noScopeUsers.length}</div>
+          <div style="font-size:0.82rem;margin-bottom:0.5rem;">${__('These users have no hospitals assigned and no unrestricted grant, so they will see empty dashboards:')}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:0.35rem;">${noScopeUsers.map(function(u) {
+            return '<button class="btn btn-sm btn-outline" data-username="' + esc(u.username) + '" onclick="window._adminAssignHospitals(' + u.id + ', this)" style="font-size:0.75rem;padding:0.1rem 0.5rem;border-color:#d97706;color:#92400e;">' + esc(u.username) + ' \u2192</button>';
+          }).join('')}</div>
+          <div style="font-size:0.75rem;margin-top:0.45rem;">${__('Open Hospitals for each user to assign hospitals or grant unrestricted access.')}</div>
+        </div>` : ''}
           <div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
               <h3 style="color:var(--accent-blue);margin:0;">Users (${users.length}) <span class="admin-chip">${users.filter(function(u){ return u.is_active !== false; }).length} ${__('active')}</span></h3>
@@ -223,6 +257,7 @@ window._adminAssignHospitals = function(id, btn) {
                     <th style="padding:0.4rem;text-align:left;">Email</th>
                     <th style="padding:0.4rem;text-align:left;">Roles</th>
                     <th style="padding:0.4rem;text-align:left;">Permissions</th>
+                    <th style="padding:0.4rem;text-align:left;">${__('Hospital Access')}</th>
                     <th style="padding:0.4rem;text-align:left;">Status</th>
                     <th style="padding:0.4rem;text-align:left;">Actions</th>
                   </tr>
@@ -235,6 +270,7 @@ window._adminAssignHospitals = function(id, btn) {
                       <td style="padding:0.4rem;color:var(--text-secondary);">${esc(u.email)}</td>
                       <td style="padding:0.4rem;">${u.roles.map(r => '<span style="background:var(--bg-surface-hover);color:var(--accent-purple);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;margin-right:0.2rem;">' + esc(r.name) + '</span>').join('')}</td>
                       <td style="padding:0.4rem;">${(u.direct_permissions || []).map(p => '<span class="admin-user-perm" title="Direct">' + esc(p.codename) + '</span>').join('') || '<span style="color:var(--text-muted);font-size:0.75rem;">—</span>'}</td>
+                      <td style="padding:0.4rem;">${_hospAccessCell(u)}</td>
                       <td style="padding:0.4rem;">${u.is_active ? '<span style="color:var(--accent-green);">Active</span>' : '<span style="color:var(--accent-red);">Inactive</span>'}</td>
                       <td style="padding:0.4rem;">
                         <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})" style="font-size:0.72rem;">Edit</button>
@@ -810,8 +846,9 @@ window._adminAssignHospitals = function(id, btn) {
       'analysis': { label: 'Hospital Comparisons' },
       'clinical': { label: 'Clinical Intelligence' },
       'outliers': { label: 'Outlier Scan' },
-      'alerts': { label: 'Alerts' },
-      'indicator-tree': { label: 'Indicator Tree' },
+      'alerts': { label: 'Validation Alerts' },
+      'indicator-tree': { label: 'Data Tree' },
+      'indicator-groups': { label: 'Data Group' },
       'rules-manager': { label: 'Validation Rules' },
       'root-cause': { label: 'Root Cause' },
       'audit': { label: 'Audit' },
@@ -909,8 +946,9 @@ window._adminAssignHospitals = function(id, btn) {
       div.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;';
       div.innerHTML = '<div style="background:var(--bg-surface);border-radius:8px;padding:1.5rem;max-width:500px;width:90%;max-height:80vh;display:flex;flex-direction:column;">' +
         '<h3 style="color:var(--accent-blue);margin-bottom:0.5rem;">Assign Hospitals — <span id="hospAssignUser"></span></h3>' +
-        '<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.8rem;">Leave empty = all hospitals (no restriction)</div>' +
+        '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.8rem;">' + __('Empty selection = no hospital access. Check All Hospitals (no restriction) to allow every hospital.') + '</div>' +
         '<div id="hospAssignList" style="flex:1;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.5rem;max-height:50vh;"></div>' +
+        '<div id="hospAssignNoneWarning" style="display:none;color:var(--accent-red);font-size:0.8rem;font-weight:600;margin-top:0.5rem;">\u26a0 ' + __('No hospitals selected — this user will see empty dashboards.') + '</div>' +
         '<div id="hospAssignError" style="color:var(--accent-red);font-size:0.82rem;margin-top:0.5rem;display:none;"></div>' +
         '<div style="display:flex;gap:0.5rem;margin-top:1rem;justify-content:flex-end;">' +
           '<button class="btn btn-outline" onclick="document.getElementById(\'hospAssignModal\').style.display=\'none\'">Cancel</button>' +
@@ -961,6 +999,7 @@ window._adminAssignHospitals = function(id, btn) {
 
   window._hospAssignToggleAll = function(checked) {
     document.querySelectorAll('.hospAssignCb').forEach(function(cb) { cb.checked = checked; });
+    window._hospAssignUpdateAll();
   };
 
   window._hospAssignUpdateAll = function() {
@@ -969,6 +1008,10 @@ window._adminAssignHospitals = function(id, btn) {
     if (!allCb || !cbs.length) return;
     var allChecked = Array.from(cbs).every(function(cb) { return cb.checked; });
     allCb.checked = allChecked;
+    // Empty selection means NO hospitals, so warn before saving blindly.
+    var noneChecked = !Array.from(cbs).some(function(cb) { return cb.checked; });
+    var warnEl = document.getElementById('hospAssignNoneWarning');
+    if (warnEl) warnEl.style.display = noneChecked ? 'block' : 'none';
   };
 
   window._saveHospAssign = async function() {
@@ -996,7 +1039,11 @@ window._adminAssignHospitals = function(id, btn) {
         return;
       }
       modal.style.display = 'none';
-      toastSuccess(resp.message || 'Hospitals updated');
+      if (!resp.unrestricted && !(resp.hospital_count > 0)) {
+        toastWarning(__('No hospitals assigned — this user will see empty dashboards.'));
+      } else {
+        toastSuccess(resp.message || 'Hospitals updated');
+      }
       loadAdminPanel();
     } catch(e) {
       errEl.textContent = 'Failed: ' + (e.message || 'Network error');
