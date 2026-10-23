@@ -233,6 +233,13 @@ def compute_data_epoch() -> Optional[str]:
                 "SELECT COALESCE(COUNT(*), 0) FROM hospitals",
                 "SELECT COALESCE(COUNT(*), 0) FROM rules",
                 "SELECT COALESCE(COUNT(*), 0) FROM users",
+                # Validation failures are rewritten in place (rule edits,
+                # deletes, re-scoring) without changing any count above, so
+                # they need their own stamp: (count, id-sum) changes whenever
+                # the set of failing rule rows changes. Without it, cached
+                # pages kept serving failures of a deleted rule for a day.
+                "SELECT COALESCE(COUNT(*), 0) FROM validation_results WHERE status = 'FAIL'",
+                "SELECT COALESCE(SUM(id), 0) FROM validation_results WHERE status = 'FAIL'",
             ):
                 try:
                     parts.append(str(db.execute(text(sql)).scalar()))

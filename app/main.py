@@ -42,6 +42,7 @@ from app.api import hospital_types as hospital_types_api
 from app.api import indicator_definitions as indicator_definitions_router
 from app.api import indicator_groups as indicator_groups_router
 from app.api import menu as menu_router
+from app.api import quality_alerts as quality_alerts_router
 from app.api import regional as regional_router
 from app.api import rules as rules_api
 from app.api import server_logs as server_logs_router
@@ -55,7 +56,8 @@ from app.config import (  # noqa: E402
     UPLOAD_DIR,
 )
 from app.database import SessionLocal, engine, init_db  # noqa: E402
-from app.engine.quality import QUALITY_WEIGHT_DEFAULTS  # noqa: E402
+from app.engine.quality import QUALITY_WEIGHT_DEFAULTS, SEVERITY_WEIGHT_DEFAULTS  # noqa: E402
+from app.engine.severity import TREND_SETTING_SPECS  # noqa: E402
 from app.models import AppConfig, FacilityOwnership, FacilityType, Governorate, HospitalType  # noqa: E402
 from app.monitoring import (  # noqa: E402
     CONTENT_TYPE_LATEST,
@@ -83,13 +85,26 @@ APP_CONFIG_DEFAULTS = [
     ("quality_consistency", QUALITY_WEIGHT_DEFAULTS["consistency"], "quality", "Consistency Weight"),
     ("quality_outlier_penalty", QUALITY_WEIGHT_DEFAULTS["outlier_penalty"], "quality", "Outlier Penalty Weight"),
     ("outlier_multiplier", 2.0, "quality", "Outlier Penalty Multiplier"),
-    ("severity_high", 3.0, "quality", "Severity HIGH Weight"),
-    ("severity_medium", 2.0, "quality", "Severity MEDIUM Weight"),
-    ("severity_low", 1.0, "quality", "Severity LOW Weight"),
+    # Consistency severity weights. CRITICAL defaults to 1.0 — the value it
+    # silently borrowed before the setting existed — so seeding it leaves
+    # every stored score unchanged until an operator raises it.
+    ("severity_critical", SEVERITY_WEIGHT_DEFAULTS["CRITICAL"], "quality", "Severity CRITICAL Weight"),
+    ("severity_high", SEVERITY_WEIGHT_DEFAULTS["HIGH"], "quality", "Severity HIGH Weight"),
+    ("severity_medium", SEVERITY_WEIGHT_DEFAULTS["MEDIUM"], "quality", "Severity MEDIUM Weight"),
+    ("severity_low", SEVERITY_WEIGHT_DEFAULTS["LOW"], "quality", "Severity LOW Weight"),
     ("zscore_threshold", 2.5, "thresholds", "Z-Score Threshold"),
     ("confidence_high", 80.0, "thresholds", "HIGH Confidence Cutoff"),
     ("confidence_medium", 50.0, "thresholds", "MEDIUM Confidence Cutoff"),
     ("confidence_low", 25.0, "thresholds", "LOW Confidence Cutoff"),
+    # Quality Alerts (category "alerts"): detection floors documented per
+    # spec §4 "Make thresholds configurable and document their meaning".
+    ("alerts_min_score", 0.5, "alerts", "Minimum Alert Score 0-1 (0.5 = MODERATE band)"),
+    ("alerts_min_peers", 2.0, "alerts", "Minimum Peer Hospitals for a baseline"),
+    ("alerts_min_history", 3.0, "alerts", "Minimum History Periods for a baseline"),
+    ("alerts_history_window", 12.0, "alerts", "History Baseline Window (months)"),
+    ("alerts_ml_enabled", 1.0, "alerts", "Enable Isolation-Forest Cross-check"),
+    ("alerts_ml_min_samples", 12.0, "alerts", "Minimum Hospitals for ML Cross-check"),
+    ("alerts_auto_scan", 1.0, "alerts", "Auto-scan alerts after each analysis (1=on, 0=off)"),
     ("eq_tolerance", 0.01, "rules", "Equality Tolerance"),
     ("month_over_factor", 2.0, "rules", "Month Over Factor"),
     ("month_under_factor", 0.5, "rules", "Month Under Factor"),
@@ -160,7 +175,6 @@ APP_CONFIG_DEFAULTS = [
     ("trend_slope_high", 30.0, "trends", "Slope High Severity (%)"),
     ("trend_r_squared", 0.5, "trends", "R-Squared Threshold"),
     ("trend_finding_slope", 5.0, "trends", "Finding Generated Slope (%)"),
-    ("trend_finding_consecutive", 3, "trends", "Finding Generated Consecutive Months"),
     ("trend_finding_deviation", 20.0, "trends", "Finding Generated Deviation (%)"),
     ("trend_finding_cv", 30.0, "trends", "Finding Generated CV (%)"),
     ("trend_finding_r_squared", 0.7, "trends", "Finding Generated R-Squared"),
@@ -188,6 +202,15 @@ APP_CONFIG_DEFAULTS = [
     ("smart_xgb_n_estimators", 100.0, "smart_analytics", "Smart XGBoost N Estimators"),
     ("smart_xgb_max_depth", 4.0, "smart_analytics", "Smart XGBoost Max Depth"),
 ]
+
+# The trend persistence knob is part of the shared severity/trend policy spec
+# (app.engine.severity), so its seeded default cannot drift from the value the
+# engine and System Control validate against. It remains an AppConfig key — the
+# setting is reused, not duplicated.
+_TREND_PERSISTENCE = TREND_SETTING_SPECS["trend_finding_consecutive"]
+APP_CONFIG_DEFAULTS.append(
+    (_TREND_PERSISTENCE.key, _TREND_PERSISTENCE.default, "trends",
+     _TREND_PERSISTENCE.label))
 
 
 def run_alembic_upgrade():
@@ -459,6 +482,8 @@ CANONICAL_PERMISSION_CODENAMES = [
     "settings.write",
     "ai.read", "ai.write",
     "system.read_audit", "system.manage_data", "system.export_data",
+    # Quality Alerts risk-outlier screen (q4a7e8f1b2c3)
+    "quality_alerts.read", "quality_alerts.write",
     # Menu management (b6c7d8e9f0a1)
     "menu.manage",
 ]
@@ -594,10 +619,14 @@ def _deactivate_hospitals_without_data(session):
 
     from app.models import Hospital, IndicatorValue
 
-    # Get hospital IDs that have at least one indicator value
+    # Get hospital IDs that have at least one *real* indicator value — the
+    # importer stores NULL rows for empty upload cells, and those must not
+    # count as data or a hospital whose whole report is blank stays active
+    # while Settings shows it "has data".
     hospitals_with_data = set(
         row[0] for row in (
             session.query(IndicatorValue.hospital_id)
+            .filter(IndicatorValue.value.isnot(None))
             .distinct()
             .all()
         )
@@ -663,6 +692,34 @@ async def lifespan(app: FastAPI):
                     print(f"[startup] Reference data error (non-fatal): {e}")
                     import traceback
                     traceback.print_exc()
+
+            # Config defaults must reach EXISTING databases too: a key added
+            # to APP_CONFIG_DEFAULTS later (e.g. alerts_auto_scan) would never
+            # appear on a DB created before it existed, leaving Settings unable
+            # to show or change it. seed_app_config inserts only missing keys,
+            # so running it on every startup is idempotent and cheap.
+            try:
+                seed_app_config(session)
+            except Exception as e:
+                print(f"[startup] Config default backfill error (non-fatal): {e}")
+
+            # Severity / temporal-trend controls: persist defaults for genuinely
+            # new settings (insert-only) and drop the deprecated duplicate
+            # Z-score SystemSetting. thresholds.zscore_threshold (2.5) remains
+            # the single authoritative Z-score threshold.
+            try:
+                from app.api.config_api import (
+                    reconcile_legacy_settings,
+                    seed_severity_trend_settings,
+                )
+                created = seed_severity_trend_settings(session)
+                if created:
+                    print(f"[startup] Seeded {created} severity/trend setting(s).")
+                removed = reconcile_legacy_settings(session)
+                if removed:
+                    print(f"[startup] Removed legacy duplicate setting(s): {removed}")
+            except Exception as e:
+                print(f"[startup] Severity/trend config backfill error (non-fatal): {e}")
 
             try:
                 removed_rules, removed_results, removed_settings = remove_benchmark_validation_data(session)
@@ -811,6 +868,7 @@ app.include_router(analysis.router)
 app.include_router(rules_api.router)
 app.include_router(clinical.router)
 app.include_router(alerts.router)
+app.include_router(quality_alerts_router.router)
 app.include_router(confidence.router)
 app.include_router(config_api.router)
 app.include_router(config_api.db_router)
@@ -1052,27 +1110,48 @@ static_dir = os.path.join(BASE_DIR, "static")
 if os.path.isdir(static_dir):
     app.mount("/static", CachedStaticFiles(directory=static_dir), name="static")
 
-# بصمة إصدار تلقائية للملفات الثابتة: أي تعديل على أي ملف JS/CSS/HTML يغيّر
-# الرقم فتُعاد عناوين الأصول في index.html بمعامل ?v= جديد — فيجبر المتصفح
-# على جلب النسخ الحديثة بدل العمل بنسخ قديمة مخزنة (cache-busting نهائي).
+# بصمة إصدار لكل ملف على حدة: تعديل أي ملف JS/CSS يغيّر بصفته معامله ?v= فقط،
+# فيجبر المتصفح على جلب النسخة الحديثة بدل نسخة مخزنة قديمة (cache-busting نهائي).
+# كانت البصمة سابقاً رقمياً واحداً مشتركاً بين كل الأصول (أعلى mtime): ملف
+# أُعيدت كتابته لكن mtime أقدم من أخ ملف آخر ظل URL القديم له فيستعمل المتصفح
+# نسخة قديمة مخزنة — وهو ما فسّد جلسات auth.js أكثر من مرة.
 _STATIC_ASSET_RE = re.compile(
     r'(?P<url>/static/(?:js|css|vendor)/[^"\' ]+\.(?:js|css))(?P<query>\?[^"\' ]*)?'
 )
 
+_ASSET_VERSIONS: dict = {}
+_ASSET_SCAN_LATEST = 0.0
 
-def _static_assets_version() -> str:
+
+def _per_file_asset_versions() -> dict:
+    """Per-asset cache-busting stamps keyed by URL path.
+
+    The tree is rescanned only when the newest mtime changed — because any
+    write bumps an mtime to "now", that catches every edit, while keeping
+    repeated /dashboard requests cheap.
+    """
+    global _ASSET_VERSIONS, _ASSET_SCAN_LATEST
     latest = 0.0
+    versions: dict = {}
     try:
         for root, _, files in os.walk(static_dir):
             for f in files:
-                if f.endswith((".js", ".css", ".html")):
-                    try:
-                        latest = max(latest, os.path.getmtime(os.path.join(root, f)))
-                    except OSError:
-                        continue
+                if not f.endswith((".js", ".css")):
+                    continue
+                path = os.path.join(root, f)
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    continue
+                latest = max(latest, mtime)
+                rel = os.path.relpath(path, static_dir).replace("\\", "/")
+                versions["/static/" + rel] = str(int(mtime * 1000))
     except OSError:
         pass
-    return str(int(latest * 1000))
+    if latest != _ASSET_SCAN_LATEST or not _ASSET_VERSIONS:
+        _ASSET_SCAN_LATEST = latest
+        _ASSET_VERSIONS = versions
+    return _ASSET_VERSIONS
 
 
 @app.get("/dashboard")
@@ -1082,8 +1161,16 @@ def dashboard():
         return {"error": "Dashboard not found"}
     with open(index_path, encoding="utf-8") as fh:
         html = fh.read()
-    v = _static_assets_version()
-    html = _STATIC_ASSET_RE.sub(lambda m: m.group("url") + "?v=" + v, html)
+    versions = _per_file_asset_versions()
+
+    def _bust(match):
+        url = match.group("url")
+        # Editing one file only changes THAT file's stamp; unknown URLs fall
+        # back to the tree-wide newest stamp so nothing ever loses busting.
+        stamp = versions.get(url) or str(int(_ASSET_SCAN_LATEST * 1000) or 0)
+        return url + "?v=" + stamp
+
+    html = _STATIC_ASSET_RE.sub(_bust, html)
     return HTMLResponse(
         content=html,
         media_type="text/html",

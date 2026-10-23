@@ -55,3 +55,11 @@ logs/
 # Local-only env backups and DB row backups (may contain secrets)
 .env.bak.local
 data/backups/
+
+# Local artifacts and secrets that must never be committed
+token.txt
+backups/
+outbox/
+screenshots/
+data/verify-run/
+data/*.err

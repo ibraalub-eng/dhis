@@ -40,6 +40,11 @@ def create_refresh_token(user_id: int, remember_me: bool = False) -> tuple[str, 
     When remember_me is True the refresh token lives for 30 days (configurable
     via REMEMBER_ME_EXPIRE_DAYS).  Otherwise it uses the default
     REFRESH_TOKEN_EXPIRE_DAYS (7 days).
+
+    The remember_me flag travels INSIDE the token as the ``rm`` claim so a
+    rotation (/auth/refresh) can preserve the long window: without it a
+    "remember me for a year" login silently collapsed to 7 days the moment
+    the token was first rotated.
     """
     jti = secrets.token_hex(32)
     days = REMEMBER_ME_EXPIRE_DAYS if remember_me else REFRESH_TOKEN_EXPIRE_DAYS
@@ -49,6 +54,7 @@ def create_refresh_token(user_id: int, remember_me: bool = False) -> tuple[str, 
         "jti": jti,
         "exp": expires_at,
         "type": "refresh",
+        "rm": True if remember_me else False,
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     return token, jti, expires_at

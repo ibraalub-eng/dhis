@@ -22,6 +22,62 @@ _TEST_NAME_PATTERNS = re.compile(
 _ARABIC_TEST_WORDS = ("اختبار", "تجربة")
 
 
+# ── Hospital-name matching ───────────────────────────────────────────────────
+# DHIS exports carry the full organisation-unit path
+# ("وزارة الصحة/مستشفيات/مستشفى الشفاء") while the registry keeps the short
+# facility name ("مستشفى الشفاء"). Raw-string matching fails on the path
+# words, the "/PRCS"-style org suffixes and spelling variants ("مستشفى" vs
+# "مستشفي" — same word, two spellings), and every miss created a *duplicate*
+# hospital holding a second copy of the values. Match on a normalised core
+# name instead.
+_ORG_PATH_SEGMENTS = {
+    # Values are compared AFTER _norm_hospital_text(), hence folded spelling.
+    "وزاره الصحه", "مستشفيات", "المستشفي", "وزاره", "صحه",
+    "ministry of health", "health ministry", "hospitals", "hospital",
+}
+# Organisation-type tokens that ride along at the end of DHIS names.
+_ORG_SUFFIX_TOKENS = {
+    "prcs", "imc", "icrc", "msf", "who", "unfpa", "unicef", "ocha", "uk", "med",
+}
+_ARABIC_DIACRITICS_RE = re.compile(r"[\u064B-\u0652\u0670\u0640]")  # tashkeel + tatweel
+_NON_WORD_RE = re.compile(r"[^0-9a-z\u0600-\u06ff]+")
+_ARABIC_FOLD = str.maketrans("أإآٱىة", "اااايه")
+
+
+def _norm_hospital_text(value) -> str:
+    """Case/diacritic/punctuation-insensitive form of a hospital name.
+
+    Unifies alef variants, ta-marbuta and final ya so "مستشفى"/"مستشفي"
+    compare equal, strips LTR/RTL marks and zero-width chars, and turns every
+    separator (spaces, slashes, dashes) into a single space.
+    """
+    s = str(value or "")
+    s = s.replace("\u200f", "").replace("\u200e", "").replace("\u200d", "").replace("\ufeff", "")
+    s = _ARABIC_DIACRITICS_RE.sub("", s)
+    s = s.translate(_ARABIC_FOLD).lower()
+    return " ".join(_NON_WORD_RE.sub(" ", s).split())
+
+
+def _hospital_core_name(name) -> str:
+    """Facility name without DHIS path words or org-type suffixes.
+
+    "العودة/مستشفيات/مستشفى العودة- جباليا" -> "مستشفى العودة جباليا"
+    "مستشفيات/ مستشفي القدس/PRCS"          -> "مستشفي القدس"
+    "مستشفى الشفاء"                        -> "مستشفى الشفاء"
+    """
+    parts = [_norm_hospital_text(p) for p in str(name or "").split("/")]
+    parts = [p for p in parts if p and p not in _ORG_PATH_SEGMENTS]
+    # The org type can be its own trailing segment ("…/مستشفى القدس/PRCS") —
+    # drop pure-suffix segments before taking the facility segment.
+    while parts and set(parts[-1].split()) <= _ORG_SUFFIX_TOKENS:
+        parts.pop()
+    core = parts[-1] if parts else _norm_hospital_text(name)
+    tokens = core.split()
+    while len(tokens) > 1 and tokens[-1] in _ORG_SUFFIX_TOKENS:
+        tokens.pop()
+    return " ".join(tokens)
+
+
 def _looks_like_test_upload(filename: str, hospital_names) -> List[str]:
     """Return the reasons this upload looks like test/preview data (empty = OK)."""
     reasons = []
@@ -550,10 +606,11 @@ def import_data_to_db(
     new_indicator_names: Optional[Dict[str, str]] = None,
     renamed_indicator_names: Optional[Dict[str, str]] = None,
 ) -> Tuple[int, int, List[Dict], List[Dict]]:
-    import re as _re
-    hospitals_cache = {}  # name -> id
-    org_id_cache = {}     # org_id -> id
-    fuzzy_cache = {}      # normalized_name -> Hospital
+    hospitals_cache = {}   # name -> id
+    org_id_cache = {}      # org_id -> id
+    norm_cache = {}        # normalised full name -> Hospital
+    core_cache = {}        # normalised core name -> Hospital (lowest id wins)
+    token_candidates = []  # (frozenset(tokens), Hospital) sorted by id
     indicators_cache = {}
     for ind in session.query(Indicator).all():
         indicators_cache[ind.code] = ind.id
@@ -617,16 +674,29 @@ def import_data_to_db(
         indicators_cache[code] = ind.id
         created_indicators.append({"code": code, "name": ind.name})
         return ind.id
-    for hosp in session.query(Hospital).all():
+    def _index_hospital(hosp):
+        norm_cache.setdefault(_norm_hospital_text(hosp.name), hosp)
+        core = _hospital_core_name(hosp.name)
+        # Lowest id wins so repeated uploads resolve to the same hospital.
+        core_cache.setdefault(core, hosp)
+        token_candidates.append((frozenset(core.split()), hosp))
+
+    for hosp in session.query(Hospital).order_by(Hospital.id).all():
         hospitals_cache[hosp.name] = hosp.id
         if hosp.organisation_unit_id:
             org_id_cache[str(hosp.organisation_unit_id).strip()] = hosp.id
-        # Build fuzzy lookup: lowercase, strip spaces/punctuation
-        normalized = _re.sub(r'[\s/\-]+', ' ', hosp.name.lower().strip())
-        fuzzy_cache[normalized] = hosp
+        _index_hospital(hosp)
 
     def _find_hospital(name, org_id=None):
-        """Find hospital by org ID first, then exact name, then fuzzy match."""
+        """Find hospital by org ID, exact/normalised name, then token match.
+
+        The file may carry the full DHIS path where the registry stores the
+        short name (or vice versa); matching on the normalised *core* name
+        resolves that without creating a duplicate. The old substring
+        fallback missed "وزارة الصحة/مستشفيات/عبدالعزيز الرنتيسي" vs
+        "مستشفى عبدالعزيز الرنتيسي" ("مستشفيات" is not "مستشفى") and
+        duplicated the hospital on every upload.
+        """
         # 1. Try org ID match
         if org_id:
             oid = str(org_id).strip()
@@ -635,21 +705,34 @@ def import_data_to_db(
         # 2. Try exact name match
         if name in hospitals_cache:
             return hospitals_cache[name]
-        # 3. Try fuzzy name match
-        normalized = _re.sub(r'[\s/\-]+', ' ', name.lower().strip())
-        if normalized in fuzzy_cache:
-            h = fuzzy_cache[normalized]
-            hospitals_cache[name] = h.id  # cache for next time
-            return h.id
-        # 4. Try partial match
-        for fn, h in fuzzy_cache.items():
-            if normalized in fn or fn in normalized:
-                hospitals_cache[name] = h.id
-                return h.id
-        return None
+        # 3. Normalised full name, then normalised core name
+        h = norm_cache.get(_norm_hospital_text(name))
+        if h is None:
+            h = core_cache.get(_hospital_core_name(name))
+        # 4. Token containment on core names: the same facility when the
+        #    shorter core's tokens are all contained in the longer one (extra
+        #    tokens are path/org words or a locality qualifier such as
+        #    "خانيونس"). Smallest token delta wins; ties break on lowest id.
+        if h is None:
+            tokens = set(_hospital_core_name(name).split())
+            best = None
+            for cand_tokens, cand in token_candidates:
+                shorter, longer = ((cand_tokens, tokens) if len(cand_tokens) <= len(tokens)
+                                   else (tokens, cand_tokens))
+                if len(shorter) < 2 or not shorter.issubset(longer):
+                    continue
+                delta = len(cand_tokens ^ tokens)
+                if best is None or delta < best[0]:
+                    best = (delta, cand)
+            h = best[1] if best else None
+        if h is None:
+            return None
+        hospitals_cache[name] = h.id  # cache for next time
+        return h.id
 
     new_hospitals = 0
     processed = 0
+    hospitals_with_values = set()  # hospitals that received at least one real value
     for rec in records:
         hosp_name = rec["hospital_name"]
         org_id = rec.get("organisation_unit_id", "")
@@ -661,8 +744,7 @@ def import_data_to_db(
             hospitals_cache[hosp_name] = hosp.id
             if org_id:
                 org_id_cache[str(org_id).strip()] = hosp.id
-            normalized = _re.sub(r'[\s/\-]+', ' ', hosp_name.lower().strip())
-            fuzzy_cache[normalized] = hosp
+            _index_hospital(hosp)
             new_hospitals += 1
         indicator_code = rec["indicator_code"]
         if indicator_code not in indicators_cache:
@@ -670,6 +752,8 @@ def import_data_to_db(
             _ensure_indicator(indicator_code, new_indicator_names.get(indicator_code))
         ind_id = indicators_cache[indicator_code]
         hosp_id = hospitals_cache[hosp_name]
+        if rec["value"] is not None:
+            hospitals_with_values.add(hosp_id)
         existing = (
             session.query(IndicatorValue)
             .filter(
@@ -693,6 +777,15 @@ def import_data_to_db(
             )
             session.add(iv)
         processed += 1
+    # A hospital that reports at least one real value is active again: the
+    # startup pass deactivates hospitals whose data is all empty cells, and
+    # an import carrying real values must undo that flag or the freshly
+    # imported data stays invisible to the analysis screens.
+    if hospitals_with_values:
+        (session.query(Hospital)
+         .filter(Hospital.id.in_(hospitals_with_values),
+                 Hospital.is_active.isnot(True))
+         .update({Hospital.is_active: True}, synchronize_session=False))
     renamed = _apply_indicator_renames()
     session.commit()
     return new_hospitals, processed, created_indicators, renamed

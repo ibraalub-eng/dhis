@@ -241,14 +241,21 @@ def _local_clinical_fallback(values, classifications, risk_profile, morbidity_pr
             indicators_monitored=["CS_rate"],
         ))
 
-    smm = getattr(morbidity_profile, "total_smm", 0) if morbidity_profile else 0
-    deliveries = getattr(morbidity_profile, "total_deliveries", 0) if morbidity_profile else 0
-    if smm and deliveries and (smm / max(deliveries, 1)) * 100 > 2:
+    # SMM rate from the central registry (clinical rate_smm = 10 / 2 × 100) —
+    # the same definition the morbidity profile and classification use, so a
+    # registry edit propagates here instead of a re-written x/y*100. The 2%
+    # warning boundary comes from the clinical threshold table.
+    from app.engine.clinical.thresholds import get_threshold
+    from app.engine.rate_config import SITE_CLINICAL, builtin_rate
+    smm_rate = builtin_rate(SITE_CLINICAL, "rate_smm", values) or 0.0
+    smm_threshold = get_threshold("rate_smm")
+    smm_warn = smm_threshold.elevated_range[0] if smm_threshold else 2.0
+    if smm_rate > smm_warn:
         recs.append(AIRuleDef(
             category="Maternal Morbidity",
             priority="high",
             title="Severe Maternal Morbidity Rate Elevated",
-            description=f"SMM rate is {(smm/max(deliveries,1))*100:.1f}%, above the 2% warning threshold.",
+            description=f"SMM rate is {smm_rate:.1f}%, above the {smm_warn:g}% warning threshold.",
             rationale="Elevated SMM rates may indicate quality of care issues during labor and delivery.",
             action_items=[
                 "Conduct case reviews for all SMM cases",

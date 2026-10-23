@@ -4,18 +4,33 @@
 
   // ---- Auto-inject auth header into ALL fetch calls ----
   var _origFetch = window.fetch;
-  var _refreshInProgress = null;
+  var _refreshInFlight = null;   // single-flight promise for token refresh
 
   function _isApiUrl(urlStr) {
     return urlStr.indexOf('/auth/login') === -1 && urlStr.indexOf('/auth/refresh') === -1
            && urlStr.indexOf('/static/') === -1;
   }
 
+  // Raw storage readers — mirror the app's token STORE choice (remember_me
+  // selects localStorage vs sessionStorage; setTokens writes there) with a
+  // cross-store fallback. Reading stores in the wrong priority order lets a
+  // stale token from a previous login mode shadow the live pair: the
+  // interceptor keeps attaching the dead token, refresh rotates forever
+  // (each round 200) while retried requests keep 401ing, and the session
+  // ends up wiped. Reads must always agree with where writes land.
   function _getToken() {
-    return typeof window.getAccessToken === 'function' ? window.getAccessToken() : localStorage.getItem('access_token');
+    try {
+      return _storage().getItem('access_token')
+        || sessionStorage.getItem('access_token')
+        || localStorage.getItem('access_token');
+    } catch (e) { return null; }
   }
   function _getRefresh() {
-    return typeof window.getRefreshToken === 'function' ? window.getRefreshToken() : localStorage.getItem('refresh_token');
+    try {
+      return _storage().getItem('refresh_token')
+        || sessionStorage.getItem('refresh_token')
+        || localStorage.getItem('refresh_token');
+    } catch (e) { return null; }
   }
 
   function _doFetch(url, opts) {
@@ -24,67 +39,135 @@
     var urlStr = typeof url === 'string' ? url : (url.url || '');
     if (_isApiUrl(urlStr)) {
       var token = _getToken();
-      if (!token) {
-        return Promise.resolve(new Response(JSON.stringify({detail: 'Not authenticated'}), {
-          status: 401, statusText: 'Unauthorized', headers: {'Content-Type': 'application/json'}
-        }));
-      }
-      if (!opts.headers['Authorization']) {
+      // IMPORTANT: no synthetic 401 here. Manufacturing a fake 401 from the
+      // client launched the refresh/redirect machinery for harmless boot-time
+      // requests made before login ever happened (every page load), which is
+      // how "Session expired. Please log in again." could appear even right
+      // after a successful login. Without a token we simply send the request
+      // unauthenticated; the server answers 401 and the interceptor below
+      // ignores it because the stored session state says there is nothing
+      // to refresh.
+      if (token && !opts.headers['Authorization']) {
         opts.headers['Authorization'] = 'Bearer ' + token;
       }
     }
     return _origFetch.call(window, url, opts);
   }
 
+  function _applyTokens(data) {
+    if (typeof window.setTokens === 'function') {
+      window.setTokens(data.access_token, data.refresh_token);
+    } else {
+      localStorage.setItem('access_token', data.access_token);
+      localStorage.setItem('refresh_token', data.refresh_token);
+    }
+    // Converge the two stores: a stale pair left in the NON-active store
+    // (previous remember-me mode, or wiped leftovers from a parallel tab
+    // sharing localStorage) must not shadow the fresh tokens — stale shadows
+    // previously kept retried requests 401ing after a successful refresh.
+    try {
+      var primary = (localStorage.getItem('remember_me') === 'true')
+        ? localStorage : sessionStorage;
+      var other = (primary === localStorage) ? sessionStorage : localStorage;
+      // Only the token pair converges — user_info intentionally always lives
+      // in localStorage (see setUserInfo/getUserInfo).
+      other.removeItem('access_token');
+      other.removeItem('refresh_token');
+    } catch (e) { /* storage unavailable: best effort */ }
+  }
+
+  // False = this session's refresh token is dead (clear storage + redirect).
+  // 'transient' = server/network hiccup (5xx, offline): tokens are still
+  // valid — stay logged in, surface the failing request instead of kicking
+  // the user to the login page during a temporary outage.
+  // true = fresh tokens obtained — retry the request.
   function _refreshToken() {
-    if (_refreshInProgress) return _refreshInProgress;
-    _refreshInProgress = (async function() {
+    if (_refreshInFlight) return _refreshInFlight;
+    _refreshInFlight = (async function() {
       var refresh = _getRefresh();
-      if (!refresh) { _refreshInProgress = null; return false; }
+      if (!refresh) return false;          // nothing to exchange: anon state
+      var sent = refresh;  // identity of the token we sent to the server
       try {
-        var resp = await _origFetch.call(window, API_BASE + '/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: refresh }),
-        });
+        // Bounded exchange: a refresh request that never settles (hung
+        // socket, stalled proxy) must not poison the single-flight slot for
+        // the rest of the page's life.
+        var resp = await Promise.race([
+          _origFetch.call(window, API_BASE + '/auth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: refresh }),
+          }),
+          new Promise(function(resolve) {
+            setTimeout(function() { resolve({ _timeout: true }); }, 15000);
+          }),
+        ]);
+        if (resp && resp._timeout) return 'transient';
         if (resp.ok) {
           var data = await resp.json();
-          if (typeof window.setTokens === 'function') {
-            window.setTokens(data.access_token, data.refresh_token);
-          } else {
-            localStorage.setItem('access_token', data.access_token);
-            localStorage.setItem('refresh_token', data.refresh_token);
-          }
-          _refreshInProgress = null;
+          _applyTokens(data);
           return true;
         }
-      } catch(e) {}
-      if (typeof window.clearTokens === 'function') {
-        window.clearTokens();
-      } else {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('user_info');
+        if (resp.status !== 401) {
+          // 5xx (or anything else): transient server trouble. Keep the
+          // session — never log the user out because the server blipped.
+          return 'transient';
+        }
+      } catch(e) {
+        // Network error / server down — same rule: keep the session.
+        return 'transient';
       }
-      _refreshInProgress = null;
+      // The server rejected our token (401). It rotates refresh tokens
+      // (single-use), so this 401 usually means ANOTHER tab or window
+      // already used the same stored token. NEVER punish that: check
+      // whether storage has moved on — if it holds a different token, the
+      // other session refreshed for us and the retried request succeeds.
+      var current = _getRefresh();
+      if (current && current !== sent && _getToken()) {
+        return true;
+      }
+      // Genuinely dead for this session (still the same token in storage).
+      _clearAuthStorage();
       return false;
     })();
-    return _refreshInProgress;
+    // Self-clearing single flight: whoever grabs the promise last also
+    // clears the slot, so a promise that settles late can never leave the
+    // interceptor stuck serving a stale "false" to every future request.
+    return _refreshInFlight.then(function(result) {
+      _refreshInFlight = null;
+      return result;
+    }, function(err) {
+      _refreshInFlight = null;
+      return 'transient';   // defensive: never let a refresh rejection kill the session
+    });
+  }
+
+  function _clearAuthStorage() {
+    if (typeof window.clearTokens === 'function') {
+      window.clearTokens();
+    } else {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+      localStorage.removeItem('user_info');
+    }
   }
 
   window.fetch = function(url, opts) {
+    var urlStr = typeof url === 'string' ? url : ((url && url.url) || '');
     return _doFetch(url, opts).then(function(resp) {
       if (resp.status !== 401) return resp;
-      var urlStr = typeof url === 'string' ? url : (url.url || '');
       if (!_isApiUrl(urlStr)) return resp;
+      // Anonymous state (pre-login boot, logged-out tabs): a 401 here is
+      // expected and must NOT trigger the refresh flow or the expiry wipe.
+      if (!_getToken() && !_getRefresh()) return resp;
       return _refreshToken().then(function(refreshed) {
+        if (refreshed === 'transient') return resp;  // keep session, return error
         if (!refreshed) {
-          // Session expired — force redirect to login (once)
+          // Session expired — force redirect to login exactly ONCE until
+          // the next successful login resets the flag.
           if (!window._authRedirecting) {
             window._authRedirecting = true;
             setTimeout(function() {
-              window._authRedirecting = false;
-              if (typeof window.clearTokens === 'function') window.clearTokens();
+              _clearAuthStorage();
               if (typeof window.showLoginPage === 'function') window.showLoginPage();
               var err = document.getElementById('login-error');
               if (err) { err.textContent = 'Session expired. Please log in again.'; err.style.display = 'block'; }
@@ -97,7 +180,22 @@
           var newToken = _getToken();
           if (newToken) opts.headers['Authorization'] = 'Bearer ' + newToken;
         }
-        return _doFetch(url, opts);
+        var retried = _doFetch(url, opts);
+        // The retried request may 401 again (e.g. another parallel tab
+        // rotated the token between our refresh and this retry). Retry once
+        // more with the CURRENT tokens so a healed session is used, without
+        // ever going deeper than this — max 2 attempts total, no loop.
+        return retried.then(function(resp2) {
+          if (resp2.status === 401 && !_refreshInFlight) {
+            return _refreshToken().then(function(again) {
+              if (again !== true) return resp2;
+              var t2 = _getToken();
+              if (t2 && opts && opts.headers) opts.headers['Authorization'] = 'Bearer ' + t2;
+              return _doFetch(url, opts);
+            });
+          }
+          return resp2;
+        });
       });
     });
   };
@@ -154,41 +252,34 @@
     if (token) options.headers['Authorization'] = 'Bearer ' + token;
     var resp = await fetch(url, options);
     if (resp.status === 401) {
-      var refreshed = await tryRefresh();
-      if (refreshed) {
-        options.headers['Authorization'] = 'Bearer ' + getAccessToken();
-        resp = await fetch(url, options);
-      } else {
+      // The interceptor already attempted one refresh+retry; reaching here
+      // means it did not heal the session. Never double-rotate by calling
+      // a second refresh implementation here.
+      if (!_getRefresh()) {
         showLoginPage();
         throw new Error('Session expired');
       }
+      // Keep tokens on transient trouble; only treat as expired when both
+      // token slots are empty (definitively logged out).
+      _clearAuthStorage();
+      showLoginPage();
+      throw new Error('Session expired');
     }
     return resp;
   };
 
-  async function tryRefresh() {
-    var refresh = getRefreshToken();
-    if (!refresh) return false;
-    try {
-      var resp = await fetch(API_BASE + '/auth/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refresh }),
-      });
-      if (resp.ok) {
-        var data = await resp.json();
-        setTokens(data.access_token, data.refresh_token);
-        return true;
-      }
-    } catch(e) {}
-    clearTokens();
-    return false;
-  }
-
   // Exposed for non-fetch transports (e.g. XMLHttpRequest in upload.js) that
   // cannot go through the window.fetch interceptor. Resolves true if a fresh
   // token was obtained, false otherwise.
-  window.refreshToken = tryRefresh;
+  // UNIFIED with the interceptor: one refresh implementation, one
+  // single-flight slot. A second independent rotation path here would
+  // revoke the rotated token the interceptor just stored, which is exactly
+  // the class of race that wiped sessions.
+  window.refreshToken = function() {
+    return _refreshToken().then(function(refreshed) {
+      return refreshed === true;
+    });
+  };
 
   // ---- Login page ----
   window.showLoginPage = function() {
@@ -432,7 +523,7 @@
   window._extendSession = function() {
     _hideSessionWarning();
     _resetInactivityTimer();
-    tryRefresh().then(function(success) {
+    window.refreshToken().then(function(success) {
       if (success) {
         _startTokenExpiryWatch();
         var t = document.createElement('div');
@@ -461,6 +552,8 @@
   var _origSetTokens = window.setTokens;
   window.setTokens = function(access, refresh) {
     _origSetTokens(access, refresh);
+    // New tokens mean a working session again — allow (future) redirects.
+    window._authRedirecting = false;
     _hideSessionWarning();
     _startTokenExpiryWatch();
   };
@@ -587,9 +680,10 @@
       showLoginPage();
       return false;
     } catch(e) {
-      // Network error or server down
-      clearTokens();
-      showLoginPage();
+      // Network error or server down: this is transient — the tokens are
+      // still valid. NEVER wipe them for connectivity problems (a server
+      // restart must not log the user out); leave the session in place and
+      // return false so the caller can retry.
       return false;
     }
   };

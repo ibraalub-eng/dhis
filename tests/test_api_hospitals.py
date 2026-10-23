@@ -76,6 +76,48 @@ class TestListIndicators:
             assert "name" in ind
 
 
+class TestHospitalDataStatus:
+    """Settings → Hospitals shows this endpoint; it must count real data.
+
+    The importer stores a NULL row for every empty upload cell, so counting
+    rows made a hospital whose whole report is blank report "760 values".
+    """
+
+    def test_null_rows_do_not_count_as_data(self, client, db_session):
+        h = Hospital(name="بيانات فارغة", is_active=True)
+        db_session.add(h)
+        db_session.commit()
+        ind = db_session.query(Indicator).first()
+        assert ind is not None
+        db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=ind.id,
+                                      month="2026-04", value=None))
+        db_session.commit()
+
+        resp = client.get("/hospitals/data-status")
+        assert resp.status_code == 200
+        entry = next(x for x in resp.json() if x["id"] == h.id)
+        assert entry["indicator_values"] == 0
+        assert entry["months"] == []
+
+    def test_real_values_counted_with_their_months(self, client, db_session):
+        h = Hospital(name="بيانات حقيقية", is_active=True)
+        db_session.add(h)
+        db_session.commit()
+        ind = db_session.query(Indicator).first()
+        assert ind is not None
+        db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=ind.id,
+                                      month="2026-04", value=5))
+        db_session.add(IndicatorValue(hospital_id=h.id, indicator_id=ind.id,
+                                      month="2026-05", value=None))
+        db_session.commit()
+
+        resp = client.get("/hospitals/data-status")
+        assert resp.status_code == 200
+        entry = next(x for x in resp.json() if x["id"] == h.id)
+        assert entry["indicator_values"] == 1
+        assert entry["months"] == ["2026-04"]
+
+
 class TestReanalyzeHospital:
     def test_reanalyze_missing_month(self, client, db_session):
         hospital = db_session.query(Hospital).first()

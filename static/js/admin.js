@@ -180,6 +180,31 @@ window._adminAssignHospitals = function(id, btn) {
     var roles = rolesData.roles || [];
     var perms = permsData.permissions || [];
 
+    // Empty hospital assignment is NOT "all hospitals": a non-superuser with
+    // no assignment and no hospitals.unrestricted grant is scoped to ZERO
+    // hospitals, so every dashboard renders blank. Surface that state here
+    // instead of leaving the user to guess why they see no data.
+    var noScopeUsers = users.filter(function(u) {
+      return u.is_active !== false && !u.is_superuser &&
+        !u.unrestricted_hospitals && !(u.hospital_count > 0);
+    });
+
+    function _hospAccessCell(u) {
+      if (u.is_superuser) {
+        return '<span style="color:var(--accent-purple);font-weight:600;" title="' +
+          esc(__('Superadmin: sees every hospital')) + '">\u2605 ' + esc(__('All hospitals')) + '</span>';
+      }
+      if (u.unrestricted_hospitals) {
+        return '<span style="color:var(--accent-green);font-weight:600;">' + esc(__('All hospitals')) + '</span>';
+      }
+      if ((u.hospital_count || 0) > 0) {
+        return '<span style="color:var(--accent-blue);">' + u.hospital_count + ' ' + esc(__('hospitals')) + '</span>';
+      }
+      return '<span style="color:var(--accent-red);font-weight:700;" title="' +
+        esc(__('No hospitals assigned and no unrestricted grant — this user sees empty dashboards.')) +
+        '">\u26a0 ' + esc(__('No access')) + '</span>';
+    }
+
     container.innerHTML = `
       <div style="padding:1rem;">
         <!-- KPI Summary -->
@@ -209,6 +234,15 @@ window._adminAssignHospitals = function(id, btn) {
         <div id="adminUsersSubPanel">
         <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">User Management</h2>
         <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:1rem;">Create, edit, and deactivate user accounts. Assign roles and direct permissions to control access.</p>
+        ${noScopeUsers.length ? `
+        <div id="adminNoScopeWarning" style="margin-bottom:1rem;padding:0.8rem 1rem;border-radius:8px;border:1px solid #fcd34d;border-left:5px solid #d97706;background:#fffbeb;color:#92400e;">
+          <div style="font-weight:700;font-size:0.9rem;margin-bottom:0.25rem;">\u26a0 ${__('Active users with no hospital access')}: ${noScopeUsers.length}</div>
+          <div style="font-size:0.82rem;margin-bottom:0.5rem;">${__('These users have no hospitals assigned and no unrestricted grant, so they will see empty dashboards:')}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:0.35rem;">${noScopeUsers.map(function(u) {
+            return '<button class="btn btn-sm btn-outline" data-username="' + esc(u.username) + '" onclick="window._adminAssignHospitals(' + u.id + ', this)" style="font-size:0.75rem;padding:0.1rem 0.5rem;border-color:#d97706;color:#92400e;">' + esc(u.username) + ' \u2192</button>';
+          }).join('')}</div>
+          <div style="font-size:0.75rem;margin-top:0.45rem;">${__('Open Hospitals for each user to assign hospitals or grant unrestricted access.')}</div>
+        </div>` : ''}
           <div>
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
               <h3 style="color:var(--accent-blue);margin:0;">Users (${users.length}) <span class="admin-chip">${users.filter(function(u){ return u.is_active !== false; }).length} ${__('active')}</span></h3>
@@ -223,6 +257,7 @@ window._adminAssignHospitals = function(id, btn) {
                     <th style="padding:0.4rem;text-align:left;">Email</th>
                     <th style="padding:0.4rem;text-align:left;">Roles</th>
                     <th style="padding:0.4rem;text-align:left;">Permissions</th>
+                    <th style="padding:0.4rem;text-align:left;">${__('Hospital Access')}</th>
                     <th style="padding:0.4rem;text-align:left;">Status</th>
                     <th style="padding:0.4rem;text-align:left;">Actions</th>
                   </tr>
@@ -235,6 +270,7 @@ window._adminAssignHospitals = function(id, btn) {
                       <td style="padding:0.4rem;color:var(--text-secondary);">${esc(u.email)}</td>
                       <td style="padding:0.4rem;">${u.roles.map(r => '<span style="background:var(--bg-surface-hover);color:var(--accent-purple);padding:0.1rem 0.4rem;border-radius:4px;font-size:0.75rem;margin-right:0.2rem;">' + esc(r.name) + '</span>').join('')}</td>
                       <td style="padding:0.4rem;">${(u.direct_permissions || []).map(p => '<span class="admin-user-perm" title="Direct">' + esc(p.codename) + '</span>').join('') || '<span style="color:var(--text-muted);font-size:0.75rem;">—</span>'}</td>
+                      <td style="padding:0.4rem;">${_hospAccessCell(u)}</td>
                       <td style="padding:0.4rem;">${u.is_active ? '<span style="color:var(--accent-green);">Active</span>' : '<span style="color:var(--accent-red);">Inactive</span>'}</td>
                       <td style="padding:0.4rem;">
                         <button class="btn btn-sm btn-outline" onclick="editUser(${u.id})" style="font-size:0.72rem;">Edit</button>
@@ -559,11 +595,12 @@ window._adminAssignHospitals = function(id, btn) {
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <div style="display:flex;gap:1.2rem;flex-wrap:wrap;">
                       <div>
-                          <strong style="display:block;margin-bottom:0.3rem;">Anomaly Z-Score Threshold</strong>
+                          <strong style="display:block;margin-bottom:0.3rem;">${__('Outlier Z-Score Threshold (system-wide)')}</strong>
                           <input type="number" id="cfg_anomaly_zscore" min="1" max="5" step="0.1" onchange="adminMarkControlDirty()"
                                  style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span id="cfg_src_anomaly_zscore" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
                           <span style="display:block;font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;max-width:280px;">
-                              Flags a hospital whose latest score is this many standard deviations from its own history (1–5, default 2.0). Lower = more sensitive.</span>
+                              ${__('The ONE saved Z-score threshold (1–5, default 2.5). Same value as Settings → Global Z-Score Threshold; used by outlier detection, the trend engine and the dashboard.')}</span>
                       </div>
                       <div>
                           <strong style="display:block;margin-bottom:0.3rem;">Slow-Decline Length</strong>
@@ -573,6 +610,90 @@ window._adminAssignHospitals = function(id, btn) {
                               Consecutive monthly drops that count as a slow decline (2–6, default 3).</span>
                       </div>
                   </div>
+              </div>
+              <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
+                  <h3 style="font-size:0.95rem;color:var(--text-primary);margin:0 0 0.3rem;">🎚️ ${__('Severity & Temporal Trends')}</h3>
+                  <p style="font-size:0.76rem;color:var(--text-secondary);margin:0 0 0.6rem;">
+                      ${__('Saved analysis configuration used by the trend engine, Quality Alerts, dashboards and reports. Values are persisted in the database and loaded at runtime; each badge shows whether a saved value or a documented default is effective.')}
+                  </p>
+                  <div id="cfgSeverityErrors" style="display:none;background:var(--severity-critical-bg);border:1px solid var(--accent-red);border-radius:6px;padding:0.5rem 0.6rem;font-size:0.76rem;margin-bottom:0.6rem;"></div>
+                  <div id="cfgSeverityEffective" style="font-size:0.76rem;color:var(--text-secondary);margin-bottom:0.7rem;line-height:1.5;"></div>
+                  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0.7rem;">
+                      <div>
+                          <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;cursor:pointer;">
+                              <input type="checkbox" id="cfg_trend_assessment_enabled" onchange="adminMarkControlDirty()" style="width:16px;height:16px;">
+                              <strong>${__('Enable temporal trend assessment')}</strong>
+                          </label>
+                          <span id="cfg_src_trend_assessment_enabled" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Analysis window (months)')}</strong>
+                          <input type="number" id="cfg_trend_analysis_window" min="1" max="36" step="1" onchange="adminMarkControlDirty()" style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span id="cfg_src_trend_analysis_window" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Minimum historical months')}</strong>
+                          <input type="number" id="cfg_trend_min_history_months" min="2" max="24" step="1" onchange="adminMarkControlDirty()" style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span id="cfg_src_trend_min_history_months" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Trend direction that counts')}</strong>
+                          <select id="cfg_trend_direction" onchange="adminMarkControlDirty()" style="padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                              <option value="any">${__('Any direction')}</option>
+                              <option value="increasing">${__('Increasing')}</option>
+                              <option value="decreasing">${__('Decreasing')}</option>
+                              <option value="indicator_specific">${__('Indicator-specific (clinical direction)')}</option>
+                          </select>
+                          <span id="cfg_src_trend_direction" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Minimum persistence (consecutive months)')}</strong>
+                          <input type="number" id="cfg_trend_finding_consecutive" min="1" max="12" step="1" onchange="adminMarkControlDirty()" style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span id="cfg_src_trend_finding_consecutive" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Minimum cumulative change (%)')}</strong>
+                          <input type="number" id="cfg_trend_min_cumulative_change_pct" min="0" max="100" step="0.5" onchange="adminMarkControlDirty()" style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span id="cfg_src_trend_min_cumulative_change_pct" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Trend handling policy')}</strong>
+                          <select id="cfg_trend_severity_policy" onchange="adminMarkControlDirty()" style="padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                              <option value="none">${__('Report only (severity unchanged)')}</option>
+                              <option value="escalate">${__('Escalate by factor')}</option>
+                              <option value="override">${__('Explicit severity override')}</option>
+                          </select>
+                          <span id="cfg_src_trend_severity_policy" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Severity escalation factor (bands)')}</strong>
+                          <input type="number" id="cfg_trend_severity_escalation" min="1" max="4" step="1" onchange="adminMarkControlDirty()" style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span id="cfg_src_trend_severity_escalation" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Target severity (override)')}</strong>
+                          <select id="cfg_trend_severity_target" onchange="adminMarkControlDirty()" style="padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                              <option value="LOW">LOW</option>
+                              <option value="MODERATE">MODERATE</option>
+                              <option value="HIGH">HIGH</option>
+                              <option value="VERY_HIGH">VERY_HIGH</option>
+                          </select>
+                          <span id="cfg_src_trend_severity_target" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                      <div>
+                          <strong style="display:block;font-size:0.78rem;margin-bottom:0.2rem;">${__('Min. data completeness before escalation (%)')}</strong>
+                          <input type="number" id="cfg_trend_min_completeness" min="0" max="100" step="5" onchange="adminMarkControlDirty()" style="width:90px;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-elevated);color:var(--text-primary);">
+                          <span id="cfg_src_trend_min_completeness" style="display:block;font-size:0.68rem;color:var(--text-muted);margin-top:0.15rem;"></span>
+                      </div>
+                  </div>
+                  <p style="font-size:0.72rem;color:var(--text-muted);margin:0.5rem 0 0;">
+                      ${__('A trend only changes severity when the policy is not “report only” AND the direction, persistence, cumulative-change and data-quality conditions are all met. Base severity and the trend assessment are preserved in every persisted result.')}
+                  </p>
+                  <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-top:0.8rem;padding-top:0.6rem;border-top:1px dashed var(--border-default);">
+                      <button class="btn btn-sm btn-outline" onclick="adminPreviewSeverityImpact()" id="adminBtnSeverityPreview">🔍 ${__('Preview impact')}</button>
+                      <span style="font-size:0.72rem;color:var(--text-muted);">${__('Reads stored results only — nothing is recalculated until you re-run the Quality Alerts scan.')}</span>
+                  </div>
+                  <div id="adminSeverityPreview" style="display:none;margin-top:0.5rem;font-size:0.76rem;line-height:1.55;background:var(--bg-surface);border:1px solid var(--border-default);border-radius:6px;padding:0.5rem 0.6rem;"></div>
               </div>
               <div style="background:var(--bg-surface-hover);padding:0.8rem;border-radius:6px;max-width:700px;margin-top:0.8rem;">
                   <label style="display:flex;align-items:flex-start;gap:0.6rem;cursor:pointer;">
@@ -810,8 +931,9 @@ window._adminAssignHospitals = function(id, btn) {
       'analysis': { label: 'Hospital Comparisons' },
       'clinical': { label: 'Clinical Intelligence' },
       'outliers': { label: 'Outlier Scan' },
-      'alerts': { label: 'Alerts' },
-      'indicator-tree': { label: 'Indicator Tree' },
+      'alerts': { label: 'Validation Alerts' },
+      'indicator-tree': { label: 'Data Tree' },
+      'indicator-groups': { label: 'Data Group' },
       'rules-manager': { label: 'Validation Rules' },
       'root-cause': { label: 'Root Cause' },
       'audit': { label: 'Audit' },
@@ -909,8 +1031,9 @@ window._adminAssignHospitals = function(id, btn) {
       div.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;';
       div.innerHTML = '<div style="background:var(--bg-surface);border-radius:8px;padding:1.5rem;max-width:500px;width:90%;max-height:80vh;display:flex;flex-direction:column;">' +
         '<h3 style="color:var(--accent-blue);margin-bottom:0.5rem;">Assign Hospitals — <span id="hospAssignUser"></span></h3>' +
-        '<div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.8rem;">Leave empty = all hospitals (no restriction)</div>' +
+        '<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.8rem;">' + __('Empty selection = no hospital access. Check All Hospitals (no restriction) to allow every hospital.') + '</div>' +
         '<div id="hospAssignList" style="flex:1;overflow-y:auto;border:1px solid var(--border-default);border-radius:6px;padding:0.5rem;max-height:50vh;"></div>' +
+        '<div id="hospAssignNoneWarning" style="display:none;color:var(--accent-red);font-size:0.8rem;font-weight:600;margin-top:0.5rem;">\u26a0 ' + __('No hospitals selected — this user will see empty dashboards.') + '</div>' +
         '<div id="hospAssignError" style="color:var(--accent-red);font-size:0.82rem;margin-top:0.5rem;display:none;"></div>' +
         '<div style="display:flex;gap:0.5rem;margin-top:1rem;justify-content:flex-end;">' +
           '<button class="btn btn-outline" onclick="document.getElementById(\'hospAssignModal\').style.display=\'none\'">Cancel</button>' +
@@ -961,6 +1084,7 @@ window._adminAssignHospitals = function(id, btn) {
 
   window._hospAssignToggleAll = function(checked) {
     document.querySelectorAll('.hospAssignCb').forEach(function(cb) { cb.checked = checked; });
+    window._hospAssignUpdateAll();
   };
 
   window._hospAssignUpdateAll = function() {
@@ -969,6 +1093,10 @@ window._adminAssignHospitals = function(id, btn) {
     if (!allCb || !cbs.length) return;
     var allChecked = Array.from(cbs).every(function(cb) { return cb.checked; });
     allCb.checked = allChecked;
+    // Empty selection means NO hospitals, so warn before saving blindly.
+    var noneChecked = !Array.from(cbs).some(function(cb) { return cb.checked; });
+    var warnEl = document.getElementById('hospAssignNoneWarning');
+    if (warnEl) warnEl.style.display = noneChecked ? 'block' : 'none';
   };
 
   window._saveHospAssign = async function() {
@@ -996,7 +1124,11 @@ window._adminAssignHospitals = function(id, btn) {
         return;
       }
       modal.style.display = 'none';
-      toastSuccess(resp.message || 'Hospitals updated');
+      if (!resp.unrestricted && !(resp.hospital_count > 0)) {
+        toastWarning(__('No hospitals assigned — this user will see empty dashboards.'));
+      } else {
+        toastSuccess(resp.message || 'Hospitals updated');
+      }
       loadAdminPanel();
     } catch(e) {
       errEl.textContent = 'Failed: ' + (e.message || 'Network error');
@@ -1607,6 +1739,142 @@ window._adminAssignHospitals = function(id, btn) {
     _controlDirty = true;
     _updateControlSaveButton();
   };
+  // ---- Severity & temporal-trend configuration (System Control) ----
+  var _SEV_SOURCE_LABELS = {
+    database: 'Saved value',
+    default: 'Default (not saved yet)',
+    invalid: 'Invalid saved value — default in use'
+  };
+  var _SEV_TREND_KEYS = [
+    'trend_assessment_enabled', 'trend_analysis_window',
+    'trend_min_history_months', 'trend_direction',
+    'trend_finding_consecutive', 'trend_min_cumulative_change_pct',
+    'trend_severity_policy', 'trend_severity_escalation',
+    'trend_severity_target', 'trend_min_completeness'
+  ];
+
+  function _cfgNum(id) {
+    var el = document.getElementById(id);
+    if (!el || el.value === '') return null;
+    var v = Number(el.value);
+    return isFinite(v) ? v : null;
+  }
+  function _cfgInt(id) {
+    var v = _cfgNum(id);
+    return v == null ? null : Math.round(v);
+  }
+  function _cfgBool(id) {
+    var el = document.getElementById(id);
+    return el ? !!el.checked : false;
+  }
+  function _cfgStr(id) {
+    var el = document.getElementById(id);
+    return el ? el.value : null;
+  }
+  function adminCollectSeverityTrend() {
+    return {
+      trend_assessment_enabled: _cfgBool('cfg_trend_assessment_enabled'),
+      trend_analysis_window: _cfgInt('cfg_trend_analysis_window'),
+      trend_min_history_months: _cfgInt('cfg_trend_min_history_months'),
+      trend_direction: _cfgStr('cfg_trend_direction'),
+      trend_finding_consecutive: _cfgInt('cfg_trend_finding_consecutive'),
+      trend_min_cumulative_change_pct: _cfgNum('cfg_trend_min_cumulative_change_pct'),
+      trend_severity_policy: _cfgStr('cfg_trend_severity_policy'),
+      trend_severity_escalation: _cfgInt('cfg_trend_severity_escalation'),
+      trend_severity_target: _cfgStr('cfg_trend_severity_target'),
+      trend_min_completeness: _cfgNum('cfg_trend_min_completeness')
+    };
+  }
+  function adminFillSeverityTrend(block) {
+    var settings = (block && block.settings) || {};
+    var loaded = !(block && block.loaded === false);
+    _SEV_TREND_KEYS.forEach(function(key) {
+      var meta = settings[key];
+      var input = document.getElementById('cfg_' + key);
+      var badge = document.getElementById('cfg_src_' + key);
+      if (!meta) {
+        if (badge) badge.textContent = loaded ? '' : __('Configuration unavailable');
+        return;
+      }
+      if (input) {
+        if (meta.kind === 'bool') input.checked = !!meta.value;
+        else input.value = meta.value;
+      }
+      if (badge) {
+        var srcLabel = _SEV_SOURCE_LABELS[meta.source];
+        badge.textContent = srcLabel ? __(srcLabel) : (meta.source || '');
+      }
+    });
+    var errEl = document.getElementById('cfgSeverityErrors');
+    var errors = (block && block.errors) || [];
+    if (errEl) {
+      if (errors.length) {
+        errEl.style.display = 'block';
+        errEl.innerHTML = '<strong>' + __('Configuration errors:') + '</strong> ' + errors.map(esc).join('<br>');
+      } else {
+        errEl.style.display = 'none';
+        errEl.innerHTML = '';
+      }
+    }
+    var effEl = document.getElementById('cfgSeverityEffective');
+    if (effEl) {
+      if (!loaded) {
+        effEl.innerHTML = '<span style="color:var(--accent-red)">' + __('Effective configuration unavailable — the saved settings could not be read.') + '</span>';
+      } else if (block && block.effective) {
+        var e = block.effective;
+        var zDefault = (block.zscore_bounds && block.zscore_bounds.default != null)
+          ? block.zscore_bounds.default : 2.5;
+        effEl.innerHTML = __('Effective: trend ') + (e.trend_assessment_enabled ? __('enabled') : __('disabled')) +
+          ' · ' + __('window ') + e.trend_analysis_window + ' ' + __('months') +
+          ' · ' + __('min history ') + e.trend_min_history_months +
+          ' · ' + __('direction ') + esc(String(e.trend_direction)) +
+          ' · ' + __('persistence ') + e.trend_finding_consecutive + ' ' + __('months') +
+          ' · ' + __('cumulative ≥ ') + e.trend_min_cumulative_change_pct + '%' +
+          ' · ' + __('policy ') + esc(String(e.trend_severity_policy)) +
+          (e.trend_severity_policy === 'override' ? ' → ' + esc(String(e.trend_severity_target)) : '') +
+          (e.trend_severity_policy === 'escalate' ? ' (+' + e.trend_severity_escalation + ' ' + __('band') + ')' : '') +
+          (Number(e.trend_min_completeness) > 0 ? ' · ' + __('completeness gate ') + e.trend_min_completeness + '%' : '') +
+          ' · ' + __('Z threshold ') + (block.zscore_threshold != null ? block.zscore_threshold : zDefault) +
+          ' <span style="color:var(--text-muted)">(' + esc(block.config_source || 'defaults') + ')</span>';
+      }
+    }
+    window._severityTrendConfig = block || null;
+  }
+
+  window.adminPreviewSeverityImpact = function() {
+    var out = document.getElementById('adminSeverityPreview');
+    var btn = document.getElementById('adminBtnSeverityPreview');
+    if (!out) return;
+    var proposed = adminCollectSeverityTrend();
+    Object.keys(proposed).forEach(function(key) {
+      if (proposed[key] === null) delete proposed[key];
+    });
+    out.style.display = 'block';
+    out.innerHTML = __('Checking stored results...');
+    if (btn) btn.disabled = true;
+    api('/config/control/severity-preview', {
+      method: 'POST', body: JSON.stringify(proposed)
+    }).then(function(res) {
+      if (btn) btn.disabled = false;
+      if (!res || res._error || res._forbidden) {
+        out.innerHTML = '<span style="color:var(--accent-red)">' + __('Preview failed') + ': ' +
+          esc((res && res.detail && (res.detail.errors || res.detail)) || __('request failed')) + '</span>';
+        return;
+      }
+      var parts = (res.transitions || []).map(function(t) {
+        return t.count + ' × ' + t.from + ' → ' + t.to;
+      });
+      out.innerHTML = '<strong>' + res.rows_changing + '</strong> ' + __('of') + ' ' + res.rows_examined +
+        ' ' + __('stored alert rows would change severity under the proposed policy') + ' (' +
+        res.rows_with_trend + ' ' + __('carry a trend assessment') + ').' +
+        (parts.length ? '<br>' + esc(parts.join(' · ')) : '') +
+        '<br><span style="color:var(--text-muted)">' + esc(res.note) + '</span>';
+    }).catch(function(e) {
+      if (btn) btn.disabled = false;
+      out.innerHTML = '<span style="color:var(--accent-red)">' + __('Preview failed') + ': ' + esc(e.message) + '</span>';
+    });
+  };
+
   async function adminLoadControlSettings() {
     try {
       var data = await api("/config/control/settings");
@@ -1621,10 +1889,27 @@ window._adminAssignHospitals = function(id, btn) {
         if (hideCb) hideCb.checked = !!data.hide_explanatory_text;
         var incCb = document.getElementById("cfg_incremental_months");
         if (incCb) incCb.checked = !!data.upload_incremental_months;
+        // Server-owned Z-score range: the same limits the Settings tab slider
+        // applies, so the two editors cannot drift apart again.
+        var sevBlock = data.severity_trend || null;
+        var zBounds = (sevBlock && sevBlock.zscore_bounds) || {};
         var zIn = document.getElementById("cfg_anomaly_zscore");
-        if (zIn) zIn.value = (data.anomaly_zscore_threshold != null) ? data.anomaly_zscore_threshold : 2.0;
+        if (zIn) {
+          ['min', 'max', 'step'].forEach(function(attr) {
+            if (zBounds[attr] !== null && zBounds[attr] !== undefined) zIn.setAttribute(attr, zBounds[attr]);
+          });
+          zIn.value = (data.anomaly_zscore_threshold != null) ? data.anomaly_zscore_threshold
+            : (zBounds.default != null ? zBounds.default : 2.5);
+        }
         var dIn = document.getElementById("cfg_anomaly_drift");
         if (dIn) dIn.value = (data.anomaly_drift_months != null) ? data.anomaly_drift_months : 3;
+        var zBadge = document.getElementById("cfg_src_anomaly_zscore");
+        if (zBadge) {
+          zBadge.textContent = data.zscore_threshold_source === 'database'
+            ? __('Saved value (same as Settings → Global Z-Score Threshold)')
+            : __('Default value (not saved yet)') + (zBounds.default != null ? ' ' + zBounds.default : '');
+        }
+        adminFillSeverityTrend(sevBlock);
       }
     } catch(e) {}
     var enabled = localStorage.getItem("dev_hints_enabled") !== "false";
@@ -1668,16 +1953,25 @@ window._adminAssignHospitals = function(id, btn) {
         };
         if (zVal != null) payload.anomaly_zscore_threshold = zVal;
         if (dVal != null) payload.anomaly_drift_months = dVal;
+        var sevTrend = adminCollectSeverityTrend();
+        Object.keys(sevTrend).forEach(function(key) {
+          if (sevTrend[key] !== null) payload[key] = sevTrend[key];
+        });
         var result = await api("/config/control/settings", {
           method: "PUT",
           body: JSON.stringify(payload)
         });
         if (!result || result._error || result._forbidden) {
           if (btn) { btn.textContent = "Save (*)"; btn.disabled = false; }
-          setStatus("✗ Save failed", "var(--accent-red)");
+          var detail = result && result.detail;
+          var detailMsg = (detail && (detail.errors || detail));
+          if (Array.isArray(detailMsg)) detailMsg = detailMsg.join(' · ');
+          setStatus(detailMsg ? ("✗ " + detailMsg) : "✗ Save failed", "var(--accent-red)");
           toastError("Analysis Control save failed");
           return;
         }
+        // Re-read the effective saved configuration after a successful save.
+        try { var refreshed = await api("/config/control/settings"); if (refreshed && !refreshed._error) adminFillSeverityTrend(refreshed.severity_trend); } catch(e2) {}
         _controlDirty = false;
         _updateControlSaveButton();
         setStatus("✓ Saved", "var(--accent-green)");

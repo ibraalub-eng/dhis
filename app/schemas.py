@@ -225,22 +225,30 @@ class IndicatorDefinitionOut(BaseModel):
 class IndicatorCatalogItem(BaseModel):
     """One row of the Indicators tab list: raw catalog entries, existing
     system rate definitions and managed derived definitions, unified."""
-    kind: str                            # raw | derived
+    kind: str                            # raw | rate_spec | derived
     ref_id: Optional[int] = None
     code: str
     name: str
     description: Optional[str] = None
     group_name: Optional[str] = None
-    # Single catalog classification: the group name when set, otherwise a
-    # fallback label derived from `kind` (see indicator_definitions.py).
+    # The ONE classification axis of the screen: exactly two values —
+    # "Data Element" (raw source data) and "Derived Indicator"
+    # (anything calculated). A group name is metadata and never leaks
+    # into this axis (see indicator_definitions.py).
     category: Optional[str] = None
     indicator_type: Optional[str] = None
     unit: Optional[str] = None
     formula: Optional[str] = None
     numerator_codes: Optional[List[str]] = None
     denominator_codes: Optional[List[str]] = None
-    status: str = "active"               # active | inactive | catalog
+    status: str = "active"               # active | inactive
     level: Optional[int] = None
+    # Required | Optional — mirrored from the Data Tree (read-only here).
+    requirement_type: Optional[str] = None
+    # Required but optional by inheritance: every source element under it is
+    # Optional, so the completeness denominator skips it. Shown distinctly so
+    # the exclusion is visible where the flag is mirrored.
+    optional_by_inheritance: bool = False
     version: Optional[int] = None
     definition_id: Optional[int] = None
     site: Optional[str] = None           # registry scope: zscore | clinical | forecast
@@ -252,6 +260,23 @@ class IndicatorListOut(BaseModel):
     count: int
     categories: List[str] = []
     groups: List[str] = []               # kept for older clients
+    types: List[str] = []
+    # Every code the catalog knows — the client generates an indicator ID
+    # from this set so a new one can never collide with an existing code.
+    codes: List[str] = []
+
+
+class IndicatorCatalogGroupOut(BaseModel):
+    """One dynamic group of the catalog — a reusable work unit that other
+    screens (audit scopes, outlier sets, report sections, forecast boards…)
+    can select by name. Built from whatever the active catalog contains;
+    system definitions carry the canonical clinical-domain groups from
+    app.engine.indicator_groups, user definitions their own group_name."""
+    name: str
+    total: int = 0
+    active: int = 0
+    kinds: List[str] = []                # raw | rate_spec | derived
+    sites: List[str] = []                # zscore | clinical | forecast
     types: List[str] = []
 
 
@@ -396,6 +421,7 @@ class IndicatorReorderIn(BaseModel):
 class RequirementTypeIn(BaseModel):
     """Body for PUT /hospitals/indicators/{id}/requirement-type."""
     requirement_type: str  # "Required" | "Optional"
+    include_children: bool = False  # apply to the whole branch subtree (branches UI)
 
 
 class HospitalIndicatorConfigOut(BaseModel):
@@ -492,6 +518,32 @@ class ValidationOut(BaseModel):
         from_attributes = True
 
 
+class LayerScoreOut(BaseModel):
+    """One detection layer's verdict for a single outlier row.
+
+    `applicable` is False when the layer could not look at anything (count
+    row, zero denominator, too little history, no peer group); its `score`
+    and `level` are then None rather than zero, so a report never presents
+    "not computed" as "clean".
+    """
+    key: str
+    name: str
+    value: Optional[float] = None
+    score: Optional[float] = None
+    level: Optional[str] = None
+    applicable: bool = False
+
+
+class PeerStatsOut(BaseModel):
+    """Statistics of the peer group the peer layer scored against."""
+    count: int = 0
+    mean: Optional[float] = None
+    std: Optional[float] = None
+    min: Optional[float] = None
+    max: Optional[float] = None
+    median: Optional[float] = None
+
+
 class AnomalyOut(BaseModel):
     id: Optional[int] = None
     hospital_id: Optional[int] = None
@@ -517,8 +569,13 @@ class AnomalyOut(BaseModel):
     peer_min: Optional[float] = None
     peer_max: Optional[float] = None
     peer_median: Optional[float] = None
+    # mean/std/min/max/median of the group this row was compared against.
+    peer_stats: Optional[PeerStatsOut] = None
     # [{hospital, rate}, ...] sorted by rate for the drill-down popover.
     peers_detail: Optional[list] = None
+    # Per-layer scores that produced this finding (raw/rate/history/volume/peer),
+    # read straight from the stored layered row.
+    layers: List[LayerScoreOut] = []
 
     class Config:
         from_attributes = True
@@ -581,6 +638,43 @@ class ReportOut(BaseModel):
     is_enabled: bool = True
 
 
+class PeerHospitalOut(BaseModel):
+    """One hospital in a peer comparison group (Quality report tooltip)."""
+    id: int
+    name: str
+    value: Optional[float] = None
+
+
+class DataElementOutlierOut(BaseModel):
+    """A raw catalog element's outlier row from the layered engine.
+
+    The classic AnomalyResult table only holds derived rates, so reading it
+    alone hid every data-element outlier from the Quality report. These rows
+    come from LayeredOutlierResult (the same table Outlier Diagnostics uses)
+    and carry the peer group the engine compared against.
+    """
+    analysis_code: str
+    indicator_id: Optional[int] = None
+    name: str
+    value: Optional[float] = None
+    baseline: Optional[float] = None
+    z_score: Optional[float] = None
+    peer_count: Optional[int] = None
+    peer_mean: Optional[float] = None
+    # mean/std/min/max/median of the comparison group (peer layer basis).
+    peer_stats: Optional[PeerStatsOut] = None
+    peers: List[PeerHospitalOut] = []
+    # Raw/rate/history/volume/peer scores stored on the row, in that order.
+    layers: List[LayerScoreOut] = []
+    outlier_level: Optional[str] = None
+    outlier_type: Optional[str] = None
+    method: Optional[str] = None
+    interpretation: Optional[str] = None
+    is_outlier: bool = False
+    unit: Optional[str] = None
+    kind: str = "element"
+
+
 class ReportSummaryOut(BaseModel):
     hospital: str
     month: str
@@ -592,6 +686,7 @@ class ReportSummaryOut(BaseModel):
     issues: List[str]
     validation_results: List[ValidationOut]
     anomaly_results: List[AnomalyOut]
+    layered_results: List[DataElementOutlierOut] = []
     confidence: Optional[ConfidenceSummaryOut] = None
 
 
@@ -738,6 +833,8 @@ class ConfidenceSignalOut(BaseModel):
     passed: bool
     score: float
     detail: str
+    # False = the signal could not be assessed (no value reported this month).
+    applicable: bool = True
 
 
 class IndicatorConfidenceOut(BaseModel):

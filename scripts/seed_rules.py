@@ -766,7 +766,11 @@ def remove_benchmark_validation_data(session):
         from app.engine.quality.scoring import combine_quality_score
 
         quality_config = get_config_dict(session, "quality")
+        # Keep in step with app.engine.quality.scoring.SEVERITY_WEIGHT_DEFAULTS
+        # — CRITICAL included, or a CRITICAL failure would be re-scored with
+        # the LOW weight (the bug this map was missing).
         severity_weights = {
+            "CRITICAL": float(quality_config.get("severity_critical", 1)),
             "HIGH": float(quality_config.get("severity_high", 3)),
             "MEDIUM": float(quality_config.get("severity_medium", 2)),
             "LOW": float(quality_config.get("severity_low", 1)),

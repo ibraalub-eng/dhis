@@ -95,7 +95,7 @@ class RefreshRequest(BaseModel):
 
 
 @router.post("/refresh")
-def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
+def refresh_token(req: RefreshRequest, request: Request, db: Session = Depends(get_db)):
     payload = decode_token(req.refresh_token)
     if payload is None or payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
@@ -121,9 +121,16 @@ def refresh_token(req: RefreshRequest, db: Session = Depends(get_db)):
         permissions = ["*.*"]
 
     new_access = create_access_token(user.id, roles, permissions)
-    new_refresh_str, new_jti, new_exp = create_refresh_token(user.id)
+    # Preserve the remember-me window across rotations (claim "rm").
+    remember_me = bool(payload.get("rm"))
+    new_refresh_str, new_jti, new_exp = create_refresh_token(user.id, remember_me=remember_me)
     db.add(RefreshToken(user_id=user.id, token_jti=new_jti, expires_at=new_exp))
     db.commit()
+    # Track the user as online for the admin Sessions page (it counts
+    # "login"/"refresh" events inside the access-token window).
+    _log_session_event(db, user.id, user.username, "refresh",
+                       request.client.host if request.client else None,
+                       (request.headers.get("user-agent", ""))[:500])
 
     return {"access_token": new_access, "refresh_token": new_refresh_str, "token_type": "bearer"}
 

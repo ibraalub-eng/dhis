@@ -398,3 +398,90 @@ def test_guard_allows_real_hospitals(db_session, tmp_path):
     )
     assert result["new_hospitals"] == 1
     assert db_session.query(Hospital).filter(Hospital.name == "Al-Shifa Hospital").count() == 1
+
+
+# ── Hospital matching: DHIS path names vs registry short names ───────────
+# Uploads carry the full organisation-unit path while the registry keeps the
+# short name. A match miss used to create a *duplicate* hospital with its own
+# copy of the values — Settings then showed the facility "has data" twice.
+
+
+def _write_org_path_csv(tmp_path, org, filename):
+    p = tmp_path / filename
+    p.write_text(
+        "organisationunitname,month,Total Deliveries,Caesarean Sections\n"
+        f"{org},2026-04,300,80\n",
+        encoding="utf-8",
+    )
+    return str(p)
+
+
+def test_full_path_name_matches_short_registry_hospital(db_session, tmp_path):
+    """'وزارة الصحة/مستشفيات/مستشفى الشفاء' must land on the registry's
+    'مستشفى الشفاء' — no duplicate, and real values reactivate it."""
+    from app.models import Hospital, IndicatorValue
+    from app.utils.excel_parser import process_excel_upload
+
+    h = Hospital(name="مستشفى الشفاء", organisation_unit_id="1022", is_active=False)
+    db_session.add(h)
+    db_session.commit()
+
+    result = process_excel_upload(
+        _write_org_path_csv(tmp_path, "وزارة الصحة/مستشفيات/مستشفى الشفاء",
+                            "shifa_report.csv"),
+        db_session,
+    )
+
+    assert result["new_hospitals"] == 0
+    rows = db_session.query(Hospital).filter(Hospital.name == "مستشفى الشفاء").all()
+    assert len(rows) == 1
+    assert rows[0].id == h.id
+    assert rows[0].is_active is True
+    real = db_session.query(IndicatorValue).filter(
+        IndicatorValue.hospital_id == h.id,
+        IndicatorValue.value.isnot(None)).count()
+    assert real == 2
+
+
+def test_prcs_suffix_and_spelling_variant_match_registry(db_session, tmp_path):
+    """'مستشفيات/ مستشفي القدس/PRCS' vs 'مستشفى القدس PRCS': the path word,
+    the 'مستشفى'/'مستشفي' spelling and the trailing /PRCS all differ."""
+    from app.models import Hospital, IndicatorValue
+    from app.utils.excel_parser import process_excel_upload
+
+    h = Hospital(name="مستشفى القدس PRCS", organisation_unit_id="44641", is_active=True)
+    db_session.add(h)
+    db_session.commit()
+
+    result = process_excel_upload(
+        _write_org_path_csv(tmp_path, "مستشفيات/ مستشفي القدس/PRCS", "prcs_report.csv"),
+        db_session,
+    )
+
+    assert result["new_hospitals"] == 0
+    assert db_session.query(Hospital).filter(
+        Hospital.name == "مستشفى القدس PRCS").count() == 1
+    real = db_session.query(IndicatorValue).filter(
+        IndicatorValue.hospital_id == h.id,
+        IndicatorValue.value.isnot(None)).count()
+    assert real == 2
+
+
+def test_locality_qualifier_matches_by_token_subset(db_session, tmp_path):
+    """A file row that adds a locality to the registry name
+    ('الميداني الأردني' → '… خانيونس') resolves to the same hospital."""
+    from app.models import Hospital
+    from app.utils.excel_parser import process_excel_upload
+
+    h = Hospital(name="الميداني الأردني", is_active=True)
+    db_session.add(h)
+    db_session.commit()
+
+    result = process_excel_upload(
+        _write_org_path_csv(tmp_path, "الخدمات الأردنية/مستشفيات/الميداني الأردني خانيونس",
+                            "jordanian_report.csv"),
+        db_session,
+    )
+
+    assert result["new_hospitals"] == 0
+    assert db_session.query(Hospital).filter(Hospital.name == "الميداني الأردني").count() == 1

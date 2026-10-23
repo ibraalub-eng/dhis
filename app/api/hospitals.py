@@ -520,8 +520,12 @@ def hospital_data_status(db: Session = Depends(get_db)):
 
     Returns each hospital with indicator_values_count, quality_score_count,
     months with data, and whether it's active.
+
+    Only rows with a real (non-null) value count as data: the importer stores
+    a NULL row for every empty cell in the upload, and counting those made a
+    hospital whose whole report is blank show "760 indicator values" here.
     """
-    from sqlalchemy import func
+    from sqlalchemy import and_, func
     from app.models import IndicatorValue, QualityScore
 
     rows = (
@@ -532,7 +536,11 @@ def hospital_data_status(db: Session = Depends(get_db)):
             func.coalesce(func.count(func.distinct(IndicatorValue.id)), 0).label("iv_count"),
             func.coalesce(func.count(func.distinct(QualityScore.id)), 0).label("qs_count"),
         )
-        .outerjoin(IndicatorValue, IndicatorValue.hospital_id == Hospital.id)
+        .outerjoin(
+            IndicatorValue,
+            and_(IndicatorValue.hospital_id == Hospital.id,
+                 IndicatorValue.value.isnot(None)),
+        )
         .outerjoin(QualityScore, QualityScore.hospital_id == Hospital.id)
         .group_by(Hospital.id, Hospital.name, Hospital.is_active)
         .order_by(Hospital.name)
@@ -541,10 +549,11 @@ def hospital_data_status(db: Session = Depends(get_db)):
 
     result = []
     for r in rows:
-        # Get months with data
+        # Get months with actual (non-null) data
         months = (
             db.query(IndicatorValue.month)
-            .filter(IndicatorValue.hospital_id == r.id)
+            .filter(IndicatorValue.hospital_id == r.id,
+                    IndicatorValue.value.isnot(None))
             .distinct()
             .order_by(IndicatorValue.month)
             .all()
