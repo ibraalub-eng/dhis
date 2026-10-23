@@ -1,5 +1,6 @@
 import logging
 import re
+from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
@@ -66,7 +67,13 @@ SLOW_QUERY_KEY = "slow_query_logging_enabled"
 HIDE_EXPLANATIONS_KEY = "hide_explanatory_text"
 INCREMENTAL_UPLOAD_KEY = "upload_incremental_months"
 MONTH_SETTINGS_PREFIX = "month_enabled_"
+# Public API field name, kept for existing clients. Its STORAGE is the single
+# authoritative AppConfig thresholds.zscore_threshold (saved default 2.5).
 ANOMALY_ZSCORE_KEY = "anomaly_zscore_threshold"
+# Deprecated duplicate SystemSetting written by older releases under the SAME
+# name as the public field; removed on startup and on the next save so only ONE
+# Z-score threshold remains.
+LEGACY_ANOMALY_ZSCORE_KEY = ANOMALY_ZSCORE_KEY
 ANOMALY_DRIFT_KEY = "anomaly_drift_months"
 
 
@@ -80,13 +87,114 @@ def _num_setting(db: Session, key: str, default: float, lo: float, hi: float) ->
     return max(lo, min(hi, v))
 
 
+def _set_app_config(db: Session, key: str, category: str, label: str,
+                    value: float) -> None:
+    """Upsert one numeric AppConfig row (the analysis-config storage)."""
+    row = db.query(AppConfig).filter(AppConfig.key == key).first()
+    if row is None:
+        db.add(AppConfig(key=key, value=float(value), category=category,
+                         label=label))
+        return
+    row.value = float(value)
+    if not row.label:
+        row.label = label
+
+
+def _set_system_setting(db: Session, key: str, value) -> None:
+    """Upsert one SystemSetting (text) row — System Control's storage."""
+    if isinstance(value, bool):
+        text = "true" if value else "false"
+    else:
+        text = str(value)
+    row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if row is None:
+        db.add(SystemSetting(key=key, value=text))
+        return
+    row.value = text
+
+
+def reconcile_legacy_settings(db: Session) -> list:
+    """Remove the deprecated duplicate Z-score SystemSetting.
+
+    ``thresholds.zscore_threshold`` (saved default 2.5) is the only Z-score
+    threshold in the system. Older releases also wrote
+    ``SystemSetting('anomaly_zscore_threshold')`` with a different default
+    (2.0); leaving it behind is a competing threshold, so it is removed and the
+    removal is logged. Idempotent.
+    """
+    removed = []
+    row = db.query(SystemSetting).filter(
+        SystemSetting.key == LEGACY_ANOMALY_ZSCORE_KEY).first()
+    if row is not None:
+        removed.append({"key": row.key, "value": row.value})
+        logger.warning(
+            "Removing legacy duplicate SystemSetting %r (value=%r); "
+            "AppConfig thresholds.zscore_threshold is the authoritative "
+            "Z-score threshold.", row.key, row.value)
+        db.delete(row)
+        db.commit()
+    return removed
+
+
 def get_anomaly_settings(db: Session) -> dict:
-    """Statistical anomaly detector knobs (dashboard 'Needs attention'):
-    z-score threshold for abnormal jumps/drops, and how many consecutive
-    monthly drops count as a slow decline. Clamped to sane ranges."""
+    """Statistical anomaly detector knobs (dashboard 'Needs attention').
+
+    The Z-score threshold is read from the authoritative analysis
+    configuration (``thresholds.zscore_threshold``, saved default 2.5) through
+    the shared severity loader — never from a second, competing setting. The
+    slow-decline length remains its own SystemSetting because nothing else
+    defines it.
+    """
+    from app.engine import severity as severity_policy
+
+    cfg = severity_policy.load_analysis_config(db)
     return {
-        ANOMALY_ZSCORE_KEY: round(_num_setting(db, ANOMALY_ZSCORE_KEY, 2.0, 1.0, 5.0), 2),
+        ANOMALY_ZSCORE_KEY: cfg.zscore_threshold,
+        "zscore_threshold_source": cfg.zscore_threshold_source,
         ANOMALY_DRIFT_KEY: int(_num_setting(db, ANOMALY_DRIFT_KEY, 3, 2, 6)),
+    }
+
+
+def get_severity_trend_settings(db: Session) -> dict:
+    """Effective severity/temporal-trend configuration for System Control.
+
+    Reports each saved value, its default, and WHERE it came from
+    (``database`` / ``default`` / ``invalid``) so the UI can show what is
+    effectively running. A database read failure is reported, never hidden
+    behind defaults.
+    """
+    from app.engine import severity as severity_policy
+
+    try:
+        cfg = severity_policy.load_analysis_config(db)
+    except severity_policy.AnalysisConfigError as exc:
+        logger.error("Severity/trend configuration unreadable: %s", exc)
+        return {
+            "loaded": False,
+            "config_source": "unavailable",
+            "settings": {},
+            "effective": {},
+            "errors": [str(exc)],
+            "zscore_threshold": None,
+            "zscore_threshold_source": "unavailable",
+            # Bounds are compile-time constants, so they stay available even
+            # when the saved configuration cannot be read.
+            "zscore_bounds": severity_policy.zscore_bounds(),
+            "severity_levels": list(severity_policy.LEVELS),
+            "severity_sources": list(severity_policy.SOURCES),
+        }
+    return {
+        "loaded": True,
+        "config_source": cfg.source,
+        "settings": cfg.settings,
+        "effective": cfg.trend.as_dict(),
+        "trend_bands": dict(cfg.trend_bands),
+        "errors": list(cfg.errors),
+        "zscore_threshold": cfg.zscore_threshold,
+        "zscore_threshold_source": cfg.zscore_threshold_source,
+        "zscore_bounds": severity_policy.zscore_bounds(),
+        "severity_levels": list(severity_policy.LEVELS),
+        "severity_sources": list(severity_policy.SOURCES),
     }
 
 
@@ -134,12 +242,66 @@ def get_control_settings(db: Session = Depends(get_db)):
         "hide_explanatory_text": (hide_row.value == "true") if hide_row else False,
         "upload_incremental_months": (incremental_row.value == "true") if incremental_row else False,
     }
-    result.update(get_anomaly_settings(db))
+    # Effective saved configuration + explicit errors. A configuration read
+    # failure is reported here (null + error text), never replaced by hidden
+    # defaults.
+    result["severity_trend"] = get_severity_trend_settings(db)
+    try:
+        result.update(get_anomaly_settings(db))
+    except Exception as exc:  # noqa: BLE001 - surfaced to the operator
+        logger.error("Anomaly settings could not be loaded: %s", exc)
+        try:
+            drift = int(_num_setting(db, ANOMALY_DRIFT_KEY, 3, 2, 6))
+        except Exception:
+            drift = None
+        result.update({
+            "anomaly_zscore_threshold": None,
+            "zscore_threshold_source": "unavailable",
+            "anomaly_drift_months": drift,
+            "configuration_errors": [str(exc)],
+        })
     return result
 
 
 @router.put("/control/settings", dependencies=[Depends(require_permission("settings.write"))])
 def update_control_settings(updates: dict = Body(...), db: Session = Depends(get_db)):
+    """Save Analysis Control settings (System Control is the authority).
+
+    Validation happens for EVERY submitted value before anything is written,
+    so a rejected value cannot leave a half-saved configuration behind.
+    """
+    from app.engine import severity as severity_policy
+
+    errors = []
+    trend_values = {}
+    for key, spec in severity_policy.TREND_SETTING_SPECS.items():
+        if key not in updates:
+            continue
+        try:
+            trend_values[key] = severity_policy.coerce_setting(spec, updates[key])
+        except ValueError as exc:
+            errors.append(f"{key}: {exc}")
+
+    z_value = None
+    if ANOMALY_ZSCORE_KEY in updates:
+        try:
+            z_value = float(updates[ANOMALY_ZSCORE_KEY])
+        except (TypeError, ValueError):
+            errors.append(f"{ANOMALY_ZSCORE_KEY}: expected a number")
+        else:
+            z_value = round(max(severity_policy.ZSCORE_MIN,
+                                min(severity_policy.ZSCORE_MAX, z_value)), 2)
+
+    drift_value = None
+    if ANOMALY_DRIFT_KEY in updates:
+        try:
+            drift_value = int(round(max(2.0, min(6.0, float(updates[ANOMALY_DRIFT_KEY])))))
+        except (TypeError, ValueError):
+            drift_value = None  # preserve legacy behaviour: ignore bad input
+
+    if errors:
+        raise HTTPException(status_code=422, detail={"errors": errors})
+
     updated = {}
     for key in (CONTROL_KEY, LOGGING_KEY, SLOW_QUERY_KEY, HIDE_EXPLANATIONS_KEY, INCREMENTAL_UPLOAD_KEY):
         if key in updates:
@@ -150,22 +312,37 @@ def update_control_settings(updates: dict = Body(...), db: Session = Depends(get
             else:
                 db.add(SystemSetting(key=key, value=val))
             updated[key] = val == "true"
-    for key, default, lo, hi in (
-        (ANOMALY_ZSCORE_KEY, 2.0, 1.0, 5.0),
-        (ANOMALY_DRIFT_KEY, 3, 2, 6),
-    ):
-        if key in updates:
-            try:
-                val = float(updates[key])
-            except (TypeError, ValueError):
-                continue  # ignore unparseable input, keep the current value
-            val = round(max(lo, min(hi, val)), 2)
-            row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
-            if row:
-                row.value = str(val)
-            else:
-                db.add(SystemSetting(key=key, value=str(val)))
-            updated[key] = val
+    if z_value is not None:
+        # Single authoritative Z-score storage (thresholds category).
+        _set_app_config(db, severity_policy.ZSCORE_KEY,
+                        severity_policy.THRESHOLDS_CATEGORY,
+                        "Z-Score Threshold", z_value)
+        updated[ANOMALY_ZSCORE_KEY] = z_value
+    for key, value in trend_values.items():
+        spec = severity_policy.TREND_SETTING_SPECS[key]
+        if key in severity_policy.EXISTING_TREND_KEYS:
+            # Reused existing AppConfig key — never duplicated in SystemSetting.
+            _set_app_config(db, key, severity_policy.TREND_CATEGORY,
+                            spec.label, float(value))
+        else:
+            _set_system_setting(db, key, value)
+        updated[key] = value
+    if drift_value is not None:
+        row = db.query(SystemSetting).filter(SystemSetting.key == ANOMALY_DRIFT_KEY).first()
+        if row:
+            row.value = str(drift_value)
+        else:
+            db.add(SystemSetting(key=ANOMALY_DRIFT_KEY, value=str(drift_value)))
+        updated[ANOMALY_DRIFT_KEY] = drift_value
+    # Drop the deprecated duplicate Z-score SystemSetting in the same
+    # transaction: no second Z-score threshold may survive a save.
+    legacy = db.query(SystemSetting).filter(
+        SystemSetting.key == LEGACY_ANOMALY_ZSCORE_KEY).first()
+    if legacy is not None:
+        logger.warning(
+            "Removing legacy duplicate SystemSetting %r (value=%r) on save; "
+            "thresholds.zscore_threshold is authoritative.", legacy.key, legacy.value)
+        db.delete(legacy)
     db.commit()
     # Update runtime flags immediately
     if LOGGING_KEY in updated:
@@ -175,6 +352,77 @@ def update_control_settings(updates: dict = Body(...), db: Session = Depends(get
         from app.monitoring import set_slow_query_logging
         set_slow_query_logging(updated[SLOW_QUERY_KEY])
     return {"status": "ok", **updated}
+
+
+@router.post("/control/severity-preview")
+def preview_severity_policy(updates: dict = Body(default={}),
+                            db: Session = Depends(get_db)):
+    """Show the impact of a severity/trend policy BEFORE recalculating.
+
+    Reads the stored base severity + trend assessment of every persisted
+    Quality Alert and reports how many rows would change severity under the
+    proposed settings. Nothing is written and no analysis is recomputed: the
+    actual recalculation stays an explicit Quality Alerts scan.
+    """
+    from app.engine import severity as severity_policy
+    from app.models import QualityAlert
+
+    try:
+        current = severity_policy.load_analysis_config(db)
+    except severity_policy.AnalysisConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    proposed_raw = dict(current.raw_trends)
+    errors = []
+    submit = updates.get("settings") if isinstance(updates.get("settings"), dict) else updates
+    for key, spec in severity_policy.TREND_SETTING_SPECS.items():
+        if key not in submit:
+            continue
+        try:
+            proposed_raw[key] = severity_policy.coerce_setting(spec, submit[key])
+        except ValueError as exc:
+            errors.append(f"{key}: {exc}")
+    if errors:
+        raise HTTPException(status_code=422, detail={"errors": errors})
+
+    proposed = severity_policy.resolve_trend_settings(proposed_raw)
+    transitions = Counter()
+    examined = with_trend = changed = 0
+    for alert in db.query(QualityAlert).all():
+        evidence = alert.evidence or {}
+        base = evidence.get("base_severity")
+        base = base if isinstance(base, dict) else {}
+        stored_trend = evidence.get("trend_assessment")
+        trend = severity_policy.trend_from_dict(stored_trend, proposed)
+        quality = evidence.get("data_quality")
+        completeness = (quality or {}).get("completeness") if isinstance(quality, dict) else None
+        resolution = severity_policy.resolve_severity(
+            base.get("level") or alert.severity,
+            base.get("source") or severity_policy.SOURCE_LEGACY,
+            trend=trend, config=proposed, data_quality=completeness,
+        )
+        examined += 1
+        if trend is not None and trend.evaluated:
+            with_trend += 1
+        if resolution.final.level != alert.severity:
+            changed += 1
+            transitions[(alert.severity, resolution.final.level)] += 1
+
+    return {
+        "preview": True,
+        "rows_examined": examined,
+        "rows_with_trend": with_trend,
+        "rows_changing": changed,
+        "transitions": [
+            {"from": source, "to": target, "count": count}
+            for (source, target), count in sorted(
+                transitions.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        "policy": proposed.policy,
+        "settings": proposed.as_dict(),
+        "note": ("Preview only — stored results are unchanged. Re-run the "
+                 "Quality Alerts scan to persist a new policy."),
+    }
 
 
 @router.get("/")

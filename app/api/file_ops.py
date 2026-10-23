@@ -676,6 +676,14 @@ def _run_quality_reports(db: Session, hospitals_list: list, hospital_months: dic
 def _run_trend_analyses(db: Session, hospitals_list: list, hospital_months: dict) -> dict:
     result = {}
     from app.engine import indicator_service
+    from app.engine.severity import AnalysisConfigError, load_analysis_config
+
+    # Saved System Control configuration, once per run (never per hospital).
+    try:
+        trend_config = load_analysis_config(db).trend_engine_config()
+    except AnalysisConfigError as exc:
+        logger.error("Trend analyses skipped: %s", exc)
+        return {"_config_error": str(exc)}
     managed_indicators = indicator_service.resolve_active_definitions(
         db, site="zscore")
     for h in hospitals_list:
@@ -688,7 +696,8 @@ def _run_trend_analyses(db: Session, hospitals_list: list, hospital_months: dict
             try:
                 trends = analyze_historical_trends(
                     h.name, h_monthly,
-                    additional_indicators=managed_indicators)
+                    additional_indicators=managed_indicators,
+                    config=trend_config)
                 if trends:
                     result[str(h.id)] = [
                         {
@@ -706,6 +715,7 @@ def _run_trend_analyses(db: Session, hospitals_list: list, hospital_months: dict
                             "last_vs_mean_pct_change": float(t.last_vs_mean_pct_change),
                             "consecutive_direction": t.consecutive_direction,
                             "consecutive_count": int(t.consecutive_count),
+                            "trend_assessment": t.trend_assessment,
                         }
                         for t in trends
                     ]

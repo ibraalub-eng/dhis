@@ -1,5 +1,7 @@
 from typing import Dict, Optional
 
+from sqlalchemy.orm import Session
+
 from .rules import (
     Severity,
     RuleType,
@@ -23,6 +25,9 @@ from .scoring import (
     combine_quality_score,
     QUALITY_WEIGHT_KEYS,
     QUALITY_WEIGHT_DEFAULTS,
+    SEVERITY_WEIGHT_DEFAULTS,
+    severity_weights,
+    FLAGGED_LEVELS,
 )
 from .definitions import _RULES_CONFIG as _RULES_CONFIG, RULE_CATALOG
 
@@ -37,6 +42,8 @@ def run_quality_analysis(
     required_codes: Optional[set] = None,
     disabled_codes: Optional[set] = None,
     score_config: Optional[Dict[str, float]] = None,
+    session: Optional["Session"] = None,
+    layered_results: Optional[list] = None,
 ) -> Dict:
     ctx = ValidationContext(
         values=values,
@@ -49,7 +56,8 @@ def run_quality_analysis(
 
     rule_results = run_all_rules(ctx)
 
-    covered_codes = compute_covered_codes(values, disabled_codes or set())
+    # doctrine §2: always pass db so user rules (e.g. parent_le R061) drive coverage
+    covered_codes = compute_covered_codes(values, disabled_codes or set(), session)
 
     score = calculate_quality_score(
         rule_results=rule_results,
@@ -58,6 +66,7 @@ def run_quality_analysis(
         required_codes=required_codes or set(),
         config=score_config,
         covered_codes=covered_codes,
+        layered_results=layered_results,
     )
 
     return {
@@ -88,5 +97,8 @@ __all__ = [
     "combine_quality_score",
     "QUALITY_WEIGHT_KEYS",
     "QUALITY_WEIGHT_DEFAULTS",
+    "SEVERITY_WEIGHT_DEFAULTS",
+    "severity_weights",
+    "FLAGGED_LEVELS",
     "run_quality_analysis",
 ]

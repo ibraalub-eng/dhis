@@ -70,6 +70,21 @@ _impact_cache = {"data": None, "ts": 0, "lock": threading.Lock()}
 _IMPACT_TTL = 300  # 5 minutes
 
 
+def _invalidate_rule_failure_cache() -> None:
+    """Drop cached /analysis/rule-failures payloads.
+
+    That endpoint memoises its page for 24 h. Validation rows are rewritten
+    by every analysis/edit pass, but they are not part of the cache epoch by
+    default, so without this the Alerts screen could keep serving the failures
+    of a rule that was just deleted or disabled.
+    """
+    try:
+        from app.cache import cache
+        cache.invalidate("v2|analysis:rule-failures")
+    except Exception:
+        pass
+
+
 def _invalidate_impact_cache() -> None:
     """Drop the /rules/impact memo (and dependent engine caches).
 
@@ -162,19 +177,29 @@ def _latest_month_with_data(db: Session):
     return row[0] if row and row[0] else None
 
 
-def _run_latest_month_recompute(task_id: str, month: str, hospital_ids: List[int]) -> dict:
-    """Background worker: re-run the engine for one month across hospitals."""
+def _run_latest_month_recompute(task_id: str, month: str, hospital_ids: List[int],
+                                months: List[str] = None) -> dict:
+    """Background worker: re-apply the current rules to the stored results.
+
+    ``months`` defaults to the single ``month`` for callers (and tests) that
+    scope the pass explicitly; the scheduler passes every month with data so
+    the Validation Alerts screen — which lists all months — is updated too.
+    """
     from app.database import SessionLocal
-    from app.engine.pipeline import recompute_hospital_months
+    from app.engine.pipeline import revalidate_hospital_months
     from app.tasks import set_progress
 
+    target_months = [m for m in (months or [month]) if m]
     bg_db = SessionLocal()
     done = failed = 0
     try:
         total = max(len(hospital_ids), 1)
         for h_id in hospital_ids:
             try:
-                recompute_hospital_months(bg_db, h_id, [month], force=True)
+                # Validation + the rule-dependent score only: the heavy
+                # anomaly/ML/layered passes are reused from storage, which is
+                # what makes covering every month affordable.
+                revalidate_hospital_months(bg_db, h_id, target_months)
                 done += 1
             except Exception:
                 failed += 1
@@ -186,9 +211,16 @@ def _run_latest_month_recompute(task_id: str, month: str, hospital_ids: List[int
                 set_progress(task_id, int((done + failed) / total * 100))
             except Exception:
                 pass
-        return {"month": month, "recomputed": done, "failed": failed}
+        return {"month": month, "months": target_months,
+                "recomputed": done, "failed": failed}
     finally:
         bg_db.close()
+        _invalidate_rule_failure_cache()
+        try:
+            from app.cache import refresh_data_epoch
+            refresh_data_epoch()
+        except Exception:
+            pass
         with _LATEST_RECOMPUTE_LOCK:
             _latest_recompute["running"] = False
             # A rule changed WHILE this pass ran: it may have been read after
@@ -204,10 +236,12 @@ def _run_latest_month_recompute(task_id: str, month: str, hospital_ids: List[int
 
 
 def _schedule_latest_month_recompute(background_tasks=None) -> str | None:
-    """Kick off the latest-month recompute after a rule mutation.
+    """Re-apply the current rules to the stored results after a mutation.
 
-    Never raises and never blocks the save: a failure here must not turn a
-    successful rule edit into an error response.
+    Covers EVERY month with data, not just the latest: the Validation Alerts
+    screen lists all periods, so refreshing only the newest one left every
+    older alert showing pre-edit failures. Never raises and never blocks the
+    save: a failure here must not turn a successful rule edit into an error.
     """
     try:
         from app.database import SessionLocal
@@ -219,9 +253,11 @@ def _schedule_latest_month_recompute(background_tasks=None) -> str | None:
             hospital_ids = [h.id for h in probe.query(Hospital)
                             .filter(Hospital.is_active.is_(True))
                             .order_by(Hospital.id).all()]
+            months = [m for (m,) in probe.query(IndicatorValue.month)
+                      .distinct().order_by(IndicatorValue.month).all() if m]
         finally:
             probe.close()
-        if not hospital_ids:
+        if not hospital_ids or not months:
             return None
 
         with _LATEST_RECOMPUTE_LOCK:
@@ -234,11 +270,13 @@ def _schedule_latest_month_recompute(background_tasks=None) -> str | None:
             _latest_recompute["running"] = True
 
         from app.tasks import create_task, run_task
-        task_id = create_task("Rule change - refreshing %s scores" % month, lambda: None)
+        task_id = create_task(
+            "Rule change - refreshing validation alerts for %d month(s)" % len(months),
+            lambda: None)
         _latest_recompute["task_id"] = task_id
 
         def _run(tid):
-            return _run_latest_month_recompute(tid, month, hospital_ids)
+            return _run_latest_month_recompute(tid, month, hospital_ids, months)
 
         if background_tasks is not None:
             background_tasks.add_task(run_task, task_id, _run, task_id)
@@ -257,16 +295,22 @@ def _schedule_latest_month_recompute(background_tasks=None) -> str | None:
 @router.get("/recompute-status")
 def rule_recompute_status():
     """Lets the UI tell the user their edit is still being applied to the
-    stored quality scores, instead of leaving a stale 100% on screen."""
+    stored validation results and scores, instead of leaving stale numbers on
+    screen."""
     with _LATEST_RECOMPUTE_LOCK:
         running = _latest_recompute["running"]
         task_id = _latest_recompute["task_id"]
+        pending = _latest_recompute["pending"]
     if not running or not task_id:
-        return {"running": False}
+        # ``pending`` = an edit arrived during the pass and its follow-up is
+        # about to start; the UI keeps waiting instead of declaring the edit
+        # applied when it has not run yet.
+        return {"running": False, "pending": True} if pending else {"running": False}
     try:
         from app.tasks import get_task
         task = get_task(task_id) or {}
-        return {"running": True, "progress": task.get("progress", 0),
+        return {"running": True, "pending": bool(pending),
+                "progress": task.get("progress", 0),
                 "status": task.get("status"), "result": task.get("result")}
     except Exception:
         return {"running": True}
@@ -280,7 +324,8 @@ def force_recompute_latest(background_tasks=None):
     if not task_id:
         raise HTTPException(status_code=400,
                             detail="Nothing to recompute: no indicator data found")
-    return {"message": "Recomputing the latest month", "task_id": task_id}
+    return {"message": "Re-applying rules to every recorded month",
+            "task_id": task_id}
 
 
 @router.get("/impact")
@@ -930,10 +975,18 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     code = db_rule.code
     snap = _rule_snapshot(db_rule)
     db.delete(db_rule)
+    # Its stored results are snapshots of a rule that no longer exists. Drop
+    # them in the same transaction: the Validation Alerts screen reads these
+    # rows directly, and waiting for the background pass left "R0xx failures"
+    # listed for a rule the Rules Manager could no longer show.
+    db.query(ValidationResult).filter(
+        ValidationResult.rule_code == code
+    ).delete(synchronize_session=False)
     db.flush()  # rule row gone; rule_id FK must be NULL on the audit entry
     _record_rule_history(db, None, "deleted", [], rule_id=None, rule_code=code, snapshot=snap)
     db.commit()
     _invalidate_impact_cache()
+    _invalidate_rule_failure_cache()
     _schedule_latest_month_recompute()
     return {"message": f"Rule {code} deleted"}
 

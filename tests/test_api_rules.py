@@ -338,6 +338,21 @@ class TestRuleFailureSearchAndSort:
         _cache._cache.clear()
         self.hospitals = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).limit(3).all()
         assert len(self.hospitals) >= 3, "fixture needs at least three active hospitals"
+        # The Alerts screens only list failures whose rule still exists, so the
+        # fixture must seed the rules it references (plus the benchmark rule,
+        # to prove the BENCHMARK filter — not the missing rule — hides that row).
+        for code, sev, rtype, category in (
+            ("R_AAA", "CRITICAL", "LOGIC", "PLAUSIBILITY"),
+            ("R_BBB", "HIGH", "LOGIC", "PLAUSIBILITY"),
+            ("R_CCC", "LOW", "LOGIC", "PLAUSIBILITY"),
+            ("R_BENCHMARK", "CRITICAL", "BENCHMARK", "STATISTICAL_BENCHMARK"),
+        ):
+            db_session.add(Rule(
+                code=code, name=f"{code} fixture rule", rule_type=rtype,
+                severity=sev, category=category, expression_type="formula",
+                params="{}", description="seeded by the alerts test fixture",
+            ))
+        db_session.commit()
         # Deterministic, deliberately unsorted: hospital order != month order.
         for i, h in enumerate(self.hospitals):
             h.name = f"Hosp-{3 - i}"
@@ -715,6 +730,42 @@ class TestStoredScoreRefresh:
         # are seeded); what matters is that R061's FAIL was persisted.
         assert rule.code in [v.rule_code for v in fails]
 
+    def test_rule_change_reapplies_to_every_recorded_month(self, db_session):
+        """The Validation Alerts screen lists ALL periods, so a rule edit must
+        refresh older months too — a latest-only pass left them showing alerts
+        that the new rule no longer produces."""
+        from app.engine.pipeline import revalidate_hospital_months
+        from app.models import ValidationResult
+
+        _seed_impact_data(db_session, month="2026-07")
+        _seed_impact_data(db_session, month="2026-08")
+        hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+        rule = db_session.query(Rule).filter(Rule.code == "R061").first()
+        rule.enabled = True
+        rule.expression_type = "ge"
+        rule.params = json.dumps({"parent": _PROBE_PARENT, "children": [_PROBE_CHILD]})
+        # A stale PASS row in the OLD month, recorded before the edit.
+        db_session.add(ValidationResult(
+            hospital_id=hosp.id, month="2026-07", rule_code=rule.code,
+            rule_description=rule.name, status="PASS",
+            severity=rule.severity, rule_type=rule.rule_type, details="stale",
+        ))
+        db_session.commit()
+
+        refreshed = revalidate_hospital_months(
+            db_session, hosp.id, ["2026-07", "2026-08"])
+        assert refreshed == 2
+
+        for month in ("2026-07", "2026-08"):
+            rows = db_session.query(ValidationResult).filter(
+                ValidationResult.hospital_id == hosp.id,
+                ValidationResult.month == month,
+                ValidationResult.rule_code == rule.code,
+            ).all()
+            assert rows, f"no validation rows written for {month}"
+            assert all(r.status == "FAIL" for r in rows), (
+                f"{month} still carries a pre-edit outcome")
+
     def test_recompute_status_is_quiet_when_idle(self, client):
         resp = client.get("/rules/recompute-status")
         assert resp.status_code == 200
@@ -759,8 +810,9 @@ class TestStoredScoreRefresh:
         )
         ran = []
         monkeypatch.setattr(
-            pipeline_mod, "recompute_hospital_months",
-            lambda db, hid, months, force=False: ran.append((hid, list(months), force)),
+            pipeline_mod, "revalidate_hospital_months",
+            lambda db, hid, months=None, progress_cb=None: (
+                ran.append((hid, list(months or []), True)) or len(months or [])),
         )
 
         # A pass is already running when the user's second edit is saved.

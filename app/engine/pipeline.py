@@ -158,6 +158,82 @@ def get_enabled_values_for_hospital_month(session: Session, hospital_id: int, mo
     return result
 
 
+def get_optional_source_indicator_ids(session) -> set:
+    """Indicator IDs whose whole data-element subtree is Optional.
+
+    Doctrine (COVERAGE-DISABLE-DOCTRINE §1.4): a parent total is only as
+    required as the elements it is built from. When EVERY child of a node is
+    Optional — or is itself optional by inheritance — the node's absence is a
+    legitimate non-event even though its own requirement_type still says
+    'Required': the form never asks the hospital to fill it, so counting it in
+    the completeness denominator (and naming it in every "has no value for this
+    month" list) penalized a value nobody can supply. Live example: 17
+    (Neonatal deaths) is Required while all eight of its children are Optional
+    or optional-by-inheritance (17.c inherits from its two Optional children).
+
+    A Required LEAF (no children at all, e.g. 14) keeps its own flag — it has
+    no source elements to inherit optionality from. Cycles in parent_id are
+    treated as NOT optional, so the gate always fails closed.
+
+    This is the single source of truth for the rule: completeness
+    (get_required_indicator_ids), the Why popup's data problems, the Audit
+    screen and the dashboard diagnostics all read it instead of re-deriving it.
+    """
+    rows = session.query(
+        Indicator.id, Indicator.parent_id, Indicator.requirement_type
+    ).all()
+    children: Dict[int, List[int]] = {}
+    own_optional: Dict[int, bool] = {}
+    for iid, parent_id, requirement in rows:
+        own_optional[iid] = (requirement or "Required") == "Optional"
+        if parent_id is not None:
+            children.setdefault(parent_id, []).append(iid)
+
+    resolved: Dict[int, bool] = {}
+
+    def _all_sources_optional(iid: int, seen: frozenset) -> bool:
+        if iid in resolved:
+            return resolved[iid]
+        if iid in seen:                      # cycle: never claim "optional"
+            return False
+        kids = children.get(iid) or []
+        result = (own_optional.get(iid, False) if not kids
+                  else all(_all_sources_optional(kid, seen | {iid}) for kid in kids))
+        resolved[iid] = result
+        return result
+
+    return {iid for iid in own_optional
+            if _all_sources_optional(iid, frozenset())}
+
+
+def get_optional_by_inheritance_ids(session) -> set:
+    """Indicator IDs that ARE marked Required yet are optional by inheritance.
+
+    The display counterpart of get_optional_source_indicator_ids: that set
+    also contains elements whose own flag is already 'Optional' (nothing to
+    explain), while this one keeps only the confusing case — a node the Data
+    Tree shows as Required that the completeness denominator silently skips
+    because every source element under it is Optional. The tree and the
+    indicator catalog mark these distinctly so the exclusion is visible.
+
+    Same rule, same query: it filters the single source of truth rather than
+    re-deriving optionality, so the badge can never disagree with the score.
+    """
+    optional_ids = get_optional_source_indicator_ids(session)
+    if not optional_ids:
+        return set()
+    own_flag = dict(
+        session.query(Indicator.id, Indicator.requirement_type)
+        .filter(Indicator.id.in_(optional_ids))
+        .all()
+    )
+    return {
+        iid for iid in optional_ids
+        # Defensive (None) like get_required_indicator_ids: None means Required.
+        if (own_flag.get(iid) or "Required") == "Required"
+    }
+
+
 def get_required_indicator_ids(session, hospital_id, month):
     """Completeness denominator (indicator-groups design rev 2).
 
@@ -168,7 +244,11 @@ def get_required_indicator_ids(session, hospital_id, month):
       required  — Indicator.requirement_type == 'Required' ('Optional' is
                   excluded from the denominator entirely — doctrine: an
                   Optional indicator is a third legitimate reason for absence,
-                  alongside covered-by-total and disabled).
+                  alongside covered-by-total and disabled);
+      sourced   — at least one of its source data elements is Required. A node
+                  whose whole subtree is Optional is optional by inheritance
+                  (get_optional_source_indicator_ids) even when its own flag
+                  still says 'Required'.
 
     Synthetic form-header labels (SYNTHETIC_INDICATOR_CODES, e.g. code "0")
     are excluded, as in every completeness path today. The three completeness
@@ -180,9 +260,13 @@ def get_required_indicator_ids(session, hospital_id, month):
     """
     from app.indicators import SYNTHETIC_INDICATOR_CODES
     disabled_ids = set(get_disabled_indicator_ids(session, hospital_id, month))
+    # Optional by inheritance is resolved once for the whole catalog: every
+    # consumer (completeness, diagnostics, Why popups, audit screen) must agree.
+    optional_ids = get_optional_source_indicator_ids(session)
     required_ids = [
         iid for (iid, req) in session.query(Indicator.id, Indicator.requirement_type).all()
         if iid not in disabled_ids
+        and iid not in optional_ids
         # Defensive (req is None) for rows created before the column had a
         # value — None behaves as 'Required', preserving pre-feature behavior.
         and (req or "Required") == "Required"
@@ -371,18 +455,23 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
     )
 
     from app.config_utils import get_config_dict
+    from app.engine.severity import load_analysis_config
+
     rules_config = get_config_dict(session, "rules")
     set_rules_config(rules_config)
 
+    # Saved severity/trend configuration (System Control) is authoritative —
+    # including the trend controls stored as SystemSetting rows and the single
+    # zscore_threshold. A configuration read failure raises and is reported by
+    # the caller; it never silently falls back to hardcoded rules.
+    analysis_config = load_analysis_config(session)
     trends_config = get_config_dict(session, "trends")
     rates_config = get_config_dict(session, "rates")
     trends_config.update(rates_config)
-    if "zscore_threshold" not in trends_config:
-        thresh_config = get_config_dict(session, "thresholds")
-        trends_config["zscore_threshold"] = thresh_config.get("zscore_threshold", 2.5)
+    trends_config.update(analysis_config.trend_engine_config())
     set_trends_config(trends_config)
 
-    anomaly_config = {"zscore_threshold": trends_config["zscore_threshold"]}
+    anomaly_config = {"zscore_threshold": analysis_config.zscore_threshold}
 
     ml_config = get_config_dict(session, "ml")
     ml_config_nested = _build_ml_config(ml_config)
@@ -418,25 +507,90 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
                 r.details = _resolve_codes(r.details)
 
     from app.engine import indicator_service
+    from app.engine.anomaly.layered import is_detection_outlier
+    from app.engine.anomaly.projection import project_rate_rows
 
-    managed_indicators = indicator_service.resolve_active_definitions(
-        session, site="zscore")
-    anomaly_results = detect_anomalies(
-        all_hospital_data, hospital.name, month, anomaly_config,
-        additional_indicators=managed_indicators)
-    trend_anomalies = detect_monthly_trend(
-        historical, month, values, anomaly_config,
-        additional_indicators=managed_indicators)
+    # ── ONE detection engine ─────────────────────────────────────────────────
+    # The layered engine analyses every data-tree element and every active rate
+    # spec, then classifies the finding. The legacy AnomalyResult rows are a
+    # PROJECTION of those results — never a second computation — so the
+    # dashboard, the audit benchmark, root cause and the outlier drill-down
+    # quote the same numbers as Outlier Diagnostics and the Quality Score.
+    layered_ok = False
+    layered_results = []
+    try:
+        layered_results = _build_layered_results(
+            session, hospital_id, month, values,
+            historical if historical else {},
+            all_hospital_data,
+            anomaly_config["zscore_threshold"],
+        )
+        layered_ok = True
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "Layered analysis failed for %s/%s; falling back to the classic detector",
+            hospital.name, month,
+        )
 
-    # Deduplicate by indicator_code — prefer cross-hospital anomaly over trend
-    seen_codes: set = set()
-    deduped_anomalies: list = []
-    for a in anomaly_results + trend_anomalies:
-        code = getattr(a, "indicator_code", None)
-        if code and code not in seen_codes:
-            seen_codes.add(code)
-            deduped_anomalies.append(a)
-    anomaly_results = deduped_anomalies
+    if layered_ok:
+        # Provenance for the projected rows: the live registry definition when
+        # one exists (indicator_id "derived:<id>", the Quality report's
+        # stale-formula check), otherwise the builtin rate spec.
+        candidates = indicator_service.resolve_outlier_candidates(session)
+        resolved_by_code = {resolved.code: resolved for resolved in candidates}
+        # A rate_config code ("rate_cs") has no registry record of its own; the
+        # same rate lives in the registry under its definition code. Match them
+        # by formula + scale so the projected row keeps the definition's id
+        # (the Quality report's stale-formula check reads it).
+        by_formula = {}
+        for resolved in candidates:
+            definition = getattr(resolved, "definition", None)
+            if definition is None or not definition.denominator_codes:
+                continue
+            by_formula.setdefault(
+                (tuple(definition.numerator_codes or ()),
+                 tuple(definition.denominator_codes or ()),
+                 round(float(definition.multiplier or 1.0), 6)),
+                resolved)
+        try:
+            from app.engine.rate_config import load_rate_specs
+            for code, rate_spec in load_rate_specs(session).items():
+                key = (tuple(rate_spec.numerator_codes),
+                       tuple(rate_spec.denominator_codes),
+                       round(float(rate_spec.rate_multiplier or 1.0), 6))
+                resolved_by_code.setdefault(
+                    code, by_formula.get(key)
+                    or indicator_service.resolve_spec(rate_spec))
+        except Exception:
+            logger.exception(
+                "Rate specs unreadable for %s/%s; projecting without their provenance",
+                hospital.name, month,
+            )
+        hospital_names = {
+            hid: name for hid, name in
+            session.query(Hospital.id, Hospital.name)
+            .filter(Hospital.is_active.is_(True)).all()
+        }
+        anomaly_results = project_rate_rows(
+            layered_results, resolved_by_code, hospital_names)
+    else:
+        # Detector down (never a second opinion): keep the month analysable with
+        # the classic rows, logged above as a degradation.
+        managed_indicators = indicator_service.resolve_outlier_candidates(session)
+        classic_rows = detect_anomalies(
+            all_hospital_data, hospital.name, month, anomaly_config,
+            additional_indicators=managed_indicators)
+        classic_rows += detect_monthly_trend(
+            historical, month, values, anomaly_config,
+            additional_indicators=managed_indicators)
+        seen_codes: set = set()
+        anomaly_results = []
+        for a in classic_rows:
+            code = getattr(a, "indicator_code", None)
+            if code and code not in seen_codes:
+                seen_codes.add(code)
+                anomaly_results.append(a)
 
     # Rev 2 denominator: enabled ∧ requirement_type=='Required' as codes, via
     # the shared helper. Falls back to all non-synthetic, non-disabled codes if
@@ -452,7 +606,12 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
     from app.config_utils import get_config_dict
     quality_config = get_config_dict(session, "quality")
     covered_codes = get_covered_child_codes(ctx, session)
-    quality = calculate_quality_score(rule_results, values, anomaly_results, required_codes, quality_config, covered_codes=covered_codes)
+
+    quality = calculate_quality_score(
+        rule_results, values, anomaly_results, required_codes, quality_config,
+        covered_codes=covered_codes,
+        layered_results=layered_results if layered_ok else None,
+    )
 
     indicator_rule_map = build_indicator_rule_map(session)
     all_indicators_db = session.query(Indicator.code, Indicator.name).all()
@@ -488,32 +647,50 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
         except Exception:
             logger.exception("Saving confidence score failed for %s/%s", hospital.name, month)
 
-    try:
-        _run_and_save_layered_results(
-            session, hospital_id, month, values,
-            historical if historical else {},
-            all_hospital_data,
-            anomaly_config["zscore_threshold"],
-        )
-    except Exception:
-        # Layered rows are additive (spec §7): never discard the quality/
-        # validation/anomaly results already committed above, and never trip
-        # run_full_analysis's zero-score fallback report.
-        session.rollback()
-        logger.exception(
-            "Layered analysis failed for %s/%s; continuing without layered results",
-            hospital.name, month,
-        )
+    if layered_ok:
+        try:
+            # Rows were computed before scoring; persist them now. An empty
+            # list still clears stale rows for the month.
+            _save_layered_results(session, hospital_id, month, layered_results)
+        except Exception:
+            # Layered rows are additive (spec §7): never discard the quality/
+            # validation/anomaly results already committed above, and never trip
+            # run_full_analysis's zero-score fallback report.
+            session.rollback()
+            logger.exception(
+                "Saving layered results failed for %s/%s; continuing without them",
+                hospital.name, month,
+            )
 
     outliers = []
-    for a in anomaly_results:
-        if a.is_outlier:
+    if layered_ok:
+        # Same verdict the Outlier Diagnostics screen and the report show.
+        for r in layered_results:
+            if not is_detection_outlier(r.classification.outlier_level):
+                continue
+            value = r.rate.rate if r.spec.is_rate else r.raw.value
             outliers.append({
-                "indicator": a.rate_name,
-                "value": float(a.value) if a.value is not None else None,
-                "benchmark": float(a.benchmark) if a.benchmark is not None else None,
-                "z_score": float(a.z_score) if a.z_score is not None else None,
+                "indicator": r.spec.name,
+                "value": float(value) if value is not None else None,
+                "benchmark": (float(r.peer.peer_mean)
+                              if r.peer.peer_mean is not None
+                              else (float(r.historical.mean)
+                                    if r.historical.mean is not None else None)),
+                "z_score": (float(r.peer.z) if r.peer.z is not None
+                            else (float(r.historical.z_score)
+                                  if r.historical.z_score is not None else None)),
+                "level": r.classification.outlier_level,
+                "kind": "rate" if r.spec.is_rate else "element",
             })
+    else:
+        for a in anomaly_results:
+            if a.is_outlier:
+                outliers.append({
+                    "indicator": a.rate_name,
+                    "value": float(a.value) if a.value is not None else None,
+                    "benchmark": float(a.benchmark) if a.benchmark is not None else None,
+                    "z_score": float(a.z_score) if a.z_score is not None else None,
+                })
 
     return {
         "hospital": hospital.name,
@@ -548,6 +725,41 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
     }
 
 
+def _maybe_auto_scan_quality_alerts(session: Session, month: str) -> None:
+    """Run the Quality Alerts scan for ``month`` after a fresh analysis.
+
+    Default ON (AppConfig ``alerts_auto_scan`` = 1, category ``alerts``):
+    uploaded / re-analysed data raises its alerts without anyone pressing
+    Run Scan. The scan is month-scoped and covers ALL hospitals, so it is
+    memoized per session+month — a bulk upload of N hospitals triggers one
+    scan per month, not N. Any failure is rolled back and logged: alerting
+    must never lose or block the analysis already persisted above.
+    """
+    try:
+        from app.config_utils import get_config_dict
+        flag = str(get_config_dict(session, "alerts").get("alerts_auto_scan", 1)).strip()
+        if flag in ("0", "0.0", "false", "False", "off"):
+            return
+    except Exception:
+        logger.exception("Quality Alerts auto-scan config check failed; scanning anyway")
+    scanned = session.info.setdefault("qa_auto_scanned_months", set())
+    if month in scanned:
+        return
+    try:
+        # Lazy import: quality_alerts imports this module for its data helpers.
+        from app.engine import quality_alerts
+        stats = quality_alerts.scan(session, month)
+        scanned.add(month)
+        if stats.get("created") or stats.get("updated") or stats.get("deactivated"):
+            logger.info("Quality Alerts auto-scan %s: %s", month, stats)
+    except Exception:
+        logger.exception("Quality Alerts auto-scan failed for %s", month)
+        try:
+            session.rollback()
+        except Exception:
+            pass
+
+
 def run_full_analysis(session: Session, hospital_id: int, month: str, force: bool = False) -> Dict:
     """Run full analysis for a hospital/month, guaranteeing a QualityScore row is
     persisted so the report always appears in /reports/ and /analysis/months.
@@ -579,6 +791,10 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
                 "outlier_penalty": result.get("outlier_penalty", 0),
                 "issues": result.get("issues") or [],
             })
+        # Fresh analysis -> refresh this month's Quality Alerts for all
+        # hospitals (default on; see _maybe_auto_scan_quality_alerts).
+        if not result.get("cached"):
+            _maybe_auto_scan_quality_alerts(session, month)
         return result
     except ValueError:
         raise
@@ -680,6 +896,112 @@ def recompute_hospital_months(
     return done
 
 
+def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
+                               progress_cb=None) -> int:
+    """Re-run the validation rules and refresh the rule-dependent scores.
+
+    A rule edit changes ONLY the rule outcomes. A full analysis would also
+    recompute anomalies, ML, the layered diagnostics and confidence (~13 s per
+    hospital-month on this dataset); this pass reuses the STORED outlier rows
+    for the score and recomputes just:
+
+      * ValidationResult rows — what the Validation Alerts screen lists — and
+      * QualityScore's rule_compliance / consistency / combined score.
+
+    ~150 ms per hospital-month, which makes "re-apply the rules to every
+    recorded month" affordable instead of only the latest one.
+
+    ``months=None`` means every month with indicator values for the hospital.
+    Returns the number of months refreshed.
+    """
+    from app.config_utils import get_config_dict
+
+    hospital = session.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if hospital is None:
+        return 0
+    if months is None:
+        months = sorted({
+            r[0] for r in session.query(IndicatorValue.month).filter(
+                IndicatorValue.hospital_id == hospital_id).distinct().all() if r[0]
+        })
+
+    quality_config = get_config_dict(session, "quality")
+    set_rules_config(get_config_dict(session, "rules"))
+    code_to_name = {
+        code: name for code, name in session.query(Indicator.code, Indicator.name).all()
+        if code not in SYNTHETIC_INDICATOR_CODES
+    }
+    _resolve_codes = _build_code_resolver(code_to_name)
+
+    done = 0
+    for month in months:
+        values = get_enabled_values_for_hospital_month(session, hospital_id, month)
+        if not values:
+            continue
+        all_hospital_data = get_all_hospital_data_for_month(session, month)
+        historical = get_historical_months(session, hospital_id, month)
+        disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
+        disabled_codes = set()
+        if disabled_ids:
+            disabled_codes = {
+                ind.code for ind in session.query(Indicator)
+                .filter(Indicator.id.in_(disabled_ids)).all()
+            }
+
+        ctx = ValidationContext(
+            values=values,
+            hospital_name=hospital.name,
+            month=month,
+            all_hospital_data=all_hospital_data,
+            historical_data=historical or {},
+            disabled_codes=disabled_codes,
+        )
+        rule_results = run_rules_from_db(session, ctx)
+        if not rule_results:
+            rule_results = run_all_rules(ctx)
+        if _resolve_codes:
+            for r in rule_results:
+                if r.details:
+                    r.details = _resolve_codes(r.details)
+
+        try:
+            required_codes = get_required_indicator_codes(session, hospital_id, month)
+        except Exception:
+            required_codes = {
+                code for (iid, code) in session.query(Indicator.id, Indicator.code).all()
+                if iid not in (disabled_ids or set())
+                and code not in SYNTHETIC_INDICATOR_CODES
+            }
+        covered_codes = get_covered_child_codes(ctx, session)
+
+        # The outlier component keeps whatever the last full analysis stored:
+        # layered rows when they exist, classic anomaly rows otherwise (the
+        # same precedence the pipeline's scoring uses).
+        layered_rows = session.query(LayeredOutlierResult).filter(
+            LayeredOutlierResult.hospital_id == hospital_id,
+            LayeredOutlierResult.month == month,
+        ).all()
+        anomaly_rows = [] if layered_rows else session.query(AnomalyResult).filter(
+            AnomalyResult.hospital_id == hospital_id,
+            AnomalyResult.month == month,
+        ).all()
+
+        quality = calculate_quality_score(
+            rule_results, values, anomaly_rows, required_codes, quality_config,
+            covered_codes=covered_codes,
+            layered_results=layered_rows if layered_rows else None,
+        )
+        _save_validation_results(session, hospital_id, month, rule_results)
+        _save_quality_score(session, hospital_id, month, quality)
+        done += 1
+        if progress_cb:
+            try:
+                progress_cb(done)
+            except Exception:
+                pass
+    return done
+
+
 def _save_validation_results(session: Session, hospital_id: int, month: str, results: List[RuleResult]):
     session.query(ValidationResult).filter(
         ValidationResult.hospital_id == hospital_id,
@@ -730,12 +1052,12 @@ def _save_anomaly_results(session: Session, hospital_id: int, month: str, result
     session.commit()
 
 
-def _run_and_save_layered_results(session: Session, hospital_id: int, month: str,
-                                  values: Dict, historical: Dict,
-                                  all_hospital_data: Dict,
-                                  zscore_threshold: float) -> None:
+def _build_layered_results(session: Session, hospital_id: int, month: str,
+                           values: Dict, historical: Dict,
+                           all_hospital_data: Dict,
+                           zscore_threshold: float) -> list:
     """Run the layered outlier pipeline (spec §7) for the analyzed hospital
-    and persist the resulting rows.
+    and return the rows that should be persisted — WITHOUT writing anything.
 
     get_historical_months() excludes the current month (pipeline.py:262), so
     the current month's enabled values are merged in — analyze_layered_entry
@@ -779,10 +1101,7 @@ def _run_and_save_layered_results(session: Session, hospital_id: int, month: str
         peer_values_by_hospital, peer_attributes,
         Thresholds(peer_z_threshold=float(zscore_threshold)),
     )
-    _save_layered_results(
-        session, hospital_id, month,
-        [r for r in results if should_persist(r)],
-    )
+    return [r for r in results if should_persist(r)]
 
 
 def _save_layered_results(session: Session, hospital_id: int, month: str, results: list):

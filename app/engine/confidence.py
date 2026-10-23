@@ -58,6 +58,11 @@ class ConfidenceSignal:
     passed: bool
     score: float
     detail: str
+    # False = there was nothing to assess (no value reported this month). The
+    # score stays 0.0 so the confidence formula is unchanged, but the drilldown
+    # must not present "no data" as a failed check, nor average it into the
+    # factor cards as if the indicator had been measured.
+    applicable: bool = True
 
 
 @dataclass
@@ -83,6 +88,7 @@ class IndicatorConfidence:
                     "passed": bool(s.passed),
                     "score": round(float(s.score), 3),
                     "detail": s.detail,
+                    "applicable": bool(s.applicable),
                 }
                 for s in self.signals
             ],
@@ -120,7 +126,7 @@ class HospitalConfidenceResult:
 
 def _extract_codes_from_params(expr_type: str, params: dict) -> List[str]:
     codes = []
-    if expr_type in ("ge", "eq", "gt", "ge_factor", "parent_le"):
+    if expr_type in ("ge", "eq", "gt", "ge_factor", "parent_le", "parent_lt"):
         codes.append(params.get("parent", ""))
         codes.extend(params.get("children", []))
     elif expr_type in ("le", "lt"):
@@ -192,7 +198,9 @@ def _signal_historical(
     z_thresh: float = 2.5,
 ) -> ConfidenceSignal:
     if value is None:
-        return ConfidenceSignal("historical", False, 0.0, "No current value to assess")
+        return ConfidenceSignal("historical", False, 0.0,
+                                "No value reported this month — not assessed",
+                                applicable=False)
     hist_values: List[float] = []
     for month_vals in historical_data.values():
         v = month_vals.get(indicator_code)
@@ -222,7 +230,9 @@ def _signal_cross_hospital(
     z_thresh: float = 2.5,
 ) -> ConfidenceSignal:
     if value is None:
-        return ConfidenceSignal("cross_hospital", False, 0.0, "No current value to assess")
+        return ConfidenceSignal("cross_hospital", False, 0.0,
+                                "No value reported this month — not assessed",
+                                applicable=False)
     rate_info = None
     for rate_name, num_code, den_code, _ in RATE_DEFINITIONS:
         if num_code == indicator_code or den_code == indicator_code:
@@ -278,7 +288,9 @@ def _signal_trend(
     historical_data: Dict[str, Dict[str, float]],
 ) -> ConfidenceSignal:
     if value is None:
-        return ConfidenceSignal("trend", False, 0.0, "No current value to assess")
+        return ConfidenceSignal("trend", False, 0.0,
+                                "No value reported this month — not assessed",
+                                applicable=False)
     sorted_months = sorted(historical_data.keys())
     hist_vals: List[float] = []
     for m in sorted_months:
@@ -312,7 +324,9 @@ def _signal_completeness(
     indicator_children: Dict[str, List[str]],
 ) -> ConfidenceSignal:
     if value is None:
-        return ConfidenceSignal("completeness", False, 0.0, "Indicator value is missing")
+        return ConfidenceSignal("completeness", False, 0.0,
+                                "No value reported this month — not assessed",
+                                applicable=False)
     children = indicator_children.get(indicator_code, [])
     if not children:
         return ConfidenceSignal("completeness", True, 1.0, "No child indicators to verify")

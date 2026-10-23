@@ -134,6 +134,26 @@ def _parent_le(parent: str, children: List[str], code: str, desc: str, sev: Seve
     return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} <= children sum={cs}")
 
 
+def _parent_lt(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
+    """Strict reverse of ge: FAIL when the parent value is >= the sum of its children.
+
+    Strict companion of parent_le — parent_le allows equality, parent_lt requires
+    the parent to be strictly smaller than the children's sum (within tolerance).
+    """
+    pv = _v(ctx, parent)
+    cs = _vs(ctx, children)
+    if pv is None and cs == 0:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
+    if pv is None:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
+    if not _has_any(ctx, children):
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
+    tol = _RULES_CONFIG["eq_tolerance"]
+    if pv >= cs - tol:
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} >= children sum={cs} (parent must be strictly less)")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} < children sum={cs}")
+
+
 def _lt(child: str, parent: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
     """Strict less-than: FAIL when child >= parent."""
     cv = _v(ctx, child)
@@ -529,7 +549,12 @@ def _iter_sum_rules(session: Session = None):
             for rule in db_rules:
                 # gt/ge_factor are containment sums too (e.g. R080: 6 > 6.d+6.f+6.g
                 # — categories within the parent) and drive coverage the same way.
-                if rule.expression_type not in ("ge", "eq", "le_sum", "gt", "ge_factor"):
+                # parent_le/parent_lt (children must account for the parent) are
+                # also sum-driven: unreported siblings are covered when the
+                # reported ones already reconcile the rule (see
+                # compute_covered_codes), otherwise completeness would wrongly
+                # penalize them (incident 5.2 — R061).
+                if rule.expression_type not in ("ge", "eq", "le_sum", "gt", "ge_factor", "parent_le", "parent_lt"):
                     continue
                 params = json.loads(rule.params) if isinstance(rule.params, str) else (rule.params or {})
                 if rule.expression_type == "le_sum":
@@ -561,6 +586,15 @@ def compute_covered_codes(values: Dict[str, float], disabled_codes: set, session
        and total-based checks (like R012's total-covered sweep or the upload
        sheet) already account for them via the parent total.
 
+    3. **Parent-accounting sums (parent_le / parent_lt):** the children must
+       *account for at least* the whole parent (parent <= sum(children)). When
+       the parent is reported and the children that ARE reported already reach
+       the parent's value (rule PASSes), unreported siblings are covered —
+       the reported ones already satisfy "at least the parent", so absence of
+       the rest is a legitimate "no such cases" answer. When the reported
+       children fall SHORT of the parent (rule FAILs), the gap may be exactly
+       the missing siblings, and they stay flagged.
+
     Unreported children of a containment rule are covered ONLY when the
     reported ones do not overflow the parent — otherwise the missing siblings
     may be exactly the reason the rule cannot reconcile, and stay flagged.
@@ -577,6 +611,15 @@ def compute_covered_codes(values: Dict[str, float], disabled_codes: set, session
             # Containment: reported children must fit within the parent.
             # _vs/_v treat missing as 0, mirroring the rule execution itself.
             if cs <= pv + tolerance:
+                for c in children:
+                    if values.get(c) is None and c not in disabled_codes:
+                        covered.add(c)
+        elif op in ("parent_le", "parent_lt"):
+            # Parent accounting: reported children must reach the parent.
+            # Coverage mirrors the rule's own pass condition — parent_le allows
+            # equality, parent_lt requires a strict exceedance.
+            ok = cs >= pv - tolerance if op == "parent_le" else cs > pv + tolerance
+            if ok:
                 for c in children:
                     if values.get(c) is None and c not in disabled_codes:
                         covered.add(c)
@@ -597,7 +640,7 @@ def get_covered_child_codes(ctx: ValidationContext, session: Session = None) -> 
 
 
 def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
-    if expr in ("ge", "eq", "gt", "ge_factor", "parent_le"):
+    if expr in ("ge", "eq", "gt", "ge_factor", "parent_le", "parent_lt"):
         codes = [params.get("parent")]
         codes.extend(params.get("children", []))
         return [c for c in codes if c]
@@ -668,6 +711,8 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
         return _ge(params["child"], params["children"], code, desc, sev, rtype, ctx)
     elif expr == "parent_le":
         return _parent_le(params["parent"], params["children"], code, desc, sev, rtype, ctx)
+    elif expr == "parent_lt":
+        return _parent_lt(params["parent"], params["children"], code, desc, sev, rtype, ctx)
     elif expr == "month_over":
         return _month_over(params["code"], ctx.historical_data, params["factor"], code, desc, sev, ctx)
     elif expr == "month_under":

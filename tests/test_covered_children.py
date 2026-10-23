@@ -83,3 +83,80 @@ def test_tolerance_respected():
         assert "2.b" in covered
     finally:
         set_rules_config(original)
+
+def test_parent_le_sibling_covered_when_children_reach_parent(monkeypatch):
+    """Parent-accounting doctrine (new): parent_le rules describe children that
+    must account for at least the whole parent. When the reported children
+    already reach the parent (rule PASSes), unreported siblings mean "no such
+    cases" — not missing data. Guards incident 5.3 (R061 10.x family)."""
+    from types import SimpleNamespace
+    from app.engine.quality import rules as rules_mod
+    rule = SimpleNamespace(
+        code="RCT", name="x", rule_type="LOGIC", severity="HIGH",
+        category="BASIC_LOGIC", expression_type="parent_le",
+        params='{"parent": "10", "children": ["10.a", "10.b"]}',
+        enabled=True, sort_order=0,
+    )
+    monkeypatch.setattr(rules_mod, "load_rules_from_db", lambda s: [rule])
+    covered = rules_mod.compute_covered_codes({"10": 100.0, "10.a": 120.0}, set(), session=object())
+    assert "10.b" in covered
+
+
+def test_parent_le_equal_sum_also_covers(monkeypatch):
+    from types import SimpleNamespace
+    from app.engine.quality import rules as rules_mod
+    rule = SimpleNamespace(
+        code="RCT", name="x", rule_type="LOGIC", severity="HIGH",
+        category="BASIC_LOGIC", expression_type="parent_le",
+        params='{"parent": "10", "children": ["10.a", "10.b"]}',
+        enabled=True, sort_order=0,
+    )
+    monkeypatch.setattr(rules_mod, "load_rules_from_db", lambda s: [rule])
+    covered = rules_mod.compute_covered_codes({"10": 100.0, "10.a": 100.0}, set(), session=object())
+    assert "10.b" in covered
+
+
+def test_parent_le_shortfall_leaves_siblings_uncovered(monkeypatch):
+    """Reported children fall short of the parent (rule FAILs) — the gap may be
+    exactly the missing siblings, so they stay flagged."""
+    from types import SimpleNamespace
+    from app.engine.quality import rules as rules_mod
+    rule = SimpleNamespace(
+        code="RCT", name="x", rule_type="LOGIC", severity="HIGH",
+        category="BASIC_LOGIC", expression_type="parent_le",
+        params='{"parent": "10", "children": ["10.a", "10.b"]}',
+        enabled=True, sort_order=0,
+    )
+    monkeypatch.setattr(rules_mod, "load_rules_from_db", lambda s: [rule])
+    covered = rules_mod.compute_covered_codes({"10": 100.0, "10.a": 60.0}, set(), session=object())
+    assert "10.b" not in covered
+
+
+def test_parent_lt_strict_does_not_cover_on_equality(monkeypatch):
+    """parent_lt FAILs when parent == sum(children), so coverage must stay off
+    there too — coverage mirrors the rule's own pass condition."""
+    from types import SimpleNamespace
+    from app.engine.quality import rules as rules_mod
+    rule = SimpleNamespace(
+        code="RCT", name="x", rule_type="LOGIC", severity="HIGH",
+        category="BASIC_LOGIC", expression_type="parent_lt",
+        params='{"parent": "10", "children": ["10.a", "10.b"]}',
+        enabled=True, sort_order=0,
+    )
+    monkeypatch.setattr(rules_mod, "load_rules_from_db", lambda s: [rule])
+    covered = rules_mod.compute_covered_codes({"10": 100.0, "10.a": 100.0}, set(), session=object())
+    assert "10.b" not in covered
+
+
+def test_parent_lt_covers_on_strict_exceedance(monkeypatch):
+    from types import SimpleNamespace
+    from app.engine.quality import rules as rules_mod
+    rule = SimpleNamespace(
+        code="RCT", name="x", rule_type="LOGIC", severity="HIGH",
+        category="BASIC_LOGIC", expression_type="parent_lt",
+        params='{"parent": "10", "children": ["10.a", "10.b"]}',
+        enabled=True, sort_order=0,
+    )
+    monkeypatch.setattr(rules_mod, "load_rules_from_db", lambda s: [rule])
+    covered = rules_mod.compute_covered_codes({"10": 100.0, "10.a": 120.0}, set(), session=object())
+    assert "10.b" in covered

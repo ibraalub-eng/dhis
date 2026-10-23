@@ -71,6 +71,40 @@ def test_covered_missing_not_flagged_in_explanation(app, db_session, covered_mon
     assert "2.n" in flagged, "a genuinely missing, uncovered indicator must stay flagged"
 
 
+def test_optional_missing_value_is_not_flagged(app, db_session, covered_month):
+    """An Optional data element with no value is a legitimate absence — the
+    Why popup must not report it as a data problem.
+
+    Symptom: every Optional leaf that was simply not reported this month
+    (17.g, 17.h, 19, …) produced "🔧 Indicator 17.g has no value for this
+    month", while completeness — correctly — never penalized it. The Optional
+    flag is a third legitimate reason for a None row, next to covered-by-total
+    and disabled, so it gets the same gate.
+    """
+    from app.engine.audit.explain import _raw_values, find_data_problems
+    from app.models import Indicator
+
+    h = covered_month
+    ind = db_session.query(Indicator).filter(Indicator.code == "2.n").one()
+    ind.requirement_type = "Optional"
+    db_session.commit()
+
+    values = _raw_values(db_session, h.id, "2027-01")
+    flagged = {p["indicator_code"] for p in find_data_problems(values, db_session)
+               if p["kind"] == "missing_value"}
+    assert "2.n" not in flagged, (
+        "an Optional element must not be reported as a missing-value problem"
+    )
+    assert flagged == set(), "2.b is covered and 2.n is Optional — nothing is missing"
+
+    payload = TestClient(app).get(
+        f"/audit/explain?kind=quality_score&hospital_id={h.id}&month=2027-01"
+    ).json()
+    codes = {p["indicator_code"] for p in payload.get("data_problems") or []
+             if p.get("kind") == "missing_value"}
+    assert codes == set(), payload.get("data_problems")
+
+
 def test_find_data_problems_covered_gate_unit(db_session, covered_month):
     """Unit level: with db, covered codes are skipped; without db, legacy
     behaviour flags every None row."""
