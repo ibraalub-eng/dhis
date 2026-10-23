@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Dict
 
+from app.engine.rate_config import SITE_CLINICAL, builtin_rate
+
 
 @dataclass
 class ClinicalSummary:
@@ -44,12 +46,15 @@ def generate_clinical_summary(
     _lbw = int(values.get("6.g", 0) or 0)
     _nicu = int(values.get("16", 0) or 0)
 
-    cs_rate = (cs / total * 100) if total > 0 else 0
-    mmr = (deaths / total * 100000) if total > 0 else 0
-    nmr = (nd / live_births * 1000) if live_births > 0 else 0
-    smm_rate = (smm / total * 100) if total > 0 else 0
-    sb_rate = (sb / total * 1000) if total > 0 else 0
-    preterm_rate = (preterm / live_births * 100) if live_births > 0 else 0
+    # Rates come from the central registry (rate_config, site "clinical") —
+    # numerator/denominator/multiplier are never re-implemented here.
+    # The default keeps the legacy "no denominator → 0" display behaviour.
+    cs_rate = builtin_rate(SITE_CLINICAL, "rate_cs", values)
+    mmr = builtin_rate(SITE_CLINICAL, "rate_mmr", values)
+    nmr = builtin_rate(SITE_CLINICAL, "rate_nmr", values)
+    smm_rate = builtin_rate(SITE_CLINICAL, "rate_smm", values)
+    sb_rate = builtin_rate(SITE_CLINICAL, "rate_stillbirth", values)
+    preterm_rate = builtin_rate(SITE_CLINICAL, "rate_preterm", values)
 
     overview = _build_overview(hospital, month, total, live_births, cs_rate, deaths)
 

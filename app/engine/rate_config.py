@@ -70,19 +70,24 @@ def _build_builtin() -> Dict[str, RateSpec]:
     specs: List[RateSpec] = []
 
     # ── zscore slice — app/engine/anomaly/zscore.py:37 RATE_DEFINITIONS ──
+    # Multiplier follows the reported unit (same convention as the clinical and
+    # forecast slices). The mortality trio used to be stored as "x100 / per
+    # 100" here while clinical/forecast report per-1,000 / per-100,000 — one
+    # rate key then showed TWO different formulas depending on the screen that
+    # read it (Outlier Scan / Quality Alerts vs the Indicators registry).
     zs = [
-        ("rate_cs", "C-section rate", "5", "2", 50.0, "%"),
-        ("rate_mmr", "Maternal mortality ratio", "11", "2", 1.0, "per 100"),
-        ("rate_nmr", "Neonatal mortality rate", "17", "6", 30.0, "per 100"),
-        ("rate_preterm", "Preterm birth rate", "6.f", "6", 15.0, "%"),
-        ("rate_smm", "SMM rate", "10", "2", 10.0, "%"),
-        ("rate_stillbirth", "Stillbirth rate", "7", "2", 5.0, "per 100"),
-        ("rate_nicu", "NICU admission rate", "16", "6", 20.0, "%"),
+        ("rate_cs", "C-section rate", "5", "2", 50.0, "%", 100.0),
+        ("rate_mmr", "Maternal mortality ratio", "11", "2", 1.0, "per 100,000", 100000.0),
+        ("rate_nmr", "Neonatal mortality rate", "17", "6", 30.0, "per 1,000", 1000.0),
+        ("rate_preterm", "Preterm birth rate", "6.f", "6", 15.0, "%", 100.0),
+        ("rate_smm", "SMM rate", "10", "2", 10.0, "%", 100.0),
+        ("rate_stillbirth", "Stillbirth rate", "7", "2", 5.0, "per 1,000", 1000.0),
+        ("rate_nicu", "NICU admission rate", "16", "6", 20.0, "%", 100.0),
     ]
-    for code, name, num, den, pct, unit in zs:
+    for code, name, num, den, pct, unit, mult in zs:
         itype = "percentage" if unit == "%" else "rate"
         specs.append(_spec(SITE_ZSCORE, name, code, name, itype,
-                           (num,), (den,), 100.0, unit, typical_pct=pct))
+                           (num,), (den,), mult, unit, typical_pct=pct))
 
     # ── clinical slice — thresholds.py CLINICAL_THRESHOLDS (lines 20-216) ──
     # The registry stores the display unit AND its numeric display scaling
@@ -212,6 +217,38 @@ def compute_spec_rate(spec: RateSpec, values: Dict[str, float]) -> Optional[floa
                         spec.rate_multiplier)
 
 
+def builtin_spec(site: str, rate_code: str) -> Optional[RateSpec]:
+    """Builtin registry spec of a site keyed by rate_code — no DB session.
+
+    The builtin registry is the single source of truth for every rate's
+    numerator / denominator / multiplier. Screens and engine modules that
+    only hold raw ``{code: value}`` dicts call this instead of re-writing
+    ``x / y * 100`` inline, so a registry edit propagates everywhere.
+    """
+    for spec in iter_site(site):
+        if spec.rate_code == rate_code:
+            return spec
+    return None
+
+
+def builtin_rate(site: str, rate_code: str, values: Dict[str, float],
+                 default: Optional[float] = 0.0) -> Optional[float]:
+    """Compute a registry rate from raw values — the registry-driven
+    replacement for inline ``numerator / denominator * multiplier``.
+
+    Returns ``default`` when the registry has no such spec or the ratio
+    cannot be computed (missing numerator/denominator, zero denominator —
+    same statuses as :func:`compute_spec_rate`). ``default`` preserves each
+    call site's legacy missing-data behaviour (0 for screens that showed a
+    zero, None where missing is shown as missing).
+    """
+    spec = builtin_spec(site, rate_code)
+    if spec is None:
+        return default
+    value = compute_spec_rate(spec, values)
+    return default if value is None else value
+
+
 # ── DB layer (design spec §4): rate_config rows merged over builtin ──────────
 
 _RATE_SPECS_CACHE: Optional[Dict[str, RateSpec]] = None
@@ -270,22 +307,106 @@ def load_rate_specs(db) -> Dict[str, RateSpec]:
     Falls back entirely to the builtin slice when the table is empty
     (pre-seed operation) or unreadable. In-process cache — call
     invalidate_rate_specs_cache() after seeding/saving rate_config rows.
+
+    The Indicators registry is the active/inactive source of truth: a spec
+    whose seed record is deactivated on the Indicators screen is filtered
+    out of the CURRENT set (freshly queried on every call so a toggle takes
+    effect immediately — the raw merge stays process-cached). Inactive
+    indicators keep their historical results and audit records; only new
+    calculation runs skip them.
     """
     global _RATE_SPECS_CACHE
-    if _RATE_SPECS_CACHE is not None:
-        return _RATE_SPECS_CACHE
-    specs: Dict[str, RateSpec] = {s.rate_code: s for s in zscore_specs()}
+    if _RATE_SPECS_CACHE is None:
+        specs: Dict[str, RateSpec] = {s.rate_code: s for s in zscore_specs()}
+        try:
+            from app.models import RateConfig  # local: this module stays leaf-importable
+            rows = db.query(RateConfig).order_by(RateConfig.rate_code).all()
+        except Exception as exc:
+            logger.warning("rate_config unreadable (%s); using builtin zscore slice", exc)
+            rows = []
+        for row in rows:
+            spec = _spec_from_rate_config_row(row, specs.get(row.rate_code))
+            if spec.is_active is False:
+                # RateConfig explicitly switched OFF: remove the rate entirely
+                # (its builtin base must not resurface as a silent default).
+                specs.pop(row.rate_code, None)
+                continue
+            specs[row.rate_code] = spec
+        _RATE_SPECS_CACHE = specs
+
     try:
-        from app.models import RateConfig  # local: this module stays leaf-importable
-        rows = db.query(RateConfig).order_by(RateConfig.rate_code).all()
-    except Exception as exc:
-        logger.warning("rate_config unreadable (%s); using builtin zscore slice", exc)
+        from app.models import IndicatorDefinition
+        rows = (db.query(IndicatorDefinition.code, IndicatorDefinition.legacy_code)
+                .filter(IndicatorDefinition.is_active.is_(False)).all())
+    except Exception:
         rows = []
-    for row in rows:
-        specs[row.rate_code] = _spec_from_rate_config_row(row, specs.get(row.rate_code))
-    _RATE_SPECS_CACHE = specs
-    return specs
+    if not rows:
+        return _RATE_SPECS_CACHE
+    inactive: set = set()
+    for canonical, legacy in rows:
+        if canonical:
+            inactive.add(canonical)
+        if legacy:
+            inactive.add(legacy)
+    if not inactive:
+        return _RATE_SPECS_CACHE
+    return {code: spec for code, spec in _RATE_SPECS_CACHE.items()
+            if code not in inactive}
 
 
 def get_spec(db, rate_code: str) -> Optional[RateSpec]:
     return load_rate_specs(db).get(rate_code)
+
+
+def sync_rate_config_from_definition(db, definition) -> bool:
+    """Copy an Indicators-screen rate definition onto its rate_config row.
+
+    The zscore slice is stored twice: ``indicator_definitions`` (what the
+    Indicators screen shows and edits) and ``rate_config`` (what the Outlier
+    Scan / Quality Alerts engine actually calculates with). Editing the
+    indicator alone left the engine on the frozen seed formula, so the same
+    rate showed two different calculations — e.g. Neonatal mortality rate at
+    ``{17} / {6} * 1000`` on the Indicators screen and ``{17} / {6} * 100`` in
+    the Quality explanation. Every save of a zscore-scoped definition now
+    writes its formula fields through to the row the engine reads.
+
+    Returns True when a row was created or changed (the spec cache is dropped
+    either way only when something changed).
+    """
+    if definition is None:
+        return False
+    if getattr(definition, "source_site", None) != SITE_ZSCORE:
+        return False
+    code = getattr(definition, "legacy_code", None) or getattr(definition, "code", None)
+    if not code or code not in {spec.rate_code for spec in zscore_specs()}:
+        return False
+
+    from app.models import RateConfig
+
+    row = db.query(RateConfig).filter(RateConfig.rate_code == code).first()
+    created = row is None
+    if created:
+        row = RateConfig(rate_code=code)
+        db.add(row)
+
+    values = {
+        "rate_name": definition.name,
+        "indicator_type": definition.result_type,
+        "rate_multiplier": definition.multiplier,
+        "is_active": bool(definition.is_active),
+    }
+    # Formula codes only exist for ratio definitions; an expression-mode
+    # definition must not blank the engine's numerator/denominator pairs.
+    if (getattr(definition, "formula_type", "ratio") or "ratio") == "ratio":
+        values["numerator_codes"] = list(definition.numerator_codes or [])
+        values["denominator_codes"] = list(definition.denominator_codes or [])
+
+    changed = created
+    for key, value in values.items():
+        if getattr(row, key) != value:
+            setattr(row, key, value)
+            changed = True
+    if changed:
+        db.flush()
+        invalidate_rate_specs_cache()
+    return changed

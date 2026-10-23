@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 
+from app.engine.rate_config import SITE_CLINICAL, builtin_rate
+
 
 @dataclass
 class MorbidityMetric:
@@ -116,7 +118,7 @@ def compute_morbidity_profile(hospital: str, month: str, values: Dict[str, float
         profile.key_findings.append("No delivery data available")
         return profile
 
-    smm_rate = (smm_total / total) * 100 if total > 0 else 0
+    smm_rate = builtin_rate(SITE_CLINICAL, "rate_smm", values)
     profile.metrics.append(MorbidityMetric(
         metric_name="SMM Rate",
         description="Severe Maternal Morbidity per 100 deliveries",
@@ -126,7 +128,9 @@ def compute_morbidity_profile(hospital: str, month: str, values: Dict[str, float
         severity=_rate_severity(smm_rate, 2, 5, 10, higher_is_worse=True),
     ))
 
-    mmr = (mat_deaths / total) * 100000 if total > 0 else 0
+    # MMR from the central registry (clinical rate_mmr = deaths/deliveries
+    # ×100,000) — same definition the classification table uses.
+    mmr = builtin_rate(SITE_CLINICAL, "rate_mmr", values)
     profile.metrics.append(MorbidityMetric(
         metric_name="Maternal Mortality Ratio",
         description="Maternal deaths per 100,000 deliveries",
@@ -154,10 +158,20 @@ def compute_morbidity_profile(hospital: str, month: str, values: Dict[str, float
         "Surgical (10.o)": "10.o",
     }
 
+    # Components the central registry already defines as proportions of SMM
+    # (clinical slice: 10.a/10 and 10.e/10) go through the registry so an
+    # edit there propagates here; the remaining components are case-mix
+    # shares with no registry spec and stay inline.
+    registry_proportions = {
+        "10.a": "rate_smm_hemorrhage_proportion",
+        "10.e": "rate_smm_hypertensive_proportion",
+    }
     for label, code in smm_components.items():
         comp_val = values.get(code, 0) or 0
         if comp_val > 0 and smm_total > 0:
-            proportion = (comp_val / smm_total) * 100
+            spec_key = registry_proportions.get(code)
+            proportion = (builtin_rate(SITE_CLINICAL, spec_key, values)
+                          if spec_key else (comp_val / smm_total) * 100)
             profile.metrics.append(MorbidityMetric(
                 metric_name=f"{label} % of SMM",
                 description=f"Proportion of SMM cases due to {label.split('(')[0].strip()}",
@@ -191,7 +205,9 @@ def compute_morbidity_profile(hospital: str, month: str, values: Dict[str, float
         ))
 
     hyst = values.get("10.d", 0) or 0
-    hyst_rate = (hyst / total) * 1000 if total > 0 else 0
+    # From the central registry (clinical rate_hysterectomy = 10.d / 2
+    # × 1,000) — same definition the classification table uses.
+    hyst_rate = builtin_rate(SITE_CLINICAL, "rate_hysterectomy", values)
     profile.metrics.append(MorbidityMetric(
         metric_name="Hysterectomy per 1,000 Deliveries",
         description="Emergency hysterectomy rate",

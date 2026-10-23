@@ -11,19 +11,20 @@ from app.engine.rate_config import (
 
 # Exact current values of the four hardcoded sites (copied from source before
 # migration). Any drift in the registry breaks one of these assertions.
-# (name, numerator, denominator, typical_pct, rate_code, unit) — zscore slice.
-# unit for the mortality trio is the plan's "per 100" (the Task 6 inherited-base
-# assertion pins it), NOT the clinical slice's "per 100,000"/"per 1,000": the
-# zscore site has no unit field at all, so this is registry metadata, not a
-# verbatim source copy.
+# (name, numerator, denominator, typical_pct, rate_code, unit, multiplier) —
+# zscore slice. The mortality trio + stillbirth are per-1,000 / per-100,000,
+# the same scale the clinical and forecast slices report: a single rate key
+# must not display one formula in the Outlier Scan / Quality Alerts and another
+# in the Indicators registry. typical_pct stays the legacy percent benchmark
+# (unused by the engines).
 ZSCORE_LITERALS = [
-    ("C-section rate", "5", "2", 50.0, "rate_cs", "%"),
-    ("Maternal mortality ratio", "11", "2", 1.0, "rate_mmr", "per 100"),
-    ("Neonatal mortality rate", "17", "6", 30.0, "rate_nmr", "per 100"),
-    ("Preterm birth rate", "6.f", "6", 15.0, "rate_preterm", "%"),
-    ("SMM rate", "10", "2", 10.0, "rate_smm", "%"),
-    ("Stillbirth rate", "7", "2", 5.0, "rate_stillbirth", "per 100"),
-    ("NICU admission rate", "16", "6", 20.0, "rate_nicu", "%"),
+    ("C-section rate", "5", "2", 50.0, "rate_cs", "%", 100.0),
+    ("Maternal mortality ratio", "11", "2", 1.0, "rate_mmr", "per 100,000", 100000.0),
+    ("Neonatal mortality rate", "17", "6", 30.0, "rate_nmr", "per 1,000", 1000.0),
+    ("Preterm birth rate", "6.f", "6", 15.0, "rate_preterm", "%", 100.0),
+    ("SMM rate", "10", "2", 10.0, "rate_smm", "%", 100.0),
+    ("Stillbirth rate", "7", "2", 5.0, "rate_stillbirth", "per 1,000", 1000.0),
+    ("NICU admission rate", "16", "6", 20.0, "rate_nicu", "%", 100.0),
 ]
 
 # (rate_code, numerator_codes, denominator_code, multiplier, unit) — clinical
@@ -79,15 +80,34 @@ FORECAST_LITERALS = [
 def test_zscore_slice_matches_rate_definitions_literals():
     specs = zscore_specs()
     assert len(specs) == 7
-    for spec, (name, num, den, pct, code, unit) in zip(specs, ZSCORE_LITERALS, strict=False):
+    for spec, (name, num, den, pct, code, unit, mult) in zip(specs, ZSCORE_LITERALS, strict=False):
         assert spec.rate_name == name
         assert spec.numerator_codes == (num,)
         assert spec.denominator_codes == (den,)
         assert spec.typical_pct == pct
         assert spec.rate_code == code
         assert spec.unit == unit
-        assert spec.rate_multiplier == 100.0  # zscore.compute_rate hardcodes x100
+        assert spec.rate_multiplier == mult
         assert spec.site == "zscore"
+
+
+def test_shared_rate_keys_use_one_scale_across_sites():
+    """One rate key = one formula: the site slices must agree on numerator,
+    denominator, multiplier and unit, or the same indicator reports different
+    numbers/formulas on different screens (NMR as x100 vs x1,000)."""
+    by_code = {}
+    for site in ("zscore", "clinical"):
+        for spec in iter_site(site):
+            by_code.setdefault(spec.rate_code, []).append(spec)
+    shared = {code: specs for code, specs in by_code.items() if len(specs) > 1}
+    assert "rate_nmr" in shared and "rate_mmr" in shared
+    for code, specs in shared.items():
+        first = specs[0]
+        for other in specs[1:]:
+            assert other.numerator_codes == first.numerator_codes, code
+            assert other.denominator_codes == first.denominator_codes, code
+            assert other.rate_multiplier == first.rate_multiplier, code
+            assert other.unit == first.unit, code
 
 
 def test_clinical_slice_matches_threshold_literals():
@@ -163,14 +183,15 @@ def test_multiplier_for_unit():
 def test_rate_definitions_is_a_view_over_the_zscore_slice():
     from app.engine.anomaly.zscore import RATE_DEFINITIONS
     expected = [(name, num, den, pct)
-                for (name, num, den, pct, _code, _unit) in ZSCORE_LITERALS]
+                for (name, num, den, pct, _code, _unit, _mult) in ZSCORE_LITERALS]
     assert RATE_DEFINITIONS == expected
 
 
-def test_zscore_compute_rate_keeps_signature_and_x100_parity():
+def test_zscore_compute_rate_keeps_signature_and_unit_parity():
     from app.engine.anomaly.zscore import compute_rate
     assert compute_rate({"5": 80, "2": 300}, "5", "2") == 80 / 300 * 100
-    assert compute_rate({"11": 3, "2": 300}, "11", "2") == 3 / 300 * 100
+    # per 100,000 — the same scale the clinical/forecast slices report
+    assert compute_rate({"11": 3, "2": 300}, "11", "2") == 3 / 300 * 100000
     assert compute_rate({"5": 80}, "5", "2") is None
     assert compute_rate({"5": 80, "2": 0}, "5", "2") is None
     # unknown pair keeps the historical x100 default (never regresses to None)

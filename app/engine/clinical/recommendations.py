@@ -3,6 +3,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Dict
 
+from app.engine.rate_config import SITE_CLINICAL, builtin_rate
+
 logger = logging.getLogger(__name__)
 
 
@@ -128,10 +130,9 @@ def generate_recommendations(
 @_register
 def _cs_high_rate(ctx):
     vals = ctx["values"]
-    cs = vals.get("5", 0) or 0
     total = vals.get("2", 0) or 0
     if total > 0:
-        cs_rate = (cs / total) * 100
+        cs_rate = builtin_rate(SITE_CLINICAL, "rate_cs", vals)
         if cs_rate > 25:
             items = ["Review all C-section indications against WHO Robson classification"]
             if cs_rate > 15:
@@ -156,7 +157,7 @@ def _maternal_mortality(ctx):
     deaths = vals.get("11", 0) or 0
     total = vals.get("2", 0) or 0
     if deaths > 0 and total > 0:
-        mmr = (deaths / total) * 100000
+        mmr = builtin_rate(SITE_CLINICAL, "rate_mmr", vals)
         priority = "critical" if mmr > 300 else "high" if mmr > 150 else "medium"
         action = ["Conduct maternal death audit/review for each death"]
         if mmr > 300:
@@ -180,7 +181,7 @@ def _neonatal_mortality(ctx):
     nd = vals.get("17", 0) or 0
     lb = vals.get("6", 0) or 0
     if nd > 0 and lb > 0:
-        nmr = (nd / lb) * 1000
+        nmr = builtin_rate(SITE_CLINICAL, "rate_nmr", vals)
         priority = "critical" if nmr > 45 else "high" if nmr > 30 else "medium"
         action = ["Review each neonatal death for preventability"]
         if nmr > 30:
@@ -203,7 +204,7 @@ def _smm_high(ctx):
     smm = vals.get("10", 0) or 0
     total = vals.get("2", 0) or 0
     if total > 0 and smm > 0:
-        smm_rate = (smm / total) * 100
+        smm_rate = builtin_rate(SITE_CLINICAL, "rate_smm", vals)
         if smm_rate > 5:
             components = {
                 "Hemorrhage": vals.get("10.a", 0) or 0,
@@ -232,7 +233,7 @@ def _stillbirth_high(ctx):
     sb = vals.get("7", 0) or 0
     total = vals.get("2", 0) or 0
     if total > 0 and sb > 0:
-        sb_rate = (sb / total) * 1000
+        sb_rate = builtin_rate(SITE_CLINICAL, "rate_stillbirth", vals)
         if sb_rate > 22:
             fresh = vals.get("7.a", 0) or 0
             fresh_pct = (fresh / sb) * 100 if sb > 0 else 0
@@ -257,7 +258,7 @@ def _preterm_high(ctx):
     preterm = vals.get("6.f", 0) or 0
     lb = vals.get("6", 0) or 0
     if lb > 0 and preterm > 0:
-        pt_rate = (preterm / lb) * 100
+        pt_rate = builtin_rate(SITE_CLINICAL, "rate_preterm", vals)
         if pt_rate > 15:
             action = ["Review preterm prevention protocols (progesterone, cervical length screening)"]
             if pt_rate > 20:

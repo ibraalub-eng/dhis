@@ -17,6 +17,37 @@ import { confirmWarning } from './confirm-modal.js';
             (node.children || []).forEach(c => _setNodeStateDeep(c, state));
         }
 
+        function _setNodeTypeDeep(node, type) {
+            node.requirement_type = type;
+            (node.children || []).forEach(c => _setNodeTypeDeep(c, type));
+        }
+
+        // Same rule as app.engine.pipeline.get_optional_source_indicator_ids:
+        // an indicator is optional by inheritance when its OWN flag says
+        // Required but every child is Optional (or itself optional by
+        // inheritance). Recomputed locally after a requirement edit so the
+        // badge never goes stale; the server calculates it for every load.
+        function _recomputeInherited(node) {
+            const kids = node.children || [];
+            kids.forEach(_recomputeInherited);
+            const allOptional = kids.length > 0 && kids.every(k =>
+                (k.requirement_type || 'Required') === 'Optional' || !!k.optional_by_inheritance);
+            node.optional_by_inheritance = node.indicator_id != null
+                && (node.requirement_type || 'Required') === 'Required'
+                && allOptional;
+        }
+
+        function _refreshInheritance() {
+            if (!currentTreeData) return;
+            (currentTreeData.children || []).forEach(_recomputeInherited);
+        }
+
+        function _countDescendants(node) {
+            // number of sub-indicators strictly below node (all levels)
+            return (node.children || []).reduce(
+                (n, c) => n + 1 + _countDescendants(c), 0);
+        }
+
         function _snapshotOpenCodes() {
             const out = new Set();
             document.querySelectorAll('#treeContainer details.tree-details').forEach(d => {
@@ -334,6 +365,64 @@ const btn = document.getElementById('treeSaveBtn');
                 .catch(e => toastError(__('Failed: ') + e.message));
         }
 
+        // ── Optional-Candidate Detection ─────────────────────────
+        // Cross-hospital detection of data elements whose absence is a third
+        // legitimate reason rather than a gap: no hospital EVER produced a
+        // value (never reported, or always submitted blank). Marking them
+        // Optional removes them from the completeness denominator globally
+        // while keeping them enabled and visible on the tree.
+        export function previewOptionalSuggestions() {
+            authFetch(API() + '/hospitals/indicators/suggest-optional')
+                .then(r => r.json())
+                .then(async function(info) {
+                    const items = info.candidates || [];
+                    if (!items.length) {
+                        toastSuccess(__('All data elements have historical values — nothing can be marked Optional.'));
+                        return;
+                    }
+                    const reasonLabel = { 'never-reported': __('Never reported'), 'always-blank': __('Always blank') };
+                    const listHtml = '<div style="max-height:260px;overflow-y:auto;margin:0.5rem 0;text-align:' + (currentLang === 'ar' ? 'right' : 'left') + '">' +
+                        items.map(function(i) {
+                            return '<div style="padding:0.2rem 0;border-bottom:1px solid var(--border-default);font-size:0.8rem;">' +
+                                '<span class="tree-code">' + esc(i.code) + '</span> ' + esc(i.name) +
+                                ' <span style="opacity:.7;">(' + (reasonLabel[i.reason] || esc(i.reason)) + ')</span></div>';
+                        }).join('') + '</div>';
+                    const lowHtml = (info.low_coverage && info.low_coverage.length)
+                        ? '<div style="margin-top:0.4rem;font-size:0.75rem;opacity:.8;">' +
+                          __('Low coverage (decide manually, not applied):') +
+                          '<ul style="margin:0.2rem 0 0 1.2rem;">' +
+                          info.low_coverage.map(function(i) {
+                              return '<li><span class="tree-code">' + esc(i.code) + '</span> ' + esc(i.name) +
+                                  ' (' + i.value_coverage_pct + '%)</li>';
+                          }).join('') + '</ul></div>'
+                        : '';
+                    const ok = await confirmDestructive({
+                        title: __('Optional-Candidate Data Elements'),
+                        message: __('Mark all data elements that no hospital ever reported a value for as Optional, for all hospitals? They stay visible but stop dragging completeness down.') +
+                            ' (' + items.length + ')',
+                        details: listHtml + lowHtml,
+                        okLabel: __('Mark Optional'),
+                    });
+                    if (!ok) return;
+                    return applyOptionalSuggestions();
+                })
+                .catch(e => toastError(__('Failed: ') + e.message));
+        }
+
+        function applyOptionalSuggestions() {
+            return authFetch(API() + '/hospitals/indicators/apply-optional', { method: 'POST' })
+                .then(r => r.json())
+                .then(function(res) {
+                    toastSuccess(res.message || __('Done'));
+                    if (typeof window.clearApiCache === 'function') window.clearApiCache();
+                    if (typeof window.loadDashboard === 'function') window.loadDashboard();
+                    if (document.getElementById('treeHospitalSelect') && document.getElementById('treeHospitalSelect').value) {
+                        loadIndicatorTree();
+                    }
+                })
+                .catch(e => toastError(__('Failed: ') + e.message));
+        }
+
         // After a delete, the month may have vanished from /analysis/months (it is
         // derived from score/validation/anomaly rows). Re-populate the selector and
         // fall back to the nearest remaining month so the tree never queries a month
@@ -551,20 +640,30 @@ const btn = document.getElementById('treeSaveBtn');
         function _reqChip(node) {
             const chip = document.createElement('span');
             const req = node.requirement_type || 'Required';
-            chip.className = 'tree-req-chip' + (req === 'Optional' ? ' opt' : '');
-            chip.textContent = req === 'Optional' ? __('Optional') : __('Req');
-            chip.title = req === 'Optional'
-                ? __('Optional: excluded from the completeness denominator. Click to make it Required.')
-                : __('Required: counts in the completeness denominator. Click to make it Optional.');
+            // A Required node whose sources are ALL Optional is skipped by the
+            // completeness denominator. Showing it as a plain "Req" hid that,
+            // so the inherited state gets its own label and look.
+            const inherited = req === 'Required' && !!node.optional_by_inheritance;
+            chip.className = 'tree-req-chip' + (req === 'Optional' ? ' opt' : '') +
+                (inherited ? ' inh' : '');
+            chip.textContent = inherited ? __('Optional (inherited)')
+                : (req === 'Optional' ? __('Optional') : __('Req'));
+            chip.title = inherited
+                ? __('Optional by inheritance: every sub-indicator here is Optional, so it is not counted as required. Click to mark it explicitly Optional.')
+                : (req === 'Optional'
+                    ? __('Optional: excluded from the completeness denominator. Click to make it Required.')
+                    : __('Required: counts in the completeness denominator. Click to make it Optional.'));
             chip.onclick = async function(e) {
                 e.stopPropagation();
                 if (!node.indicator_id) return;
                 const next = req === 'Optional' ? 'Required' : 'Optional';
                 const ok = await confirmWarning({
                     title: __('Set requirement type'),
-                    message: (next === 'Optional'
-                        ? __('Exclude this indicator from the completeness denominator (all hospitals, all months)?')
-                        : __('Count this indicator in the completeness denominator (all hospitals, all months)?')) +
+                    message: (inherited
+                        ? __('Mark this indicator explicitly Optional? It is already not counted as required because every sub-indicator under it is Optional.')
+                        : (next === 'Optional'
+                            ? __('Exclude this indicator from the completeness denominator (all hospitals, all months)?')
+                            : __('Count this indicator in the completeness denominator (all hospitals, all months)?'))) +
                         '<br><strong>' + esc(node.code) + ' — ' + esc(node.name) + '</strong>',
                     okLabel: next,
                 });
@@ -572,6 +671,7 @@ const btn = document.getElementById('treeSaveBtn');
                 try {
                     const res = await apiPut('/hospitals/indicators/' + node.indicator_id + '/requirement-type', { requirement_type: next });
                     node.requirement_type = next;
+                    _refreshInheritance();
                     toastSuccess(res.message || __('Requirement type updated'));
                     _localRenderTree();
                 } catch (err) {
@@ -579,6 +679,53 @@ const btn = document.getElementById('treeSaveBtn');
                 }
             };
             return chip;
+        }
+
+        // Branch-wide requirement buttons for parent (branch) rows: one click
+        // sets the branch AND all its sub-indicators down to the last leaves
+        // (instead of clicking every leaf chip one by one).
+        function _branchReqButton(node, reqType) {
+            const btn = document.createElement('span');
+            const req = node.requirement_type === 'Optional' ? 'Optional' : 'Required';
+            btn.className = 'tree-req-chip branch' + (reqType === 'Optional' ? ' opt' : '');
+            btn.textContent = __(reqType) + ' ▾';
+            // A branch that is Required only because of its own flag — while
+            // every sub-indicator is Optional — is NOT counted as required.
+            // Its Required button must say so, and must stay clickable: that
+            // click is the way to make the branch genuinely required.
+            const inherited = reqType === 'Required' && !!node.optional_by_inheritance;
+            btn.title = inherited
+                ? __('This branch is Required but optional by inheritance: every sub-indicator is Optional, so it is not counted as required. Click to set it and all its sub-indicators to Required.')
+                : (reqType === 'Optional'
+                    ? __(req === 'Optional' ? 'Branch is already Optional (with all sub-indicators)' : 'Set this branch and all its sub-indicators to Optional')
+                    : __(req !== 'Optional' ? 'Branch is already Required (with all sub-indicators)' : 'Set this branch and all its sub-indicators to Required'));
+            btn.onclick = async function(e) {
+                e.stopPropagation();
+                if (req === reqType && !inherited) { toastWarning(__('Branch is already') + ' ' + reqType); return; }
+                const nChild = _countDescendants(node);
+                const meas = reqType === 'Optional'
+                    ? __('Exclude this branch and ALL its sub-indicators from the completeness denominator (all hospitals, all months)?')
+                    : __('Count this branch and ALL its sub-indicators in the completeness denominator (all hospitals, all months)?');
+                const ok = await confirmWarning({
+                    title: __('Set branch requirement type'),
+                    message: meas +
+                        '<br><strong>' + esc(node.code) + ' — ' + esc(node.name) + '</strong>' +
+                        (nChild > 0 ? '<br>+' + nChild + ' ' + __('sub-indicators') : ''),
+                    okLabel: reqType,
+                });
+                if (!ok) return;
+                try {
+                    const res = await apiPut('/hospitals/indicators/' + node.indicator_id + '/requirement-type',
+                        { requirement_type: reqType, include_children: true });
+                    _setNodeTypeDeep(node, reqType);
+                    _refreshInheritance();
+                    toastSuccess(res.message || __('Requirement type updated'));
+                    _localRenderTree();
+                } catch (err) {
+                    toastError(err.message || __('Failed to update requirement type'));
+                }
+            };
+            return btn;
         }
 
         function perHospitalHtml(node) {
@@ -642,6 +789,11 @@ const btn = document.getElementById('treeSaveBtn');
                 summary.insertAdjacentHTML('beforeend', '<span class="tree-code">' + esc(node.code) + '</span> ' +
                     '<span class="tree-name">' + esc(node.name) + ' (' + esc(node.code) + ')</span>' + valHtml +
                     ' <span class="tree-branch-badge">branch</span>');
+                // Branch requirement controls: the branch's own chip + buttons
+                // that propagate to every sub-indicator in one click.
+                summary.appendChild(_reqChip(node));
+                summary.appendChild(_branchReqButton(node, 'Required'));
+                summary.appendChild(_branchReqButton(node, 'Optional'));
                 if (isDefault && node.per_hospital) summary.insertAdjacentHTML('beforeend', perHospitalHtml(node));
                 details.appendChild(summary);
 

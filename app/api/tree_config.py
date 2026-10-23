@@ -302,6 +302,16 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
                 )
 
     all_indicators = {ind.code: ind for ind in db.query(Indicator).all()}
+    # Required-flagged nodes that the completeness denominator skips because
+    # EVERY source element under them is Optional (the same set
+    # get_required_indicator_ids subtracts — one rule, one source of truth).
+    # The tree marks them so an editor can see why they are not counted as
+    # required while their own flag still says 'Required'.
+    try:
+        from app.engine.pipeline import get_optional_by_inheritance_ids
+        optional_inherited_ids = get_optional_by_inheritance_ids(db)
+    except Exception:  # fail closed: show the stored flag only
+        optional_inherited_ids = set()
     configs = {}
     if hospital_id:
         configs = {
@@ -374,6 +384,12 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
             # is excluded entirely. The tree screen offers the toggle.
             "requirement_type": (
                 (db_indicator.requirement_type or "Required") if db_indicator else "Required"
+            ),
+            # True only for a Required node whose whole subtree is Optional:
+            # the form never asks for it, so it is excluded from the
+            # completeness denominator despite its own flag.
+            "optional_by_inheritance": bool(
+                db_id is not None and db_id in optional_inherited_ids
             ),
             "children": [],
             "leaf": not bool(node.get("children")),

@@ -104,6 +104,121 @@ def test_list_includes_existing_system_rate_definitions_readonly(client):
     assert cs["status"] in ("active", "inactive")
 
 
+def test_system_rate_row_is_editable_and_keeps_variants_in_step(client, db_session):
+    """The catalog collapses the per-site variants of a system rate into ONE
+    row, so that row must be editable — and saving it must move the whole
+    group, otherwise the outlier (zscore), clinical and forecast engines would
+    keep computing the old formula from their own hidden variant."""
+    from app.api.indicator_definitions import _rate_variant_siblings
+    from app.models import IndicatorDefinition
+
+    row = next(i for i in client.get("/indicators").json()["items"]
+               if i["code"] == "rate_cs" and i["kind"] == "rate_spec")
+    defn = db_session.get(IndicatorDefinition, row["definition_id"])
+    group = [defn] + _rate_variant_siblings(db_session, defn)
+    assert defn.is_system is True
+    assert len(group) > 1                     # clinical + zscore + forecast
+    registry_code, legacy_code = defn.code, defn.legacy_code
+
+    resp = client.put("/indicators/%d" % defn.id, json={
+        "numerator_codes": ["13"], "denominator_codes": ["2"],
+    })
+    assert resp.status_code == 200, resp.text
+
+    for variant in group:
+        db_session.refresh(variant)
+        assert variant.numerator_codes == ["13"], variant.code
+        assert variant.is_system is True      # still a system definition
+    # identity/analysis keys never move
+    assert defn.code == registry_code and defn.legacy_code == legacy_code
+
+    # The merge stays intact: one row, new formula.
+    rows = [i for i in client.get("/indicators").json()["items"]
+            if i["code"] == "rate_cs" and i["kind"] == "rate_spec"]
+    assert len(rows) == 1 and "{13}" in rows[0]["formula"]
+
+    # …and system definitions still cannot be deleted.
+    assert client.delete("/indicators/%d" % defn.id).status_code == 409
+
+
+def test_toggling_a_system_rate_flips_the_whole_group(client, db_session):
+    """A system rate is one catalog row but one definition per analysis site.
+
+    The row's Status cell is a direct Active/Inactive action, so the flip must
+    cover every variant: changing only the visible one left the merged row
+    reading "Active" (the catalog prefers an active member) while the outlier
+    engine already skipped the rate.
+    """
+    from app.api.indicator_definitions import _rate_variant_siblings
+    from app.engine.rate_config import invalidate_rate_specs_cache, load_rate_specs
+    from app.models import IndicatorDefinition, RateConfig
+
+    def _row():
+        return next(i for i in client.get("/indicators").json()["items"]
+                    if i["code"] == "rate_nmr" and i["kind"] == "rate_spec")
+
+    defn = db_session.get(IndicatorDefinition, _row()["definition_id"])
+    group = [defn] + _rate_variant_siblings(db_session, defn)
+    assert len(group) > 1, "the catalog row must stand for more than one variant"
+
+    resp = client.put("/indicators/%d/toggle" % defn.id, json={"is_active": False})
+    assert resp.status_code == 200, resp.text
+
+    for variant in group:
+        db_session.refresh(variant)
+        assert variant.is_active is False, variant.code
+    assert _row()["status"] == "inactive"
+    engine_row = db_session.query(RateConfig).filter_by(rate_code="rate_nmr").one()
+    assert engine_row.is_active is False
+    invalidate_rate_specs_cache()
+    assert "rate_nmr" not in load_rate_specs(db_session)
+
+    assert client.put("/indicators/%d/toggle" % defn.id,
+                      json={"is_active": True}).status_code == 200
+    for variant in group:
+        db_session.refresh(variant)
+        assert variant.is_active is True, variant.code
+    assert _row()["status"] == "active"
+    invalidate_rate_specs_cache()
+    assert load_rate_specs(db_session)["rate_nmr"].rate_multiplier == 1000.0
+
+
+def test_editing_a_system_rate_moves_the_engine_rate_config(client, db_session):
+    """The same rate is stored twice: the registry row the Indicators screen
+    shows and the rate_config row the Outlier Scan / Quality engine computes
+    with. Editing the multiplier on the screen must move the engine's row,
+    otherwise Neonatal mortality rate reads ``{17} / {6} * 1000`` on one screen
+    and ``{17} / {6} * 100`` in the Quality explanation."""
+    from app.engine.rate_config import invalidate_rate_specs_cache, load_rate_specs
+    from app.models import IndicatorDefinition, RateConfig
+
+    invalidate_rate_specs_cache()
+    assert load_rate_specs(db_session)["rate_nmr"].rate_multiplier == 1000.0
+
+    row = next(i for i in client.get("/indicators").json()["items"]
+               if i["code"] == "rate_nmr" and i["kind"] == "rate_spec")
+    defn = db_session.get(IndicatorDefinition, row["definition_id"])
+
+    resp = client.put("/indicators/%d" % defn.id, json={"multiplier": 10000.0})
+    assert resp.status_code == 200, resp.text
+
+    engine_row = db_session.query(RateConfig).filter_by(rate_code="rate_nmr").one()
+    assert engine_row.rate_multiplier == 10000.0
+    spec = load_rate_specs(db_session)["rate_nmr"]
+    assert spec.rate_multiplier == 10000.0
+    # The unit is registry-owned as well — the engine must report per-1,000,
+    # not the legacy per-100 label.
+    assert spec.unit == "per 1,000"
+
+    # Restoring the standard scaling round-trips through the same sync.
+    assert client.put("/indicators/%d" % defn.id,
+                      json={"multiplier": 1000.0}).status_code == 200
+    assert db_session.query(RateConfig).filter_by(
+        rate_code="rate_nmr").one().rate_multiplier == 1000.0
+    invalidate_rate_specs_cache()
+    assert load_rate_specs(db_session)["rate_nmr"].rate_multiplier == 1000.0
+
+
 def test_catalog_hides_count_aliases_that_duplicate_one_raw_element(client):
     response = client.get("/indicators")
     assert response.status_code == 200, response.text
@@ -170,9 +285,16 @@ def test_list_filters_q_kind_status_group(client):
     assert any(i["code"] == "managed_cs_rate" for i in by_q)
 
     by_status = client.get("/indicators",
-                           params={"status": "catalog"}).json()["items"]
-    assert all(i["status"] == "catalog" for i in by_status)
-    assert len(by_status) == len([i for i in all_items if i["status"] == "catalog"])
+                           params={"status": "active"}).json()["items"]
+    # Raw data elements report "active" too (2026-10-21 — the "catalog"
+    # status collapsed the Active filter to derivatives only); every not-
+    # inactive row is active, and the legacy ?status=catalog alias still
+    # resolves to the Data Element kind.
+    assert all(i["status"] != "inactive" for i in by_status)
+    raw_codes = {i["code"] for i in all_items if i["kind"] == "raw"}
+    assert {i["code"] for i in by_status if i["kind"] == "raw"} == raw_codes
+    legacy = client.get("/indicators", params={"status": "catalog"}).json()["items"]
+    assert legacy and all(i["kind"] == "raw" for i in legacy)
 
     by_group = client.get("/indicators",
                           params={"group": "SRMNH Inpatient Indicators"}).json()
@@ -185,9 +307,9 @@ def test_list_filters_q_kind_status_group(client):
     assert inactive["items"] == []
 
 
-def test_catalog_merges_kind_and_group_into_one_category(client, db_session):
-    """The list exposes a single Category: group name when set, else kind."""
-    _create(client)
+def test_catalog_uses_a_two_value_category_axis(client, db_session):
+    """Category is the two-value kind axis; a group name is metadata only."""
+    _create(client)  # carries group_name="SRMNH Inpatient Indicators"
     db_session.add(Indicator(code="zz_ungrouped", name="Ungrouped element",
                              level=1, group_name=None))
     db_session.commit()
@@ -195,17 +317,27 @@ def test_catalog_merges_kind_and_group_into_one_category(client, db_session):
     data = client.get("/indicators").json()
     by_code = {item["code"]: item for item in data["items"]}
 
-    # explicit group wins over the kind fallback
-    assert by_code["managed_cs_rate"]["category"] == "SRMNH Inpatient Indicators"
-    # an ungrouped raw element falls back to its kind label
-    assert by_code["zz_ungrouped"]["category"] == "Data elements"
+    # a stored group never becomes a category — but it stays metadata
+    assert by_code["managed_cs_rate"]["category"] == "Derivative Indicator"
+    assert by_code["managed_cs_rate"]["group_name"] == "SRMNH Inpatient Indicators"
+    assert by_code["zz_ungrouped"]["category"] == "Data Element"
     assert all(item["category"] for item in data["items"])
-    assert "SRMNH Inpatient Indicators" in data["categories"]
-    assert "Data elements" in data["categories"]
+    # the registry exposes exactly TWO categories, never a group name
+    assert set(data["categories"]) == {"Data Element", "Derivative Indicator"}
+    assert not {"Managed indicators", "System rates"} & set(data["categories"])
 
-    filtered = client.get("/indicators", params={"category": "Data elements"}).json()
-    assert [item["code"] for item in filtered["items"]] == ["zz_ungrouped"]
+    # every raw row is a Data Element, grouped or not — the category filter
+    # selects the KIND, never a group
+    filtered = client.get("/indicators", params={"category": "Data Element"}).json()
+    assert all(item["kind"] == "raw" for item in filtered["items"])
+    assert "zz_ungrouped" in [item["code"] for item in filtered["items"]]
+    assert "managed_cs_rate" not in [item["code"] for item in filtered["items"]]
     assert filtered["categories"] == data["categories"]
+
+    derived_cat = client.get("/indicators",
+                             params={"category": "Derivative Indicator"}).json()
+    assert "managed_cs_rate" in [i["code"] for i in derived_cat["items"]]
+    assert all(item["kind"] != "raw" for item in derived_cat["items"])
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -516,6 +648,83 @@ def test_activate_deactivate_records_history_without_content_version(client):
     assert resp.json()["is_active"] is True
 
 
+def test_toggle_status_is_visible_in_the_catalog(client):
+    """The quick action must survive a reload: the catalog row reports the
+    stored status and the status filter agrees with it."""
+    created = _create(client)
+    def_id = created["id"]
+
+    def catalog_row():
+        items = client.get("/indicators").json()["items"]
+        return next(i for i in items if i["code"] == "managed_cs_rate")
+
+    assert catalog_row()["status"] == "active"
+
+    client.put(f"/indicators/{def_id}/toggle", json={"is_active": False})
+    assert catalog_row()["status"] == "inactive"
+    assert client.get(f"/indicators/{def_id}").json()["is_active"] is False
+    inactive = client.get("/indicators", params={"status": "inactive"}).json()
+    assert "managed_cs_rate" in [i["code"] for i in inactive["items"]]
+
+    client.put(f"/indicators/{def_id}/toggle", json={"is_active": True})
+    assert catalog_row()["status"] == "active"
+
+
+def test_deactivation_keeps_stored_results_and_history(client, db_session):
+    """Switching an indicator off must never delete what it already produced."""
+    created = _create(client)
+    def_id = created["id"]
+    db_session.add(IndicatorResult(
+        definition_id=def_id, definition_code=created["code"],
+        hospital_id=1, month="2026-03", value=12.5, status="ok",
+        definition_version=1,
+    ))
+    db_session.commit()
+
+    resp = client.put(f"/indicators/{def_id}/toggle", json={"is_active": False})
+    assert resp.status_code == 200
+
+    results = client.get(f"/indicators/{def_id}/results").json()
+    assert results["count"] == 1
+    assert results["items"][0]["value"] == 12.5
+    # the audit trail records the switch-off, and the content version is intact
+    versions = client.get(f"/indicators/{def_id}/versions").json()
+    assert [v["action"] for v in versions][0] == "deactivated"
+    assert client.get(f"/indicators/{def_id}").json()["version"] == 1
+
+    # the ONE central definition source stops offering it for new calculations…
+    from app.engine import indicator_service
+    active = {r.code for r in indicator_service.resolve_active_definitions(db_session)}
+    assert created["code"] not in active
+    # …and re-activation brings it back without touching the stored rows
+    client.put(f"/indicators/{def_id}/toggle", json={"is_active": True})
+    active = {r.code for r in indicator_service.resolve_active_definitions(db_session)}
+    assert created["code"] in active
+    assert client.get(f"/indicators/{def_id}/results").json()["count"] == 1
+
+
+def test_data_element_status_mirrors_the_data_tree(client, db_session):
+    """Raw status is owned by the Data Tree: flipping its global switch shows
+    up in the catalog, and the row carries no definition id to toggle."""
+    from app.models import IndicatorDefaultConfig
+
+    el = _raw_element(db_session)
+
+    def raw_row():
+        items = client.get("/indicators", params={"kind": "raw"}).json()["items"]
+        return next(i for i in items if i["code"] == el.code)
+
+    assert raw_row()["status"] == "active"
+    assert raw_row().get("definition_id") is None  # no quick action in the UI
+
+    db_session.add(IndicatorDefaultConfig(indicator_id=el.id, month="2026-03",
+                                          is_enabled=False))
+    db_session.commit()
+
+    assert raw_row()["status"] == "inactive"   # Data Tree change is reflected
+    assert raw_row().get("definition_id") is None
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # safe deletion
 # ═══════════════════════════════════════════════════════════════════════════
@@ -636,3 +845,82 @@ def test_expression_mode_indicator_computes(client, db_session):
 
     # canonical expression is stored for audit
     assert "{10.a.1}" in created["expression"]
+
+
+# ── dynamic groups (reuse surface for other screens) ────────────────────────
+
+def test_groups_endpoint_reports_dynamic_suitable_groups(client):
+    """GET /indicators/groups reports whatever the active catalog contains:
+    canonical clinical domains first, no technical site-key labels."""
+    resp = client.get("/indicators/groups")
+    assert resp.status_code == 200
+    rows = resp.json()
+    names = [r["name"] for r in rows]
+
+    assert names[0] == "Delivery & Surgery"   # canonical order first
+    assert "Maternal Outcomes" in names
+    assert "Newborn Outcomes" in names
+    assert not any(n.startswith("System indicators /") for n in names)
+    for r in rows:
+        assert r["total"] >= 1, "empty groups are never reported"
+
+    maternal = next(r for r in rows if r["name"] == "Maternal Outcomes")
+    assert maternal["total"] >= 2
+    assert maternal["active"] >= 1
+    assert "rate_spec" in maternal["kinds"] or "derived" in maternal["kinds"]
+    assert "clinical" in maternal["sites"]
+
+
+def test_group_filter_agrees_with_groups_counts(client):
+    """The catalog's group= filter returns exactly the members the groups
+    endpoint counted — one shared source of truth."""
+    rows = client.get("/indicators/groups").json()
+    maternal = next(r for r in rows if r["name"] == "Maternal Outcomes")
+
+    listed = client.get("/indicators",
+                        params={"group": "Maternal Outcomes"}).json()
+    assert listed["count"] == maternal["total"]
+    assert all(i["group_name"] == "Maternal Outcomes"
+               for i in listed["items"])
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# raw data element editing (2026-10-21: Edit button on Data Element rows)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _raw_element(db_session, code="5"):
+    el = db_session.query(Indicator).filter(Indicator.code == code).first()
+    assert el is not None, "seeded catalog must contain a raw element"
+    return el
+
+
+def test_raw_detail_exposes_id_and_layered_config(client, db_session):
+    el = _raw_element(db_session)
+    d = client.get(f"/indicators/raw/{el.code}").json()
+    assert d["id"] == el.id
+    assert "minimum_history_period" in d
+    assert "outlier_method" in d
+    assert "historical_enabled" in d
+    assert "peer_comparison_enabled" in d
+
+
+def test_data_elements_are_edited_in_the_data_tree_not_in_the_registry(client, db_session):
+    """Data Elements are mirrored read-only on the Indicators screen: the
+    registry exposes no element-update route. Their one editor is the Data
+    Tree config API, which stays the source of truth."""
+    el = _raw_element(db_session)
+
+    # the registry never shipped an element editor — and must not
+    assert client.put(f"/indicators/element/{el.id}",
+                      json={"name": "x"}).status_code in (404, 405)
+
+    # the Data Tree endpoint does the edit (name is mutable there, code is not)
+    resp = client.put(f"/hospitals/indicators/{el.id}",
+                      json={"name": "Total Deliveries (renamed)"})
+    assert resp.status_code == 200, resp.text
+    out = resp.json()
+    assert out["code"] == el.code
+    assert out["name"] == "Total Deliveries (renamed)"
+    db_session.expire_all()
+    fresh = db_session.query(Indicator).filter(Indicator.id == el.id).first()
+    assert fresh.name == "Total Deliveries (renamed)"

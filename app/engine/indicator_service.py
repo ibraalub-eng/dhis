@@ -125,9 +125,15 @@ def _resolve_spec(db, code: str, site: Optional[str]) -> Optional[RateSpec]:
         if spec is not None:
             return spec
     sites = [site] if site else [SITE_CLINICAL, SITE_FORECAST]
+    deactivated = inactive_codes(db)
     for s in sites:
         for spec in iter_site(s):
             if spec.rate_code == code:
+                # Builtin slice constants are seeded into the registry at
+                # startup; a deactivated seed record (Indicators screen)
+                # must not silently resurface through this fallback.
+                if code in deactivated:
+                    return None
                 return spec
     return None
 
@@ -259,6 +265,66 @@ def resolve_active_definitions(db, site: Optional[str] = None) -> List[ResolvedI
         )
     definitions = query.order_by(IndicatorDefinition.code).all()
     return [_resolved_definition(definition) for definition in definitions]
+
+
+def _outlier_preference(resolved: ResolvedIndicator) -> tuple:
+    """Rank the per-site copy of a rate for the outlier scan.
+
+    The zscore copy wins when it exists (it is the one the scan has always
+    reported, so stored results keep their identity across re-analyses); the
+    clinical copy is next, then forecast, then anything else. Codes starting
+    with ``rate_`` win over site-specific aliases of the same formula.
+    """
+    site = (resolved.site or "").lower()
+    rank = 0 if site in ("", SITE_ZSCORE, "db") else 1 if site == SITE_CLINICAL else 2
+    return (rank, 0 if (resolved.code or "").startswith("rate_") else 1,
+            resolved.code or "")
+
+
+def resolve_outlier_candidates(db) -> List[ResolvedIndicator]:
+    """Every derivative indicator, once — the outlier engine's candidate set.
+
+    The registry stores one row per analysis site (zscore / clinical /
+    forecast), and the same rate appears in several of them with an identical
+    formula. The outlier scan must cover ALL derivative indicators (not only
+    the zscore slice it used to read), but each rate may be counted only once:
+    grouping is by formula + unit SCALE (``per 1000`` and ``per 1,000`` are the
+    same scale), and the zscore copy represents its group.
+
+    Shared, user-created definitions (``source_site`` NULL) fall in their own
+    group and are picked up automatically.
+    """
+    from app.engine.rate_config import multiplier_for_unit
+
+    chosen: Dict[tuple, ResolvedIndicator] = {}
+    for resolved in resolve_active_definitions(db):
+        key = (resolved.formula or "", multiplier_for_unit(resolved.unit))
+        current = chosen.get(key)
+        if current is None or _outlier_preference(resolved) < _outlier_preference(current):
+            chosen[key] = resolved
+    return sorted(chosen.values(), key=lambda r: ((r.name or "").lower(), r.code or ""))
+
+
+def inactive_codes(db) -> set:
+    """Registry codes users deactivated (is_active=False) — the single source
+    of truth for "excluded from current operational calculations" while their
+    historical results and audit records stay intact. Matches the canonical
+    code AND legacy aliases. An empty registry means pre-seed operation, where
+    builtin slices keep their fallback behavior."""
+    from app.models import IndicatorDefinition
+
+    try:
+        rows = (db.query(IndicatorDefinition.code, IndicatorDefinition.legacy_code)
+                .filter(IndicatorDefinition.is_active.is_(False)).all())
+    except Exception:  # pragma: no cover - registry is optional context
+        return set()
+    codes: set = set()
+    for canonical, legacy in rows:
+        if canonical:
+            codes.add(canonical)
+        if legacy:
+            codes.add(legacy)
+    return codes
 
 
 # ── provenance of a STORED result ────────────────────────────────────────────
@@ -450,7 +516,68 @@ def calculate(db, code: str, hospital_id: int, month: Optional[str],
     resolved = resolve(db, code, site=site)
     if resolved is None:
         return None
-    return calculate_resolved(db, resolved, hospital_id, month    )
+    return calculate_resolved(db, resolved, hospital_id, month)
+
+
+def _resolve_indicator_refs(db, missing_codes, seen_codes, hospital_id,
+                            month, depth=0):
+    """Compute values for referenced codes that are managed indicators.
+
+    An indicator may reference raw data elements OR other (derived/system)
+    indicators.  Raw elements come from stored IndicatorValue rows; a
+    referenced indicator is computed on demand here (recursively, so an
+    indicator may depend on an indicator that itself depends on data
+    elements or other indicators).
+
+    Returns ``(values, reasons)`` — ``values`` maps a resolvable dependency
+    code to its computed value; ``reasons`` are user-facing messages for
+    every dependency that could NOT be resolved (inactive, circular,
+    errored, no data) so callers can show why a result is unavailable.
+    """
+    values: Dict[str, float] = {}
+    reasons: List[str] = []
+    if depth > 8:
+        reasons.append("dependency chain too deep (possible circular dependency)")
+        return values, reasons
+    for code in missing_codes:
+        sub = resolve(db, code)
+        if sub is None or sub.source == SOURCE_RAW:
+            # Plain unreported raw element — the standard missing-data path
+            # already explains it; no extra reason needed here.
+            continue
+        if code in seen_codes:
+            reasons.append(f"circular dependency on '{code}'")
+            continue
+        sub_raw = calc.load_raw_values(db, _ref_codes_for(sub), hospital_id, month)
+        sub_missing = [c for c in _ref_codes_for(sub) if c not in sub_raw]
+        if sub_missing:
+            sub_values, sub_reasons = _resolve_indicator_refs(
+                db, sub_missing, seen_codes | {code}, hospital_id, month,
+                depth + 1)
+            sub_raw.update(sub_values)
+        else:
+            sub_reasons = []
+        sub_outcome = calculate_from_values(sub, sub_raw, hospital_id, month)
+        if sub_outcome.value is not None:
+            values[code] = sub_outcome.value
+        else:
+            reasons.append(
+                f"dependency '{code}' unavailable: "
+                f"{sub_outcome.message or sub_outcome.status}"
+                + (f" ({'; '.join(sub_reasons)})" if sub_reasons else ""))
+    return values, reasons
+
+
+def _ref_codes_for(resolved: ResolvedIndicator) -> List[str]:
+    """Codes whose values a resolved indicator consumes."""
+    if resolved.source == SOURCE_DERIVED:
+        try:
+            return calc.definition_codes(resolved.definition)
+        except calc.FormulaError:
+            return []
+    if resolved.source == SOURCE_RAW:
+        return [resolved.code] if resolved.code else list(resolved.ref_codes or [])
+    return list(resolved.ref_codes or [])
 
 
 def calculate_resolved(db, resolved: ResolvedIndicator, hospital_id: int,
@@ -458,15 +585,20 @@ def calculate_resolved(db, resolved: ResolvedIndicator, hospital_id: int,
     """Evaluate a resolved indicator for one hospital+month (never stores)."""
     if month is None:
         return calculate_from_values(resolved, {}, hospital_id, None)
-    if resolved.source == SOURCE_DERIVED:
-        try:
-            codes = calc.definition_codes(resolved.definition)
-        except calc.FormulaError:
-            codes = []
-    else:
-        codes = [resolved.code] if resolved.source == SOURCE_RAW else resolved.ref_codes
+    codes = _ref_codes_for(resolved)
     raw = calc.load_raw_values(db, codes, hospital_id, month)
-    return calculate_from_values(resolved, raw, hospital_id, month)
+    reasons: List[str] = []
+    missing = [c for c in codes if c not in raw]
+    if missing:
+        values, reasons = _resolve_indicator_refs(
+            db, missing, {resolved.code}, hospital_id, month)
+        raw.update(values)
+    result = calculate_from_values(resolved, raw, hospital_id, month)
+    if reasons and result.value is None:
+        result.message = (
+            (result.message.rstrip(".") + "; ") if result.message else ""
+        ) + "; ".join(reasons)
+    return result
 
 
 # ── dependencies ─────────────────────────────────────────────────────────────
@@ -484,7 +616,9 @@ __all__ = [
     "SOURCE_DERIVED", "SOURCE_RATE_SPEC", "SOURCE_RAW",
     "ResolvedIndicator", "CalculationResult",
     "spec_fingerprint", "spec_as_definition",
-    "resolve", "resolve_spec", "resolve_active_definitions", "resolve_ref",
+    "resolve", "resolve_spec", "resolve_active_definitions",
+    "resolve_outlier_candidates", "resolve_ref",
+    "inactive_codes",
     "registry_provenance",
     "FORMULA_STATUS_CURRENT", "FORMULA_STATUS_STALE",
     "FORMULA_STATUS_UNVERIFIED", "FORMULA_STATUS_UNREGISTERED",

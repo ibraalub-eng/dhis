@@ -1,3 +1,4 @@
+from sqlalchemy import func
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -323,6 +324,170 @@ def disable_never_reported_indicators(
     }
 
 
+# Value-coverage percentage under which a reported leaf is only flagged
+# "low coverage" (manual decision) instead of being an Optional candidate.
+_LOW_COVERAGE_PCT = 10.0
+
+
+def _optional_scan(db: Session):
+    """Classify every leaf indicator against its entire value history.
+
+    Three buckets, all cross-hospital (requirement_type is a global flag, so
+    the detection must be cross-hospital too):
+
+    - never-reported: zero value rows ever — the form element was never
+      uploaded by ANY hospital in ANY month.
+    - always-blank: value rows exist but every single one is NULL — the
+      element is on the form but always submitted empty.
+    - low-coverage: reported, but ≥90% of all historical rows are null —
+      listed for manual review only, never auto-applied.
+
+    The synthetic form-header labels (SYNTHETIC_INDICATOR_CODES) and
+    indicators already marked Optional are excluded from the candidates.
+    Only leaves are scanned; parents never carry their own values.
+    """
+    from app.indicators import SYNTHETIC_INDICATOR_CODES
+
+    parent_ids = {
+        p for (p,) in db.query(Indicator.parent_id)
+        .filter(Indicator.parent_id.isnot(None)).distinct().all()
+    }
+    leaves = [
+        i for i in db.query(Indicator).order_by(Indicator.sort_order, Indicator.code).all()
+        if i.id not in parent_ids and i.code not in SYNTHETIC_INDICATOR_CODES
+    ]
+
+    rows_nonnull = {
+        iid: (rows, nonnull)
+        for (iid, rows, nonnull) in db.query(
+            IndicatorValue.indicator_id,
+            func.count(IndicatorValue.id),
+            func.count(IndicatorValue.value),
+        ).group_by(IndicatorValue.indicator_id).all()
+    }
+    hospitals_reporting = {
+        iid: hosp
+        for (iid, hosp) in db.query(
+            IndicatorValue.indicator_id,
+            func.count(func.distinct(IndicatorValue.hospital_id)),
+        ).filter(IndicatorValue.value.isnot(None))
+        .group_by(IndicatorValue.indicator_id).all()
+    }
+
+    candidates, low_coverage, already_optional = [], [], 0
+    for ind in leaves:
+        rows, nonnull = rows_nonnull.get(ind.id, (0, 0))
+        if (ind.requirement_type or "Required") == "Optional":
+            already_optional += 1
+            continue
+        if rows == 0:
+            candidates.append({
+                "indicator_id": ind.id, "code": ind.code, "name": ind.name,
+                "reason": "never-reported",
+                "rows": 0, "nonnull": 0, "hospitals_reporting": 0,
+            })
+        elif nonnull == 0:
+            candidates.append({
+                "indicator_id": ind.id, "code": ind.code, "name": ind.name,
+                "reason": "always-blank",
+                "rows": rows, "nonnull": 0, "hospitals_reporting": 0,
+            })
+        elif rows and (100.0 * nonnull / rows) <= _LOW_COVERAGE_PCT:
+            low_coverage.append({
+                "indicator_id": ind.id, "code": ind.code, "name": ind.name,
+                "value_coverage_pct": round(100.0 * nonnull / rows, 1),
+                "rows": rows, "nonnull": nonnull,
+                "hospitals_reporting": hospitals_reporting.get(ind.id, 0),
+            })
+    return leaves, candidates, low_coverage, already_optional
+
+
+@router.get("/indicators/suggest-optional")
+def suggest_optional_indicators(db: Session = Depends(get_db)):
+    """Detect data elements that can legitimately be 'Optional' for ALL hospitals.
+
+    A data element qualifies when no hospital ever produced a value for it
+    across the full history — either it was never reported at all
+    (never-reported) or it is always submitted blank (always-blank). Such an
+    element contributes nothing but a perpetual completeness penalty, so
+    requirement_type='Optional' removes it from the completeness denominator
+    while leaving it enabled and visible on the tree (the third legitimate
+    absence reason in the Coverage-Disable Doctrine).
+
+    Elements with very sparse reporting (≤10% non-null rows) are returned
+    separately as low_coverage — they may be specialty-specific, so they are
+    flagged for manual review rather than auto-applied.
+    """
+    _, candidates, low_coverage, already_optional = _optional_scan(db)
+    return {
+        "candidates": candidates,
+        "count": len(candidates),
+        "low_coverage": low_coverage,
+        "low_coverage_count": len(low_coverage),
+        "already_optional_count": already_optional,
+    }
+
+
+@router.post("/indicators/apply-optional", dependencies=[Depends(require_permission("settings.write"))])
+def apply_optional_suggestions(
+    dry_run: bool = Query(False, description="Preview the affected elements without changing anything"),
+    db: Session = Depends(get_db),
+):
+    """Mark every detected optional-candidate element as Optional, globally.
+
+    One click for the whole candidate set returned by GET
+    /hospitals/indicators/suggest-optional: elements that NO hospital has ever
+    reported a value for (never reported, or always submitted blank). The flag
+    is global by nature, so no per-hospital loop is needed here. If a hospital
+    later starts reporting one of them, the admin flips it back to Required
+    with the Req/Optional chip in the tree.
+
+    Returns the affected codes; with dry_run=true nothing is written.
+    """
+    _, candidates, _, _ = _optional_scan(db)
+    if dry_run or not candidates:
+        return {
+            "dry_run": dry_run,
+            "applied": [{"code": c["code"], "name": c["name"], "reason": c["reason"]} for c in candidates],
+            "count": len(candidates),
+            "message": (
+                f"{len(candidates)} data element(s) would be marked Optional for all hospitals"
+                if candidates else "No optional-candidate elements found — nothing to change"
+            ),
+        }
+
+    reason_by_id = {c["indicator_id"]: c["reason"] for c in candidates}
+    targets = [i for i in db.query(Indicator).filter(Indicator.id.in_(list(reason_by_id))).all()]
+    for ind in targets:
+        ind.requirement_type = "Optional"
+    db.commit()
+
+    try:
+        _recalc_all_hospital_scores(db)
+    except Exception:
+        pass
+    try:
+        from app.cache import cache as _smart_cache
+        _smart_cache.invalidate("smart_drilldown_")
+        _smart_cache.invalidate("smart_trend_")
+        _smart_cache.invalidate("smart_overview_")
+    except Exception:
+        pass
+
+    return {
+        "dry_run": False,
+        "applied": [
+            {"code": t.code, "name": t.name, "reason": reason_by_id[t.id]}
+            for t in sorted(targets, key=lambda x: (x.sort_order, x.code))
+        ],
+        "count": len(targets),
+        "message": (
+            f"Marked {len(targets)} data element(s) as Optional for all hospitals "
+            "and recalculated scores"
+        ),
+    }
+
+
 def _all_known_months(db: Session):
     """Return every month that appears in indicator values or default configs."""
     from app.models import IndicatorDefaultConfig
@@ -635,6 +800,18 @@ def set_indicator_sort_order(
     return {"message": f"Sort order updated to {order}", "indicator_id": indicator_id, "sort_order": order}
 
 
+def _descendant_indicator_ids(db: Session, root_id: int) -> List[int]:
+    """All indicator ids strictly below root_id (BFS down to the last leaves)."""
+    out: List[int] = []
+    frontier = [root_id]
+    while frontier:
+        rows = db.query(Indicator.id).filter(Indicator.parent_id.in_(frontier)).all()
+        frontier = [r.id for r in rows]
+        if frontier:
+            out.extend(frontier)
+    return out
+
+
 @router.put(
     "/indicators/{indicator_id}/requirement-type",
     dependencies=[Depends(require_permission("settings.write"))],
@@ -658,7 +835,21 @@ def set_requirement_type(
     if not ind:
         raise HTTPException(status_code=404, detail="Indicator not found")
     ind.requirement_type = body.requirement_type
+    updated_ids = [ind.id]
+    if body.include_children:
+        # Branch-wide set: propagate to every descendant, down to the last
+        # leaves (Indicator Tree "branch" buttons — one click instead of
+        # clicking each sub-indicator chip one by one).
+        updated_ids.extend(_descendant_indicator_ids(db, ind.id))
+        db.query(Indicator).filter(
+            Indicator.id.in_(updated_ids),
+            Indicator.id != ind.id,
+        ).update(
+            {"requirement_type": body.requirement_type},
+            synchronize_session="fetch",
+        )
     db.commit()
+    total_changed = len(updated_ids)
     try:
         _recalc_all_hospital_scores(db)
     except Exception:
@@ -666,5 +857,10 @@ def set_requirement_type(
     return {
         "indicator_id": indicator_id,
         "requirement_type": body.requirement_type,
-        "message": f"Indicator '{ind.code}' set to {body.requirement_type}",
+        "updated_count": total_changed,
+        "message": (
+            f"Indicator '{ind.code}' and {total_changed - 1} sub-indicator(s) set to {body.requirement_type}"
+            if total_changed > 1
+            else f"Indicator '{ind.code}' set to {body.requirement_type}"
+        ),
     }

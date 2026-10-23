@@ -29,7 +29,14 @@ DOWN_REV = "e5f6a7b8c9d0"
 NEW_TABLES = ("indicator_definitions", "indicator_definition_versions",
               "indicator_results")
 PRE_ROUNDING_HEAD = "f1a2b3c4d5e6"
-HEAD = "e3f4a5b6c7d8"
+
+
+def _head_revision():
+    """The real chain head, so adding a migration after this one does not
+    leave this test asserting a stale revision id."""
+    from alembic.script import ScriptDirectory
+
+    return ScriptDirectory.from_config(_alembic_cfg("sqlite://")).get_current_head()
 
 
 def _alembic_cfg(db_url):
@@ -225,7 +232,7 @@ def test_upgrade_adds_rounding_to_database_already_at_previous_head(tmp_path):
             row = conn.exec_driver_sql(
                 "SELECT code, rounding FROM indicator_definitions WHERE id = 1"
             ).one()
-        assert revision == HEAD
+        assert revision == _head_revision()
         assert row == ("existing_rate", "half_up")
     finally:
         engine.dispose()

@@ -422,7 +422,8 @@ def group_impact(
 
     # Effective-state changes per hospital, and default-row writes per month.
     # Denominator math mirrors pipeline.get_required_indicator_ids exactly:
-    # a member counts iff its effective state is enabled AND it is Required —
+    # a member counts iff its effective state is enabled AND it is Required
+    # (or, for a parent, at least one of its source elements is Required) —
     # and when auto_disable_null_indicators is on, it must also have a
     # non-null value row at the sampled month (null/missing rows are
     # auto-disabled already, so config-disabling them predicts zero change).
@@ -431,8 +432,15 @@ def group_impact(
     affected_hospitals = set()
     hospital_deltas = {}  # hid -> [denom_before, denom_after]
 
-    from app.engine.pipeline import _is_auto_disable_null, get_required_indicator_ids
+    from app.engine.pipeline import (
+        _is_auto_disable_null,
+        get_optional_source_indicator_ids,
+        get_required_indicator_ids,
+    )
     auto_disable_null = _is_auto_disable_null(db)
+    # Optional by inheritance never counts toward the denominator (the same
+    # set the score's helper subtracts), so the simulated delta matches it.
+    optional_source_ids = get_optional_source_indicator_ids(db)
     req_by_id = {
         m.indicator_id: (ind.requirement_type or "Required")
         for m, ind in member_rows
@@ -453,6 +461,8 @@ def group_impact(
 
     def _in_denominator(hid: int, iid: int, eff_enabled: bool) -> bool:
         if not eff_enabled:
+            return False
+        if iid in optional_source_ids:
             return False
         if req_by_id.get(iid, "Required") != "Required":
             return False

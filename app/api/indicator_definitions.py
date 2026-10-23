@@ -1,12 +1,13 @@
 """Indicators management API — the Indicators tab (design 2026-10-18).
 
-Three kinds of rows share one searchable catalog. The list exposes a single
-merged Category (group name when set, otherwise the kind label) so callers do
-not have to reason about the underlying kind:
+The list exposes exactly TWO categories — "Data Element" (the raw Data-Tree
+catalog) and "Derived Indicator" (everything calculated from data elements).
+A group name is NOT a dimension of this screen any more: it never leaks
+into the category axis, and the tab has no group filter, chips or column.
 
 * ``raw``      — the existing Data-Tree catalog (app.models.Indicator).
-                 Read-only here: raw elements are created/removed in the
-                 Data Tree, this tab only lists + views them, so the two
+                 Read-only here: raw elements are created/edited/removed in
+                 the Data Tree, this tab only lists + views them, so the two
                  screens can never diverge or duplicate records.
 * ``derived``  — all versioned definitions in
                  app.models.IndicatorDefinition, including migrated
@@ -40,15 +41,19 @@ from app.core.deps import require_permission
 from app.database import get_db
 from app.engine import indicator_calc as calc
 from app.engine import indicator_service
+from app.engine.indicator_groups import group_sort_key
+from app.engine.rate_config import sync_rate_config_from_definition
 from app.indicators import PARENT_CHILD_MAP, SYNTHETIC_INDICATOR_CODES
 from app.models import (
     Hospital,
     Indicator,
+    IndicatorDefaultConfig,
     IndicatorDefinition,
     IndicatorDefinitionVersion,
     IndicatorValue,
 )
 from app.schemas import (
+    IndicatorCatalogGroupOut,
     IndicatorCatalogItem,
     IndicatorDefinitionCreate,
     IndicatorDefinitionOut,
@@ -81,14 +86,34 @@ WRITE = Depends(require_permission("settings.write"))
 
 _MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 
-# The catalog exposes one Category dimension instead of separate kind/group
-# columns: an explicit group name wins, otherwise the row falls back to its
-# kind. The kind stays in the payload for the drawer and legacy clients.
+# The catalog exposes ONE classification axis with exactly two values:
+# raw source data ("Data Element") and anything calculated ("Derivative
+# Indicator" — managed definitions AND system rate specs; the kind column
+# in each payload tells them apart). A group name is metadata, never a
+# category: it must not leak into this axis (the tab has no group filter,
+# chips or column).
 _CATEGORY_FALLBACK = {
-    "derived": "Managed indicators",
-    "rate_spec": "System rates",
-    "raw": "Data elements",
+    "derived": "Derivative Indicator",
+    "rate_spec": "Derivative Indicator",
+    "raw": "Data Element",
 }
+
+# Migration bookkeeping that must never reach the screen: the seeded system
+# definitions carry it as their description ("Migrated system definition
+# (clinical); legacy key rate_x."). It is stripped for display only — the
+# stored text stays untouched as audit metadata.
+_MIGRATED_LABEL_RE = re.compile(
+    r"^\s*Migrated system definition\b[^;]*;\s*legacy key\s+\S+\s*\.?\s*",
+    re.IGNORECASE,
+)
+
+
+def _public_description(text: Optional[str]) -> Optional[str]:
+    """Description as the screen shows it — without the migration label."""
+    if not text:
+        return None
+    cleaned = _MIGRATED_LABEL_RE.sub("", str(text)).strip()
+    return cleaned or None
 
 # columns whose change bumps the definition version
 _CONTENT_FIELDS = (
@@ -114,6 +139,29 @@ def _name_map(db: Session, codes: Sequence[str]) -> Dict[str, str]:
         return {}
     rows = db.query(Indicator.code, Indicator.name).filter(Indicator.code.in_(codes)).all()
     return {code: name for code, name in rows}
+
+
+def _raw_status_map(db: Session, indicator_ids: Sequence[int]) -> Dict[int, str]:
+    """Status of every Data Element, read from the Data Tree configuration.
+
+    The Data Tree's global switch is the "All Hospitals" default config
+    (IndicatorDefaultConfig); a hospital-level override never changes the
+    catalog status. An element that is switched off for ANY month reads
+    "inactive" — exactly how the Data Tree renders its "all months" view
+    — everything else stays "active". The switch itself lives on the Data
+    Tree; this screen only mirrors it.
+    """
+    ids = [i for i in dict.fromkeys(indicator_ids or []) if i]
+    if not ids:
+        return {}
+    rows = db.query(
+        IndicatorDefaultConfig.indicator_id,
+        IndicatorDefaultConfig.is_enabled,
+    ).filter(
+        IndicatorDefaultConfig.indicator_id.in_(ids),
+    ).all()
+    disabled = {iid for iid, enabled in rows if not enabled}
+    return {i: ("inactive" if i in disabled else "active") for i in ids}
 
 
 def _prefer_rate_code(candidate: str, current: str) -> bool:
@@ -149,6 +197,17 @@ def _prefer_rate_variant(candidate, current) -> bool:
     return _rate_variant_preference(candidate) < _rate_variant_preference(current)
 
 
+# Fields that describe HOW a rate is calculated. The catalog collapses the
+# identical per-site variants of a system rate into one row, so editing that
+# row must move the calculation for every variant or the outlier (zscore),
+# clinical and forecast engines would keep computing the old formula.
+_RATE_SHARED_FIELDS = frozenset({
+    "formula_type", "expression", "numerator_codes", "denominator_codes",
+    "operator", "multiplier", "aggregation", "result_type", "unit",
+    "precision", "rounding",
+})
+
+
 def _canonical_formula(defn) -> str:
     """Return a code-based, registry-safe formula string for catalog/detail output."""
     if getattr(defn, "formula_type", "ratio") == "expression":
@@ -160,6 +219,26 @@ def _canonical_formula(defn) -> str:
     op = getattr(defn, "operator", "/") or "/"
     mult = float(getattr(defn, "multiplier", 1.0) or 1.0)
     return calc.build_ratio_expression(num, den, op, mult)
+
+
+def _rate_variant_siblings(db: Session, defn) -> List["IndicatorDefinition"]:
+    """Other system definitions the catalog collapsed into the same row.
+
+    Mirrors the listing rule exactly (identical canonical formula + unit), so
+    the group edited from one visible row is the group the screen merged.
+    """
+    formula = _canonical_formula(defn)
+    unit = defn.unit or None
+    siblings = []
+    for other in (db.query(IndicatorDefinition)
+                  .filter(IndicatorDefinition.is_system.is_(True),
+                          IndicatorDefinition.id != defn.id)
+                  .all()):
+        if (other.unit or None) != unit:
+            continue
+        if _canonical_formula(other) == formula:
+            siblings.append(other)
+    return siblings
 
 
 def _display_refs(expr: Optional[str], names: Dict[str, str]) -> Optional[str]:
@@ -404,22 +483,66 @@ def _validate_draft(db: Session, draft, exclude_id: Optional[int] = None,
             errors.append("An indicator cannot reference itself")
 
     known: Dict[str, Indicator] = {}
+    dep_defs: Dict[str, IndicatorDefinition] = {}
     checkable = [c for c in dict.fromkeys(refs)
                  if c not in SYNTHETIC_INDICATOR_CODES and c != code]
     if checkable:
         rows = db.query(Indicator).filter(Indicator.code.in_(checkable)).all()
         known = {r.code: r for r in rows}
+        remaining = [c for c in checkable if c not in known]
+        if remaining:
+            # A reference may also point at ANOTHER (managed or system)
+            # indicator — indicator-on-indicator dependencies are supported
+            # and computed on demand at calculation time.
+            dep_defs = {d.code: d for d in db.query(IndicatorDefinition)
+                        .filter(IndicatorDefinition.code.in_(remaining)).all()}
         for c in checkable:
-            if c not in known:
-                errors.append(f"Unknown data element '{c}' — it does not exist in the Data Tree")
+            if c not in known and c not in dep_defs:
+                errors.append(
+                    "Unknown data element '" + c + "' — it does not exist in "
+                    "the Data Tree or the indicator registry")
 
+        # Circular-dependency protection: from every referenced indicator,
+        # follow the reference graph of other definitions; any path that
+        # reaches back to this indicator is a cycle.
+        if dep_defs:
+            graph: Dict[str, List[str]] = {}
+            rows_q = db.query(IndicatorDefinition)
+            if exclude_id:
+                rows_q = rows_q.filter(IndicatorDefinition.id != exclude_id)
+            for d in rows_q.all():
+                if d.code == code or d.code in known:
+                    continue  # raw elements terminate the walk
+                try:
+                    graph[d.code] = [c2 for c2 in calc.definition_codes(d)
+                                     if c2 and c2 not in SYNTHETIC_INDICATOR_CODES]
+                except calc.FormulaError:
+                    graph[d.code] = []
+            for start in dict.fromkeys(refs):
+                if start not in graph:
+                    continue
+                visited = {start}
+                stack = [(start, [start])]
+                while stack:
+                    node, path = stack.pop()
+                    if node == code:
+                        errors.append(
+                            "Circular dependency: " + " → ".join(path))
+                        stack = []
+                        break
+                    for nxt in graph.get(node, []):
+                        if nxt not in visited:
+                            visited.add(nxt)
+                            stack.append((nxt, path + [nxt]))
     ref_infos = [
         IndicatorRefInfo(
             code=c,
-            name=known[c].name if c in known else None,
-            group_name=known[c].group_name if c in known else None,
+            name=known[c].name if c in known else (
+                dep_defs[c].name if c in dep_defs else None),
+            group_name=known[c].group_name if c in known else (
+                dep_defs[c].group_name if c in dep_defs else None),
             level=known[c].level if c in known else None,
-            exists=c in known,
+            exists=c in known or c in dep_defs,
         )
         for c in dict.fromkeys(refs)
     ]
@@ -431,7 +554,9 @@ def _validate_draft(db: Session, draft, exclude_id: Optional[int] = None,
         month = None
     if refs and month and not errors:
         counts = calc.codes_with_data(db, refs, month, hospital_id)
-        empty = [c for c, n in counts.items() if n == 0]
+        # Indicator dependencies are not raw rows — their values compute on
+        # demand, so "no stored data" does not apply to them.
+        empty = [c for c, n in counts.items() if n == 0 and c not in dep_defs]
         if empty:
             where = "this hospital" if hospital_id else "any hospital"
             warnings.append(
@@ -530,6 +655,19 @@ def _draft_fields(draft, canonical: Optional[str]) -> dict:
 def _preview(db: Session, spec, hospital_id: int, month: str) -> IndicatorPreviewOut:
     codes = _spec_codes(spec)
     raw = calc.load_raw_values(db, codes, hospital_id, month)
+    extra_reasons: List[str] = []
+    missing = [c for c in codes if c not in raw]
+    if missing:
+        # Indicator-on-indicator dependencies compute on demand; a
+        # resolvable dep supplies its value here.
+        try:
+            from app.engine import indicator_service as indsvc
+            values, reasons = indsvc._resolve_indicator_refs(
+                db, missing, set(), hospital_id, month)
+            raw.update(values)
+            extra_reasons = reasons
+        except Exception:  # pragma: no cover — preview never hard-fails
+            extra_reasons = []
     outcome = calc.evaluate_definition(spec, raw)
     names = _name_map(db, codes)
     inputs = [
@@ -537,13 +675,16 @@ def _preview(db: Session, spec, hospital_id: int, month: str) -> IndicatorPrevie
          "missing": c not in raw or raw.get(c) is None}
         for c in codes
     ]
+    message = outcome.message
+    if extra_reasons and outcome.value is None:
+        message = (message.rstrip(".") + "; " if message else "") + "; ".join(extra_reasons)
     return IndicatorPreviewOut(
         status=outcome.status,
         value=outcome.value,
         numerator=outcome.numerator,
         denominator=outcome.denominator,
         inputs=inputs,
-        message=outcome.message,
+        message=message,
     )
 
 
@@ -572,11 +713,11 @@ def _validate_or_422(db: Session, draft, exclude_id=None,
 @router.get("", response_model=IndicatorListOut)
 def list_indicators(
     q: Optional[str] = Query(None, description="search name / ID / category"),
-    category: Optional[str] = Query(None, description="merged group/kind label"),
+    category: Optional[str] = Query(None, description="Data Element | Derived Indicator"),
     kind: Optional[str] = Query(None, description="raw | rate_spec | derived"),
     group: Optional[str] = Query(None),
     type: Optional[str] = Query(None),
-    status: Optional[str] = Query(None, description="active | inactive | catalog"),
+    status: Optional[str] = Query(None, description="active | inactive (``catalog`` is a legacy alias for the raw data elements)"),
     db: Session = Depends(get_db),
 ):
     items: List[IndicatorCatalogItem] = []
@@ -589,6 +730,16 @@ def list_indicators(
         .all()
     )
     raw_codes = {ind.code for ind in raw_rows}
+    raw_status = _raw_status_map(db, [ind.id for ind in raw_rows])
+    # Required-flagged elements the completeness denominator skips because all
+    # of their sources are Optional (pipeline.get_optional_source_indicator_ids
+    # filtered to the ones whose own flag still says Required). Mirrored, never
+    # re-derived here — the catalog must agree with the score.
+    try:
+        from app.engine.pipeline import get_optional_by_inheritance_ids
+        optional_inherited_ids = get_optional_by_inheritance_ids(db)
+    except Exception:  # fail closed: mirror the stored flag only
+        optional_inherited_ids = set()
     for ind in raw_rows:
         items.append(IndicatorCatalogItem(
             kind="raw",
@@ -598,7 +749,14 @@ def list_indicators(
             group_name=ind.group_name,
             indicator_type=ind.indicator_type or "count",
             formula=ind.formula or None,
-            status="catalog",
+            # Data Elements are READ-ONLY on this screen: their status and
+            # their Required/Optional setting are mirrored from the Data Tree
+            # configuration, never edited here. The status is the global
+            # "All Hospitals" default of the reporting month — the same
+            # switch the Data Tree exposes.
+            status=raw_status.get(ind.id, "active"),
+            requirement_type=ind.requirement_type or "Required",
+            optional_by_inheritance=ind.id in optional_inherited_ids,
             level=ind.level,
         ))
 
@@ -699,13 +857,22 @@ def list_indicators(
     items.extend(system_rate_items)
 
     for item in items:
-        item.category = ((item.group_name or "").strip()
-                         or _CATEGORY_FALLBACK.get(item.kind, item.kind))
+        # Strict two-value category axis: raw source rows are "Data Element",
+        # everything calculated is "Derived Indicator". A group name is
+        # metadata only — it never leaks into the category axis, and the tab
+        # has no group filter/chips/column any more.
+        item.category = _CATEGORY_FALLBACK.get(item.kind, item.kind)
+        # The migration label is never shown (the stored text stays as audit
+        # metadata).
+        item.description = _public_description(item.description)
 
     # ── filter options (computed from the full catalog, before filtering) ─
     categories = sorted({i.category for i in items if i.category})
     groups = sorted({i.group_name for i in items if i.group_name})
     types = sorted({i.indicator_type for i in items if i.indicator_type})
+    # Every code the catalog knows — the client uses it to generate an
+    # indicator ID that cannot collide with an existing one.
+    codes = sorted({i.code for i in items if i.code})
 
     # ── filters ───────────────────────────────────────────────────────────
     if category:
@@ -713,13 +880,31 @@ def list_indicators(
     if kind:
         items = [i for i in items if i.kind == kind]
     if group:
-        items = [i for i in items if (i.group_name or "") == group]
+        # Group chips come from /indicators/groups, whose names are the
+        # explicit group name or the kind's category fallback ("Data
+        # Element"/"Derivative Indicator" for UNGROUPED rows). Matching on
+        # group_name alone made those fallback chips filter every row away;
+        # match the exact group name, plus ungrouped rows whose fallback
+        # label equals the chip name — keeping filter results in sync with
+        # the chip counts.
+        items = [
+            i for i in items
+            if (i.group_name or "").strip() == group
+            or (not (i.group_name or "").strip()
+                and group in _CATEGORY_FALLBACK.values()
+                and (i.category or "") == group)
+        ]
     if type:
         items = [i for i in items if (i.indicator_type or "") == type]
     if status:
-        items = [i for i in items if i.status == status]
+        if status == "catalog":
+            # Legacy alias: raw data elements report "active" now, so
+            # ?status=catalog keeps meaning "show me the Data Elements".
+            items = [i for i in items if i.kind == "raw"]
+        else:
+            items = [i for i in items if i.status == status]
     if q:
-        needle = q.strip().lower()
+        needle = str(q).strip().lower()
 
         def _hay(i: IndicatorCatalogItem) -> str:
             return " ".join(str(x or "") for x in
@@ -730,7 +915,8 @@ def list_indicators(
     kind_order = {"derived": 0, "rate_spec": 1, "raw": 2}
     items.sort(key=lambda i: (kind_order.get(i.kind, 9), _natural_key(i.code)))
     return IndicatorListOut(items=items, count=len(items),
-                            categories=categories, groups=groups, types=types)
+                            categories=categories, groups=groups, types=types,
+                            codes=codes)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -760,6 +946,9 @@ def create_indicator(payload: IndicatorDefinitionCreate,
     db.flush()
     defn.version = 1
     _record_version(db, defn, "created", ["*"], user)
+    # A zscore-scoped definition is the formula the Outlier Scan / Quality
+    # engine must calculate with — push it onto its rate_config row.
+    sync_rate_config_from_definition(db, defn)
     db.commit()
     _invalidate_indicator_consumers()
     db.refresh(defn)
@@ -832,6 +1021,55 @@ def indicator_dependencies(code: str = Query(...),
     }
 
 
+@router.get("/groups", response_model=List[IndicatorCatalogGroupOut])
+def indicator_groups(db: Session = Depends(get_db)):
+    """Distinct groups of the catalog, with counts — the reuse surface for
+    other screens. Built DYNAMICALLY from the full catalog (raw + system
+    rates + derived, active and inactive): whatever groups exist are
+    reported, canonical clinical-domain groups first (see
+    app.engine.indicator_groups), then everything else alphabetically.
+    Any screen that wants "a group of indicators" — an audit scope, an
+    outlier set, a report section, a forecast board — filters the
+    catalog by these names; empty groups are never returned."""
+    # NB: never call the route function with only db= — the remaining
+    # parameters would keep their Query(None) sentinels, which are truthy
+    # and would filter the whole catalog away. Pass the filters explicitly.
+    catalog = list_indicators(q=None, category=None, kind=None, group=None,
+                              type=None, status=None, db=db)
+    agg: Dict[str, dict] = {}
+    for item in catalog.items:
+        name = ((item.group_name or "").strip()
+                or _CATEGORY_FALLBACK.get(item.kind, item.kind))
+        rec = agg.get(name)
+        if rec is None:
+            rec = agg[name] = {
+                "name": name, "total": 0, "active": 0,
+                "kinds": set(), "sites": set(), "types": set(),
+            }
+        rec["total"] += 1
+        if item.status == "active":
+            rec["active"] += 1
+        if item.kind:
+            rec["kinds"].add(item.kind)
+        if item.site:
+            rec["sites"].add(item.site)
+        if item.indicator_type:
+            rec["types"].add(item.indicator_type)
+    groups = [
+        IndicatorCatalogGroupOut(
+            name=rec["name"],
+            total=rec["total"],
+            active=rec["active"],
+            kinds=sorted(rec["kinds"]),
+            sites=sorted(rec["sites"]),
+            types=sorted(rec["types"]),
+        )
+        for rec in agg.values()
+    ]
+    groups.sort(key=lambda g: group_sort_key(g.name))
+    return groups
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # detail / update / lifecycle
 # ═══════════════════════════════════════════════════════════════════════════
@@ -865,6 +1103,10 @@ def _latest_month(db: Session) -> Optional[str]:
     row = db.query(IndicatorValue.month).order_by(IndicatorValue.month.desc()).first()
     return row[0] if row else None
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+# helpers for the reference maps of a definition's data elements
+# ═══════════════════════════════════════════════════════════════════════════
 
 def _group_map(db: Session, codes: Sequence[str]) -> Dict[str, str]:
     return _field_map(db, codes, Indicator.group_name)
@@ -920,6 +1162,13 @@ def update_indicator(definition_id: int, payload: IndicatorDefinitionUpdate,
         result = _validate_or_422(db, SimpleNamespace(**prospective),
                                   exclude_id=defn.id)
 
+    # System rates are seeded per analysis site and the catalog shows one row
+    # per (formula, unit); collect the hidden variants BEFORE the update so the
+    # whole group keeps a single calculation.
+    siblings = []
+    if changed and defn.is_system:
+        siblings = _rate_variant_siblings(db, defn)
+
     # ── apply only after validation passed ─────────────────────────────────
     for key in changed:
         setattr(defn, key, normalized[key])
@@ -928,11 +1177,28 @@ def update_indicator(definition_id: int, payload: IndicatorDefinitionUpdate,
             defn.expression = result.expression
         defn.version = int(defn.version or 1) + 1
         _record_version(db, defn, "updated", changed, user)
+        for sibling in siblings:
+            applied = [k for k in changed
+                       if k in _RATE_SHARED_FIELDS
+                       and _norm(getattr(sibling, k)) != _norm(normalized[k])]
+            if not applied:
+                continue
+            for key in applied:
+                setattr(sibling, key, normalized[key])
+            if sibling.formula_type == "ratio":
+                sibling.expression = result.expression
+            sibling.version = int(sibling.version or 1) + 1
+            _record_version(db, sibling, "updated", applied, user)
     if status_change:
         defn.is_active = status_change == "activated"
         _record_version(db, defn, status_change, None, user)
 
     if changed or status_change:
+        # The same rate is stored twice (registry row + rate_config row). Save
+        # both so the Quality / Outlier explanation cannot keep calculating
+        # with the old formula after the Indicators screen was edited.
+        for stored in [defn, *siblings]:
+            sync_rate_config_from_definition(db, stored)
         db.commit()
         _invalidate_indicator_consumers()
         db.refresh(defn)
@@ -946,9 +1212,23 @@ def toggle_indicator(definition_id: int, payload: IndicatorToggleIn,
     defn = _get_definition(db, definition_id)
     desired = bool(payload.is_active)
     if desired != defn.is_active:
+        action = "activated" if desired else "deactivated"
         defn.is_active = desired
-        _record_version(db, defn, "activated" if desired else "deactivated",
-                        None, user)
+        _record_version(db, defn, action, None, user)
+        # A system rate is ONE row on the Indicators screen but is stored once
+        # per analysis site (zscore / clinical / forecast). Flipping only the
+        # visible variant left the row reading "Active" — the catalog merges
+        # the group and prefers an active member — while the engine already
+        # skipped the rate. The whole group flips together, exactly like an
+        # edit (see _RATE_SHARED_FIELDS).
+        siblings = _rate_variant_siblings(db, defn) if defn.is_system else []
+        for sibling in siblings:
+            if bool(sibling.is_active) == desired:
+                continue
+            sibling.is_active = desired
+            _record_version(db, sibling, action, None, user)
+        for stored in [defn, *siblings]:
+            sync_rate_config_from_definition(db, stored)
         db.commit()
         _invalidate_indicator_consumers()
         db.refresh(defn)
@@ -1127,18 +1407,40 @@ def get_raw_indicator(code: str, db: Session = Depends(get_db)):
     if ind.parent_id:
         parent = db.get(Indicator, ind.parent_id)
         parent_code = parent.code if parent else None
+    # The same rule the completeness denominator composes through: a Required
+    # element whose every source is Optional is not counted as required. The
+    # drawer shows the flag and names the sources that make it so.
+    try:
+        from app.engine.pipeline import get_optional_by_inheritance_ids
+        optional_inherited_ids = get_optional_by_inheritance_ids(db)
+    except Exception:  # fail closed: mirror the stored flag only
+        optional_inherited_ids = set()
     return {
         "kind": "raw",
+        "id": ind.id,
         "code": ind.code,
         "name": ind.name,
         "group_name": ind.group_name,
         "level": ind.level,
         "indicator_type": ind.indicator_type or "count",
-        "requirement_type": ind.requirement_type,
+        "requirement_type": ind.requirement_type or "Required",
+        "optional_by_inheritance": ind.id in optional_inherited_ids,
+        "minimum_history_period": ind.minimum_history_period,
+        "outlier_method": ind.outlier_method,
+        "historical_enabled": ind.historical_enabled,
+        "peer_comparison_enabled": ind.peer_comparison_enabled,
         "formula": ind.formula or None,
         "default_weight": ind.default_weight,
         "parent_code": parent_code,
-        "children": [{"code": c.code, "name": c.name} for c in children],
+        "children": [
+            {
+                "code": c.code,
+                "name": c.name,
+                "requirement_type": c.requirement_type or "Required",
+                "optional_by_inheritance": c.id in optional_inherited_ids,
+            }
+            for c in children
+        ],
         "data_rows": total_rows,
         "latest_month": month_row[0] if month_row else None,
         "referenced_by": referenced_by,

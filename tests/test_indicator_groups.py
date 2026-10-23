@@ -313,6 +313,37 @@ class TestRequirementType:
         assert resp.status_code == 200
         assert db_session.query(Indicator).get(ind_id).requirement_type == "Optional"
 
+    def test_branch_include_children_propagates_to_all_leaves(self, client, db_session):
+        """Branch buttons in the Indicator Tree set the whole subtree in one
+        call: include_children=True must update every descendant, down to the
+        last leaves — not just the clicked branch itself."""
+        root = db_session.query(Indicator).filter(Indicator.code == "10").first()
+        assert root is not None
+        leaf = db_session.query(Indicator).filter(
+            Indicator.code.startswith("10.a"), Indicator.parent_id.isnot(None)).all()
+        assert leaf, "expected 10.x descendants in the seeded tree"
+        # explicit recursive walk of the whole subtree:
+        def _walk(pid, acc):
+            for child in db_session.query(Indicator).filter(Indicator.parent_id == pid).all():
+                acc.append(child.id)
+                _walk(child.id, acc)
+        acc = []
+        _walk(root.id, acc)
+        assert acc, "expected children under indicator 10"
+
+        resp = client.put(f"/hospitals/indicators/{root.id}/requirement-type",
+                          json={"requirement_type": "Optional", "include_children": True})
+        assert resp.status_code == 200
+        assert resp.json()["updated_count"] == len(acc) + 1
+        for iid in [root.id] + acc:
+            assert db_session.query(Indicator).get(iid).requirement_type == "Optional", \
+                f"indicator {iid} must follow its branch"
+        # And back to Required restores the whole subtree.
+        resp = client.put(f"/hospitals/indicators/{root.id}/requirement-type",
+                          json={"requirement_type": "Required", "include_children": True})
+        for iid in [root.id] + acc:
+            assert db_session.query(Indicator).get(iid).requirement_type == "Required"
+
     def test_optional_excluded_from_dashboard_recalc_denominator(self, client, db_session):
         """Optional indicator missing its value must NOT drag completeness down."""
         from app.models import IndicatorValue

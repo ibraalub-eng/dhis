@@ -19,6 +19,7 @@ from app.models import (
     AnomalyResult,
     Hospital,
     IndicatorDefinition,
+    LayeredOutlierResult,
     QualityScore,
 )
 
@@ -101,7 +102,9 @@ def test_quality_reports_js_does_not_recalculate_rates():
     assert "_formulaCell" in quality_js
     assert "a.unit" in quality_js
     assert "formula_status" in quality_js
-    assert 'colspan="9"' in quality_js
+    # The anomaly table renders 10 columns (Layer breakdown included), so the
+    # empty-state row must span all of them.
+    assert 'colspan="10"' in quality_js
 
 
 # ── registry is the source of every Quality anomaly value ────────────────────
@@ -185,6 +188,24 @@ def _seed_quality_report(db_session, definition):
         z_score=3.1,
         is_outlier=True,
     ))
+    # The layered row is the detection truth now; the report card counts it and
+    # AnomalyResult is projected from it during analysis.
+    db_session.add(LayeredOutlierResult(
+        hospital_id=hospital.id,
+        month="2026-03",
+        analysis_code="rate_cs",
+        indicator_id=None,
+        raw_value=80,
+        rate=26.67,
+        peer_mean=7.5,
+        peer_count=3,
+        historical_mean=7.1,
+        outlier_level="HIGH",
+        outlier_type="PEER_ANOMALY",
+        outlier_method="peer_zscore",
+        investigation_required=True,
+        investigation_route="contextual",
+    ))
     db_session.commit()
     return hospital
 
@@ -230,9 +251,12 @@ def test_quality_report_list_and_detail_agree_on_the_same_indicator(client, db_s
         f"/reports/detail/{hospital.id}", params={"month": "2026-03"})
     stored = detail.json()["anomaly_results"][0]
 
-    assert outlier["indicator_id"] == stored["indicator_id"] == f"derived:{definition.id}"
-    assert outlier["value"] == stored["value"]
-    assert outlier["formula_version"] == stored["formula_version"]
+    # The card counts the layered row (the detection truth) and names the same
+    # indicator at the same value the detail shows.
+    assert outlier["indicator"] == stored["rate_name"] == "C-section rate"
+    assert outlier["value"] == stored["value"] == pytest.approx(26.67)
+    assert outlier["level"] == "HIGH"
+    assert stored["indicator_id"] == f"derived:{definition.id}"
 
 
 def test_quality_excel_export_carries_unit_and_formula_status(client, db_session):

@@ -98,6 +98,7 @@ def seed_system_indicator_definitions(session):
     rows. Existing module behavior selects the matching ``source_site`` while
     new user-managed definitions remain shared across modules.
     """
+    from app.engine.indicator_groups import system_group_name
     from app.engine.rate_config import (
         SITE_CLINICAL,
         SITE_FORECAST,
@@ -141,8 +142,11 @@ def seed_system_indicator_definitions(session):
         definition = IndicatorDefinition(
             code=code,
             name=spec.rate_name,
-            description=f"Migrated system definition ({site}); legacy key {legacy_code}.",
-            group_name=f"System indicators / {site}",
+            # No migration bookkeeping in the description — the legacy key and
+            # the source site live in their own columns, and the screen must
+            # not show a "Migrated system definition" label.
+            description=None,
+            group_name=system_group_name(site, legacy_code),
             source_site=site,
             legacy_code=legacy_code,
             is_system=True,
@@ -163,6 +167,7 @@ def seed_system_indicator_definitions(session):
             "code": definition.code,
             "legacy_code": definition.legacy_code,
             "name": definition.name,
+            "group_name": definition.group_name,
             "source_site": definition.source_site,
             "is_system": True,
             "formula_type": definition.formula_type,
@@ -204,6 +209,8 @@ def seed_system_indicator_definitions(session):
             continue
         desired = {
             "name": spec.rate_name,
+            "group_name": system_group_name(definition.source_site,
+                                            definition.legacy_code),
             "numerator_codes": list(spec.numerator_codes or ()),
             "denominator_codes": list(spec.denominator_codes or ()),
             "operator": "/" if spec.denominator_codes else "*",
@@ -228,6 +235,7 @@ def seed_system_indicator_definitions(session):
                 "code": definition.code,
                 "legacy_code": definition.legacy_code,
                 "name": definition.name,
+                "group_name": definition.group_name,
                 "source_site": definition.source_site,
                 "is_system": True,
                 "formula_type": definition.formula_type,

@@ -3,6 +3,8 @@ from typing import List, Dict, Optional
 
 from scipy import stats as scipy_stats
 
+from app.engine.rate_config import SITE_CLINICAL, builtin_rate
+
 
 @dataclass
 class RiskMetric:
@@ -80,7 +82,9 @@ def compute_risk_profile(hospital: str, month: str, values: Dict[str, float]) ->
         return profile
 
     high_risk = values.get("2.n", 0) or 0
-    high_risk_rate = (high_risk / total) * 100
+    # Registry-driven (rate_config site "clinical") — the inline
+    # "x / total * 100" duplication is gone; default keeps legacy zeros.
+    high_risk_rate = builtin_rate(SITE_CLINICAL, "rate_high_risk", values)
     profile.metrics.append(RiskMetric(
         metric_name="High-Risk Delivery Rate",
         description="Deliveries flagged as high-risk",
@@ -92,7 +96,7 @@ def compute_risk_profile(hospital: str, month: str, values: Dict[str, float]) ->
 
     teen_codes = ["2.c", "2.d"]
     teen_sum = sum(values.get(c, 0) or 0 for c in teen_codes)
-    teen_rate = (teen_sum / total) * 100
+    teen_rate = builtin_rate(SITE_CLINICAL, "rate_adolescent", values)
     profile.metrics.append(RiskMetric(
         metric_name="Adolescent Pregnancy Rate (10-19)",
         description="Deliveries to mothers aged 10-19",
@@ -164,8 +168,8 @@ def compute_risk_profile(hospital: str, month: str, values: Dict[str, float]) ->
 
     preterm = values.get("6.f", 0) or 0
     lbw = values.get("6.g", 0) or 0
-    preterm_rate = (preterm / live_births * 100) if live_births > 0 else 0
-    lbw_rate = (lbw / live_births * 100) if live_births > 0 else 0
+    preterm_rate = builtin_rate(SITE_CLINICAL, "rate_preterm", values)
+    lbw_rate = builtin_rate(SITE_CLINICAL, "rate_lbw", values)
     profile.metrics.append(RiskMetric(
         metric_name="Preterm Birth Rate",
         description="Live births before 37 weeks",
@@ -242,8 +246,7 @@ def correlate_risk_outcomes(values: Dict[str, float], all_hospital_data: Dict[st
     if total == 0:
         return findings
 
-    high_risk = values.get("2.n", 0) or 0
-    high_risk_rate = (high_risk / total) * 100
+    high_risk_rate = builtin_rate(SITE_CLINICAL, "rate_high_risk", values)
 
     other_hospitals = {h: v for h, v in all_hospital_data.items()}
     if len(other_hospitals) >= 2:
@@ -252,11 +255,8 @@ def correlate_risk_outcomes(values: Dict[str, float], all_hospital_data: Dict[st
         for h, v in other_hospitals.items():
             ht = v.get("2", 0) or 0
             if ht > 0:
-                hr = v.get("2.n", 0) or 0
-                risk_rates.append((hr / ht) * 100)
-                lb = v.get("6", 0) or 0
-                pt = v.get("6.f", 0) or 0
-                preterm_rates.append((pt / lb * 100) if lb > 0 else 0)
+                risk_rates.append(builtin_rate(SITE_CLINICAL, "rate_high_risk", v))
+                preterm_rates.append(builtin_rate(SITE_CLINICAL, "rate_preterm", v))
 
         if risk_rates and preterm_rates:
             avg_risk = sum(risk_rates) / len(risk_rates)

@@ -19,7 +19,6 @@
       <option value="" data-i18n="All statuses">All statuses</option>
       <option value="active" data-i18n="Active">Active</option>
       <option value="inactive" data-i18n="Inactive">Inactive</option>
-      <option value="catalog" data-i18n="Catalog">Catalog</option>
     </select>
     <span id="indCount" style="font-size:0.72rem;color:var(--text-muted);"></span>
   </div>
@@ -84,7 +83,6 @@
           <tr>
             <th style="text-align:left;" data-i18n="Code">Code</th>
             <th style="text-align:left;" data-i18n="Name">Name</th>
-            <th style="text-align:left;" data-i18n="Group">Group</th>
             <th style="text-align:right;" data-i18n="Level">Level</th>
             <th style="text-align:right;" data-i18n="Data rows">Data rows</th>
           </tr>
@@ -143,10 +141,6 @@
         <input id="indName" placeholder="e.g. C-Section Rate" autocomplete="off" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
       </div>
       <div>
-        <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Category">Category</label>
-        <input id="indGroup" placeholder="e.g. SRMNH Inpatient Indicators" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
-      </div>
-      <div>
         <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Result type">Result type</label>
         <select id="indResultType" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
           <option value="percentage" data-i18n="Percentage">Percentage</option>
@@ -155,7 +149,7 @@
           <option value="count" data-i18n="Count">Count</option>
         </select>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+      <div style="grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
         <div>
           <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Multiplier">Multiplier</label>
           <input id="indMultiplier" type="number" step="any" value="100" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
@@ -172,7 +166,7 @@
       <div style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.4rem;">
         <div>
           <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);" data-i18n="Data elements">Data elements</div>
-          <div style="font-size:0.72rem;color:var(--text-muted);" data-i18n="Select data elements; indicator name and ID are generated automatically">Select data elements; indicator name and ID are generated automatically</div>
+          <div style="font-size:0.72rem;color:var(--text-muted);" data-i18n="Only data elements are offered as inputs — indicator name and ID are generated automatically">Only data elements are offered as inputs — indicator name and ID are generated automatically</div>
         </div>
         <input id="indPaletteSearch" placeholder="Search elements…" oninput="window._indPaletteRender && window._indPaletteRender()" style="font-size:0.76rem;padding:0.25rem 0.5rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);min-width:180px;">
       </div>
@@ -244,14 +238,6 @@
             <option value="lower_is_better" data-i18n="Lower is better">Lower is better</option>
             <option value="target_range" data-i18n="Target range">Target range</option>
           </select>
-        </div>
-        <div>
-          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Threshold low">Threshold low</label>
-          <input id="indThresholdLow" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
-        </div>
-        <div>
-          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Threshold high">Threshold high</label>
-          <input id="indThresholdHigh" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
         </div>
         <div id="indTargetMinWrap" style="display:none;">
           <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Target min">Target min</label>
