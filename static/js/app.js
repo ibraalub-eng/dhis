@@ -5,7 +5,7 @@ import { API, apiGet, apiPost, apiPut, uploadedData, clearApiCache } from './api
 import { showWhyPopup } from './explain.js';
 window.showWhyPopup = showWhyPopup;
 import { toggleLang, __, translateDOM, currentLang } from './i18n.js';
-import { _saveUIState, _restoreUIState, showLoader, hideLoader, SwitchTab, switchTab, _tabInited } from './main.js';
+import { _saveUIState, _restoreUIState, showLoader, hideLoader, SwitchTab, switchTab, applyBootScreen, _tabInited } from './main.js';
 import { renderSidebar } from './renderSidebar.js';
 
 // Attach core functions immediately (no await needed)
@@ -26,6 +26,7 @@ window._restoreUIState = _restoreUIState;
 window._tabInited = _tabInited;
 window.SwitchTab = SwitchTab;
 window.switchTab = switchTab;
+window.applyBootScreen = applyBootScreen;
 window.renderSidebar = renderSidebar;
 
 // Re-export for other modules
@@ -200,6 +201,7 @@ function _val(mod, name) { return mod ? mod[name] : undefined; }
 async function _loadModules() {
   const mods = [
     ['upload',      () => import('./upload.js')],
+    ['quality-alerts', () => import('./quality-alerts.js')],
     ['outliers',    () => import('./outliers.js')],
     ['layered',    () => import('./layered.js')],
     ['alerts',      () => import('./alerts.js')],
@@ -251,6 +253,16 @@ function _bindAll(mod, label) {
       _bind(mod, 'exportOutliersCSV'); _bind(mod, 'exportRuleFailuresCSV');
       _bind(mod, 'outlierLegend'); _bind(mod, 'togglePeerPopover');
       break;
+    case 'quality-alerts':
+      _bind(mod, 'initQualityAlerts'); _bind(mod, 'loadQualityAlerts');
+      _bind(mod, 'qualityAlertsFilterChanged'); _bind(mod, 'qualityAlertsPage');
+      _bind(mod, 'qualityAlertsFilterChangedDebounced');
+      _bind(mod, 'qualityAlertsTogglePerspective');
+      _bind(mod, 'scanQualityAlerts'); _bind(mod, 'recomputeStaleQualityAlerts');
+      _bind(mod, 'openQualityAlert');
+      _bind(mod, 'setQualityAlertStatus'); _bind(mod, 'addQualityAlertNote');
+      _bind(mod, 'exportQualityAlertsCSV');
+      break;
     case 'layered':
       _bind(mod, 'loadLayered'); _bind(mod, 'layeredFilterChange');
       _bind(mod, 'layeredPage'); _bind(mod, 'exportLayeredCSV');
@@ -298,6 +310,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'removeTreeData');
       _bind(mod, 'undoTreeData'); _bind(mod, 'dismissTreeUndo');
       _bind(mod, 'previewNeverReported');
+      _bind(mod, 'previewOptionalSuggestions');
       break;
     case 'indicatorGroups':
       _bind(mod, 'initIndicatorGroups'); _bind(mod, 'refreshIndicatorGroups');
@@ -452,7 +465,9 @@ window.addEventListener('unhandledrejection', function(e) {
     }
     _whenReady(refreshSavedFiles, 'refreshSavedFiles');
     localStorage.removeItem('lastTab');
-    renderSidebar().then(function() { switchTab('dashboard'); });
+    // `?screen=<tab>` (opened by a modal button in another tab) boots on that
+    // screen; a plain load still lands on the dashboard.
+    renderSidebar().then(function() { applyBootScreen(); });
   } catch (err) {
     console.error('[app] Bootstrap error:', err);
     hideLoader();

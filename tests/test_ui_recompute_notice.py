@@ -28,12 +28,15 @@ RULES_JS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 
 
 def _function_src(name):
-    """Exact source of a top-level `export function <name>(…) { … }` in
-    rules.js, with the module-only `export` keyword stripped so node can run
-    it as a plain declaration."""
+    """Exact source of a top-level function in rules.js — exported or not —
+    with the module-only `export` keyword stripped so node can run it as a
+    plain declaration."""
     with open(RULES_JS, encoding="utf-8") as f:
         js = f.read()
-    start = js.index("export function %s(" % name)
+    marker = "export function %s(" % name
+    if marker not in js:
+        marker = "function %s(" % name
+    start = js.index(marker)
     src = js[start:]
     i = src.index("{")
     depth = 0
@@ -47,6 +50,7 @@ def _function_src(name):
     raise AssertionError("unterminated %s" % name)
 
 
+
 _HARNESS = r"""
 var __toasts = [], __reloads = 0, __polls = 0, __timers = [], __cleared = [];
 function API() { return '/api'; }
@@ -55,7 +59,8 @@ function toastInfo(m) { __toasts.push('info:' + m); }
 function toastSuccess(m) { __toasts.push('success:' + m); }
 function toastWarning(m) { __toasts.push('warning:' + m); }
 function toastError(m) { __toasts.push('error:' + m); }
-function loadRulesManager() { __reloads += 1; }
+// Stand-in for the real screen refresh (tested separately below).
+function _refreshAlertSurfaces() { __reloads += 1; }
 function setTimeout(fn, delay) { __timers.push({ fn: fn, delay: delay }); return __timers.length; }
 function clearTimeout(id) { __cleared.push(id); if (id) { var i = id - 1; if (__timers[i]) __timers[i] = null; } }
 var authFetch = function (url) {
@@ -115,10 +120,22 @@ class TestRuleChangeRecomputeNotice:
         out = _run(SRC, [{"running": True, "progress": 20},
                          {"running": True, "progress": 80},
                          {"running": False}])
-        assert out["toasts"] == ["info:Updating quality scores for the latest month...",
-                                 "success:Quality scores updated."], out
-        assert out["reloads"] == 1, "the impact view must be reloaded once it changed"
+        assert out["toasts"] == ["info:Updating validation alerts and quality scores...",
+                                 "success:Validation alerts and quality scores updated."], out
+        assert out["reloads"] == 1, "the affected screens must refresh once, after the pass"
         assert out["polls"] == 3
+
+    def test_queued_edit_keeps_waiting_while_pending(self):
+        """A second edit coalesces into a follow-up pass; the first pass's end
+        must not be reported as "updated" before that follow-up has run."""
+        out = _run(SRC, [{"running": True, "progress": 50},
+                         {"running": False, "pending": True},
+                         {"running": True, "progress": 10},
+                         {"running": False}])
+        assert out["toasts"] == ["info:Updating validation alerts and quality scores...",
+                                 "success:Validation alerts and quality scores updated."], out
+        assert out["polls"] == 4, out
+        assert out["reloads"] == 1
 
     def test_nothing_to_recompute_is_reported_silently(self):
         """A rule edit with no data to recompute (or one that finished inside
@@ -161,9 +178,9 @@ class TestRuleChangeRecomputeNotice:
         """A pass that never finishes (a wedged worker, a status endpoint that
         always says running) must not keep a timer alive forever."""
         out = _run(SRC, [{"running": True, "progress": 1}] * 500)
-        assert out["polls"] == 80, out  # 1.5s × 80 = the 120s cap
+        assert out["polls"] == 120, out  # 1.5s × 120 = the 180s cap
         assert out["pending"] == 0, "the poll must give up instead of rescheduling"
-        assert out["toasts"] == ["info:Updating quality scores for the latest month..."]
+        assert out["toasts"] == ["info:Updating validation alerts and quality scores..."]
 
     def test_second_save_cancels_the_first_watch(self):
         """Two rule saves in a row must not leave two poll loops running (each
@@ -200,6 +217,70 @@ def test_notice_strings_are_translated():
     Arabic UI does not show English."""
     with open(RULES_JS, encoding="utf-8") as f:
         js = f.read()
-    for text in ("Updating quality scores for the latest month...",
-                 "Quality scores updated."):
+    for text in ("Updating validation alerts and quality scores...",
+                 "Validation alerts and quality scores updated."):
         assert re.search(r"__\(\s*['\"]%s['\"]" % re.escape(text), js), text
+
+
+# ── Screen refresh after the pass ──────────────────────────────────────────
+
+_REFRESH_SRC = (_function_src("_refreshLoadedTab") + "\n" +
+                _function_src("_refreshAlertSurfaces"))
+
+
+def _run_refresh(loaded_tabs, throwing=()):
+    """Run the real refresh helpers with a fake DOM.
+
+    A tab counts as refreshable when its panel exists and `data-loaded` is
+    "true"; loaders record the call, and the ones in `throwing` raise so the
+    test can prove one broken screen cannot stop the others.
+    """
+    script = (
+        "var __called = [];\n"
+        "var __loaded = " + json.dumps(loaded_tabs) + ";\n"
+        "var __throwing = " + json.dumps(list(throwing)) + ";\n"
+        "var document = { getElementById: function (id) {\n"
+        "  return __loaded.indexOf(id) >= 0 ? { dataset: { loaded: 'true' } } : null;\n"
+        "} };\n"
+        "var window = {};\n"
+        "function loadRulesManager() { __called.push('loadRulesManager'); }\n"
+        "function loadAlerts() { __called.push('loadAlerts'); }\n"
+        "function loadRuleFailures() { __called.push('loadRuleFailures'); }\n"
+        "function loadDashboard() { __called.push('loadDashboard'); }\n"
+        "function loadQualityReports() { __called.push('loadQualityReports'); }\n"
+    )
+    for name in ("loadAlerts", "loadRuleFailures", "loadDashboard", "loadQualityReports"):
+        script += ("window.%s = function () { if (__throwing.indexOf('%s') >= 0) "
+                   "throw new Error('boom'); %s(); };\n" % (name, name, name))
+    script += _REFRESH_SRC + "\n"
+    script += ("_refreshAlertSurfaces();\n"
+               "process.stdout.write(JSON.stringify({ called: __called }));\n")
+    with tempfile.NamedTemporaryFile("w", suffix=".js", encoding="utf-8",
+                                     delete=False) as fh:
+        fh.write(script)
+        path = fh.name
+    try:
+        res = subprocess.run(["node", path], capture_output=True, text=True,
+                             encoding="utf-8")
+    finally:
+        os.unlink(path)
+    assert res.returncode == 0, f"node failed:\n{res.stderr}"
+    return json.loads(res.stdout)["called"]
+
+
+def test_refresh_skips_tabs_that_were_never_opened():
+    called = _run_refresh([])
+    assert called == ["loadRulesManager"], (
+        "only the Rules Manager (always mounted here) may be reloaded")
+
+
+def test_refresh_updates_every_opened_alert_surface():
+    called = _run_refresh(["tab-alerts", "tab-dashboard", "tab-quality"])
+    assert called == ["loadRulesManager", "loadAlerts", "loadRuleFailures",
+                      "loadDashboard", "loadQualityReports"], called
+
+
+def test_one_failing_screen_does_not_block_the_rest():
+    called = _run_refresh(["tab-alerts", "tab-dashboard"],
+                          throwing=("loadAlerts",))
+    assert called == ["loadRulesManager", "loadRuleFailures", "loadDashboard"], called

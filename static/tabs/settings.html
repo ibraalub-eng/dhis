@@ -85,7 +85,7 @@
                                     <span id="cfgval_quality_consistency" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.25</span>
                                 </div>
                                 <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;padding-left:185px;">
-                                    <strong>Calculation:</strong> 1 - (weighted_failures / weighted_total). HIGH failures weighted by severity_high (3), LOW by severity_low (1).<br>
+                                    <strong>Calculation:</strong> 1 - (weighted_failures / weighted_total). CRITICAL failures weighted by severity_critical (1), HIGH by severity_high (3), MEDIUM by severity_medium (2), LOW by severity_low (1).<br>
                                     <strong>Purpose:</strong> Controls how much rule failure severity (weighted by severity) influences the quality score.<br>
                                     <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:66-84</code> &rarr; <code>_calc_consistency()</code></span>
                                 </div>
@@ -97,9 +97,9 @@
                                     <span id="cfgval_quality_outlier_penalty" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">0.15</span>
                                 </div>
                                 <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;padding-left:185px;">
-                                    <strong>Calculation:</strong> (1 - outlier_penalty) x W4. Penalty = min(1.0, outlier_ratio x outlier_multiplier).<br>
-                                    <strong>Purpose:</strong> Controls how much statistical outliers (anomalies) reduce the final quality score.<br>
-                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:24-29</code> &rarr; formula <code>raw_score = ... + (1.0 - outlier_penalty) x w_op</code></span>
+                                    <strong>Calculation:</strong> (1 - outlier_penalty) x W4. Penalty = min(1.0, outlier_ratio x outlier_multiplier), where outlier_ratio is the share of the hospital-month's data-tree rows (Outlier Diagnostics) classified HIGH or VERY_HIGH.<br>
+                                    <strong>Purpose:</strong> Controls how much statistical outliers (anomalies) across the analysed data elements and rates reduce the final quality score.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py</code> &rarr; <code>calculate_quality_score()</code> + <code>_calc_layered_outlier_penalty()</code></span>
                                 </div>
                             </div>
                             <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.3rem;padding-top:0.5rem;border-top:1px solid var(--border-default);">
@@ -117,9 +117,9 @@
 <div class="settings-section-body">
 
                         <div style="background:var(--bg-surface-hover);padding:0.6rem;border-radius:6px;margin-bottom:0.8rem;font-size:0.78rem;color:var(--text-secondary);">
-                            <strong>Outlier Multiplier:</strong> Multiplies the outlier ratio before capping at 1.0. At multiplier 2.0, 50% outliers = max penalty.<br>
-                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:91-97</code> &rarr; <code>min(1.0, ratio * multiplier)</code></span><br>
-                            <strong>Severity Weights:</strong> Used in consistency calculation. HIGH=3 means one HIGH failure = three LOW failures.<br>
+                            <strong>Outlier Multiplier:</strong> Multiplies the outlier ratio before capping at 1.0. At multiplier 2.0, 50% flagged tree rows = max penalty.<br>
+                            <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py</code> &rarr; <code>min(1.0, ratio * multiplier)</code></span><br>
+                            <strong>Severity Weights:</strong> Used in consistency calculation. HIGH=3 means one HIGH failure = three LOW failures. CRITICAL defaults to 1 (the weight it silently borrowed before this setting existed); raise it above HIGH to make blocking failures dominate.<br>
                             <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:70-84</code> &rarr; <code>_calc_consistency()</code></span>
                         </div>
                         <div style="display:flex;flex-direction:column;gap:0.6rem;max-width:700px;">
@@ -130,9 +130,21 @@
                                     <span id="cfgval_outlier_multiplier" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2.0</span>
                                 </div>
                                 <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;padding-left:185px;">
-                                    <strong>Calculation:</strong> min(1.0, (outlier_count / total_anomalies) x multiplier). At 2.0, 50% outliers = 100% penalty.<br>
-                                    <strong>Purpose:</strong> Amplifies or dampens the outlier penalty. Higher values = fewer outliers needed to max the penalty.<br>
-                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py:87-97</code> &rarr; <code>_calc_outlier_penalty()</code></span>
+                                    <strong>Calculation:</strong> min(1.0, (flagged_layered_rows / analysed_rows) x multiplier). At 2.0, 50% flagged rows = 100% penalty.<br>
+                                    <strong>Purpose:</strong> Amplifies or dampens the outlier penalty. Higher values = fewer flagged indicators needed to max the penalty.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py</code> &rarr; <code>_calc_layered_outlier_penalty()</code> (classic <code>_calc_outlier_penalty()</code> only when layered results are unavailable)</span>
+                                </div>
+                            </div>
+                            <div style="background:var(--bg-elevated);padding:0.6rem;border-radius:4px;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <label style="width:180px;font-size:0.82rem;font-weight:600;">Severity CRITICAL Weight:</label>
+                                    <input type="range" id="cfg_severity_critical" min="1" max="10" step="1" style="flex:1;" oninput="updateCfgVal('severity_critical')">
+                                    <span id="cfgval_severity_critical" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">1</span>
+                                </div>
+                                <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;padding-left:185px;">
+                                    <strong>Calculation:</strong> Same weighted consistency formula, with the CRITICAL weight. It defaults to 1 to keep every existing score unchanged.<br>
+                                    <strong>Purpose:</strong> Sets the impact of CRITICAL rule failures (e.g. a facility with no usable data). Raise it above HIGH so a blocking failure outweighs several ordinary ones.<br>
+                                    <span class="dev-hint"><strong>Source:</strong> <code>app/engine/quality/scoring.py</code> &rarr; <code>severity_weights()</code></span>
                                 </div>
                             </div>
                             <div style="background:var(--bg-elevated);padding:0.6rem;border-radius:4px;">
@@ -328,7 +340,7 @@
                             <div style="background:var(--bg-elevated);padding:0.6rem;border-radius:4px;">
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
                                     <label style="width:180px;font-size:0.82rem;font-weight:600;">Z-Score Threshold:</label>
-                                    <input type="range" id="cfg_zscore_threshold" min="1" max="4" step="0.5" style="flex:1;" oninput="updateCfgVal('zscore_threshold')">
+                                    <input type="range" id="cfg_zscore_threshold" min="1" max="5" step="0.1" style="flex:1;" oninput="updateCfgVal('zscore_threshold')">
                                     <span id="cfgval_zscore_threshold" style="width:45px;text-align:right;font-weight:700;font-size:0.85rem;">2.5</span>
                                 </div>
                                 <div style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.3rem;padding-left:185px;">

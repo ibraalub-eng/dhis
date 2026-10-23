@@ -35,6 +35,14 @@
             <div class="value" id="dashAlerts" style="color:var(--accent-red);">-</div>
             <div class="label">Active Alerts</div>
         </div>
+        <!-- Quality risk: Very High (Red) issues from the Quality Alerts
+             screen, counted the way that table lists them (one per
+             hospital+indicator+month, not one per perspective row). Clicking
+             opens that screen; hidden for users without access to it. -->
+        <div class="card summary-card" id="dashRedCard" style="cursor:pointer;border-top-color:var(--accent-red);" onclick="switchTab('quality-alerts')">
+            <div class="value" id="dashRedIssues" style="color:var(--accent-red);">-</div>
+            <div class="label" data-i18n="Very high issues">Very high issues</div>
+        </div>
     </div>
     <div class="dashboard-grid" id="dashKpiCards"></div>
     <!-- 'Needs attention' strip: worst movers / critical alerts / data problems -->

@@ -497,7 +497,11 @@
         let currentValidation = [];
         let valSortCol = 'rule_code', valSortDir = 'asc';
         window.valFilterStatus = 'all'; window.valFilterSeverity = 'all'; window.valFilterType = 'all';
-        let anomSortCol = 'rate_name', anomSortDir = 'asc', anomFilterOutlier = 'all';
+        let anomSortCol = 'rate_name', anomSortDir = 'asc';
+        // Read through window: the Outlier dropdown is an inline handler, so it
+        // writes a global. A module-local variable here silently ignored it and
+        // the "Outliers" filter never changed the table.
+        window.anomFilterOutlier = 'all';
         let currentAnomalies = [];
         const SEVERITY_ORDER = {'HIGH': 3, 'MEDIUM': 2, 'LOW': 1};
         const STATUS_ORDER = {'FAIL': 2, 'PASS': 1};
@@ -522,7 +526,32 @@
                 currentMonth = month;
                 const report = await apiGet('/reports/detail/' + hosp.id + '?month=' + month);
                 currentValidation = report.validation_results || [];
-                currentAnomalies = report.anomaly_results || [];
+                // The classic anomaly table only carries derived rates. Data
+                // elements are analysed by the layered engine, so merge its
+                // rows in: an element outlier must not be invisible here while
+                // Outlier Diagnostics shows it.
+                const elementRows = (report.layered_results || []).map(x => ({
+                    rate_name: x.name,
+                    indicator_code: x.analysis_code,
+                    value: x.value,
+                    benchmark: x.baseline,
+                    z_score: x.z_score,
+                    peer_count: x.peer_count,
+                    peer_mean: x.peer_mean,
+                    peer_stats: x.peer_stats || null,
+                    layers: x.layers || [],
+                    peers: x.peers || [],
+                    peer_min: null,
+                    peer_max: null,
+                    unit: x.unit || '',
+                    formula_status: null,
+                    is_outlier: x.is_outlier,
+                    level: x.outlier_level,
+                    outlier_type: x.outlier_type,
+                    interpretation: x.interpretation,
+                    kind: 'element',
+                }));
+                currentAnomalies = (report.anomaly_results || []).concat(elementRows);
                 renderDetail(body, report);
             } catch(e) {
                 body.innerHTML = '<p style="color:var(--accent-red);">' + __('Quality report unavailable') + ': ' + esc(e.message) + '</p>';
@@ -551,8 +580,9 @@
 
         function sortAndFilterAnomalies() {
             let data = [...currentAnomalies];
-            if (anomFilterOutlier === 'yes') data = data.filter(a => a.is_outlier === true);
-            else if (anomFilterOutlier === 'no') data = data.filter(a => a.is_outlier === false);
+            const outlierFilter = window.anomFilterOutlier || 'all';
+            if (outlierFilter === 'yes') data = data.filter(a => a.is_outlier === true);
+            else if (outlierFilter === 'no') data = data.filter(a => a.is_outlier === false);
             data.sort((a, b) => {
                 let va, vb;
                 if (anomSortCol === 'rate_name') { va = a.rate_name||''; vb = b.rate_name||''; }
@@ -801,7 +831,9 @@
 
             // ── Sub-tabs: Validation | Anomaly | Completeness ──
             const valCount = (r.validation_results || []).length;
-            const anomCount = (r.anomaly_results || []).length;
+            // currentAnomalies already merges derived rates + data elements.
+            const anomRows = currentAnomalies || [];
+            const anomCount = anomRows.length;
             const hasVal = valCount > 0;
             const hasAnom = anomCount > 0;
 
@@ -836,13 +868,13 @@
             // Anomaly tab content
             html += '<div id="qrTab-anomaly" class="qr-tab-content" style="display:none;">';
             if (hasAnom) {
-                const outC = r.anomaly_results.filter(a=>a.is_outlier===true).length;
-                const normC = r.anomaly_results.filter(a=>a.is_outlier===false).length;
-                const staleCount = r.anomaly_results.filter(a => a.formula_status && a.formula_status !== 'current').length;
+                const outC = anomRows.filter(a=>a.is_outlier===true).length;
+                const normC = anomRows.filter(a=>a.is_outlier===false).length;
+                const staleCount = anomRows.filter(a => a.formula_status && a.formula_status !== 'current').length;
                 if (staleCount) {
                     html += '<div style="padding:0.55rem 0.75rem;margin-bottom:0.6rem;background:rgba(230,81,0,0.08);border:1px solid rgba(230,81,0,0.25);border-radius:6px;font-size:0.76rem;color:var(--accent-orange);">' + staleCount + ' ' + __('anomaly value(s) use an outdated or unverified formula — re-run analysis to refresh their registry values.') + '</div>';
                 }
-                html += '<div class="filter-bar"><label>Outlier:</label><select id="filterOutlier" onchange="anomFilterOutlier=this.value;rerenderAnom();"><option value="all">All (' + anomCount + ')</option><option value="yes">Outliers (' + outC + ')</option><option value="no">Normal (' + normC + ')</option></select></div><table><thead><tr>' + sh('Rate','rate_name',anomSortCol,anomSortDir) + sh(__('Value'),'value',anomSortCol,anomSortDir) + sh(__('Benchmark'),'benchmark',anomSortCol,anomSortDir) + sh(__('Z-Score'),'z_score',anomSortCol,anomSortDir) + sh(__('Peers'),'peer_count',anomSortCol,anomSortDir) + sh(__('Peer Range'),'peer_range',anomSortCol,anomSortDir) + sh(__('Unit'),'unit',anomSortCol,anomSortDir) + sh(__('Formula status'),'formula_status',anomSortCol,anomSortDir) + sh(__('Outlier'),'is_outlier',anomSortCol,anomSortDir) + '</tr></thead><tbody id="anomTbody"></tbody></table>';
+                html += '<div class="filter-bar"><label>Outlier:</label><select id="filterOutlier" onchange="anomFilterOutlier=this.value;rerenderAnom();"><option value="all">All (' + anomCount + ')</option><option value="yes">Outliers (' + outC + ')</option><option value="no">Normal (' + normC + ')</option></select></div><table><thead><tr>' + sh(__('Indicator'),'rate_name',anomSortCol,anomSortDir) + sh(__('Value'),'value',anomSortCol,anomSortDir) + sh(__('Benchmark'),'benchmark',anomSortCol,anomSortDir) + sh(__('Z-Score'),'z_score',anomSortCol,anomSortDir) + '<th title="' + esc(__('Layer breakdown: raw / rate / history / volume / peer')) + '">' + __('Layer breakdown') + '</th>' + sh(__('Peers'),'peer_count',anomSortCol,anomSortDir) + sh(__('Peer Range'),'peer_range',anomSortCol,anomSortDir) + sh(__('Unit'),'unit',anomSortCol,anomSortDir) + sh(__('Formula status'),'formula_status',anomSortCol,anomSortDir) + sh(__('Outlier'),'is_outlier',anomSortCol,anomSortDir) + '</tr></thead><tbody id="anomTbody"></tbody></table>';
             } else {
                 html += '<p style="color:var(--text-muted);padding:1rem;">No anomaly results available.</p>';
             }
@@ -920,6 +952,107 @@
             return text + ' ' + unit;
         }
 
+        // ── Layer breakdown (raw / rate / history / volume / peer) ──────────
+        // One chip per detection layer, in the engine's evaluation order. The
+        // stored scores are shown as-is: a layer that could not look at
+        // anything stays visibly disabled instead of reading as "clean".
+        const LAYER_ORDER = ['raw', 'rate', 'historical', 'volume', 'peer'];
+        const LAYER_ABBR = { raw: 'Raw', rate: 'Rate', historical: 'Hist', volume: 'Vol', peer: 'Peer' };
+        const LAYER_CLS = { raw: 'badge-c-raw', rate: 'badge-c-rate', historical: 'badge-c-historical', volume: 'badge-c-volume', peer: 'badge-c-peer' };
+
+        function _num2(v) {
+            if (v === null || v === undefined || !Number.isFinite(Number(v))) return '--';
+            return String(Number(Number(v).toFixed(2)));
+        }
+
+        // Plain-text twin of _fmtAnomalyValue: tooltips are text, so a missing
+        // value reads as the word, never as a red span's markup.
+        function _plainVal(value, unit) {
+            if (value === null || value === undefined) return __('unavailable');
+            var text = Number(value).toFixed(2);
+            if (!unit) return text;
+            return unit === '%' ? text + '%' : text + ' ' + unit;
+        }
+
+        // The peer statistics the score was computed against. Element rows
+        // carry them straight from the API; rate rows may only have the peer
+        // list, so derive the same numbers from it.
+        function _peerStats(a) {
+            if (a.peer_stats && a.peer_stats.count) return a.peer_stats;
+            let values = [];
+            if (Array.isArray(a.peers_detail) && a.peers_detail.length) {
+                values = a.peers_detail.map(p => p && p.rate);
+            } else if (Array.isArray(a.peers) && a.peers.length) {
+                values = a.peers.map(p => p && p.value);
+            }
+            values = values.filter(v => v !== null && v !== undefined && Number.isFinite(Number(v))).map(Number);
+            if (!values.length) return a.peer_stats || null;
+            const sum = values.reduce((s, v) => s + v, 0);
+            const mean = sum / values.length;
+            let std = null;
+            if (values.length > 1) {
+                const sq = values.reduce((s, v) => s + Math.pow(v - mean, 2), 0);
+                std = Math.sqrt(sq / (values.length - 1));
+            }
+            const sorted = [...values].sort((x, y) => x - y);
+            const mid = Math.floor(sorted.length / 2);
+            const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+            return { count: values.length, mean: mean, std: std,
+                     min: sorted[0], max: sorted[sorted.length - 1], median: median };
+        }
+
+        function _peerStatLines(stats, unit) {
+            if (!stats || !stats.count) return [__('no peer group')];
+            const lines = [__('Peers') + ': ' + stats.count];
+            if (stats.mean !== null && stats.mean !== undefined)
+                lines.push(__('Peer mean') + ': ' + _plainVal(stats.mean, unit));
+            if (stats.std !== null && stats.std !== undefined)
+                lines.push(__('Peer std') + ': ' + _num2(stats.std));
+            if (stats.min !== null && stats.min !== undefined && stats.max !== null && stats.max !== undefined)
+                lines.push(__('Peer range') + ': ' + _num2(stats.min) + ' \u2013 ' + _num2(stats.max));
+            if (stats.median !== null && stats.median !== undefined)
+                lines.push(__('Peer median') + ': ' + _num2(stats.median));
+            return lines;
+        }
+
+        // What each layer's number actually is (the strip shows a score; the
+        // tooltip has to say what it looked at). The peer layer's baseline
+        // comes with the full statistics instead of a bare number.
+        const LAYER_VALUE_LABEL = { raw: 'Value', rate: 'Rate',
+                                    historical: 'Baseline', volume: 'Denominator' };
+
+        function _layerChip(layer, a) {
+            const off = layer.applicable === false;
+            const fired = layer.level === 'HIGH' || layer.level === 'VERY_HIGH';
+            const cls = 'badge ' + (LAYER_CLS[layer.key] || 'badge-muted')
+                + (off ? ' layer-chip-off' : '') + (fired ? ' layer-chip-fired' : '');
+            const tip = [layer.name + ' \u2014 ' + (off
+                ? __('not computable for this indicator')
+                : __(layer.level) + ' (' + __('score') + ' ' + _num2(layer.score) + ')')];
+            const labelKey = LAYER_VALUE_LABEL[layer.key];
+            if (labelKey) {
+                tip.push(__(labelKey) + ': ' + _plainVal(
+                    layer.value, layer.key === 'volume' ? '' : a.unit));
+            }
+            if (layer.key === 'peer') tip.push(..._peerStatLines(_peerStats(a), a.unit));
+            if (layer.key === 'historical' && a.z_score !== null && a.z_score !== undefined)
+                tip.push(__('Z-Score') + ': ' + Number(a.z_score).toFixed(2));
+            return '<span class="' + cls + ' layer-chip" title="' + esc(tip.join('\n')) + '">'
+                + esc(__(LAYER_ABBR[layer.key] || layer.key)) + '</span>';
+        }
+
+        function _layerStrip(a) {
+            const byKey = {};
+            (a.layers || []).forEach(l => { if (l && l.key) byKey[l.key] = l; });
+            if (!Object.keys(byKey).length) {
+                return '<span style="color:var(--text-muted);font-size:0.7rem;" title="'
+                    + esc(__('layer scores unavailable for this row')) + '">--</span>';
+            }
+            return '<span class="layer-strip">'
+                + LAYER_ORDER.map(k => byKey[k]).filter(Boolean).map(l => _layerChip(l, a)).join('')
+                + '</span>';
+        }
+
         function _formulaStatusBadge(status, currentVersion) {
             if (!status || status === 'current') return '';
             var labels = {
@@ -953,13 +1086,46 @@
             data.forEach(a => {
                 const isO = a.is_outlier;
                 const rs = isO ? 'style="background:var(--severity-warning-bg);"':'';
-                const aRange = (a.peer_min !== null && a.peer_min !== undefined && a.peer_max !== null && a.peer_max !== undefined)
-                    ? a.peer_min.toFixed(2) + ' – ' + a.peer_max.toFixed(2) : '--';
                 const unit = a.unit || '';
-                const provenanceTip = (a.indicator_id || '') + (a.formula ? ' | ' + a.formula : '');
-                html += '<tr '+rs+'><td title="'+esc(provenanceTip)+'">'+esc(a.rate_name)+'</td><td>'+_fmtAnomalyValue(a.value, unit)+'</td><td>'+_fmtAnomalyValue(a.benchmark, unit)+'</td><td>'+(a.z_score!==null&&a.z_score!==undefined?a.z_score.toFixed(2):'--')+'</td><td>'+(a.peer_count!==null&&a.peer_count!==undefined?a.peer_count:'--')+'</td><td>'+aRange+'</td><td>'+(unit?esc(unit):'--')+'</td><td>'+_formulaCell(a.formula_status, a.formula_version, a.current_formula_version)+'</td><td>'+(isO?'<span class="badge badge-fail">YES</span>':'<span class="badge badge-pass">No</span>')+'</td></tr>';
+                const peers = a.peers || [];
+                let pMin = a.peer_min, pMax = a.peer_max;
+                // Layered rows store the peer mean/count, not the min/max: derive
+                // the range from the peer list when it is available.
+                if ((pMin === null || pMin === undefined || pMax === null || pMax === undefined) && peers.length) {
+                    const vals = peers.map(p => p.value)
+                        .filter(v => v !== null && v !== undefined && Number.isFinite(Number(v)))
+                        .map(Number);
+                    if (vals.length) {
+                        pMin = Math.min.apply(null, vals);
+                        pMax = Math.max.apply(null, vals);
+                    }
+                }
+                const aRange = (pMin !== null && pMin !== undefined && pMax !== null && pMax !== undefined)
+                    ? pMin.toFixed(2) + ' – ' + pMax.toFixed(2) : '--';
+                // Statistics first (n, mean, sigma, range, median), then the
+                // hospitals behind them.
+                const peerTipParts = _peerStatLines(_peerStats(a), unit);
+                peers.forEach(p => peerTipParts.push(
+                    p.name + (p.value !== null && p.value !== undefined
+                        ? ': ' + _plainVal(p.value, unit) : '')));
+                (a.peers_detail || []).forEach(p => {
+                    if (p && p.hospital)
+                        peerTipParts.push(p.hospital + (p.rate !== null && p.rate !== undefined
+                            ? ': ' + _plainVal(p.rate, unit) : ''));
+                });
+                const peerTip = peerTipParts.join('\n');
+                const provenanceTip = (a.indicator_code || a.indicator_id || '') + (a.formula ? ' | ' + a.formula : '');
+                const kindBadge = a.kind === 'element'
+                    ? ' <span class="badge badge-muted" style="font-size:0.62rem;padding:0 4px;" title="' +
+                      esc(a.outlier_type || '') + '">' + __('Data element') + '</span>' : '';
+                const levelClass = { VERY_HIGH: 'critical', HIGH: 'high', MODERATE: 'medium', LOW: 'low' }[a.level] || 'muted';
+                const levelBadge = a.level
+                    ? ' <span class="badge badge-' + levelClass + '" style="font-size:0.62rem;padding:0 4px;">' + esc(a.level) + '</span>' : '';
+                const peerCount = (a.peer_count !== null && a.peer_count !== undefined)
+                    ? a.peer_count : (peers.length || '--');
+                html += '<tr '+rs+'><td title="'+esc(provenanceTip)+'">'+esc(a.rate_name)+kindBadge+levelBadge+'</td><td>'+_fmtAnomalyValue(a.value, unit)+'</td><td>'+_fmtAnomalyValue(a.benchmark, unit)+'</td><td>'+(a.z_score!==null&&a.z_score!==undefined?a.z_score.toFixed(2):'--')+'</td><td>'+_layerStrip(a)+'</td><td title="'+esc(peerTip)+'" style="cursor:help;text-decoration:underline dotted;">'+peerCount+'</td><td>'+aRange+'</td><td>'+(unit?esc(unit):'--')+'</td><td>'+_formulaCell(a.formula_status, a.formula_version, a.current_formula_version)+'</td><td>'+(isO?'<span class="badge badge-fail">YES</span>':'<span class="badge badge-pass">No</span>')+'</td></tr>';
             });
-            if (!data.length) html = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">No matching results</td></tr>';
+            if (!data.length) html = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No matching results</td></tr>';
             tbody.innerHTML = html;
             const c = document.getElementById('anomCount'); if (c) c.textContent = data.length;
         }

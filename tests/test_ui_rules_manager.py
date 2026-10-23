@@ -764,3 +764,18 @@ def test_drawer_new_labels_translated():
     i18n = _read_i18n_js()
     assert "'Formula': 'الصيغة'" in i18n
     assert "'Denominator': 'المقام'" in i18n
+
+
+def test_confidence_drilldown_marks_unassessed_signals_as_no_data():
+    """An indicator with no reported value must not appear as four failed 0%
+    checks. Its signals carry ``applicable: false``; the drilldown renders a
+    neutral "no data" chip and leaves them out of the factor averages."""
+    js = _read_rules_manager_js()
+    summary = js[js.index("Compute WEIGHTED avg score per signal"):]
+    summary = summary[:summary.index("Signal factor cards")]
+
+    assert "sig.applicable === false" in summary
+    assert "_sigTotalW[s.key] > 0" in summary
+
+    detail = js[js.index("Indicators Needing Verification"):]
+    assert "\\u2014 ' + sLabel + ': ' + __('no data')" in detail

@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
-from app.models import Hospital, QualityScore, ConfidenceScore, ValidationResult, SystemSetting
+from app.models import (Hospital, QualityAlert, QualityScore, ConfidenceScore,
+                        ValidationResult, SystemSetting)
 from sqlalchemy import func, text, and_
 from app.engine.pipeline import get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
@@ -29,6 +30,73 @@ def _analyzed_exists(db, model):
         _IV.month == model.month,
         _IV.value.isnot(None),
     ).exists()
+
+
+def _stale_policy_alert_count(db, user_hosp_ids, hospital_id, month_from,
+                              month_to, year):
+    """Active Quality Alerts resolved under an older saved severity policy.
+
+    ``None`` when the policy itself cannot be read: comparing against an
+    unknown policy would be a guess, and reporting 0 would claim the opposite
+    of what is true. Rows without a fingerprint (legacy rows) are excluded —
+    their severity cannot be attributed to any policy, so they are not drift.
+
+    The fingerprint comparison runs in SQL (JSON path) rather than loading
+    every alert's evidence: the dashboard must stay cheap on a large history.
+    """
+    from app.engine import severity as severity_policy
+
+    try:
+        cfg = severity_policy.load_analysis_config(db)
+    except severity_policy.AnalysisConfigError as exc:
+        logger.warning("Dashboard policy drift unavailable: %s", exc)
+        return None
+
+    stamped = QualityAlert.evidence["severity_policy"]["fingerprint"].as_string()
+    q = (db.query(func.count(QualityAlert.id))
+         .filter(QualityAlert.active.is_(True),
+                 stamped.isnot(None),
+                 stamped != severity_policy.policy_fingerprint(cfg)))
+    if user_hosp_ids is not None:
+        q = q.filter(QualityAlert.hospital_id.in_(user_hosp_ids))
+    if hospital_id:
+        q = q.filter(QualityAlert.hospital_id == hospital_id)
+    if month_from:
+        q = q.filter(QualityAlert.month >= month_from)
+    if month_to:
+        q = q.filter(QualityAlert.month <= month_to)
+    elif year:
+        q = q.filter(QualityAlert.month.like(f"{year}-%"))
+    return int(q.scalar() or 0)
+
+
+def _red_quality_issue_count(db, user_hosp_ids, hospital_id, month_from,
+                             month_to, year):
+    """Very High risk issues — the unit the Quality Alerts table lists.
+
+    One issue is a (hospital, indicator, month) scope and may carry several
+    perspective rows, so counting rows would report more findings than the red
+    filter can display. Grouped exactly like ``/quality-alerts/summary``'s
+    ``red_issues`` and scoped to active hospitals, so this card and that
+    screen cannot disagree about the same window.
+    """
+    q = (db.query(QualityAlert.hospital_id, QualityAlert.indicator_code,
+                  QualityAlert.month)
+         .join(Hospital, QualityAlert.hospital_id == Hospital.id)
+         .filter(Hospital.is_active.is_(True),
+                 QualityAlert.active.is_(True),
+                 QualityAlert.severity == "VERY_HIGH"))
+    if user_hosp_ids is not None:
+        q = q.filter(QualityAlert.hospital_id.in_(user_hosp_ids))
+    if hospital_id:
+        q = q.filter(QualityAlert.hospital_id == hospital_id)
+    if month_from:
+        q = q.filter(QualityAlert.month >= month_from)
+    if month_to:
+        q = q.filter(QualityAlert.month <= month_to)
+    elif year:
+        q = q.filter(QualityAlert.month.like(f"{year}-%"))
+    return int(q.distinct().count())
 
 
 def _disabled_pairs(db):
@@ -404,6 +472,14 @@ def dashboard_overview(
         "total_reports": total_reports,
         "avg_quality_score": avg_score,
         "total_alerts": alerts_total,
+        # Very High risk issues (one per hospital+indicator+month): the unit
+        # the Quality Alerts table lists and pages through.
+        "red_quality_issues": _red_quality_issue_count(
+            db, user_hosp_ids, hospital_id, month_from, month_to, year),
+        # Policy drift: stored Quality Alerts resolved under a different saved
+        # severity/trend policy than the one in effect now (null = unreadable).
+        "stale_policy_alerts": _stale_policy_alert_count(
+            db, user_hosp_ids, hospital_id, month_from, month_to, year),
         "quality_trend": trend_data,
         "hospital_compare": hospital_compare,
         "confidence_distribution": dist_map,
@@ -940,9 +1016,13 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
     enabled_months = get_enabled_months(db)
 
     user_hosp_ids = get_user_hospital_ids(user, db)
+    if hospital_id is not None and user_hosp_ids is not None and hospital_id not in user_hosp_ids:
+        raise HTTPException(status_code=404, detail="Hospital not found")
     hospitals_q = db.query(Hospital).filter(Hospital.is_active.is_(True))
     if user_hosp_ids is not None:
         hospitals_q = hospitals_q.filter(Hospital.id.in_(user_hosp_ids))
+    if hospital_id is not None:
+        hospitals_q = hospitals_q.filter(Hospital.id == hospital_id)
     hospitals = hospitals_q.all()
 
     rows = []
@@ -1000,7 +1080,7 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
                 if values:
                     # include_ai=False: نحتاج قيم المعدلات فقط — لا توصيات AI لكل مستشفى
                     result = run_clinical_analysis(hospital=h.name, month=latest_month,
-                                                   values=values, include_ai=False)
+                                                   values=values, include_ai=False, session=db)
                     clinical_rates = {
                         c.rate_name: round(c.value, 1)
                         for c in result.classifications
@@ -1075,14 +1155,17 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db), user=D
             # empty chart.
             from app.engine.clinical import run_clinical_analysis
             result = run_clinical_analysis(hospital=hospital.name, month=latest_month,
-                                           values=values, include_ai=False)
+                                           values=values, include_ai=False, session=db)
             for c in result.classifications:
-                if c.rate_name in _MAIN_CLINICAL_RATES:
+                if c.rate_name in _MAIN_CLINICAL_RATES or c.indicator_id:
                     # Keep None as None (missing denominator = no data) instead of
                     # flattening to 0, so the UI can distinguish "reported zero"
                     # from "no data available".
                     clinical_rates.append({
                         "rate_name": c.rate_name,
+                        "indicator_id": c.indicator_id,
+                        "formula": c.formula,
+                        "formula_version": c.formula_version,
                         "value": round(c.value, 1) if c.value is not None else None,
                         "unit": c.unit,
                         "classification": c.classification,
@@ -1100,7 +1183,13 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db), user=D
                     continue
                 from app.engine.clinical import run_clinical_analysis as rca_peer
                 try:
-                    pr = rca_peer(hospital=ph.name, month=latest_month, values=pv, include_ai=False)
+                    pr = rca_peer(
+                        hospital=ph.name,
+                        month=latest_month,
+                        values=pv,
+                        include_ai=False,
+                        session=db,
+                    )
                 except Exception as e:
                     logger.debug("Peer clinical analysis failed for %s: %s", ph.name, e)
                     continue
@@ -1308,8 +1397,18 @@ def component_diagnostics(
     id_to_code = {r[0]: r[1] for r in all_ind_rows}
     code_to_id = {r[1]: r[0] for r in all_ind_rows}
     all_ind_names_map = {r[0]: r[2] for r in all_ind_rows}
+    # Optional-by-inheritance is resolved through the same helper the score
+    # uses (pipeline.get_required_indicator_ids), so this denominator — and the
+    # "missing indicators" list built from it — can never name an indicator
+    # the score already forgave (17 / 17.c, whose sources are all Optional).
+    try:
+        from app.engine.pipeline import get_optional_source_indicator_ids as _optional_src
+        _optional_source_ids = _optional_src(db)
+    except Exception:
+        _optional_source_ids = set()
     required_ind_ids = {
-        r[0] for r in all_ind_rows if (r[3] or "Required") == "Required"
+        r[0] for r in all_ind_rows
+        if (r[3] or "Required") == "Required" and r[0] not in _optional_source_ids
     }
     # Pre-fetch ALL indicator values for this query in one batch
     hosp_months = [(s.hospital_id, s.month) for s in scores]
@@ -1426,7 +1525,10 @@ def component_diagnostics(
             for i, s in enumerate(scores):
                 disabled_ids = _fast_disabled(hospital_id, s.month)
                 covered_ids = _fast_covered(hospital_id, s.month)
-                enabled_for_month = set(all_ind_ids) - disabled_ids - covered_ids
+                # Required only: an Optional element is not in the completeness
+                # denominator, so it must not be named as a missing gap here
+                # either (the score and its drilldown have to agree).
+                enabled_for_month = set(required_ind_ids) - disabled_ids - covered_ids
                 iv_map = iv_index.get((hospital_id, s.month), {})
                 filled_ids = {iid for iid in enabled_for_month if iv_map.get(iid) is not None}
                 truly_missing = enabled_for_month - filled_ids
@@ -1457,7 +1559,7 @@ def component_diagnostics(
                 # (not universally disabled, and not disabled by default for this month)
                 partially_missing = {}
                 default_disabled_this_month = default_disabled_map.get(month, set())
-                for mid in all_ind_ids:
+                for mid in required_ind_ids:
                     if mid in default_disabled_this_month:
                         continue
                     count = ind_hospital_count.get(mid, 0)
@@ -1618,7 +1720,7 @@ def component_diagnostics(
             try:
                 disabled_ids = _fast_disabled(hid, s.month)
                 covered_ids = _fast_covered(hid, s.month)
-                enabled_ids = [iid for iid in all_ind_ids if iid not in disabled_ids and iid not in covered_ids]
+                enabled_ids = [iid for iid in required_ind_ids if iid not in disabled_ids and iid not in covered_ids]
                 iv_map = iv_index.get((hid, s.month), {})
                 filled_ids = {iid for iid in enabled_ids if iv_map.get(iid) is not None}
                 missing_ids = set(enabled_ids) - filled_ids

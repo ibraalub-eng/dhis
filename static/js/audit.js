@@ -2,6 +2,7 @@ import { API, apiGet } from './api.js';
 import { __, currentLang } from './i18n.js';
 import { esc } from './tree.js';
 import { toastWarning } from './toast.js';
+import { openScreenInNewTab } from './newtab.js';
 
 let _auditData = null;
 let _auditMeta = null;
@@ -685,8 +686,8 @@ function _renderTrail(payload) {
         }
         const url = _trailLinkUrl(st.deep_link);
         if (url) {
-            html += '<div style="margin-top:0.3rem;"><button onclick="window.open(\'' +
-                esc(url) + '\', \'_blank\')" style="background:none;border:1px solid var(--border-default);border-radius:4px;padding:2px 8px;font-size:0.68rem;cursor:pointer;color:var(--accent-blue);">' +
+            html += '<div style="margin-top:0.3rem;"><button onclick="window.openAuditTrailSource(\'' +
+                esc(url) + '\')" style="background:none;border:1px solid var(--border-default);border-radius:4px;padding:2px 8px;font-size:0.68rem;cursor:pointer;color:var(--accent-blue);">' +
                 (isAr ? '\u0641\u062a\u062d \u0627\u0644\u0645\u0635\u062f\u0631' : 'Open source') + '</button></div>';
         }
         html += '</div>';
@@ -694,6 +695,67 @@ function _renderTrail(payload) {
     html += '</div>';
     container.innerHTML = html;
 }
+
+// ── "Open source" stays inside the session ──────────────────────────
+// Deep links point at API endpoints (e.g. /audit/data-auditor/1?month=…).
+// Navigating the browser straight to one (window.open) sends no
+// Authorization header, so FastAPI answered 401 {"detail":"Not
+// authenticated"} in the new tab — the raw JSON the user saw. Route known
+// endpoints to their in-app screens instead; anything else is fetched
+// with the session token and rendered inline, never as a bare navigation.
+export function openAuditTrailSource(url) {
+    if (!url) return;
+    if (url.charAt(0) === '#') { window.location.hash = url.slice(1); return; }
+    let path = url, query = '';
+    const qi = url.indexOf('?');
+    if (qi >= 0) { path = url.slice(0, qi); query = url.slice(qi + 1); }
+    const params = new URLSearchParams(query);
+    const idMatch = path.match(/\/(\d+)$/);
+    const hid = idMatch ? idMatch[1] : null;
+    const month = params.get('month') || '';
+    if (path.indexOf('/root-cause/') === 0 && hid) {
+        if (typeof window.goRootCause === 'function') window.goRootCause(hid, month);
+        return;
+    }
+    if (path.indexOf('/analysis/layered') === 0) {
+        if (typeof window.SwitchTab === 'function') window.SwitchTab('layered');
+        return;
+    }
+    if (path.indexOf('/audit/') === 0) {
+        // Same screen — preselect hospital/month and regenerate the report.
+        let tries = 0;
+        (function _apply() {
+            const hSel = document.getElementById('auditHospitalSelect');
+            const mSel = document.getElementById('auditMonthSelect');
+            if (!hSel || !mSel || (hid && ![...hSel.options].some(o => o.value === hid))
+                || (month && ![...mSel.options].some(o => o.value === month))) {
+                if (++tries < 80) { setTimeout(_apply, 100); return; }
+                return;
+            }
+            if (hid) hSel.value = hid;
+            if (month) mSel.value = month;
+            if (typeof window.loadAudit === 'function') window.loadAudit();
+        })();
+        return;
+    }
+    // Unknown endpoint: fetch it with the session and show it inline.
+    const container = document.getElementById('auditResults');
+    apiGet(url).then(function (payload) {
+        if (!container) return;
+        container.insertAdjacentHTML('beforeend',
+            '<details class="card" style="margin-top:0.5rem;padding:0.4rem 0.6rem;">' +
+            '<summary style="cursor:pointer;font-size:0.75rem;color:var(--accent-blue);">' + esc(path) + '</summary>' +
+            '<pre style="font-size:0.7rem;max-height:300px;overflow:auto;margin:0.3rem 0 0 0;">' +
+            esc(JSON.stringify(payload, null, 2)) + '</pre></details>');
+    }).catch(function (err) {
+        if (!container) return;
+        container.insertAdjacentHTML('beforeend',
+            '<p style="color:var(--accent-red);font-size:0.75rem;padding:0.3rem 0.6rem;">' +
+            __('Error: ') + esc(err && err.message ? err.message : 'error') + '</p>');
+    });
+}
+
+window.openAuditTrailSource = openAuditTrailSource;
 
 export function openAuditTrail(opts) {
     opts = opts || {};
@@ -716,30 +778,27 @@ export function openAuditTrail(opts) {
 
 window.openAuditTrail = openAuditTrail;
 
-function _trailFromUrl() {
-    try {
-        const search = window.location.search || '';
-        const hash = window.location.hash || '';
-        const params = new URLSearchParams(search.indexOf('?') === 0 ? search : '?' + search);
-        const hay = search + hash;
-        if (hay.indexOf('mode=trail') === -1) return;
-        const opts = {
-            kind: params.get('kind'),
-            hospitalId: params.get('hospital_id'),
-            month: params.get('month'),
-            rateName: params.get('rate_name'),
-            indicatorCode: params.get('indicator_code'),
-            ruleCode: params.get('rule_code'),
-            component: params.get('component'),
-        };
-        if (opts.kind) openAuditTrail(opts);
-    } catch (e) { /* malformed URL — ignore */ }
+/**
+ * The same trail, opened in a NEW browser tab — what the "Audit trail" button
+ * of the Why popup and "Open in Audit screen" of a Quality Alert do. The
+ * owning screen keeps its filters and scroll position; main.js's
+ * `applyBootScreen` renders the trail when the new tab loads (`mode=trail`).
+ * (The in-page `openAuditTrail` above is what that boot path calls.)
+ */
+export function openAuditTrailInNewTab(opts) {
+    opts = opts || {};
+    openScreenInNewTab('audit', {
+        mode: 'trail',
+        kind: opts.kind,
+        hospital_id: opts.hospitalId,
+        month: opts.month,
+        rate_name: opts.rateName,
+        indicator_code: opts.indicatorCode,
+        rule_code: opts.ruleCode,
+        component: opts.component,
+    });
 }
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _trailFromUrl);
-} else {
-    _trailFromUrl();
-}
+window.openAuditTrailInNewTab = openAuditTrailInNewTab;
 
 export function downloadAuditCSV() {
     if (!_auditData) return;

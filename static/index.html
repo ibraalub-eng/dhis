@@ -121,6 +121,8 @@
         <div id="tab-quality" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-quality" data-src="/static/tabs/quality.html">
         </div>
 
+        <div id="tab-quality-alerts" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-quality-alerts" data-src="/static/tabs/quality-alerts.html"></div>
+
         <div id="tab-analysis" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-analysis" data-src="/static/tabs/analysis.html"></div>
 
         <div id="tab-clinical" class="tab-content" data-loaded="false" role="tabpanel" aria-labelledby="tab-clinical" data-src="/static/tabs/clinical.html"></div>
@@ -212,6 +214,7 @@
                             <option value="lt">lt — child &lt; parent</option>
                             <option value="le_sum">le_sum — child >= sum(children)</option>
                             <option value="parent_le">parent_le — parent &lt;= sum(children)</option>
+                            <option value="parent_lt">parent_lt — parent &lt; sum(children)</option>
                             <option value="month_over">month_over — current > factor * prev</option>
                             <option value="month_under">month_under — current < factor * prev</option>
                             <option value="neg_check">neg_check — negative values</option>

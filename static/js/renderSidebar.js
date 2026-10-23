@@ -153,6 +153,7 @@ function _renderFallback() {
         ]},
         {id:'fb-4', name:'Oversight', icon:'🛡️', items:[
             {tab_key:'quality', label:'Quality Reports', icon:'✅', permission:'quality.read'},
+            {tab_key:'quality-alerts', label:'Quality Alerts', icon:'🚨', permission:'quality_alerts.read'},
             {tab_key:'outliers', label:'Outlier Scan', icon:'⚠️', permission:'outliers.read'},
             {tab_key:'layered', label:'Outlier Diagnostics', icon:'🧱', permission:'analysis.read'},
             {tab_key:'alerts', label:'Validation Alerts', icon:'🔔', permission:'alerts.read'},

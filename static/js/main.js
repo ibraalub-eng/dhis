@@ -209,6 +209,72 @@
                 _initTab(name);
             }
         }
+        // ── Deep link: ?screen=<tab>&<context> ────────────────────
+        // Buttons inside modals now open their target screen in a NEW browser
+        // tab (newtab.js). This is the other half: a fresh tab boots on the
+        // screen named by `?screen=`, then replays the context that came with
+        // it — audit hospital/month + scroll target, root-cause context, or an
+        // audit-trail query. Without a `screen` param the app opens on the
+        // dashboard exactly as before.
+        // Modules bind their functions asynchronously (app.js loads them one by
+        // one), so a boot handler that runs too early would silently do nothing.
+        // Wait for the real binding — app.js's stubs self-identify in toString.
+        function _whenBound(name, fn, tries) {
+            tries = tries == null ? 80 : tries;   // 80 × 100ms = 8s ceiling
+            var candidate = window[name];
+            var ready = typeof candidate === 'function'
+                && candidate.toString().indexOf('Module not loaded') === -1;
+            if (ready) { fn(candidate); return; }
+            if (tries <= 0) return;
+            setTimeout(function () { _whenBound(name, fn, tries - 1); }, 100);
+        }
+
+        export function applyBootScreen() {
+            var params;
+            try { params = new URLSearchParams(window.location.search || ''); }
+            catch (e) { switchTab('dashboard'); return; }
+            var screen = params.get('screen');
+            var hid = params.get('hospital_id');
+            var month = params.get('month');
+            var mode = params.get('mode');
+            // The query string was a hand-off from the modal that opened this
+            // tab, not a permanent route: drop it (even for an unknown screen)
+            // so a later refresh — or a sidebar switch followed by F5 — behaves
+            // like a normal app tab.
+            try { window.history.replaceState(window.history.state, '', window.location.pathname); }
+            catch (e) { /* replaceState unavailable — harmless */ }
+            if (!screen || !document.querySelector('.tab[data-tab="' + screen + '"]')) {
+                switchTab('dashboard');
+                return;
+            }
+            switchTab(screen);
+            if (screen === 'audit' && mode === 'trail') {
+                _whenBound('openAuditTrail', function (openTrail) {
+                    openTrail({
+                        kind: params.get('kind'),
+                        hospitalId: hid,
+                        month: month,
+                        rateName: params.get('rate_name'),
+                        indicatorCode: params.get('indicator_code'),
+                        ruleCode: params.get('rule_code'),
+                        component: params.get('component'),
+                    });
+                });
+                return;
+            }
+            if (screen === 'audit' && mode) {
+                _whenBound('_explainApplyJump', function (applyJump) {
+                    applyJump(hid ? Number(hid) : null, month || null, mode);
+                });
+                return;
+            }
+            if (screen === 'root-cause' && hid) {
+                _whenBound('goRootCause', function (goRootCause) {
+                    goRootCause(Number(hid), month || '');
+                });
+            }
+        }
+
         function _initTab(name) {
             // Always read from window[name] so we get the latest replacement
             function _tryInit(name, retries) {
@@ -234,6 +300,7 @@
             if (name === 'dashboard') _tryInit('initDashboard', 10);
             if (name === 'upload') _tryInit('initUploadTab', 10);
             if (name === 'quality') _tryInit('loadQualityReports', 10);
+            if (name === 'quality-alerts') _tryInit('initQualityAlerts', 10);
             if (name === 'alerts') { _tryInit('loadAlerts', 10); _tryInit('loadRuleFailures', 10); }
             if (name === 'outliers') _tryInit('loadOutliers', 10);
             if (name === 'layered') _tryInit('loadLayered', 10);
@@ -266,13 +333,13 @@
         window.skeletonCard=skeletonCard;window.skeletonTable=skeletonTable;window.skeletonChart=skeletonChart;
 
         // -- Breadcrumb Navigation --
-        var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', analysis: 'Hospital Comparisons', clinical: 'Clinical Intelligence', outliers: 'Outlier Scan', layered: 'Outlier Diagnostics', alerts: 'Validation Alerts', 'indicator-tree': 'Data Tree', 'indicator-groups': 'Data Group', indicators: 'Indicators', 'rules-manager': 'Validation Rules', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', guides: 'Guides', settings: 'System Settings', 'smart-analytics': 'Smart Analytics', 'smart-forecast': 'Smart Forecast' };
+        var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', 'quality-alerts': 'Quality Alerts', analysis: 'Hospital Comparisons', clinical: 'Clinical Intelligence', outliers: 'Outlier Scan', layered: 'Outlier Diagnostics', alerts: 'Validation Alerts', 'indicator-tree': 'Data Tree', 'indicator-groups': 'Data Group', indicators: 'Indicators', 'rules-manager': 'Validation Rules', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', guides: 'Guides', settings: 'System Settings', 'smart-analytics': 'Smart Analytics', 'smart-forecast': 'Smart Forecast' };
         var _tabIcons = { dashboard: '📊', upload: '📤', quality: '⭐', analysis: '📈', clinical: '🩺', outliers: '⚠', layered: '🧱', alerts: '🔔', 'indicator-tree': '🌳', 'indicator-groups': '🗂️', indicators: '📐', 'rules-manager': '📝', 'root-cause': '🔍', audit: '📋', admin: '🛡', guides: '📚', settings: '⚙', 'smart-analytics': '🧠', 'smart-forecast': '🔮' };
         export function updateBreadcrumb(tabName) { var el = document.getElementById('bcCurrent'); if (!el) return; el.textContent = (_tabIcons[tabName]||'')+' '+(_tabLabels[tabName]||tabName); }
         window.updateBreadcrumb = updateBreadcrumb;
 
         // -- Global Search (Ctrl+K) --
-        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
+        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'quality-alerts',kw:'quality alerts risk outliers red alert peer comparison ownership governance region'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
         var _searchIdx = 0;
         function openSearch() { var ov=document.getElementById('searchOverlay'); var inp=document.getElementById('searchInput'); if(!ov||!inp)return; ov.classList.add('active'); inp.value=''; inp.focus(); _showSearchResults(''); }
         function closeSearch() { var ov=document.getElementById('searchOverlay'); if(ov)ov.classList.remove('active'); }

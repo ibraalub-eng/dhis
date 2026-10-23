@@ -202,6 +202,7 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'eq':
                 case 'gt':
                 case 'parent_le':
+                case 'parent_lt':
                     return JSON.stringify({ parent: _vbState.parent || '', children: _vbState.children || [] });
                 case 'ge_factor':
                     return JSON.stringify({ parent: _vbState.parent || '', children: _vbState.children || [], factor: parseFloat(_vbState.ge_factor) || 1.0 });
@@ -289,6 +290,7 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'ge': cond = chip(p.parent) + ' ≥ ' + chips(p.children); break;
                 case 'gt': cond = chip(p.parent) + ' > ' + chips(p.children); break;
                 case 'parent_le': cond = chip(p.parent) + ' ≤ ' + chips(p.children); break;
+                case 'parent_lt': cond = chip(p.parent) + ' < ' + chips(p.children); break;
                 case 'ge_factor': cond = chip(p.parent) + ' × ' + num(p.factor) + ' ≥ ' + chips(p.children); break;
                 case 'eq': cond = chip(p.parent) + ' = ' + chips(p.children); break;
                 case 'le': cond = chip(p.child) + ' ≤ ' + chip(p.parent); break;
@@ -326,17 +328,18 @@ import { confirmDestructive } from './confirm-modal.js';
         // ── Render builders per category ───────────────────────────
 
         function _buildVBParentChild(expr) {
-            const symbols = { ge: '\u2265', eq: '=', le: '\u2264', le_sum: '\u2265', parent_le: '\u2264', gt: '>', lt: '<', ge_factor: '\u2265' };
+            const symbols = { ge: '\u2265', eq: '=', le: '\u2264', le_sum: '\u2265', parent_le: '\u2264', parent_lt: '<', gt: '>', lt: '<', ge_factor: '\u2265' };
             const symbol = symbols[expr] || '?';
-            const geClass = ['ge', 'le_sum', 'ge_factor'].includes(expr) ? 'ge' : ['gt', 'lt'].includes(expr) ? (expr === 'gt' ? 'gt' : 'lt') : expr === 'eq' ? 'eq' : 'le';
+            const geClass = ['ge', 'le_sum', 'ge_factor'].includes(expr) ? 'ge' : ['gt', 'lt', 'parent_lt'].includes(expr) ? (expr === 'gt' ? 'gt' : 'lt') : expr === 'eq' ? 'eq' : 'le';
             let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
 
-            if (expr === 'ge' || expr === 'eq' || expr === 'gt' || expr === 'ge_factor' || expr === 'parent_le') {
+            if (expr === 'ge' || expr === 'eq' || expr === 'gt' || expr === 'ge_factor' || expr === 'parent_le' || expr === 'parent_lt') {
                 let relText;
                 if (expr === 'ge') relText = __('parent \u2265 sum(children)');
                 else if (expr === 'gt') relText = __('parent > sum(children)');
                 else if (expr === 'ge_factor') relText = __('parent \u00d7 factor \u2265 sum(children)');
                 else if (expr === 'parent_le') relText = __('parent \u2264 sum(children)');
+                else if (expr === 'parent_lt') relText = __('parent < sum(children)');
                 else relText = __('parent = sum(children)');
                 html += _vbZoneHTML('vb_zone_parent', __('Parent'), _vbState.parent ? [_vbState.parent] : [], false, __('Drop parent indicator here'));
                 html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + geClass + '">' + symbol + '</span> ' + relText + '</div>';
@@ -520,7 +523,7 @@ import { confirmDestructive } from './confirm-modal.js';
             if (!container) return;
             _vbState._expr = expr;
             let html = '';
-            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le'];
+            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le', 'parent_lt'];
             const trendTypes = ['month_over', 'month_under'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
             if (parentChild.includes(expr)) {
@@ -560,7 +563,7 @@ import { confirmDestructive } from './confirm-modal.js';
             let params = {};
             try { params = typeof paramsStr === 'string' ? JSON.parse(paramsStr) : paramsStr; } catch(e) {}
             _vbStateReset(expr);
-            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le'];
+            const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le', 'parent_lt'];
             const trendTypes = ['month_over', 'month_under'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
 
@@ -607,6 +610,9 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'parent_le':
                     if (!_vbState.parent || !(_vbState.children || []).length) return '';
                     return parent + ' <= ' + joinNames(_vbState.children);
+                case 'parent_lt':
+                    if (!_vbState.parent || !(_vbState.children || []).length) return '';
+                    return parent + ' < ' + joinNames(_vbState.children);
                 case 'ge_factor':
                     if (!_vbState.parent || !(_vbState.children || []).length) return '';
                     return joinNames(_vbState.children) + ' <= ' + (Math.round((parseFloat(_vbState.ge_factor) || 1) * 100)) + '% of ' + parent;
@@ -905,11 +911,33 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         // ── Rule-change recompute notice ──────────────────────────────
-        // A rule edit changes the stored per-hospital quality scores, so the
-        // server re-runs the latest month in the background. Poll the task and
-        // tell the user when the dashboard numbers have caught up; until then
-        // any "Validation rule" percentage on screen is the pre-edit value.
+        // A rule edit changes the stored ValidationResult rows (the Validation
+        // Alerts screen) and the rule-dependent Quality Score, so the server
+        // re-applies the rules to every recorded month in the background. Poll
+        // the task, then refresh the screens that read those stored snapshots —
+        // otherwise the Alerts tab and the dashboard keep showing pre-edit
+        // numbers until the page is reloaded.
         let _recomputePollTimer = null;
+
+        // Refresh a tab only when it has been loaded into the DOM; calling a
+        // loader for an unopened tab would hit missing elements.
+        function _refreshLoadedTab(tab, fnName) {
+            var panel = document.getElementById('tab-' + tab);
+            if (!panel || panel.dataset.loaded !== 'true') return;
+            var fn = window[fnName];
+            if (typeof fn === 'function') {
+                try { fn(); } catch (e) { /* one screen must not stop the rest */ }
+            }
+        }
+
+        function _refreshAlertSurfaces() {
+            if (typeof loadRulesManager === 'function') loadRulesManager();
+            _refreshLoadedTab('alerts', 'loadAlerts');
+            _refreshLoadedTab('alerts', 'loadRuleFailures');
+            _refreshLoadedTab('dashboard', 'loadDashboard');
+            _refreshLoadedTab('quality', 'loadQualityReports');
+        }
+        window._refreshAlertSurfaces = _refreshAlertSurfaces;
 
         export function _watchRuleRecompute() {
             try { if (typeof clearTimeout === 'function') clearTimeout(_recomputePollTimer); } catch (e) {}
@@ -920,16 +948,19 @@ import { confirmDestructive } from './confirm-modal.js';
                     const res = await authFetch(API() + '/rules/recompute-status');
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const st = await res.json();
-                    if (st && st.running) {
+                    // `pending` = another edit queued behind the running pass;
+                    // keep waiting so the last edit is never reported as done
+                    // before it has been applied.
+                    if (st && (st.running || st.pending)) {
                         if (waited === 1500 && typeof toastInfo === 'function') {
-                            toastInfo(__('Updating quality scores for the latest month...'));
+                            toastInfo(__('Updating validation alerts and quality scores...'));
                         }
-                        if (waited < 120000) { _recomputePollTimer = setTimeout(poll, 1500); return; }
+                        if (waited < 180000) { _recomputePollTimer = setTimeout(poll, 1500); return; }
                         return;
                     }
                     if (waited > 1500 && typeof toastSuccess === 'function') {
-                        toastSuccess(__('Quality scores updated.'));
-                        if (typeof loadRulesManager === 'function') loadRulesManager();
+                        toastSuccess(__('Validation alerts and quality scores updated.'));
+                        _refreshAlertSurfaces();
                     }
                 } catch (e) { /* status is advisory only */ }
             };
@@ -995,6 +1026,9 @@ import { confirmDestructive } from './confirm-modal.js';
                 if (!res.ok) throw new Error(await res.text());
                 if (typeof window.forceRulesImpactRefresh === 'function') window.forceRulesImpactRefresh();
                 loadRulesManager();
+                // Deleting a rule removes its stored failures — refresh the
+                // alerts that were driven by it.
+                _watchRuleRecompute();
             } catch(e) {
                 toastError('Delete failed: ' + e.message);
             }

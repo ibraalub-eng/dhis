@@ -41,3 +41,20 @@ def test_audit_renders_trail_stages_status_and_evidence():
 def test_audit_detects_trail_mode_from_url():
     src = _src(AUDIT_JS)
     assert "mode=trail" in src or "mode === 'trail'" in src
+
+
+def test_open_source_never_navigates_raw_api_url():
+    """Regression: window.open(apiEndpoint) sends no Authorization header,
+    so FastAPI answered 401 {"detail":"Not authenticated"} in the new tab.
+    The "Open source" button must route through the in-app
+    openAuditTrailSource handler instead (root-cause tab, audit tab
+    preselect, layered tab, or an authenticated inline fetch)."""
+    src = _src(AUDIT_JS)
+    assert "window.openAuditTrailSource" in src
+    assert "openAuditTrailSource" in src
+    # No raw-API new-tab navigation anywhere in this module.
+    assert "window.open(" not in src
+    # Handler covers the deep-linked endpoint families and stays authenticated.
+    assert "/root-cause/" in src
+    assert "goRootCause" in src
+    assert "loadAudit" in src

@@ -31,7 +31,7 @@ def test_doctrine_doc_exists_with_key_sections():
     for section in (
         "القاعدة الإلزامية",
         "compute_covered_codes",
-        "عقيدتا التغطية",           # eq vs gt/ge_factor doctrines
+        "العقائد الثلاث للتغطية",    # eq vs gt/ge_factor vs parent_le doctrines
         "التعطيل من شجرة المؤشرات",  # disabled-from-tree reading rules
         "سجل الحوادث",
         "قائمة تحقق للمطوّر",
@@ -53,10 +53,12 @@ def test_compute_covered_codes_signature_supports_db():
 
 def test_iter_sum_rules_includes_containment_types():
     """gt/ge_factor are containment sums (R080: 6 > 6.d+6.f+6.g) and MUST be
-    iterated — skipping them caused the 6.g incident."""
+    iterated — skipping them caused the 6.g incident. parent_le/parent_lt are
+    parent-accounting sums (R061: 10 <= 10.a+...+10.o) — skipping them caused
+    the 10.x completeness incident (incident 5.3)."""
     src = RULES.read_text(encoding="utf-8")
     assert '"gt", "ge_factor"' in src
-    assert 'not in ("ge", "eq", "le_sum", "gt", "ge_factor")' in src
+    assert 'not in ("ge", "eq", "le_sum", "gt", "ge_factor", "parent_le", "parent_lt")' in src
 
 
 def test_containment_doctrine_implemented():
@@ -66,6 +68,18 @@ def test_containment_doctrine_implemented():
     # containment branch + overflow guard
     assert 'op in ("gt", "ge", "ge_factor")' in fn
     assert "cs <= pv + tolerance" in fn
+
+
+def test_parent_accounting_doctrine_implemented():
+    """parent_le/parent_lt rules (children must account for the parent) must
+    drive coverage too: unreported siblings covered only when the reported
+    ones reach the parent — coverage mirrors the rule's own pass condition."""
+    src = RULES.read_text(encoding="utf-8")
+    fn = src[src.index("def compute_covered_codes"):]
+    fn = fn[:fn.index("\ndef ", 10)]
+    assert 'op in ("parent_le", "parent_lt")' in fn
+    assert 'cs >= pv - tolerance if op == "parent_le"' in fn  # parent_le: equality covers
+    assert "cs > pv + tolerance" in fn                         # parent_lt: strictness preserved
 
 
 def test_find_data_problems_applies_coverage_gate():

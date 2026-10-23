@@ -44,9 +44,12 @@ def test_list_tabs(client):
     resp = client.get("/menu/tabs")
     assert resp.status_code == 200
     tabs = resp.json()["tabs"]
-    assert len(tabs) == 19
+    from app.menu_registry import TAB_REGISTRY
+    assert len(tabs) == len(TAB_REGISTRY), \
+        "endpoint must serve every registered tab (count pinned to the registry)"
     keys = [t["key"] for t in tabs]
     assert "dashboard" in keys
+    assert "quality-alerts" in keys
     assert "smart-analytics" in keys
     assert "smart-forecast" in keys
     assert "indicators" in keys

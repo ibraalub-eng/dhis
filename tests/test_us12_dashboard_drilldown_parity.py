@@ -149,3 +149,37 @@ def test_empty_window_returns_no_components(client, db_session):
     comps = _comps(client, year="2099")
     assert kpis["quality_score"]["value"] is None
     assert comps == {}
+
+
+def test_optional_element_not_listed_as_missing_gap(client, db_session):
+    """The completeness drilldown names missing REQUIRED elements only.
+
+    An Optional element (Data Tree flag) sits outside the completeness
+    denominator, so listing it under "missing indicators" contradicts the very
+    score the drilldown explains — the same false gap the Why popup showed as
+    "🔧 Indicator 17.g has no value for this month".
+    """
+    from app.cache import cache
+    from app.models import Hospital, Indicator, IndicatorValue, QualityScore
+
+    hosp = db_session.query(Hospital).order_by(Hospital.id).first()
+    req = db_session.query(Indicator).filter(Indicator.code == "2").one()
+    opt = db_session.query(Indicator).filter(Indicator.code == "19").one()
+    opt.requirement_type = "Optional"
+    db_session.add(IndicatorValue(hospital_id=hosp.id, month="2027-05",
+                                 indicator_id=req.id, value=10))
+    db_session.add(QualityScore(hospital_id=hosp.id, month="2027-05",
+                                score=40.0, completeness=10.0))
+    db_session.commit()
+    cache.invalidate()
+
+    comps = _comps(client, hospital_id=hosp.id, month="2027-05")
+    rows = [r for cause in comps["completeness"]["causes"]
+            for r in cause["affected_hospitals"]]
+    assert rows, "the hospital must appear in the completeness drilldown"
+    missing = {name for row in rows for name in row.get("missing_indicators", [])}
+    assert opt.name not in missing, (
+        "an Optional element must never be reported as a missing gap"
+    )
+    assert req.name not in missing, "a reported element is not missing"
+    assert missing, "genuinely missing required elements must still be listed"

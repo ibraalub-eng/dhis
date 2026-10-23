@@ -1402,9 +1402,14 @@ function loadHospitalsSettings() {
                 _restoreUIState('root-cause');
                 // إذا وُجد سياق معلّق قادم من شاشة أخرى (التحليل الذكي)، طبّقه بدل الحالة المحفوظة
                 if (!applyRootCauseContext() && hsel.value && msel.value) loadRootCause();
+                // The lists are populated now, so a context that still did not
+                // apply points at a hospital/month that does not exist — drop it
+                // instead of replaying it on every later init.
+                window._rootCauseContext = null;
             }).catch(() => {
                 _restoreUIState('root-cause');
                 applyRootCauseContext();
+                window._rootCauseContext = null;
             });
         }
 
@@ -1434,8 +1439,13 @@ function loadHospitalsSettings() {
             // مزيج خاطئ (مستشفى من السياق + شهر من الحالة المحفوظة)
             const hasHospital = [...hsel.options].some(o => o.value === ctx.hospitalId);
             const hasMonth = [...msel.options].some(o => o.value === ctx.month);
-            window._rootCauseContext = null;
+            // Keep the context PENDING when the options are not there yet: a
+            // screen that was just opened is still filling its selects, and
+            // discarding the context there lost the jump entirely (this is the
+            // path a boot deep link takes). initRootCause drops a context that
+            // still cannot apply once the lists are populated.
             if (!hasHospital || !hasMonth) return false;
+            window._rootCauseContext = null;
             hsel.value = ctx.hospitalId;
             msel.value = ctx.month;
             loadRootCause();
@@ -2211,22 +2221,30 @@ function loadHospitalsSettings() {
                             // If OFF, include with 0% signals (data missing but counted)
                         }
                         if (ind.signals) ind.signals.forEach(function(sig) {
+                            // A signal with nothing to assess (indicator not
+                            // reported this month) is not a failed check: it is
+                            // left out of the factor average so the cards
+                            // describe the indicators that were measured.
+                            if (sig.applicable === false) return;
                             if (_sigAvgs[sig.factor] !== undefined) {
                                 _sigAvgs[sig.factor] += sig.score * w;
                                 _sigTotalW[sig.factor] += w;
                             }
                         });
                     });
-                    _sigData.forEach(function(s) { s.avg = _sigTotalW[s.key] ? Math.round(_sigAvgs[s.key] / _sigTotalW[s.key] * 100) : 0; });
+                    _sigData.forEach(function(s) {
+                        s.assessed = _sigTotalW[s.key] > 0;
+                        s.avg = s.assessed ? Math.round(_sigAvgs[s.key] / _sigTotalW[s.key] * 100) : null;
+                    });
 
                     // Signal factor cards
                     html += '<div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:0.5rem;margin-bottom:1rem;">';
                     _sigData.forEach(function(s) {
-                        var avgColor = s.avg >= 80 ? 'var(--accent-green)' : s.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                        html += '<div style="padding:0.6rem;border-radius:8px;border:2px solid ' + s.color + '33;background:' + s.color + '0a;">';
+                        var avgColor = !s.assessed ? 'var(--text-muted)' : s.avg >= 80 ? 'var(--accent-green)' : s.avg >= 60 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                        html += '<div style="padding:0.6rem;border-radius:8px;border:2px solid ' + s.color + '33;background:' + s.color + '0a;"' + (s.assessed ? '' : ' title="' + esc(__('No indicator reported a value for this factor')) + '"') + '>';
                         html += '<div style="font-size:0.65rem;color:' + s.color + ';font-weight:600;">' + s.icon + ' ' + s.name + '</div>';
-                        html += '<div style="font-size:1.1rem;font-weight:700;color:' + s.color + ';margin:0.2rem 0;">' + s.avg + '%</div>';
-                        html += '<div style="height:4px;background:var(--border-default);border-radius:2px;"><div style="width:' + s.avg + '%;height:4px;background:' + avgColor + ';border-radius:2px;"></div></div>';
+                        html += '<div style="font-size:1.1rem;font-weight:700;color:' + avgColor + ';margin:0.2rem 0;">' + (s.assessed ? s.avg + '%' : '\u2014') + '</div>';
+                        html += '<div style="height:4px;background:var(--border-default);border-radius:2px;"><div style="width:' + (s.assessed ? s.avg : 0) + '%;height:4px;background:' + avgColor + ';border-radius:2px;"></div></div>';
                         html += '<div style="font-size:0.6rem;color:var(--text-muted);margin-top:2px;">' + __('Weight') + ': ' + s.weight + '%</div>';
                         html += '</div>';
                     });
@@ -2280,10 +2298,17 @@ function loadHospitalsSettings() {
                             if (ind.signals && ind.signals.length) {
                                 html += '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:5px;">';
                                 ind.signals.forEach(function(sig) {
-                                    var sc = sig.passed ? 'var(--accent-green)' : sig.score >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
-                                    var sIcon = sig.passed ? '\u2705' : sig.score >= 0.5 ? '\u26a0\ufe0f' : '\u274c';
+                                    // No value this month -> nothing was assessed.
+                                    // Show it as "no data" (neutral), never as a
+                                    // failed 0% check the reader might chase.
                                     var sName = _sigData.find(function(s){return s.key===sig.factor;});
                                     var sLabel = sName ? sName.name : sig.factor;
+                                    if (sig.applicable === false) {
+                                        html += '<span style="font-size:0.6rem;padding:2px 6px;border-radius:4px;background:var(--bg-elevated);color:var(--text-muted);cursor:help;border:1px dashed var(--border-default);" title="' + esc(sig.detail) + '">\u2014 ' + sLabel + ': ' + __('no data') + '</span>';
+                                        return;
+                                    }
+                                    var sc = sig.passed ? 'var(--accent-green)' : sig.score >= 0.5 ? 'var(--accent-orange)' : 'var(--accent-red)';
+                                    var sIcon = sig.passed ? '\u2705' : sig.score >= 0.5 ? '\u26a0\ufe0f' : '\u274c';
                                     html += '<span style="font-size:0.6rem;padding:2px 6px;border-radius:4px;background:' + sc + '18;color:' + sc + ';cursor:help;border:1px solid ' + sc + '33;" title="' + esc(sig.detail) + '">';
                                     html += sIcon + ' ' + sLabel + ': ' + (sig.score * 100).toFixed(0) + '%</span>';
                                 });
@@ -2429,6 +2454,30 @@ function loadHospitalsSettings() {
                 bodyEl.innerHTML = '<p style="color:var(--accent-red);padding:1.5rem;">' + __('Failed to load details.') + '</p>';
             });
         };
+
+        // Y-axis for the score trend. A fixed 0–100 scale turns a series that
+        // moves between, say, 88 and 94 into a flat line, which reads as "no
+        // change" exactly where month-to-month movement is the point. Fit the
+        // axis to the data — at least a few steps tall, snapped to round
+        // values, always inside 0–100 — so the shape stays visible without
+        // claiming a score outside the possible range.
+        function scoreTrendAxis(points) {
+            const values = (points || [])
+                .map(p => Number(p && p.score))
+                .filter(v => isFinite(v));
+            if (!values.length) return { min: 0, max: 100, stepSize: 20 };
+            const lo = Math.min(...values);
+            const hi = Math.max(...values);
+            const span = hi - lo;
+            const stepSize = span <= 8 ? 2 : span <= 20 ? 5 : span <= 50 ? 10 : 20;
+            const height = Math.max(span, stepSize * 3);
+            const mid = (lo + hi) / 2;
+            return {
+                min: Math.max(0, Math.floor((mid - height / 2) / stepSize) * stepSize),
+                max: Math.min(100, Math.ceil((mid + height / 2) / stepSize) * stepSize),
+                stepSize,
+            };
+        }
 
         function renderSparkline(canvasId, dataPoints, color) {
             const canvas = document.getElementById(canvasId);
@@ -2728,7 +2777,7 @@ function loadHospitalsSettings() {
             document.getElementById('dashLoading').style.display = 'inline';
 
             // Add skeletons for summary cards
-            const sumCards = ['dashHospitals', 'dashReports', 'dashAvgScore', 'dashAlerts'];
+            const sumCards = ['dashHospitals', 'dashReports', 'dashAvgScore', 'dashAlerts', 'dashRedIssues'];
             sumCards.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
@@ -2759,11 +2808,29 @@ function loadHospitalsSettings() {
                     ? data.avg_quality_score : '\u2014';
                 document.getElementById('dashAlerts').textContent = data.total_alerts;
 
+                // Quality risk: Very High issues from the Quality Alerts
+                // screen, in that screen's own unit — one per
+                // hospital+indicator+month. Perspective rows would overstate
+                // it, because one issue can fire on several comparisons.
+                const redEl = document.getElementById('dashRedIssues');
+                const redCard = document.getElementById('dashRedCard');
+                if (redEl) {
+                    const red = data.red_quality_issues;
+                    redEl.textContent = (red == null) ? '\u2014' : red;
+                }
+                if (redCard) {
+                    if (typeof window.hasPermission === 'function') {
+                        redCard.style.display = window.hasPermission('quality_alerts.read') ? '' : 'none';
+                    }
+                    redCard.title = __('Very High risk issues — open Quality Alerts for the full list and investigation workflow.');
+                }
+
                 // KPI cards
                 renderKpiCards(hid);
 
                 // Trend line chart
                 const trendPoints = trendData.quality_trend || [];
+                const trendAxis = scoreTrendAxis(trendPoints);
                 if (trendChartInstance) trendChartInstance.destroy();
                 const trendCtx = document.getElementById('trendChart').getContext('2d');
                 trendChartInstance = new Chart(trendCtx, {
@@ -2799,7 +2866,16 @@ function loadHospitalsSettings() {
                             // otherwise explain the month across all hospitals.
                             showWhyPopup({ kind: 'quality_score', hospitalId: hid ? Number(hid) : undefined, month: pt.month });
                         },
-                        scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } }
+                        scales: {
+                            y: {
+                                min: trendAxis.min,
+                                max: trendAxis.max,
+                                ticks: {
+                                    stepSize: trendAxis.stepSize,
+                                    callback: v => v + '%',
+                                },
+                            },
+                        }
                     }
                 });
             if (window.registerChart) window.registerChart(trendChartInstance);
@@ -3062,6 +3138,19 @@ function loadHospitalsSettings() {
                     });
                     updateCfgDisplay('quality');
                 }).catch(() => {}),
+                // The Z-score range is owned by the backend (severity.py). Apply
+                // the same limits System Control uses instead of relying on the
+                // hardcoded slider attributes alone.
+                apiGet('/config/control/settings').then(ctl => {
+                    const bounds = ctl && ctl.severity_trend && ctl.severity_trend.zscore_bounds;
+                    const el = document.getElementById('cfg_zscore_threshold');
+                    if (!el || !bounds) return;
+                    ['min', 'max', 'step'].forEach(attr => {
+                        if (bounds[attr] !== null && bounds[attr] !== undefined) {
+                            el.setAttribute(attr, bounds[attr]);
+                        }
+                    });
+                }).catch(() => {}),
                 loadWeights(),
                 loadAiSettings(),
             ]).then(() => {
@@ -3092,7 +3181,7 @@ function loadHospitalsSettings() {
             }
             const updates = {};
             ['quality_rule_compliance', 'quality_completeness', 'quality_consistency', 'quality_outlier_penalty',
-             'outlier_multiplier', 'severity_high', 'severity_medium', 'severity_low',
+             'outlier_multiplier', 'severity_critical', 'severity_high', 'severity_medium', 'severity_low',
              'confidence_high', 'confidence_medium', 'confidence_low', 'zscore_threshold',
              'eq_tolerance',
              'month_over_factor', 'month_under_factor', 'maternal_over_factor', 'neonatal_over_factor'
@@ -3690,7 +3779,7 @@ function loadHospitalsSettings() {
         // the drawer can show referenced indicators even without an impact
         // entry. Preference order elsewhere: impact map → fallback mirror.
         function _drawerRefCodes(expr, params) {
-            if (["ge", "eq", "gt", "ge_factor", "parent_le"].indexOf(expr) !== -1) {
+            if (["ge", "eq", "gt", "ge_factor", "parent_le", "parent_lt"].indexOf(expr) !== -1) {
                 return [params.parent].concat(params.children || []).filter(Boolean);
             }
             if (expr === "le_sum") {
@@ -3740,7 +3829,7 @@ function loadHospitalsSettings() {
             const row = function(label, valueHtml) {
                 rows.push('<dt>' + __(label) + '</dt><dd>' + valueHtml + '</dd>');
             };
-            if (["ge", "gt", "eq", "parent_le"].indexOf(expr) !== -1) {
+            if (["ge", "gt", "eq", "parent_le", "parent_lt"].indexOf(expr) !== -1) {
                 row("Parent", codeName(params.parent)); row("Children", childrenList(params.children));
             } else if (expr === "ge_factor") {
                 row("Parent", codeName(params.parent)); row("Children", childrenList(params.children));
@@ -4331,6 +4420,12 @@ function loadHospitalsSettings() {
                     btn.disabled = false;
                     forceRulesImpactRefresh();
                     loadRulesManager();
+                    // Enabling/disabling rules changes the stored validation
+                    // rows too: watch the background pass and refresh the
+                    // Alerts tab / dashboard when it lands.
+                    if (typeof window._watchRuleRecompute === 'function') {
+                        window._watchRuleRecompute();
+                    }
                 })
                 .catch(e => {
                     btn.textContent = __('Save');
@@ -4348,6 +4443,7 @@ function loadHospitalsSettings() {
             'lt': {title: 'child < parent', text: 'FAILs when the child value is greater than or equal to the parent value. Strict version of le — equality does not pass. Use when the child must be strictly below the parent.'},
             'le_sum': {title: 'child >= sum(children)', text: 'FAILs when child value is less than sum of its sub-children. Reverse of ge — use when a parent should be >= its breakdown.'},
             'parent_le': {title: 'parent <= sum(children)', text: 'FAILs when the parent value is greater than the sum of its children. True reverse of ge — use when the children must account for at least the whole parent. Example params: {"parent":"10.a.1","children":["10.a.1.1","10.a.1.2"]}'},
+            'parent_lt': {title: 'parent < sum(children)', text: 'Strict version of parent_le: FAILs when the parent value is greater than or equal to the sum of its children — equality also fails. Use when the breakdown must strictly exceed the parent. Example params: {"parent":"10.a.1","children":["10.a.1.1","10.a.1.2"]}'},
             'month_over': {title: 'FAIL if current > factor * previous', text: 'Detects unusual spikes. FAIL when current month value exceeds (previous month × factor). Example: factor=2.0 means >200% increase triggers alert.'},
             'month_under': {title: 'FAIL if current < factor * previous', text: 'Detects unusual drops. FAIL when current month value is below (previous month × factor). Example: factor=0.5 means <50% of previous month triggers alert.'},
             'neg_check': {title: 'FAIL if any listed code is negative', text: 'Checks that all listed indicator codes have non-negative values (counts should always be >= 0). Takes codes[] list.'},

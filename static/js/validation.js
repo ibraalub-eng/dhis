@@ -923,6 +923,12 @@
             if (!hid) return;
             // إغلاق النافذة المنبثقة عند الانتقال لتبويب السبب الجذري (إن كانت مفتوحة)
             if (typeof window.closeModal === 'function') window.closeModal();
+            // Root Cause يفتح في تبويب متصفح جديد — شاشة التحليل السريري
+            // وقائمتها تظل كما هي (newtab.js + applyBootScreen يعيدان السياق).
+            if (typeof window.openScreenInNewTab === 'function') {
+                window.openScreenInNewTab('root-cause', { hospital_id: hid, month: month });
+                return;
+            }
             if (typeof window.goRootCause === 'function') window.goRootCause(hid, month);
         }
 

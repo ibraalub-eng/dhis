@@ -241,13 +241,19 @@ def test_anomaly_ignores_stable_hospital(app, db_session):
 def test_anomaly_thresholds_configurable_in_settings(app, db_session):
     """Z-score threshold and drift length are admin-configurable via
     /config/control/settings (clamped to sane ranges), and changing them
-    changes what the attention strip flags."""
+    changes what the attention strip flags.
+
+    The Z-score threshold is stored ONCE, in AppConfig thresholds.zscore_threshold
+    (saved default 2.5 — the authoritative value). The old duplicate
+    SystemSetting('anomaly_zscore_threshold') must not exist.
+    """
+    from app.models import AppConfig, SystemSetting
     from app.cache import cache
     client = TestClient(app)
     ind = db_session.query(Indicator).first()
     h = db_session.query(Hospital).first()
     # Mild sudden drop: baseline [90,85,95,90] → sd 3.54, latest 82 → z ≈ −2.26
-    # (flagged at threshold 2.0/1.5, NOT at 3.0).
+    # (flagged at 1.5, NOT at the saved default 2.5 nor at 3.0).
     for m, sc in {"2026-01": 90.0, "2026-02": 85.0, "2026-03": 95.0, "2026-04": 90.0, "2026-05": 82.0}.items():
         db_session.add(IndicatorValue(hospital_id=h.id, month=m, indicator_id=ind.id, value=10))
         db_session.add(QualityScore(hospital_id=h.id, month=m, score=sc, rule_compliance=sc,
@@ -255,15 +261,24 @@ def test_anomaly_thresholds_configurable_in_settings(app, db_session):
     db_session.commit()
     cache.invalidate("analysis:months")
 
-    # Defaults are exposed in the settings payload.
+    # The saved default is 2.5 (single authoritative value); before the first
+    # save no AppConfig row exists yet, so the loader reports the default.
     s = client.get("/config/control/settings").json()
-    assert s["anomaly_zscore_threshold"] == 2.0
+    assert s["anomaly_zscore_threshold"] == 2.5
     assert s["anomaly_drift_months"] == 3
+    assert s["zscore_threshold_source"] in ("default", "database")
+    assert db_session.query(SystemSetting).filter_by(
+        key="anomaly_zscore_threshold").first() is None, \
+        "the duplicate Z-score setting must not exist"
 
-    # Raising the threshold to 3.0 stops flagging the z≈−2.26 drop.
+    # Raising the threshold to 3.0 stops flagging the z≈−2.26 drop and stores
+    # the value ONCE, in AppConfig thresholds.zscore_threshold.
     client.put("/config/control/settings", json={"anomaly_zscore_threshold": 3.0})
     r = client.get("/dashboard/attention").json()
     assert all(x["hospital_id"] != h.id for x in r["anomalies"])
+    assert db_session.query(AppConfig).filter_by(key="zscore_threshold").first().value == 3.0
+    assert db_session.query(SystemSetting).filter_by(
+        key="anomaly_zscore_threshold").first() is None
 
     # Lowering it to 1.5 flags it.
     client.put("/config/control/settings", json={"anomaly_zscore_threshold": 1.5})
@@ -277,7 +292,7 @@ def test_anomaly_thresholds_configurable_in_settings(app, db_session):
     assert client.get("/config/control/settings").json()["anomaly_zscore_threshold"] == 5.0
 
     # Drift length: 3 consecutive small drops flagged at 3, not at 4.
-    client.put("/config/control/settings", json={"anomaly_zscore_threshold": 2.0})
+    client.put("/config/control/settings", json={"anomaly_zscore_threshold": 2.5})
     h2 = db_session.query(Hospital).offset(1).first()
     for m, sc in {"2026-01": 90.0, "2026-02": 89.3, "2026-03": 88.6, "2026-04": 87.9}.items():
         db_session.add(IndicatorValue(hospital_id=h2.id, month=m, indicator_id=ind.id, value=10))
@@ -294,7 +309,7 @@ def test_anomaly_thresholds_configurable_in_settings(app, db_session):
     assert d is not None and d["kind"] == "drift" and d["months"] == 3
 
     # Restore defaults so later tests see stock behavior.
-    client.put("/config/control/settings", json={"anomaly_zscore_threshold": 2.0, "anomaly_drift_months": 3})
+    client.put("/config/control/settings", json={"anomaly_zscore_threshold": 2.5, "anomaly_drift_months": 3})
 
 
 def test_why_popup_quality_score_carries_score_trend(app, db_session, ux_data):
@@ -369,6 +384,34 @@ def test_why_popup_trend_skips_ghost_month(app, db_session, ux_data):
     }).json()
     assert [d["month"] for d in r["score_trend"]] == ["2026-01", "2026-03"]
     assert [d["score"] for d in r["score_trend"]] == [70.0, 85.0]
+
+
+def test_dashboard_summary_surfaces_red_quality_issues():
+    """UI contract: the executive strip shows the Very High issue count from
+    the Quality Alerts screen in that screen's unit, and links to it.
+
+    It replaces a policy-drift counter that could only ever read 0: no stored
+    alert carried a policy fingerprint, so there was nothing to compare, and a
+    permanently-zero card teaches readers to ignore it.
+    """
+    root = Path(__file__).resolve().parent.parent
+    frag = (root / "static" / "tabs" / "dashboard.html").read_text(encoding="utf-8")
+    assert 'id="dashRedIssues"' in frag
+    assert 'id="dashRedCard"' in frag
+    assert 'onclick="switchTab(\'quality-alerts\')"' in frag
+    assert 'data-i18n="Very high issues"' in frag
+    assert 'id="dashStalePolicy"' not in frag
+    assert 'data-i18n="Stale policy alerts"' not in frag
+
+    js = (root / "static" / "js" / "rules-manager.js").read_text(encoding="utf-8")
+    assert "data.red_quality_issues" in js
+    assert "dashRedIssues" in js
+    assert "data.stale_policy_alerts" not in js
+    # Hidden for users who cannot open the Quality Alerts screen.
+    assert "hasPermission('quality_alerts.read')" in js
+
+    i18n = (root / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
+    assert "'Very high issues':" in i18n
 
 
 def test_why_popup_explain_js_renders_sparkline():

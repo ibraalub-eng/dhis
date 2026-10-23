@@ -22,6 +22,7 @@ STATIC = Path(__file__).resolve().parent.parent / "static"
 
 EXPLAIN_JS = STATIC / "js" / "explain.js"
 APP_JS = STATIC / "js" / "app.js"
+QA_JS = STATIC / "js" / "quality-alerts.js"
 CSS = STATIC / "css" / "styles.css"
 
 
@@ -61,6 +62,22 @@ def test_app_js_close_modal_has_working_fallback():
     assert "_defaultCloseModal" in src
     assert "getElementById('detailModal')" in src
     assert "classList.remove('show')" in src
+
+
+def test_quality_alert_modal_opens_via_show_class():
+    """Quality Alerts opened #detailModal with an inline `display:block`.
+
+    closeModal() (and the app.js fallback) only remove the `.show` class, while
+    `#detailModal.show{display:flex}` is a stylesheet rule — an inline display
+    outranks it, so ✕, backdrop click and Escape all left the modal on screen.
+    The opener must use the class (and clear any stale inline override).
+    """
+    src = QA_JS.read_text(encoding="utf-8")
+    opener = src[src.index("export async function openQualityAlert"):]
+    opener = opener[:opener.index("\n}\n")]
+    assert "modal.classList.add('show')" in opener
+    assert "modal.style.display = ''" in opener
+    assert "style.display = 'block'" not in opener
 
 
 def test_detail_modal_close_not_hidden_under_content():
