@@ -1,4 +1,6 @@
 """Tests for confidence scoring (engine.confidence)."""
+import pytest
+
 from app.engine.confidence import (
     calculate_confidence,
     build_indicator_rule_map,
@@ -446,3 +448,58 @@ class TestCalculateConfidence:
         ind5 = [i for i in result.indicators if i.indicator_code == "5"]
         if ind5:
             assert ind5[0].confidence <= 100
+
+
+class TestNotApplicableSignals:
+    """A signal with nothing to assess is not a failed check.
+
+    The drilldown used to render \"Historical consistency: 0% ❌\" for an
+    indicator that simply was not reported that month, and the factor cards
+    averaged those zeros in as if the indicator had been measured. The score
+    stays 0.0 (missing data still lowers confidence) but the signal is marked
+    `applicable=False` so the UI can say \"no data\" and leave it out of the
+    averages.
+    """
+
+    def _result(self):
+        return calculate_confidence(
+            hospital_name="Test Hospital",
+            month="2026-04",
+            values={"2": 300},
+            rule_results=[],
+            historical_data={},
+            all_hospital_data={"Test Hospital": {"2": 300}},
+            indicator_map={"2": "Deliveries", "16": "NICU admissions"},
+            indicator_children={},
+            indicator_rule_map={},
+            key_indicator_codes=["2", "16"],
+        )
+
+    def test_missing_value_signals_are_marked_not_applicable(self):
+        result = self._result()
+        missing = next(i for i in result.indicators if i.indicator_code == "16")
+        assert missing.value is None
+
+        data_signals = [s for s in missing.signals if s.factor != "rule_compliance"]
+        assert len(data_signals) == 4
+        assert all(s.applicable is False for s in data_signals)
+        assert all(s.score == 0.0 for s in data_signals)
+        assert all("not assessed" in s.detail for s in data_signals)
+
+        # Serialized payload carries the flag the drilldown reads.
+        payload = missing.to_dict()
+        by_factor = {s["factor"]: s for s in payload["signals"]}
+        assert by_factor["trend"]["applicable"] is False
+        assert by_factor["cross_hospital"]["applicable"] is False
+
+    def test_confidence_math_is_unchanged_by_the_flag(self):
+        result = self._result()
+        missing = next(i for i in result.indicators if i.indicator_code == "16")
+        # Rule compliance is the only contributing signal -> 0.55 * 100.
+        assert missing.confidence == pytest.approx(55.0)
+
+    def test_present_value_signals_stay_applicable(self):
+        result = self._result()
+        present = next(i for i in result.indicators if i.indicator_code == "2")
+        assert present.value == 300
+        assert all(s.applicable is True for s in present.signals)
