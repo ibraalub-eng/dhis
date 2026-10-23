@@ -121,13 +121,26 @@ async function _initFilters() {
     }
 }
 
+// Outlier Diagnostics works on DATA ELEMENTS (raw indicators): rate rows
+// belong to the Outlier Analysis screen, so they never become options here.
+// A row is a rate row when its analysis code is the synthetic rate_* key or
+// when the persisted row carries numerator+denominator (count rows are raw
+// values — both are null; see pipeline._save_layered_results).
+function _isRateRow(d) {
+    return /^rate_/.test(String(d.analysis_code || ''))
+        || (d.numerator != null && d.denominator != null);
+}
+
 // The indicator select has no endpoint: analysis codes come from
 // build_analysis_specs (count = Indicator.code, rate = rate_*), so the rows
-// themselves — which carry indicator_name — are the source. The map only
-// grows, so returning to an earlier month keeps its options.
+// themselves — which carry indicator_name — are the source. Only DATA
+// ELEMENT rows are offered (see _isRateRow). The map only grows, so
+// returning to an earlier month keeps its options.
 function _updateIndicatorOpts(data) {
     data.forEach(d => {
-        if (d.analysis_code) _indicatorOpts.set(d.analysis_code, d.indicator_name || d.analysis_code);
+        if (d.analysis_code && !_isRateRow(d)) {
+            _indicatorOpts.set(d.analysis_code, d.indicator_name || d.analysis_code);
+        }
     });
     const sel = document.getElementById('layeredIndicatorFilter');
     const prevVal = sel.value;

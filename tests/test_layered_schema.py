@@ -166,7 +166,9 @@ def test_seed_rate_config_parity_with_zscore_slice(db_session):
         assert row.indicator_type == spec.indicator_type
         assert row.numerator_codes == list(spec.numerator_codes)
         assert row.denominator_codes == list(spec.denominator_codes)
-        assert row.rate_multiplier == spec.rate_multiplier == 100
+        # Per-unit scaling (x100 %, x1,000 per-1,000, x100,000 per-100,000),
+        # not the legacy flat 100.
+        assert row.rate_multiplier == spec.rate_multiplier
         assert row.minimum_denominator is None      # dormant guard (§12)
         assert row.minimum_history_period == 3
         assert row.outlier_method == "auto"
@@ -201,19 +203,23 @@ def test_load_rate_specs_db_rows_override_builtin(db_session):
     specs = load_rate_specs(db_session)
     assert specs["rate_mmr"].rate_multiplier == 100000.0
     assert specs["rate_mmr"].minimum_denominator == 6
-    assert specs["rate_mmr"].unit == "per 100"          # inherited from builtin base
+    assert specs["rate_mmr"].unit == "per 100,000"      # inherited from builtin base
     assert specs["rate_mmr"].typical_pct == 1.0
     assert specs["rate_cs"].rate_multiplier == 100.0     # untouched row unchanged
     db_session.rollback()
 
 
-def test_load_rate_specs_inactive_row_is_flagged_not_dropped(db_session):
+def test_load_rate_specs_inactive_row_is_dropped(db_session):
     invalidate_rate_specs_cache()
     db_session.query(RateConfig).filter_by(rate_code="rate_nicu").one().is_active = False
     db_session.commit()
     specs = load_rate_specs(db_session)
-    assert specs["rate_nicu"].is_active is False   # engine filters; builtin must not resurrect it
+    # An explicitly switched-off rate disappears from the current set — the
+    # builtin base must not resurface as a silent default.
+    assert "rate_nicu" not in specs
+    assert "rate_cs" in specs
     db_session.rollback()
+    invalidate_rate_specs_cache()
 
 
 def test_load_rate_specs_caches_until_invalidated(db_session):
@@ -241,5 +247,5 @@ def test_migration_revision_is_new_head():
 
     from app.config import BASE_DIR
     script = ScriptDirectory.from_config(AlembicConfig(os.path.join(BASE_DIR, "alembic.ini")))
-    assert script.get_current_head() == "e3f4a5b6c7d8"
-    assert script.get_revision("e3f4a5b6c7d8").down_revision == "c2d3e4f5a6b7"
+    assert script.get_current_head() == "b3c4d5e6f7a8"
+    assert script.get_revision("b3c4d5e6f7a8").down_revision == "f7a8b9c0d1e2"

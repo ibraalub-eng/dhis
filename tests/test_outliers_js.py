@@ -146,3 +146,36 @@ def test_alerts_search_does_not_shrink_the_filter_dropdowns():
     js = _read_outliers()
     body = js.split("function updateRuleFailUI")[1]
     assert "if (!currentSearch) {" in body
+
+def test_derivative_indicator_filter_lists_the_whole_registry():
+    """The filter options must not be rebuilt from the returned rows.
+
+    Building them from `data` meant the list held only the indicators with an
+    outlier this month — selecting one shrank the dropdown to that single rate
+    and no other derivative indicator could ever be picked. Options now come
+    from /analysis/outlier-indicators (the registry), the same way the hospital
+    filter comes from /hospitals/.
+    """
+    js = _read_outliers()
+    assert "fillOutlierIndicatorOptions" in js
+    assert "/analysis/outlier-indicators" in js
+    # value = definition code, so two same-name indicators stay distinct
+    assert "opt.value = i.code" in js
+    assert "indicator_code=" in js
+    assert "populateSelectOptions(rateSel, [...new Set(data.map(d => d.rate_name))]" not in js
+    # the table row carries the formula next to the name (same-name rows)
+    assert "_formulaLine" in js
+
+
+def test_why_popup_carries_the_indicator_code():
+    """Two derivative indicators can share a display name once the whole
+    catalog is scanned ("Stillbirth rate" per deliveries vs per live births),
+    and the explain endpoint matched on rate_name alone — so the popup could
+    explain the other indicator. The row now passes indicator_code with the
+    name.
+    """
+    js = _read_outliers()
+    assert "indicatorCode:" in js
+    assert "indicator_code || ''" in js
+    # the positional rate-name-only call is what lost the code
+    assert "showWhyPopup('anomaly'," not in js

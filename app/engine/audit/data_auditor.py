@@ -2,7 +2,8 @@ import json
 from sqlalchemy.orm import Session
 from app.models import Hospital, IndicatorValue, Indicator, ValidationResult, QualityScore, AnomalyResult, HospitalIndicatorConfig, ConfidenceScore
 from app.engine.quality import ValidationContext, get_covered_child_codes
-from app.engine.pipeline import get_effective_manual_disabled_ids
+from app.engine.pipeline import (get_effective_manual_disabled_ids,
+                                 get_optional_source_indicator_ids)
 from app.indicators import SYNTHETIC_INDICATOR_CODES
 
 
@@ -35,6 +36,11 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
             values_map[code] = float(v.value)
     ctx = ValidationContext(values=values_map, hospital_name=hospital.name, month=month)
     covered_codes = get_covered_child_codes(ctx, db)
+    # Optional by inheritance: every source data element of the subtree is
+    # Optional, so the node's absence is legitimate even when its own flag
+    # still says 'Required' (same rule as the completeness denominator —
+    # pipeline.get_optional_source_indicator_ids).
+    optional_source_ids = get_optional_source_indicator_ids(db)
 
     completeness = []
     missing_count = 0
@@ -49,8 +55,13 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
         # It keeps its own audit row (data transparency) and its fill still
         # shows up, but its absence is 'optional', NOT 'missing' — it does
         # not penalize the hospital and is excluded from completeness
-        # denominators everywhere else.
-        is_optional = (not is_present) and (ind.requirement_type or "Required") == "Optional"
+        # denominators everywhere else. The same holds for an indicator that
+        # is Optional by inheritance (a Required parent whose every data
+        # element in its subtree is Optional): the form never asked for it.
+        is_optional = (not is_present) and (
+            (ind.requirement_type or "Required") == "Optional"
+            or ind.id in optional_source_ids
+        )
         if is_present:
             present_count += 1
         elif is_optional:

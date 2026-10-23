@@ -184,6 +184,21 @@ def score_from_trend(actual: float, projected: float,
 
 # ── Bands ──────────────────────────────────────────────────────────────────
 
+# ── Detection verdict ──────────────────────────────────────────────────────
+
+# A level at or above this band means "an outlier was detected" (|z| > the
+# configured threshold maps to MODERATE and up). The Quality Score applies a
+# stricter floor of its own (HIGH) for its penalty; detection and penalty are
+# two questions answered from the same stored levels.
+OUTLIER_LEVEL_MIN = LEVEL_MODERATE
+
+
+def is_detection_outlier(level: Optional[str]) -> bool:
+    """Single rule for "is this row an outlier?" — used by the pipeline, the
+    Quality report and the legacy AnomalyResult projection."""
+    return LEVEL_RANK.get(level or LEVEL_NONE, 0) >= LEVEL_RANK[OUTLIER_LEVEL_MIN]
+
+
 def level_for_score(score: Optional[float]) -> Optional[str]:
     """Band for a 0-1 score; None => layer not applicable (stays NULL)."""
     if score is None:
@@ -518,6 +533,16 @@ class PeerLayer:
     score: Optional[float]           # None = unavailable (no peers / disabled)
     method: str
     tier: Optional[str] = None       # tier that supplied the stats (not persisted)
+    # The comparison group itself. Persistable stats (mean/count) lived here
+    # alone, so every screen that had to NAME the peers rebuilt the group with
+    # its own copy of the rule — and could name a different set than the one
+    # that produced the score. The distribution travels with the result now.
+    z: Optional[float] = None
+    peer_std: Optional[float] = None
+    peer_min: Optional[float] = None
+    peer_max: Optional[float] = None
+    peer_median: Optional[float] = None
+    peer_values: Optional[Dict[Any, float]] = None   # hospital id -> value
 
     @property
     def level(self) -> Optional[str]:
@@ -529,24 +554,34 @@ def compute_peer_layer(spec: AnalysisSpec, self_id: Any,
                        peer_tiers: Sequence[Tuple[str, Dict[Any, Optional[float]]]],
                        threshold: float = PEER_Z_THRESHOLD_DEFAULT) -> PeerLayer:
     """Layer 5: z-score of this hospital's value against OTHER active
-    hospitals, first tier with >= 2 other members wins (type -> ownership ->
-    governorate -> all). Never forces an outlier from no peers."""
+    hospitals in the comparison group. Never forces an outlier from no peers.
+
+    The caller decides the group (``peer_tiers``): the pipeline passes the one
+    canonical group — every active hospital reporting the indicator this month
+    — so no screen can quote a different baseline for the same month.
+    """
     if not spec.peer_comparison_enabled or current_value is None:
         return PeerLayer(peer_mean=None, peer_count=0, score=None,
                          method=METHOD_INSUFFICIENT_HISTORY, tier=None)
     for tier_name, tier_map in peer_tiers:
-        others = [float(v) for hid, v in tier_map.items()
-                  if hid != self_id and v is not None]
+        others = {hid: float(v) for hid, v in tier_map.items()
+                  if hid != self_id and v is not None}
         if len(others) >= 2:
-            peer_mean = statistics.fmean(others)
-            peer_std = statistics.stdev(others)      # ddof=1 per spec
+            values = list(others.values())
+            peer_mean = statistics.fmean(values)
+            peer_std = statistics.stdev(values)      # ddof=1 per spec
             if peer_std == 0:
+                z = 0.0
                 score = 0.0 if float(current_value) == peer_mean else 1.0
             else:
-                score = score_from_z((float(current_value) - peer_mean) / peer_std,
-                                     threshold)
-            return PeerLayer(peer_mean=peer_mean, peer_count=len(others),
-                             score=score, method=METHOD_PEER_ZSCORE, tier=tier_name)
+                z = (float(current_value) - peer_mean) / peer_std
+                score = score_from_z(z, threshold)
+            return PeerLayer(peer_mean=peer_mean, peer_count=len(values),
+                             score=score, method=METHOD_PEER_ZSCORE,
+                             tier=tier_name, z=z, peer_std=peer_std,
+                             peer_min=min(values), peer_max=max(values),
+                             peer_median=statistics.median(values),
+                             peer_values=others)
     return PeerLayer(peer_mean=None, peer_count=0, score=None,
                      method=METHOD_INSUFFICIENT_HISTORY, tier=None)
 
@@ -657,6 +692,27 @@ def analyze_layered_entry(
         hist_method=historical.method,
         numbers=numbers,
     )
+
+    if spec.is_rate and rate_value is None:
+        # A rate with no denominator (the required element was not reported)
+        # has no unit value to compare. Its numerator jump is not evidence
+        # about the rate, so the row must never be classified as an outlier —
+        # otherwise an optional/missing source element produces a fake
+        # VERY_HIGH finding and penalizes the Quality Score. The row itself is
+        # still persisted (the gap stays visible in diagnostics).
+        from dataclasses import replace as _replace
+        from app.engine.anomaly.classify import TYPE_NORMAL
+        classification = _replace(
+            classification,
+            outlier_level=LEVEL_NONE,
+            outlier_type=TYPE_NORMAL,
+            investigation_required=False,
+            investigation_route="none",
+            interpretation=(f"{classification.interpretation} "
+                            "Rate not computable this month (denominator "
+                            "missing or zero) - not classified as an outlier."),
+        )
+
     return LayerResult(spec=spec, month=current_month, history_ok=history_ok,
                        raw=raw, rate=rate_layer, historical=historical,
                        volume=volume, peer=peer, classification=classification)
@@ -664,36 +720,23 @@ def analyze_layered_entry(
 
 # ── Orchestration (spec §7: pipeline calls this per hospital/month) ────────
 
-_PEER_TIER_KEYS = (("type", "type"), ("ownership", "ownership"),
-                   ("governorate", "governorate"))
 
+def canonical_peer_tiers(spec: AnalysisSpec,
+                         unit_values: Dict[Any, Optional[float]]
+                         ) -> List[Tuple[str, Dict[Any, Optional[float]]]]:
+    """The comparison group for detection: every active hospital reporting the
+    indicator this month (self included; ``compute_peer_layer`` drops it).
 
-def build_peer_tiers(spec: AnalysisSpec, self_id: Any,
-                     unit_values: Dict[Any, Optional[float]],
-                     peer_attributes: Dict[Any, Dict[str, Any]]
-                     ) -> List[Tuple[str, Dict[Any, Optional[float]]]]:
-    """Ordered tier list type -> ownership -> governorate -> all.
-
-    A typed tier is skipped when the hospital's own attribute is None; all
-    hospitals in unit_values belong to the 'all' tier. Returns [] when the
-    spec disables peer comparison.
+    Tiered comparison (type -> ownership -> governorate -> all) was retired: it
+    made the same hospital/month an outlier on one screen and normal on another,
+    because the Quality report, the Outlier screen, the audit benchmark and the
+    Quality Score each quoted a different peer set. One baseline, one verdict.
+    Quality Alerts keep their explicit multi-perspective comparisons — those are
+    labelled comparisons, not the detection baseline.
     """
     if not spec.peer_comparison_enabled:
         return []
-    attrs_self = peer_attributes.get(self_id, {})
-    tiers: List[Tuple[str, Dict[Any, Optional[float]]]] = []
-    for key, label in _PEER_TIER_KEYS:
-        value = attrs_self.get(key)
-        if value is None:
-            continue
-        members = {
-            hid: unit_values.get(hid)
-            for hid in unit_values
-            if peer_attributes.get(hid, {}).get(key) == value
-        }
-        tiers.append((f"{label}:{value}", members))
-    tiers.append(("all", dict(unit_values)))
-    return tiers
+    return [("all", dict(unit_values))]
 
 
 def run_layered_analysis(
@@ -707,7 +750,12 @@ def run_layered_analysis(
 ) -> List[LayerResult]:
     """One LayerResult per spec for the analyzed hospital (the pipeline's
     per-hospital model). peer_values_by_hospital supplies the current-month
-    values used to build each spec's peer tiers."""
+    values that form the canonical comparison group.
+
+    ``peer_attributes`` is accepted for callers that still pass the hospital
+    attributes the retired tiered comparison needed; it no longer influences
+    detection.
+    """
     results: List[LayerResult] = []
     for spec in specs:
         unit_values: Dict[Any, Optional[float]] = {}
@@ -717,12 +765,66 @@ def run_layered_analysis(
                 unit_values[hid] = rate_analysis_value(spec, current_values)
             else:
                 unit_values[hid] = raw_analysis_value(spec, current_values)
-        tiers = build_peer_tiers(spec, hospital_id, unit_values,
-                                 peer_attributes)
+        tiers = canonical_peer_tiers(spec, unit_values)
         results.append(analyze_layered_entry(spec, history, current_month,
                                              tiers, thresholds,
                                              self_id=hospital_id))
     return results
+
+
+# Display names for the five detection layers, in evaluation order. One place
+# so the Quality report strip, the Why popup and any future surface label a
+# layer identically.
+LAYER_LABELS: Dict[str, str] = {
+    "raw": "Raw value",
+    "rate": "Rate",
+    "historical": "History",
+    "volume": "Volume",
+    "peer": "Peer comparison",
+}
+
+
+def layer_breakdown(row) -> List[Dict[str, Any]]:
+    """The five layer scores stored on ONE outlier row, in evaluation order.
+
+    ``row`` is a LayeredOutlierResult (or any object with the same column
+    names). Nothing is recomputed: the scores and levels are the ones the
+    engine persisted, and the level is mapped through ``level_for_score`` so
+    the strip can never disagree with the stored classification. A layer that
+    was not applicable/not computable keeps its entry with ``score=None``,
+    ``level=None`` (the same NULL the engine stores) and ``applicable=False``
+    — the report shows a complete strip instead of silently dropping a layer,
+    and "never ran" is never rendered as "ran, found nothing".
+
+    ``value`` is the number that layer actually looked at (raw value, rate,
+    historical baseline mean, denominator volume, peer baseline mean); the
+    richer peer statistics live next to it in the report payload.
+    """
+    if row is None:
+        return []
+    pairs = (
+        ("raw", getattr(row, "raw_value", None),
+         getattr(row, "raw_value_outlier_score", None)),
+        ("rate", getattr(row, "rate", None),
+         getattr(row, "rate_outlier_score", None)),
+        ("historical", getattr(row, "historical_mean", None),
+         getattr(row, "historical_outlier_score", None)),
+        ("volume", getattr(row, "denominator", None),
+         getattr(row, "volume_anomaly_score", None)),
+        ("peer", getattr(row, "peer_mean", None),
+         getattr(row, "peer_outlier_score", None)),
+    )
+    out: List[Dict[str, Any]] = []
+    for key, value, score in pairs:
+        out.append({
+            "key": key,
+            "name": LAYER_LABELS[key],
+            "value": value,
+            "score": score,
+            "level": level_for_score(score),
+            "applicable": score is not None,
+        })
+    return out
 
 
 def should_persist(result: LayerResult) -> bool:
@@ -732,9 +834,24 @@ def should_persist(result: LayerResult) -> bool:
     return result.raw.value is not None
 
 
+def _spec_key(spec: AnalysisSpec) -> tuple:
+    return (tuple(spec.numerator_codes), tuple(spec.denominator_codes),
+            round(float(spec.rate_multiplier or 1.0), 6))
+
+
 def build_analysis_specs(session) -> List[AnalysisSpec]:
-    """Count specs from non-synthetic Indicator rows + rate specs from the
-    rate_config registry (Task 6)."""
+    """Every analysis unit: non-synthetic Indicator rows (data elements) plus
+    the derived rates.
+
+    Rates come from two places on purpose. ``rate_config`` holds the runtime
+    tunables (thresholds, method, minimum denominator) and is the stable code
+    space; the registry holds *which* derivative indicators exist and their
+    editable formulas. Reading only rate_config made a clinical-only rate
+    invisible to detection whenever its row had not been seeded, while the
+    registry listed it — the scan must cover the catalog it claims to cover.
+    A definition whose formula is already covered by a rate spec is skipped, so
+    one rate never produces two rows.
+    """
     from app.engine.rate_config import load_rate_specs
     from app.indicators import SYNTHETIC_INDICATOR_CODES
     from app.models import Indicator
@@ -758,10 +875,11 @@ def build_analysis_specs(session) -> List[AnalysisSpec]:
             historical_enabled=ind.historical_enabled is not False,
             peer_comparison_enabled=ind.peer_comparison_enabled is not False,
         ))
+    covered: set = set()
     for rs in load_rate_specs(session).values():
         if not rs.is_active:
             continue
-        specs.append(AnalysisSpec(
+        spec = AnalysisSpec(
             analysis_code=rs.rate_code,
             name=rs.rate_name,
             indicator_type=rs.indicator_type,
@@ -774,5 +892,39 @@ def build_analysis_specs(session) -> List[AnalysisSpec]:
             outlier_method=rs.outlier_method,
             historical_enabled=rs.historical_enabled,
             peer_comparison_enabled=rs.peer_comparison_enabled,
-        ))
+        )
+        key = _spec_key(spec)
+        if key in covered:
+            # The registry stores one rate per analysis site (rate_cs, cs_rate)
+            # with the same formula and scale; they compute the same number, so
+            # a second row would only duplicate the same finding.
+            continue
+        covered.add(key)
+        specs.append(spec)
+
+    # Derivative definitions the rate_config slice does not know about.
+    from app.engine import indicator_service
+    for resolved in indicator_service.resolve_outlier_candidates(session):
+        definition = getattr(resolved, "definition", None)
+        if definition is None:
+            continue
+        numerators = tuple(definition.numerator_codes or ())
+        denominators = tuple(definition.denominator_codes or ())
+        if not numerators or not denominators:
+            continue          # counts / expressions are not rate comparables
+        spec = AnalysisSpec(
+            analysis_code=resolved.code,
+            name=resolved.name,
+            indicator_type=(definition.result_type
+                            or getattr(resolved, "indicator_type", None)
+                            or "rate"),
+            numerator_codes=numerators,
+            denominator_codes=denominators,
+            rate_multiplier=float(definition.multiplier or 1.0),
+            unit=definition.unit or "",
+        )
+        if _spec_key(spec) in covered:
+            continue
+        covered.add(_spec_key(spec))
+        specs.append(spec)
     return specs

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case, or_
 from typing import Optional
 from app.database import get_db
-from app.models import Hospital, ValidationResult
+from app.models import Hospital, Rule, ValidationResult
 from app.core.deps import require_permission, get_user_hospital_ids
 
 router = APIRouter(prefix="/alerts", tags=["alerts"], dependencies=[Depends(require_permission("alerts.read"))])
@@ -18,7 +18,16 @@ SEVERITY_ORDER = case(
 
 
 def _non_benchmark_failures(query):
-    return query.filter(
+    """Real, non-benchmark failures: the rule must still exist.
+
+    ValidationResult rows are snapshots of the rules that existed when they
+    were written. A deleted rule (or a restore that brought back rows without
+    its Rule) leaves rows behind whose code is absent from the Rules Manager —
+    showing them here produced "R0xx failures" that nobody could find or fix in
+    the rules screen. The inner join makes an orphan row unlistable at read
+    time even if a cleanup pass has not run yet.
+    """
+    return query.join(Rule, Rule.code == ValidationResult.rule_code).filter(
         or_(
             ValidationResult.rule_type.is_(None),
             func.upper(ValidationResult.rule_type) != "BENCHMARK",

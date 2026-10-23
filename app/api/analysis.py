@@ -33,6 +33,7 @@ from app.models import (
     IndicatorValue,
     LayeredOutlierResult,
     QualityScore,
+    Rule,
     ValidationResult,
 )
 from app.schemas import (
@@ -106,11 +107,22 @@ def historical_analysis(
         raise HTTPException(status_code=400, detail="Not enough data for historical analysis")
 
     from app.engine import indicator_service
+    from app.engine.severity import AnalysisConfigError, load_analysis_config
+
+    # The saved System Control configuration is authoritative: the trend
+    # engine never runs on developer defaults because a caller forgot to load
+    # it. A configuration read failure is reported, not papered over.
+    try:
+        analysis_config = load_analysis_config(db)
+    except AnalysisConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    trend_config = analysis_config.trend_engine_config()
 
     managed_indicators = indicator_service.resolve_active_definitions(
         db, site="zscore")
     trends = analyze_historical_trends(
-        hospital.name, monthly_data, additional_indicators=managed_indicators)
+        hospital.name, monthly_data,
+        additional_indicators=managed_indicators, config=trend_config)
     last_month = months[-1]
 
     hospitals_query = db.query(Hospital).filter(Hospital.is_active.is_(True))
@@ -148,7 +160,7 @@ def historical_analysis(
         additional_indicators=managed_indicators)
     trend_anomaly_results = detect_trend_anomalies(
         hospital.name, monthly_data,
-        additional_indicators=managed_indicators)
+        additional_indicators=managed_indicators, config=trend_config)
     summary = generate_historical_summary(trends, comparisons, trend_anomaly_results, cross_anomalies)
 
     def _trend_to_dict(t):
@@ -173,6 +185,7 @@ def historical_analysis(
             "consecutive_direction": t.consecutive_direction,
             "consecutive_count": t.consecutive_count,
             "findings": t.findings,
+            "trend_assessment": t.trend_assessment,
         }
 
     def _comparison_to_dict(c):
@@ -408,18 +421,47 @@ def compare_all_hospitals(
     return out
 
 
+@router.get("/outlier-indicators")
+def list_outlier_indicators(db: Session = Depends(get_db)):
+    """Every derivative indicator the outlier scan evaluates.
+
+    The screen's "Derivative Indicator" filter must list the whole registry,
+    not only the indicators that happen to have an outlier this month — the
+    old dropdown was rebuilt from the returned rows, so picking one shrank it
+    to that one (the hospital filter had the same trap). Codes are returned
+    with the display name so two indicators sharing a name (stillbirth per
+    deliveries vs per live births) stay individually selectable.
+    """
+    from app.engine import indicator_service
+
+    # Not cached: the list must follow a registry edit (activate/deactivate,
+    # formula change) immediately, and resolving it is a handful of rows.
+    items = [
+        {
+            "code": resolved.code,
+            "name": resolved.name,
+            "formula": resolved.formula,
+            "unit": resolved.unit,
+        }
+        for resolved in indicator_service.resolve_outlier_candidates(db)
+    ]
+    return items
+
+
 @router.get("/outliers")
 def list_outliers(
     month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),
     hospital_id: Optional[int] = Query(None, description="Filter by hospital ID"),
     rate_name: Optional[str] = Query(None, description="Filter by rate name"),
+    indicator_code: Optional[str] = Query(
+        None, description="Filter by the definition code (disambiguates same-name rates)"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
     # v4: layered_type/layered_level/layered_interpretation added below — a
     # cached v3 payload would hide the classification column for up to 24h.
-    cache_key = cache.make_key("analysis:outliers_v5", month=month, hospital_id=hospital_id, rate_name=rate_name, skip=skip, limit=limit)
+    cache_key = cache.make_key("analysis:outliers_v5", month=month, hospital_id=hospital_id, rate_name=rate_name, indicator_code=indicator_code, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -435,6 +477,8 @@ def list_outliers(
         query = query.filter(AnomalyResult.hospital_id == hospital_id)
     if rate_name:
         query = query.filter(AnomalyResult.rate_name.ilike(f"%{rate_name}%"))
+    if indicator_code:
+        query = query.filter(AnomalyResult.indicator_code == indicator_code)
     total = query.count()
     results = query.order_by(AnomalyResult.z_score.desc()).offset(skip).limit(limit).all()
 
@@ -929,7 +973,9 @@ def list_rule_failures(
     if cached:
         return cached
 
-    query = db.query(ValidationResult).options(selectinload(ValidationResult.hospital)).join(Hospital, ValidationResult.hospital_id == Hospital.id).filter(
+    query = db.query(ValidationResult).options(selectinload(ValidationResult.hospital)).join(Hospital, ValidationResult.hospital_id == Hospital.id).join(
+        Rule, Rule.code == ValidationResult.rule_code,
+    ).filter(
         ValidationResult.status == "FAIL",
         Hospital.is_active.is_(True),
         or_(

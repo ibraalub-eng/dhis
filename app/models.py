@@ -754,3 +754,115 @@ class MenuItem(Base):
     group = relationship("MenuGroup", back_populates="items")
 
     __table_args__ = (UniqueConstraint("group_id", "tab_key"),)
+
+
+# --- Quality Alerts (risk-outlier monitoring, 2026-10-21) -------------------
+# One row PER (hospital, indicator, month, PERSPECTIVE) — the evidence unit.
+# The API groups rows of the same (hospital, indicator, month) into a single
+# risk issue that shows every perspective which fired, so distinct evidence
+# is preserved without cluttering the dashboard with duplicate alerts.
+# Indicator values are NEVER recalculated here: rows are produced by
+# app/engine/quality_alerts.py from the authoritative registry calculation
+# (indicator_service.calculate_from_values), and severity uses the existing
+# layered band cutoffs — no hardcoded clinical formulas in this module.
+
+QUALITY_ALERT_SEVERITIES = ("LOW", "MODERATE", "HIGH", "VERY_HIGH")  # VERY_HIGH = RED ALERT — same bands as layered.BAND_CUTOFFS
+QUALITY_ALERT_STATUSES = ("New", "Under Review", "Confirmed Issue", "False Positive", "Resolved")
+QUALITY_ALERT_PERSPECTIVES = (
+    "history",        # hospital vs its own prior periods
+    "type",           # vs hospitals of the same hospital_type
+    "ownership",      # vs hospitals of the same facility_ownership
+    "facility_type",  # vs hospitals of the same facility_type
+    "governorate",    # vs hospitals in the same governorate
+    "all",            # vs all eligible hospitals with valid data
+)
+
+
+class QualityAlert(Base):
+    __tablename__ = "quality_alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=False, index=True)
+    month = Column(String(7), nullable=False, index=True)
+    perspective = Column(String(20), nullable=False, index=True)
+
+    # Registry provenance — the indicator is identified by its stable code in
+    # the Indicators Registry (IndicatorDefinition); formula/unit/version are
+    # copied at scan time so a later edit stays auditable.
+    indicator_id = Column(Integer, ForeignKey("indicator_definitions.id", ondelete="SET NULL"), nullable=True)
+    indicator_code = Column(String(50), nullable=False, index=True)
+    indicator_name = Column(String(500), nullable=False)
+    unit = Column(String(30), nullable=True)
+    formula = Column(Text, nullable=True)
+    formula_version = Column(String(64), nullable=True)
+
+    # Statistical finding
+    severity = Column(String(10), nullable=False, index=True)      # LOW..VERY_HIGH
+    score = Column(Float, nullable=True)                           # 0-1, existing BAND_CUTOFFS currency
+    method = Column(String(30), nullable=False, default="zscore")  # zscore | robust_z | iqr | pct_change | trend_deviation
+    current_value = Column(Float, nullable=True)                   # authoritative calculated value
+    baseline_value = Column(Float, nullable=True)                  # peer mean / own-history mean
+    deviation_pct = Column(Float, nullable=True)
+    z_score = Column(Float, nullable=True)
+    peer_count = Column(Integer, nullable=True)
+
+    # Clinical interpretation (registry direction metadata) — statistical
+    # outlier status is NEVER relabelled harmful solely for being high.
+    direction = Column(String(20), nullable=True)         # higher_is_better | lower_is_better | target_range | none
+    interpretation = Column(String(30), nullable=True)    # high_is_concern | high_is_favorable | outside_target_range | statistical_only
+
+    reason = Column(Text, nullable=True)                  # human-readable trigger explanation
+    confidence = Column(String(10), nullable=True)        # high | low (small peer group / ML disagreement)
+    evidence = Column(JSON, nullable=True)                # peers, history series, thresholds, ml cross-check
+
+    status = Column(String(20), nullable=False, default="New", index=True)
+    assignee = Column(String(120), nullable=True)
+    active = Column(Boolean, nullable=False, server_default=text("true"), default=True, index=True)
+    detected_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    hospital = relationship("Hospital")
+    definition = relationship("IndicatorDefinition")
+    events = relationship("QualityAlertEvent", back_populates="alert",
+                          cascade="all, delete-orphan", order_by="QualityAlertEvent.created_at")
+
+    __table_args__ = (
+        UniqueConstraint("hospital_id", "indicator_code", "month", "perspective",
+                         name="uq_quality_alert_hosp_ind_month_perspective"),
+        Index("ix_quality_alert_issue", "hospital_id", "indicator_code", "month"),
+    )
+
+
+class QualityAlertEvent(Base):
+    """Investigation trail: status changes, notes, assignments (spec §10)."""
+
+    __tablename__ = "quality_alert_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    alert_id = Column(Integer, ForeignKey("quality_alerts.id", ondelete="CASCADE"), nullable=False, index=True)
+    from_status = Column(String(20), nullable=True)
+    to_status = Column(String(20), nullable=True)   # NULL = note-only event
+    note = Column(Text, nullable=True)
+    actor = Column(String(120), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    alert = relationship("QualityAlert", back_populates="events")
+
+
+class QualityAlertAudit(Base):
+    """Durable record of a batch action that rewrote stored Quality Alerts.
+
+    ``QualityAlertEvent`` covers the per-alert investigation workflow; a
+    targeted recompute spans many alerts at once, so it is recorded here with
+    who ran it, which months were touched and what each scope produced. Rows
+    are append-only: nothing in the app updates or deletes them.
+    """
+
+    __tablename__ = "quality_alert_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String(40), nullable=False, index=True)   # e.g. rescan_stale
+    actor = Column(String(120), nullable=False)
+    months = Column(JSON, nullable=True)     # ["2026-08", "2026-09"]
+    details = Column(JSON, nullable=True)    # hospitals / indicators / counters
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)

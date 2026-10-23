@@ -32,7 +32,7 @@ from app.engine.anomaly.layered import (
     Thresholds,
     analyze_layered_entry,
     build_analysis_specs,
-    build_peer_tiers,
+    canonical_peer_tiers,
     coefficient_of_variation,
     compute_historical_layer,
     compute_peer_layer,
@@ -860,39 +860,34 @@ def test_entry_splits_current_month_from_history():
     assert should_persist(result) is False
 
 
-def test_scenario16_peer_fallback_tier_order_and_null_without_peers():
+def test_scenario16_one_canonical_peer_group_for_every_hospital():
+    """Detection uses one baseline — every hospital reporting the indicator
+    this month — regardless of type/ownership/governorate. Tiered comparison
+    made the same month an outlier on one screen and normal on another.
+    """
     unit_values = {1: 10.0, 2: 20.0, 3: 30.0, 4: 40.0}
-    attrs = {
-        1: {"type": 1, "ownership": 7, "governorate": 100},
-        2: {"type": 2, "ownership": 7, "governorate": 100},
-        3: {"type": 2, "ownership": 8, "governorate": 101},
-        4: {"type": None, "ownership": None, "governorate": None},
-    }
     spec = _count_spec()
-    tiers = build_peer_tiers(spec, 1, unit_values, attrs)
-    assert [n for n, _ in tiers] == ["type:1", "ownership:7", "governorate:100", "all"]
-    # typed tiers each hold only self + 1 other (<2 others) -> "all" fallback
+
+    tiers = canonical_peer_tiers(spec, unit_values)
+    assert [name for name, _ in tiers] == ["all"]
+    assert tiers[0][1] == unit_values
+
     layer = compute_peer_layer(spec, 1, 10.0, tiers)
     assert layer.tier == "all"
     assert layer.peer_count == 3
     assert layer.peer_mean == pytest.approx(30.0)
+    assert layer.peer_min == pytest.approx(20.0)
+    assert layer.peer_max == pytest.approx(40.0)
+    assert layer.peer_median == pytest.approx(30.0)
+    assert layer.peer_values == {2: 20.0, 3: 30.0, 4: 40.0}
 
-    # first sufficient tier wins: type has 2 others (mean 25, not all's 30)
-    attrs2 = {1: {"type": 1}, 2: {"type": 1}, 3: {"type": 1}, 4: {"type": 2}}
-    tiers2 = build_peer_tiers(spec, 1, unit_values, attrs2)
-    assert [n for n, _ in tiers2] == ["type:1", "all"]
-    layer2 = compute_peer_layer(spec, 1, 10.0, tiers2)
-    assert layer2.tier == "type:1"
-    assert layer2.peer_mean == pytest.approx(25.0)
-
-    # hospital with no attributes typed -> typed tiers skipped entirely
-    tiers3 = build_peer_tiers(spec, 9, {9: 10.0}, {9: {"type": 1}})
-    assert [n for n, _ in tiers3] == ["type:1", "all"]
-    layer3 = compute_peer_layer(spec, 9, 10.0, tiers3)
-    assert layer3.score is None and layer3.peer_count == 0   # <2 everywhere
+    # A hospital with no reporting peer at all still gets a null layer.
+    tier_one = canonical_peer_tiers(spec, {9: 10.0})
+    layer_one = compute_peer_layer(spec, 9, 10.0, tier_one)
+    assert layer_one.score is None and layer_one.peer_count == 0
 
     disabled = _count_spec(peer_comparison_enabled=False)
-    assert build_peer_tiers(disabled, 1, unit_values, attrs) == []
+    assert canonical_peer_tiers(disabled, unit_values) == []
 
 
 def test_run_layered_analysis_one_result_per_spec_for_analyzed_hospital():

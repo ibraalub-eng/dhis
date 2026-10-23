@@ -156,12 +156,15 @@
             // statistical mode — Z-Score analysis
             const hosp = document.getElementById('outlierHospitalFilter').value;
             const mon = document.getElementById('outlierMonthFilter').value;
+            // The filter carries the definition CODE: two derivative
+            // indicators can share a display name (stillbirth per deliveries
+            // vs per live births) and a name filter would mix them.
             const rate = document.getElementById('outlierRateFilter').value;
             document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
             let url = '/analysis/outliers?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
-            if (rate) url += 'rate_name=' + encodeURIComponent(rate) + '&';
+            if (rate) url += 'indicator_code=' + encodeURIComponent(rate) + '&';
             apiGet(url).then(data => {
                 document.getElementById('outlierLoading').classList.add('hidden');
                 updateOutlierUI(data, hosp, mon, rate);
@@ -202,7 +205,11 @@
             // hospitals.read still gets every outlier row.
             fillHospitalOptions(hospSel, prevHosp);
             populateSelectOptions(monSel, [...new Set(data.map(d => d.month))], currentMon);
-            populateSelectOptions(rateSel, [...new Set(data.map(d => d.rate_name))], currentRate);
+            // EVERY derivative indicator from the registry — not only the ones
+            // with an outlier this month. Building the options from `data` made
+            // the list shrink the moment a rate was selected, so the rest of
+            // the catalog could never be picked.
+            fillOutlierIndicatorOptions(rateSel, currentRate);
             // Render table
             const tbody = document.getElementById('outlierTbody');
             if (!data.length) {
@@ -228,12 +235,27 @@
                     d.formula_version ? __('Formula version: ') + d.formula_version : '',
                     d.indicator_id ? __('Indicator ID: ') + d.indicator_id : ''
                 ].filter(Boolean).join('\n');
-                const indicatorLabel = esc(d.rate_name) + (d.formula_version
-                    ? '<div style="font-size:0.66rem;color:var(--text-muted);">' + __('Formula v') + esc(d.formula_version) + '</div>'
+                // Name + formula: two derivative indicators can share a name
+                // (stillbirth per deliveries vs per live births), and the
+                // formula is the only thing on the row that tells them apart.
+                const _formulaLine = [
+                    d.formula_version ? __('Formula v') + d.formula_version : '',
+                    d.formula || '',
+                ].filter(Boolean).join(' · ');
+                const indicatorLabel = esc(d.rate_name) + (_formulaLine
+                    ? '<div style="font-size:0.66rem;color:var(--text-muted);direction:ltr;">' + esc(_formulaLine) + '</div>'
                     : '');
                 // "Why?" — opens the unified explain popup for this anomaly row:
                 // formula, peer set, threshold that fired, reproduced z ✓/✗.
-                const whyBtn = '<button onclick="window.showWhyPopup(\'anomaly\',' + Number(d.hospital_id) + ',\'' + esc(d.month) + '\',' + JSON.stringify(String(d.rate_name)).replace(/"/g, '&quot;') + ')" '
+                // The indicator CODE travels with the name: now that every
+                // derivative is scanned, two rows can share a display name
+                // (stillbirth per deliveries vs per live births) and a
+                // name-only lookup explained whichever row came first.
+                const whyBtn = '<button onclick="window.showWhyPopup({kind:\'anomaly\',hospitalId:' + Number(d.hospital_id)
+                    + ',month:' + JSON.stringify(String(d.month)).replace(/"/g, '&quot;')
+                    + ',rateName:' + JSON.stringify(String(d.rate_name)).replace(/"/g, '&quot;')
+                    + ',indicatorCode:' + JSON.stringify(String(d.indicator_code || '')).replace(/"/g, '&quot;')
+                    + '})" '
                     + 'title="' + __('Why? — formula, peers, threshold, reproduction') + '" '
                     + 'style="background:none;border:1px solid var(--border-default,#ccc);border-radius:4px;padding:1px 7px;font-size:0.7rem;cursor:pointer;color:var(--accent-blue,#1565c0);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button>';
                 return '<tr>' +
@@ -249,6 +271,17 @@
                     '<td>' + whyBtn + '</td>' +
                     '</tr>';
             }).join('');
+            // The endpoint returns the top rows by |Z| (its cap is 100). With
+            // the whole derivative catalog scanned, one filter can exceed that
+            // — and a silently truncated table is how "some indicators never
+            // appear" starts. Say it out loud instead.
+            if (total > data.length) {
+                tbody.insertAdjacentHTML('beforeend',
+                    '<tr data-no-sort><td colspan="10" style="text-align:center;color:var(--text-muted);font-size:0.72rem;padding:0.6rem;">'
+                    + esc(__('Showing')) + ': ' + data.length + ' / ' + total + ' — '
+                    + esc(__('narrow the filter to see the rest'))
+                    + '</td></tr>');
+            }
             wireOutlierSort();
         }
 
@@ -339,6 +372,37 @@
             }
         }
 
+        // Dropdown options for the "Derivative Indicator" filter: the full
+        // registry list (/analysis/outlier-indicators), refetched like the
+        // hospital list so activating or deactivating an indicator in the
+        // Indicators screen shows up without a page reload. Values are
+        // definition codes; the label is the display name, plus the formula
+        // when two indicators share that name.
+        async function fillOutlierIndicatorOptions(sel, currentVal) {
+            const prevVal = sel.value;
+            try {
+                const resp = await apiGet('/analysis/outlier-indicators');
+                const list = Array.isArray(resp) ? resp : [];
+                const nameCounts = {};
+                list.forEach(i => { nameCounts[i.name] = (nameCounts[i.name] || 0) + 1; });
+                sel.innerHTML = '<option value="">All</option>';
+                list.forEach(i => {
+                    const opt = document.createElement('option');
+                    opt.value = i.code;
+                    opt.textContent = nameCounts[i.name] > 1 && i.formula
+                        ? i.name + ' — ' + i.formula
+                        : i.name;
+                    if (nameCounts[i.name] > 1) opt.title = i.formula || '';
+                    sel.appendChild(opt);
+                });
+                const keep = (currentVal && list.some(i => i.code === currentVal))
+                    ? currentVal : prevVal;
+                sel.value = list.some(i => i.code === keep) ? keep : '';
+            } catch (err) {
+                console.warn('Outlier indicator filter failed:', err);
+            }
+        }
+
         function populateSelectOptions(sel, values, currentVal) {
             const prevVal = sel.value;
             sel.innerHTML = '<option value="">All</option>';
@@ -415,7 +479,11 @@
 
         export function sortTableRows(tbodyId, col, asc) {
             const tbody = document.getElementById(tbodyId);
-            const rows = Array.from(tbody.querySelectorAll('tr'));
+            // Placeholder rows (e.g. a truncation notice) opt out of sorting and
+            // stay at the bottom; sorting their text would interleave them with
+            // real data rows.
+            const pinned = Array.from(tbody.querySelectorAll('tr[data-no-sort]'));
+            const rows = Array.from(tbody.querySelectorAll('tr:not([data-no-sort])'));
             const colIdx = Array.from(tbody.parentElement.querySelectorAll('thead th')).findIndex(th => th.dataset.col === col);
             if (colIdx < 0) return;
             rows.sort((a, b) => {
@@ -426,6 +494,7 @@
                 return asc ? av.localeCompare(bv) : bv.localeCompare(av);
             });
             rows.forEach(r => tbody.appendChild(r));
+            pinned.forEach(r => tbody.appendChild(r));
         }
 
         // ── Rule Failures Tab ──────────────────────────────────────

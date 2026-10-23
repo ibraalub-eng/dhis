@@ -27,6 +27,7 @@
 import { apiGet } from './api.js';
 import { __, currentLang } from './i18n.js';
 import { esc } from './tree.js';
+import { openScreenInNewTab } from './newtab.js';
 
 let _modalEl = null;
 let _lastOpts = null; // context of the popup currently open (for the audit jump)
@@ -242,6 +243,94 @@ function _renderScoreTrend(p) {
         '</div></div>';
 }
 
+// Layered-outlier series (kind=layered_outlier): the hospital's own values for
+// the flagged indicator, month by month, plus the two baselines the verdict
+// was measured against — its historical mean and, when the peer layer fired,
+// this month's peer mean. The popup already says "+150% vs baseline" and "z
+// 2.1 against 3 peers"; drawing them makes those sentences checkable at a
+// glance instead of asking the reviewer to trust them or leave for the trend
+// chart.
+//
+// The unit comes from the payload (p.series_unit): the historical and peer
+// layers both z-score the RATE of a rate indicator, so a rate row must draw
+// the rate series — plotting the raw numerator with a rate baseline would put
+// two different rulers on one axis.
+function _renderLayeredSeries(p) {
+    const unit = p.series_unit === 'rate' ? 'rate' : 'value';
+    const fmt = function (v) {
+        const n = Number(v);
+        if (!isFinite(n)) return '\u2014';
+        return Math.abs(n) >= 100 ? String(Math.round(n)) : String(Math.round(n * 100) / 100);
+    };
+    const num = function (v) {
+        return (v === null || v === undefined || !isFinite(Number(v))) ? null : Number(v);
+    };
+    const pts = (p.series || []).filter(function (d) {
+        return d && num(d[unit]) !== null;
+    });
+    if (pts.length < 2) return '';
+    const inputs = (p.how && p.how.inputs) ? p.how.inputs : {};
+    const base = num(inputs.historical_mean);
+    // A peer line needs the group it was averaged over, not just a number.
+    const peerCount = Number(inputs.peer_count) || 0;
+    const peer = peerCount >= 2 ? num(inputs.peer_mean) : null;
+    const vals = pts.map(function (d) { return Number(d[unit]); });
+    let lo = Math.min.apply(null, vals);
+    let hi = Math.max.apply(null, vals);
+    [base, peer].forEach(function (v) { if (v !== null) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+    if (hi - lo < 1e-9) { hi += 1; lo -= 1; }
+    const W = 260, H = 54, PAD = 8;
+    const x = function (i) { return PAD + i * (W - 2 * PAD) / (pts.length - 1); };
+    const y = function (v) { return H - PAD - (v - lo) * (H - 2 * PAD) / (hi - lo); };
+    const line = pts.map(function (d, i) {
+        return (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(Number(d[unit])).toFixed(1);
+    }).join(' ');
+    // The row's own month is the point the verdict is about; a series that
+    // does not contain it (re-analysis moved on) falls back to the last point.
+    let cur = pts.length - 1;
+    pts.forEach(function (d, i) { if (d.current) cur = i; });
+    const first = pts[0], last = pts[cur];
+    const color = 'var(--accent-blue,#1565c0)';
+    const hover = pts.map(function (d) { return d.month + ': ' + fmt(d[unit]); }).join('  \u00b7  ');
+    let svg = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '"' +
+        ' style="flex:none;display:block;"><title>' + esc(hover) + '</title>';
+    if (base !== null) {
+        const by = y(base).toFixed(1);
+        svg += '<line x1="' + PAD + '" y1="' + by + '" x2="' + (W - PAD) + '" y2="' + by +
+            '" stroke="var(--text-muted,#888)" stroke-width="1" stroke-dasharray="3 3" opacity="0.75"/>';
+    }
+    if (peer !== null) {
+        const py = y(peer).toFixed(1);
+        svg += '<line x1="' + PAD + '" y1="' + py + '" x2="' + (W - PAD) + '" y2="' + py +
+            '" stroke="var(--accent-orange,#e65100)" stroke-width="1" stroke-dasharray="1.5 2.5" opacity="0.9"/>';
+    }
+    svg += '<path d="' + line + '" fill="none" stroke="' + color +
+        '" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>' +
+        '<circle cx="' + x(cur).toFixed(1) + '" cy="' + y(Number(last[unit])).toFixed(1) +
+        '" r="3.5" fill="var(--accent-orange,#e65100)" stroke="#fff" stroke-width="1.2"/></svg>';
+    const name = (p.where && p.where.indicator_name) ? p.where.indicator_name : '';
+    let html = _sectionTitle((unit === 'rate' ? __('Rate trend') : __('Raw value trend')) +
+        (name ? ' \u00b7 ' + name : '') + ' (' + pts.length + ' ' + __('months') + ')');
+    html += '<div style="display:flex;align-items:center;gap:0.7rem;flex-wrap:wrap;">' + svg +
+        '<div dir="ltr" style="font-family:monospace;font-size:0.74rem;line-height:1.5;">' +
+        '<span style="font-weight:700;color:' + color + ';">' + fmt(first[unit]) + ' \u2192 ' +
+        fmt(last[unit]) + '</span><br>' +
+        '<span style="color:var(--text-muted,#888);">' + esc(first.month) + ' \u2192 ' +
+        esc(last.month) + '</span></div></div>';
+    const legend = 'font-size:0.7rem;color:var(--text-muted,#888);margin-top:0.2rem;';
+    if (base !== null) {
+        html += '<div style="' + legend + '">- - - ' + __('baseline mean') + ': ' + fmt(base) + '</div>';
+    }
+    if (peer !== null) {
+        // "this month" is explicit: the peer mean is a current-month statistic,
+        // not a line the earlier points were judged against.
+        html += '<div style="' + legend + '"><span style="color:var(--accent-orange,#e65100);">' +
+            '\u00b7\u00b7\u00b7</span> ' + __('peer mean') + ' (' + peerCount + ' ' +
+            __('hospitals') + ', ' + __('this month') + '): ' + fmt(peer) + '</div>';
+    }
+    return html;
+}
+
 function _renderPayload(p) {
     let html = '';
     html += '<div style="display:flex;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;align-items:center;">';
@@ -276,6 +365,30 @@ function _renderPayload(p) {
     }
 
     html += _renderFailedRules(p);
+
+    // Outliers that produced an outlier score: the rows the penalty counts
+    // (HIGH/VERY_HIGH), with the number they were compared against. Without
+    // this the popup explained the score with unrelated source-data gaps.
+    if (p.outliers && p.outliers.length) {
+        html += _sectionTitle(__('Outliers that lowered the score'));
+        html += p.outliers.slice(0, 8).map(function (o) {
+            const lv = String(o.level || '').toUpperCase();
+            const tone = lv === 'VERY_HIGH' ? 'var(--accent-red,#c62828)' : 'var(--accent-orange,#e65100)';
+            const value = (o.value != null) ? Number(o.value).toFixed(2) : '\u2014';
+            const bench = (o.benchmark != null) ? Number(o.benchmark).toFixed(2) : '\u2014';
+            return '<div style="padding:0.3rem 0.5rem;margin:0.2rem 0;background:var(--bg-elevated,#f5f5f5);border-left:3px solid ' + tone + ';border-radius:0 4px 4px 0;font-size:0.76rem;">' +
+                '<div><span style="font-weight:700;color:' + tone + ';">' + esc(lv) + '</span> \u00b7 <strong>' + esc(o.indicator || o.indicator_code) + '</strong>' +
+                ' <span style="color:var(--text-muted,#888);font-size:0.7rem;">' + esc(o.indicator_code || '') + '</span></div>' +
+                '<div style="color:var(--text-secondary,#555);">' + esc(__('Value')) + ': ' + value + ' \u00b7 ' + esc(__('Benchmark')) + ': ' + bench +
+                (o.type ? ' \u00b7 ' + esc(o.type) : '') + '</div>' +
+                (o.interpretation ? '<div style="color:var(--text-muted,#888);font-size:0.7rem;line-height:1.45;">' + esc(o.interpretation) + '</div>' : '') +
+                '</div>';
+        }).join('');
+        if (p.outliers.length > 8) {
+            html += '<div style="font-size:0.72rem;color:var(--text-muted,#888);">' +
+                __('... and {n} more').replace('{n}', p.outliers.length - 8) + '</div>';
+        }
+    }
 
     if (p.data_problems && p.data_problems.length) {
         // Digest: at most 3 examples — the FULL sweep lives on the Audit
@@ -328,6 +441,7 @@ function _renderPayload(p) {
 
     html += _renderReproduce(p);
     html += _renderScoreTrend(p);
+    html += _renderLayeredSeries(p);
 
     // Layered-outlier detection layers (kind=layered_outlier). The Why popup
     // previously dropped p.layers entirely — the backend built the five-layer
@@ -455,36 +569,59 @@ window._explainJumpTrail = function () {
     if (!_lastOpts) return;
     closeWhyPopup();
     if (typeof window.closeModal === 'function') { try { window.closeModal(); } catch (e) { /* non-fatal */ } }
-    const opts = {
-        kind: _lastOpts.kind,
-        hospitalId: _lastOpts.hospitalId,
-        month: _lastOpts.month,
-        rateName: _lastOpts.rateName,
-        indicatorCode: _lastOpts.indicatorCode,
-        ruleCode: _lastOpts.ruleCode,
-        component: _lastOpts.component,
-    };
-    if (typeof window.openAuditTrail === 'function') {
-        window.openAuditTrail(opts);
-    } else if (typeof window.SwitchTab === 'function') {
-        window.SwitchTab('audit');
+    // Audit trail in a NEW tab: the popup belongs to a screen (Outliers,
+    // Quality Alerts, the drilldown…) that must stay where it is.
+    if (typeof window.openAuditTrailInNewTab === 'function') {
+        window.openAuditTrailInNewTab({
+            kind: _lastOpts.kind,
+            hospitalId: _lastOpts.hospitalId,
+            month: _lastOpts.month,
+            rateName: _lastOpts.rateName,
+            indicatorCode: _lastOpts.indicatorCode,
+            ruleCode: _lastOpts.ruleCode,
+            component: _lastOpts.component,
+        });
+        return;
     }
+    openScreenInNewTab('audit', {
+        mode: 'trail',
+        kind: _lastOpts.kind,
+        hospital_id: _lastOpts.hospitalId,
+        month: _lastOpts.month,
+        indicator_code: _lastOpts.indicatorCode,
+        rule_code: _lastOpts.ruleCode,
+    });
 };
 
 /**
- * Global cross-screen jump: switch to the Audit screen with the given
- * hospital/month preselected, run the audit, then scroll to `mode`:
+ * Global cross-screen jump FROM A MODAL: open the Audit screen in a NEW
+ * browser tab with the given hospital/month preselected, run the audit, then
+ * scroll to `mode`:
  *   'why'   → traceability chain   'steps' | 'bench' | 'da' | 'report' → section
  * Used by the Why popup (single source of truth for verification) AND by
  * drilldown rows so any finding is one press from its full verification.
+ * The tab that owns the popup keeps its screen, filters and scroll position —
+ * that is the whole point of the jump living in a new tab.
  */
 window._explainJumpTo = function (hid, month, mode) {
     closeWhyPopup();
-    // Jumping from inside the KPI drilldown (or any detail modal) must also
-    // dismiss that overlay, otherwise it covers the audit screen.
+    // Dismiss the overlay the button was clicked in, so the user comes back to
+    // a clean screen when they close the new tab.
     if (typeof window.closeModal === 'function') { try { window.closeModal(); } catch (e) { /* non-fatal */ } }
+    openScreenInNewTab('audit', {
+        mode: mode || 'why',
+        hospital_id: hid,
+        month: month,
+    });
+};
+
+/**
+ * In-page half of the jump, run inside that new tab by main.js's
+ * `applyBootScreen` (the Audit screen is already active): preselect the
+ * hospital/month, run the audit, scroll to `mode`.
+ */
+window._explainApplyJump = function (hid, month, mode) {
     if (typeof window.SwitchTab !== 'function') return;
-    window.SwitchTab('audit');
     // No hospital AND no month context → just open the screen; the user picks
     // the selection there. A month WITHOUT a hospital (e.g. the drilldown's
     // Data Auditor jump while the dashboard shows All Hospitals) must still

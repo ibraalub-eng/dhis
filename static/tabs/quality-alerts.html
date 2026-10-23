@@ -1,0 +1,99 @@
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.8rem;">
+    <div>
+        <h2 style="margin:0;">Quality Alerts</h2>
+        <span style="font-size:0.82rem;color:var(--text-muted);" data-i18n="Hospital risks · Indicator outliers · Peer comparisons">Hospital risks · Indicator outliers · Peer comparisons</span>
+        <div style="font-size:0.72rem;color:var(--accent-red);margin-top:0.15rem;" data-i18n="Showing only Very High (Red) alerts — other severities stay in the audit trail">Showing only Very High (Red) alerts — other severities stay in the audit trail</div>
+    </div>
+    <div style="display:flex;gap:0.4rem;align-items:center;">
+        <button class="btn btn-sm" onclick="scanQualityAlerts()" id="qaScanBtn" style="background:var(--accent-blue);color:white;border:none;padding:0.35rem 0.9rem;border-radius:4px;cursor:pointer;font-size:0.8rem;">&#128269; <span data-i18n="Run Scan">Run Scan</span></button>
+        <button class="btn btn-sm" onclick="recomputeStaleQualityAlerts()" id="qaRescanStaleBtn" style="background:none;border:1px solid var(--border-default);border-radius:4px;padding:0.35rem 0.7rem;font-size:0.78rem;cursor:pointer;color:var(--accent-orange);">&#9851; <span data-i18n="Recompute stale">Recompute stale</span></button>
+        <button class="btn btn-sm" onclick="exportQualityAlertsCSV()" style="background:none;border:1px solid var(--border-default);border-radius:4px;padding:0.35rem 0.7rem;font-size:0.78rem;cursor:pointer;color:var(--accent-blue);">&#128229; CSV</button>
+    </div>
+</div>
+
+<!-- ── KPI strip ─────────────────────────────────────────────────────── -->
+<div class="qa-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.6rem;margin-bottom:0.8rem;">
+    <div class="kpi-card"><div class="value" id="qaKpiRedOnly" style="color:var(--accent-red);">—</div><div class="label" data-i18n="Red only">Red only</div><div style="font-size:0.68rem;color:var(--text-muted);" data-i18n="Every perspective very high">Every perspective very high</div></div>
+    <div class="kpi-card"><div class="value" id="qaKpiMixed" style="color:var(--accent-orange);">—</div><div class="label" data-i18n="Mixed severity">Mixed severity</div><div style="font-size:0.68rem;color:var(--text-muted);" data-i18n="Red plus lower bands">Red plus lower bands</div></div>
+    <div class="kpi-card"><div class="value" id="qaKpiTotal">—</div><div class="label" data-i18n="Total active alerts">Total active alerts</div><div style="font-size:0.68rem;color:var(--text-muted);" data-i18n="Across all perspectives">Across all perspectives</div></div>
+    <div class="kpi-card"><div class="value" id="qaKpiHospitals">—</div><div class="label" data-i18n="Hospitals affected">Hospitals affected</div><div style="font-size:0.68rem;color:var(--text-muted);" data-i18n="Unique hospitals">Unique hospitals</div></div>
+    <div class="kpi-card"><div class="value" id="qaKpiIndicators">—</div><div class="label" data-i18n="Indicators affected">Indicators affected</div><div style="font-size:0.68rem;color:var(--text-muted);" data-i18n="Registered indicators">Registered indicators</div></div>
+    <div class="kpi-card"><div class="value" id="qaKpiNew">—</div><div class="label" data-i18n="Newly detected">Newly detected</div><div style="font-size:0.68rem;color:var(--text-muted);" data-i18n="Status: New">Status: New</div></div>
+    <div class="kpi-card"><div class="value" id="qaKpiUnresolved">—</div><div class="label" data-i18n="Open issues">Open issues</div><div style="font-size:0.68rem;color:var(--text-muted);" data-i18n="New · Under Review · Confirmed Issue">New · Under Review · Confirmed Issue</div></div>
+</div>
+
+<!-- ── Comparison perspectives (multi-select chips) ──────────────────── -->
+<div style="margin-bottom:0.6rem;">
+    <div style="font-size:0.75rem;font-weight:700;color:var(--text-secondary);margin-bottom:0.3rem;" data-i18n="Comparison perspectives">Comparison perspectives</div>
+    <div id="qaPerspectiveChips" style="display:flex;flex-wrap:wrap;gap:0.35rem;"></div>
+    <div id="qaPerspectiveNote" style="font-size:0.7rem;color:var(--text-muted);margin-top:0.25rem;"></div>
+</div>
+
+<!-- ── Filters ───────────────────────────────────────────────────────── -->
+<div class="card" style="padding:0.55rem 0.8rem;margin-bottom:0.8rem;">
+    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+        <label style="font-size:0.73rem;color:var(--text-secondary);" data-i18n="Period">Period</label>
+        <select id="qaMonthFilter" onchange="qualityAlertsFilterChanged()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+        <label style="font-size:0.73rem;color:var(--text-secondary);" data-i18n="Hospital">Hospital</label>
+        <select id="qaHospitalFilter" onchange="qualityAlertsFilterChanged()" style="font-size:0.78rem;padding:0.2rem 0.4rem;max-width:180px;"><option value="">All</option></select>
+        <label style="font-size:0.73rem;color:var(--text-secondary);" data-i18n="Indicator">Indicator</label>
+        <select id="qaIndicatorFilter" onchange="qualityAlertsFilterChanged()" style="font-size:0.78rem;padding:0.2rem 0.4rem;max-width:200px;"><option value="">All</option></select>
+        <label style="font-size:0.73rem;color:var(--text-secondary);" data-i18n="Indicator Type">Indicator Type</label>
+        <select id="qaIndicatorTypeFilter" onchange="qualityAlertsFilterChanged()" style="font-size:0.78rem;padding:0.2rem 0.4rem;">
+          <option value="" data-i18n="All types">All types</option>
+          <option value="element" data-i18n="Data Element">Data Element</option>
+          <option value="derivative" data-i18n="Derivative Indicator">Derivative Indicator</option>
+        </select>
+        <span class="badge badge-critical" style="font-size:0.72rem;" data-i18n="Very High (Red) alerts only">Very High (Red) alerts only</span>
+        <label style="font-size:0.73rem;color:var(--text-secondary);" data-i18n="Status">Status</label>
+        <select id="qaStatusFilter" onchange="qualityAlertsFilterChanged()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+        <label style="font-size:0.73rem;color:var(--text-secondary);" data-i18n="Ownership">Ownership</label>
+        <select id="qaOwnershipFilter" onchange="qualityAlertsFilterChanged()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+        <label style="font-size:0.73rem;color:var(--text-secondary);" data-i18n="Region">Region</label>
+        <select id="qaGovernorateFilter" onchange="qualityAlertsFilterChanged()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+        <label style="font-size:0.73rem;color:var(--text-secondary);" data-i18n="Type">Type</label>
+        <select id="qaTypeFilter" onchange="qualityAlertsFilterChanged()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+        <input id="qaSearchFilter" type="text" placeholder="Search hospital / indicator" oninput="qualityAlertsFilterChangedDebounced()" style="font-size:0.78rem;padding:0.25rem 0.5rem;min-width:170px;border:1px solid var(--border-default);border-radius:4px;background:var(--bg-elevated);color:var(--text-primary);">
+    </div>
+</div>
+
+<!-- ── Risk issues table ─────────────────────────────────────────────── -->
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+    <div style="font-size:0.85rem;font-weight:700;" data-i18n="Risk issues">Risk issues</div>
+    <div style="font-size:0.72rem;color:var(--text-muted);" id="qaCount"></div>
+</div>
+<div id="qaLoading" class="hidden" style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.4rem;"><span class="spinner"></span></div>
+<div style="overflow-x:auto;">
+    <table id="qaTable" style="width:100%;font-size:0.78rem;border-collapse:collapse;">
+        <thead>
+            <tr style="border-bottom:2px solid var(--border-default);text-align:left;color:var(--text-secondary);">
+                <th style="padding:0.4rem;" data-i18n="Severity">Severity</th>
+                <th style="padding:0.4rem;" data-i18n="Hospital">Hospital</th>
+                <th style="padding:0.4rem;" data-i18n="Indicator">Indicator</th>
+                <th style="padding:0.4rem;" data-i18n="Current">Current</th>
+                <th style="padding:0.4rem;" data-i18n="Baseline">Baseline</th>
+                <th style="padding:0.4rem;" data-i18n="Deviation">Deviation</th>
+                <th style="padding:0.4rem;" data-i18n="Trend">Trend</th>
+                <th style="padding:0.4rem;" data-i18n="Perspectives">Perspectives</th>
+                <th style="padding:0.4rem;" data-i18n="Period">Period</th>
+                <th style="padding:0.4rem;" data-i18n="Status">Status</th>
+                <th style="padding:0.4rem;" data-i18n="Detected">Detected</th>
+            </tr>
+        </thead>
+        <tbody id="qaTableBody"></tbody>
+    </table>
+</div>
+<div style="font-size:0.68rem;color:var(--text-muted);margin-top:0.35rem;"
+     data-i18n="Trend column: own monthly values · dashed line = baseline · ring = alert month">
+    Trend column: own monthly values · dashed line = baseline · ring = alert month
+</div>
+<div id="qaEmpty" style="display:none;padding:1.4rem;text-align:center;color:var(--text-muted);">
+    <div style="font-size:1.6rem;margin-bottom:0.4rem;">&#128276;</div>
+    <div style="font-size:0.85rem;" data-i18n="No risk issues match the current filters.">No risk issues match the current filters.</div>
+    <div style="font-size:0.75rem;margin-top:0.3rem;" data-i18n="Run a scan to detect new outliers.">Run a scan to detect new outliers.</div>
+</div>
+<div style="display:flex;justify-content:flex-end;align-items:center;gap:0.5rem;margin-top:0.6rem;">
+    <button class="btn btn-sm" onclick="qualityAlertsPage(-1)" id="qaPrevBtn" style="border:1px solid var(--border-default);background:none;border-radius:4px;padding:0.2rem 0.6rem;cursor:pointer;">&#8249;</button>
+    <span id="qaPageInfo" style="font-size:0.74rem;color:var(--text-muted);"></span>
+    <button class="btn btn-sm" onclick="qualityAlertsPage(1)" id="qaNextBtn" style="border:1px solid var(--border-default);background:none;border-radius:4px;padding:0.2rem 0.6rem;cursor:pointer;">&#8250;</button>
+</div>

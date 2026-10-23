@@ -27,8 +27,8 @@
                                 <select id="outlierMonthFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
                                 <label style="font-size:0.75rem;color:var(--text-secondary);">Mode:</label>
                                 <span style="font-size:0.75rem;color:var(--text-secondary);">Mode: <strong>Z-Score</strong></span>
-                                <label style="font-size:0.75rem;color:var(--text-secondary);">Rate:</label>
-                                <select id="outlierRateFilter" onchange="loadOutliers()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                                <label style="font-size:0.75rem;color:var(--text-secondary);" data-i18n="Derivative Indicator">Derivative Indicator</label>
+                                <select id="outlierRateFilter" onchange="loadOutliers()" title="Derivative indicators only (rates computed from data elements)" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
                             </div>
                             <div style="display:flex;align-items:center;gap:0.4rem;">
                                 <span id="outlierCount" style="font-size:0.75rem;color:var(--text-muted);"></span>

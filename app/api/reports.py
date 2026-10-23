@@ -1,5 +1,6 @@
 import io
 import json
+import statistics
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from fastapi.responses import StreamingResponse
@@ -9,12 +10,216 @@ import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
 from app.cache import cache
-from app.models import Hospital, QualityScore, ValidationResult, AnomalyResult, IndicatorValue
-from app.schemas import ReportOut, ReportSummaryOut
-from app.engine.pipeline import run_full_analysis
+from app.models import (
+    AnomalyResult,
+    Hospital,
+    Indicator,
+    IndicatorValue,
+    LayeredOutlierResult,
+    QualityScore,
+    ValidationResult,
+)
+from app.schemas import (
+    DataElementOutlierOut,
+    LayerScoreOut,
+    PeerHospitalOut,
+    PeerStatsOut,
+    ReportOut,
+    ReportSummaryOut,
+)
+from app.engine.anomaly.layered import (
+    LEVELS,
+    build_analysis_specs,
+    is_detection_outlier,
+    layer_breakdown,
+)
+from app.engine.pipeline import get_all_hospital_data_for_month, run_full_analysis
+from app.indicators import SYNTHETIC_INDICATOR_CODES
 from app.core.deps import get_current_user, get_user_hospital_ids, require_permission
 
 router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(require_permission("analysis.read"))])
+
+
+_LAYERED_LEVEL_ORDER = {"VERY_HIGH": 0, "HIGH": 1, "MODERATE": 2, "LOW": 3, "NONE": 4}
+
+# The detection floor — one rule for the whole app (layered.is_detection_outlier).
+OUTLIER_LEVELS = tuple(level for level in LEVELS if is_detection_outlier(level))
+
+
+def _peer_statistics(values) -> dict:
+    """Descriptive statistics of a peer group — the peer layer's basis.
+
+    Same population (the group the engine scored against) and the same
+    ddof=1 standard deviation as ``layered.compute_peer_layer``, so the numbers
+    shown beside a peer score explain it instead of quoting a different
+    baseline.
+    """
+    vals = [float(v) for v in values if v is not None]
+    if not vals:
+        return {"count": 0, "mean": None, "std": None,
+                "min": None, "max": None, "median": None}
+    return {
+        "count": len(vals),
+        "mean": round(statistics.fmean(vals), 4),
+        "std": round(statistics.stdev(vals), 4) if len(vals) > 1 else None,
+        "min": round(min(vals), 4),
+        "max": round(max(vals), 4),
+        "median": round(statistics.median(vals), 4),
+    }
+
+
+def _element_peer_ids(hospital: Hospital, code: str, all_data: dict,
+                      hospitals: list):
+    """The comparison group the layered engine used for this element.
+
+    `LayeredOutlierResult` stores peer_count/peer_mean but not the names, so
+    they have to be rebuilt — using the SAME rule the engine applies: every
+    active hospital reporting the indicator this month, minus the hospital
+    itself. That is `layered.canonical_peer_tiers`, so the tooltip explains the
+    stored score instead of inventing a different peer group.
+    """
+    id_by_name = {h.name: h.id for h in hospitals if h.name}
+    unit_values = {hid: all_data.get(name, {}).get(code)
+                   for name, hid in id_by_name.items()}
+    members = [hid for hid, value in unit_values.items()
+               if hid != hospital.id and value is not None]
+    return members, unit_values
+
+
+def _data_element_outliers(db: Session, hospital: Hospital, month: str):
+    """Layered rows for the raw catalog elements, with their peers.
+
+    Data elements have no entry in the AnomalyResult projection (that table
+    carries the derived rates), so listing it alone made every element-level
+    outlier invisible in the Quality report. These rows come from the same
+    stored results the Outlier Diagnostics screen reads, so the two screens
+    cannot disagree.
+    """
+    rows = (db.query(LayeredOutlierResult)
+            .filter(LayeredOutlierResult.hospital_id == hospital.id,
+                    LayeredOutlierResult.month == month)
+            .all())
+    if not rows:
+        return []
+
+    indicators = {ind.id: ind for ind in db.query(Indicator).all()}
+    # Rate rows (rate_cs, rate_mmr, ...) have no catalog Indicator; they are
+    # already covered by the AnomalyResult projection, so only data elements
+    # are added here.
+    elements = [r for r in rows
+                if r.indicator_id in indicators
+                and indicators[r.indicator_id].code not in SYNTHETIC_INDICATOR_CODES]
+    if not elements:
+        return []
+
+    all_data = get_all_hospital_data_for_month(db, month)
+    hospitals = (db.query(Hospital).filter(Hospital.is_active.is_(True)).all())
+    names = {h.id: h.name for h in hospitals}
+
+    items = []
+    for row in elements:
+        indicator = indicators[row.indicator_id]
+        peer_ids, peer_values = _element_peer_ids(
+            hospital, row.analysis_code, all_data, hospitals)
+        items.append(DataElementOutlierOut(
+            analysis_code=row.analysis_code,
+            indicator_id=row.indicator_id,
+            name=indicator.name,
+            value=row.raw_value,
+            baseline=row.historical_mean,
+            z_score=row.historical_z_score,
+            peer_count=row.peer_count if row.peer_count is not None else len(peer_ids),
+            peer_mean=row.peer_mean,
+            peer_stats=_peer_statistics(peer_values[pid] for pid in peer_ids),
+            peers=[PeerHospitalOut(
+                id=pid, name=names.get(pid, f"#{pid}"),
+                value=(round(float(peer_values[pid]), 4)
+                       if peer_values.get(pid) is not None else None))
+                for pid in peer_ids],
+            outlier_level=row.outlier_level,
+            outlier_type=row.outlier_type,
+            method=row.outlier_method,
+            interpretation=row.interpretation,
+            layers=layer_breakdown(row),
+            is_outlier=is_detection_outlier(row.outlier_level),
+            kind="element",
+        ))
+    items.sort(key=lambda i: (_LAYERED_LEVEL_ORDER.get(i.outlier_level or "NONE", 9),
+                              i.name or ""))
+    return items
+
+
+def _rate_layer_context(db: Session, hospital_id: int, month: str) -> dict:
+    """Lookup tables for joining an AnomalyResult row to its layered row.
+
+    The legacy projection keeps one row per registry code while the layered
+    table is keyed by analysis code, so the join needs the analysis specs:
+    name first (unique for every rate but one), then the stored rate value to
+    split that tie, then the registry code when the two systems agree on it.
+    A row that still cannot be placed keeps `layers=[]` — an empty strip is
+    honest, a guessed breakdown is not.
+    """
+    specs = build_analysis_specs(db)
+    by_name: dict = {}
+    for spec in specs:
+        by_name.setdefault(spec.name, []).append(spec)
+    stored = {
+        r.analysis_code: r for r in
+        db.query(LayeredOutlierResult).filter(
+            LayeredOutlierResult.hospital_id == hospital_id,
+            LayeredOutlierResult.month == month,
+        ).all()
+    }
+    return {"by_name": by_name,
+            "by_code": {spec.analysis_code: spec for spec in specs},
+            "stored": stored}
+
+
+def _rate_analysis_code(row, context: dict):
+    """The analysis code whose layered row produced this AnomalyResult row."""
+    by_name = context["by_name"]
+    stored = context["stored"]
+    candidates = by_name.get(row.rate_name) or []
+    if len(candidates) == 1:
+        return candidates[0].analysis_code
+    if len(candidates) > 1:
+        # Several rates share this name: the stored rate decides (the
+        # projection copied it, rounded to 2 decimals).
+        exact = [
+            spec.analysis_code for spec in candidates
+            if stored.get(spec.analysis_code) is not None
+            and stored[spec.analysis_code].rate is not None
+            and row.value is not None
+            and round(float(stored[spec.analysis_code].rate), 2)
+            == round(float(row.value), 2)
+        ]
+        if len(exact) == 1:
+            return exact[0]
+        return None
+    # No spec carries this name (an older or renamed row): fall back to the
+    # stored registry code, which equals the analysis code for most rates.
+    spec = context["by_code"].get(row.indicator_code)
+    return spec.analysis_code if spec else None
+
+
+def _rate_peer_stats(row) -> dict:
+    """Peer statistics for a projected rate row.
+
+    Prefers the stored peer list (the same hospitals the score compared
+    against); falls back to the peer columns written with the row, so a row
+    without `peers_detail` still shows its group's spread.
+    """
+    values = [p.get("rate") for p in (row.peers_detail or [])
+              if isinstance(p, dict) and p.get("rate") is not None]
+    if values:
+        return _peer_statistics(values)
+    if not row.peer_count:
+        return _peer_statistics([])
+    return {"count": row.peer_count,
+            # For a peer row the benchmark IS the peer mean.
+            "mean": row.benchmark,
+            "std": row.peer_std, "min": row.peer_min,
+            "max": row.peer_max, "median": row.peer_median}
 
 
 def _check_hospital_access(user, db: Session, hospital_id: int) -> None:
@@ -54,7 +259,9 @@ def list_reports(
             (QualityScore.hospital_id == file_subs.c.hospital_id) & (QualityScore.month == file_subs.c.month),
         )
     cache_key = cache.make_key(
-        "reports:list_v2",
+        # v4: card outliers are counted from the layered rows only (rates and
+        # data elements), so the count matches Outlier Diagnostics.
+        "reports:list_v4",
         uid=getattr(user, "id", 0),
         month=month,
         source_file=source_file,
@@ -80,19 +287,40 @@ def list_reports(
     hospital_ids = list(set(s.hospital_id for s in scores))
 
     months = list(set(s.month for s in scores))
-    anomaly_rows = (
-        db.query(AnomalyResult)
+    # Outliers come from ONE place: the layered rows (derived rates AND data
+    # elements), read at the engine's own detection floor. The AnomalyResult
+    # table is a projection of these rows, so counting it as well would
+    # double-count the same finding.
+    outlier_rows = (
+        db.query(LayeredOutlierResult)
         .filter(
-            AnomalyResult.hospital_id.in_(hospital_ids),
-            AnomalyResult.month.in_(months),
-            AnomalyResult.is_outlier,
+            LayeredOutlierResult.hospital_id.in_(hospital_ids),
+            LayeredOutlierResult.month.in_(months),
+            LayeredOutlierResult.outlier_level.in_(OUTLIER_LEVELS),
         )
         .all()
     )
-    anomaly_by_key: dict = {}
-    for a in anomaly_rows:
-        key = (a.hospital_id, a.month)
-        anomaly_by_key.setdefault(key, []).append(a)
+    indicator_names = {ind.id: ind.name for ind in db.query(Indicator).all()}
+    spec_names = {spec.analysis_code: spec.name
+                  for spec in build_analysis_specs(db)}
+    outliers_by_key: dict = {}
+    for row in outlier_rows:
+        is_element = row.indicator_id is not None
+        name = (indicator_names.get(row.indicator_id) if is_element
+                else spec_names.get(row.analysis_code))
+        if not name:
+            continue   # unknown code (stale row) — never show a blank card entry
+        outliers_by_key.setdefault((row.hospital_id, row.month), []).append({
+            "indicator": name,
+            "indicator_id": f"element:{row.analysis_code}" if is_element else None,
+            "formula": None,
+            "formula_version": "raw" if is_element else None,
+            "value": row.rate if row.rate is not None else row.raw_value,
+            "benchmark": (row.peer_mean if row.peer_mean is not None
+                          else row.historical_mean),
+            "level": row.outlier_level,
+            "kind": "element" if is_element else "rate",
+        })
 
     # Determine enabled months per hospital
     from app.api.analysis import get_enabled_months
@@ -104,17 +332,11 @@ def list_reports(
     for s in scores:
         hosp = hospitals.get(s.hospital_id)
         issues = json.loads(s.issues) if s.issues else []
-        outliers = [
-            {
-                "indicator": a.rate_name,
-                "indicator_id": a.indicator_id,
-                "formula": a.formula,
-                "formula_version": a.formula_version,
-                "value": a.value,
-                "benchmark": a.benchmark,
-            }
-            for a in anomaly_by_key.get((s.hospital_id, s.month), [])
-        ]
+        outliers = sorted(
+            outliers_by_key.get((s.hospital_id, s.month), []),
+            key=lambda o: (_LAYERED_LEVEL_ORDER.get(o["level"] or "NONE", 9),
+                           o["indicator"] or ""),
+        )
         is_enabled = s.month in enabled_by_hospital.get(s.hospital_id, set())
         results.append(ReportOut(
             hospital=hosp.name if hosp else "Unknown",
@@ -227,6 +449,10 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
     from app.engine import indicator_service
     from app.schemas import AnomalyOut
 
+    # Every row carries the layer scores that produced it. Rates read them from
+    # the layered row the projection copied; the join is resolved once above.
+    layer_context = _rate_layer_context(db, hospital_id, month)
+
     anomaly_items = []
     for row in anomaly_rows:
         item = AnomalyOut.model_validate(row)
@@ -237,6 +463,12 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
         item.current_formula_version = provenance["current_formula_version"]
         if not item.formula:
             item.formula = provenance["formula"]
+        analysis_code = _rate_analysis_code(row, layer_context)
+        if analysis_code is not None:
+            item.layers = [
+                LayerScoreOut(**layer) for layer in
+                layer_breakdown(layer_context["stored"].get(analysis_code))]
+        item.peer_stats = PeerStatsOut(**_rate_peer_stats(row))
         anomaly_items.append(item)
 
     return ReportSummaryOut(
@@ -250,6 +482,7 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
         issues=issues,
         validation_results=validation_rows,
         anomaly_results=anomaly_items,
+        layered_results=_data_element_outliers(db, hosp, month),
         confidence=confidence,
     )
 

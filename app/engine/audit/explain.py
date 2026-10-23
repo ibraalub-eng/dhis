@@ -28,7 +28,7 @@ never trusted beyond their own persisted columns).
 import json
 import logging
 from collections import Counter
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlencode
 
 logger = logging.getLogger(__name__)
@@ -142,15 +142,13 @@ def _quality_config(db: Session) -> dict:
 
 
 def _zscore_threshold(db: Session) -> float:
-    """Live z-score threshold — same resolution chain as the pipeline."""
-    from app.config_utils import get_config_dict
-    trends_cfg = get_config_dict(db, "trends")
-    if "zscore_threshold" in trends_cfg:
-        return float(trends_cfg["zscore_threshold"])
-    rates_cfg = get_config_dict(db, "rates")
-    if "zscore_threshold" in rates_cfg:
-        return float(rates_cfg["zscore_threshold"])
-    return float(get_config_dict(db, "thresholds").get("zscore_threshold", 2.5))
+    """Authoritative z-score threshold — thresholds.zscore_threshold only.
+
+    Single resolution path shared with the pipeline, trend engine, Quality
+    Alerts and System Control (app.engine.severity.load_analysis_config).
+    """
+    from app.engine.severity import load_analysis_config
+    return load_analysis_config(db).zscore_threshold
 
 
 def _rate_multiplier(num_code: Optional[str], den_code: Optional[str]) -> float:
@@ -189,12 +187,16 @@ def find_data_problems(values: list, db: Session = None) -> list:
     - duplicate (code, value, source_file) rows — the same indicator
       uploaded twice for the same month
     - missing value (None) rows persisted for the month — EXCEPT indicators
-      whose absence is already explained by a reported total (the sum-rule
-      "covered" doctrine used by completeness: when the reported children
-      already add up to the parent, an unreported sibling is "covered" and
-      must NOT be flagged nor penalize completeness). Pass ``db`` to enable
-      that gate; a None db keeps the legacy unconditional behaviour for
-      callers that cannot reach the config tables.
+      whose absence is a legitimate non-event: an Optional element (the flag
+      set on the Data Tree), an indicator that is Optional BY INHERITANCE
+      (every source data element of its subtree is Optional — see
+      pipeline.get_optional_source_indicator_ids), and one already explained
+      by a reported total (the sum-rule "covered" doctrine used by
+      completeness: when the reported children already add up to the parent,
+      an unreported sibling is "covered" and must NOT be flagged nor penalize
+      completeness). Pass ``db`` to enable those gates; a None db keeps the
+      legacy unconditional behaviour for callers that cannot reach the config
+      tables.
     """
     # Resolve the human-readable name for each indicator code so the messages
     # answer "what is indicator 5?" without a lookup elsewhere. Codes are
@@ -225,11 +227,41 @@ def find_data_problems(values: list, db: Session = None) -> list:
         except Exception:
             covered_codes = set()  # fail open: keep legacy behaviour
 
+    # Optional-code gate (same doctrine as the completeness denominator): a
+    # data element flagged Optional on the Data Tree simply may have no value
+    # in a month — its absence is a legitimate reason for a None row, not an
+    # error. Without this every Optional leaf that was not reported (17.g,
+    # 17.h, 19, …) was listed as "has no value for this month" while
+    # completeness — correctly — did not penalize it.
+    #
+    # The set comes from pipeline.get_optional_source_indicator_ids, the single
+    # source of truth, so it also covers OPTIONAL BY INHERITANCE: a parent
+    # (17 → Neonatal deaths) whose every source element is Optional is not a
+    # missing value either, even while its own flag still says 'Required'.
+    optional_codes: set = set()
+    if db is not None:
+        try:
+            from app.engine.pipeline import get_optional_source_indicator_ids
+            from app.models import Indicator
+            nullable = {v["code"] for v in values if v.get("value") is None}
+            optional_ids = get_optional_source_indicator_ids(db) if nullable else set()
+            if optional_ids:
+                optional_codes = {
+                    code for (code,) in db.query(Indicator.code)
+                    .filter(Indicator.code.in_(nullable),
+                            Indicator.id.in_(optional_ids))
+                    .all()
+                }
+        except Exception:
+            optional_codes = set()  # fail open: keep legacy behaviour
+
     problems = []
     seen = Counter()
     for v in values:
         val = v.get("value")
         if val is None:
+            if v["code"] in optional_codes:
+                continue  # Optional element — an unfilled month is not a problem
             if v["code"] in covered_codes:
                 continue  # absence explained by a reported total — not a problem
             problems.append({
@@ -308,6 +340,14 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
     hosp = _hospital(db, hospital_id)
     values = _raw_values(db, hospital_id, month)
     problems = find_data_problems(values, db)
+    outlier_component = component == "outlier_score"
+    outlier_drivers = _outliers_behind_score(db, hospital_id, month)
+    if outlier_component:
+        # A cell with no value creates no outlier row, so it cannot explain the
+        # outlier component: reporting "has no value" here buried the real
+        # drivers under a wall of completeness findings. Missing cells are
+        # explained where they are scored (completeness).
+        problems = [p for p in problems if p.get("kind") != "missing_value"]
 
     # Ghost gate: a QualityScore row without any raw values is a sentinel
     # for a month that was never analyzed — it must explain itself as a
@@ -376,6 +416,20 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
     )
     if problems:
         why = f"{len(problems)} raw-data problem(s) detected; " + why
+    if outlier_component:
+        penalty = float(qs.outlier_penalty or 0)
+        if outlier_drivers:
+            shown = ", ".join(f"{d['indicator']} ({d['level']})"
+                              for d in outlier_drivers[:5])
+            more = (f" +{len(outlier_drivers) - 5} more"
+                    if len(outlier_drivers) > 5 else "")
+            why = (f"Outlier score {op_inv:g}% = 100 - {penalty:g} penalty, from "
+                   f"{len(outlier_drivers)} indicator(s) at HIGH/VERY_HIGH: "
+                   f"{shown}{more}")
+        else:
+            why = (f"No indicator reached HIGH or VERY_HIGH this month — outlier "
+                   f"score {op_inv:g}% (penalty {penalty:g}). Missing cells are "
+                   f"counted under completeness, not here")
 
     payload = {
         "kind": "quality_score",
@@ -383,7 +437,10 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
         "hospital_id": hospital_id,
         "hospital": hosp.name if hosp else str(hospital_id),
         "month": month,
-        "what": f"Data quality score {stored} for {month} — weighted mix of rule compliance, completeness, consistency and outlier score",
+        "what": (f"Outlier score {op_inv:g} for {month} — 100 minus the penalty from "
+                 f"{len(outlier_drivers)} indicator(s) at HIGH/VERY_HIGH"
+                 if outlier_component else
+                 f"Data quality score {stored} for {month} — weighted mix of rule compliance, completeness, consistency and outlier score"),
         "where": {
             "hospital_id": hospital_id,
             "hospital": hosp.name if hosp else str(hospital_id),
@@ -410,6 +467,8 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
             "verified": verified,
         },
         "components_below_target": low_components,
+        "outliers": outlier_drivers,
+        "outlier_component": outlier_component,
         "failed_rules": failed_rules,
         "failed_rule_count": len(failed_rules),
         "classification": CLASS_DATA if problems else CLASS_STAT,
@@ -432,10 +491,74 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
     return payload
 
 
+def _outliers_behind_score(db: Session, hospital_id: int, month: str) -> list:
+    """The stored outlier rows the outlier component actually counts.
+
+    The penalty uses the HIGH/VERY_HIGH levels (quality.scoring.FLAGGED_LEVELS),
+    so the explanation must name those same rows in the same order — otherwise
+    the popup explains a different number than the one the user clicked. Names
+    come from the analysis specs (data elements and derived rates share them).
+    """
+    from app.engine.anomaly.layered import LEVEL_RANK
+    from app.engine.quality.scoring import FLAGGED_LEVELS
+    from app.models import LayeredOutlierResult
+
+    rows = (
+        db.query(LayeredOutlierResult)
+        .filter(
+            LayeredOutlierResult.hospital_id == hospital_id,
+            LayeredOutlierResult.month == month,
+            LayeredOutlierResult.outlier_level.in_(tuple(FLAGGED_LEVELS)),
+        )
+        .all()
+    )
+    if not rows:
+        return []
+    try:
+        from app.engine.anomaly.layered import build_analysis_specs
+        names = {spec.analysis_code: spec.name for spec in build_analysis_specs(db)}
+    except Exception:
+        names = {}
+
+    drivers = [
+        {
+            "indicator_code": row.analysis_code,
+            "indicator": names.get(row.analysis_code) or row.analysis_code,
+            "level": row.outlier_level,
+            "type": row.outlier_type,
+            "value": row.rate if row.rate is not None else row.raw_value,
+            "benchmark": (row.peer_mean if row.peer_mean is not None
+                          else row.historical_mean),
+            "interpretation": row.interpretation,
+            "investigation_route": row.investigation_route,
+        }
+        for row in rows
+    ]
+    drivers.sort(key=lambda d: (-LEVEL_RANK.get(d["level"] or "NONE", 0),
+                                d["indicator"] or ""))
+    return drivers
+
+
 # ───────────────────────────── anomaly ───────────────────────────────
 
+def _value_formula(row, den_codes, multiplier: float) -> str:
+    """The calculation line for any derivative row.
+
+    Ratio rows read ``rate = numerator/denominator×N``; a count-shaped
+    definition (no denominator — e.g. adolescent cases = 2.c + 2.d) has no
+    denominator to divide by, so it shows its own stored expression instead of
+    claiming a "×1" rate.
+    """
+    if den_codes:
+        return f"rate = numerator/denominator×{multiplier:g}"
+    if row.formula:
+        return f"value = {row.formula}"
+    return "value = sum of the reported elements"
+
+
 def _rebuild_peer_benchmark(db: Session, month: str, hospital_name: str,
-                            num_code: str, den_code: str) -> Optional[dict]:
+                            num_code: str, den_code: str,
+                            resolved=None) -> Optional[dict]:
     """Rebuild the peer population exactly as the anomaly pipeline did.
 
     Recomputing z from the row's own ``peers_detail`` only proves the stored
@@ -456,13 +579,26 @@ def _rebuild_peer_benchmark(db: Session, month: str, hospital_name: str,
         from app.engine.anomaly.zscore import compute_rate
         from app.engine.pipeline import get_all_hospital_data_for_month
 
+        def _rate(values):
+            # Non-zscore rows (the scan covers every derivative indicator now)
+            # are rebuilt through the very definition they were computed from —
+            # the legacy num/den helper would score them at the wrong
+            # multiplier and report a false "stale benchmark".
+            if resolved is not None:
+                from app.engine import indicator_service
+
+                outcome = indicator_service.calculate_from_values(
+                    resolved, values, hospital_id=0, month=month)
+                return outcome.value if outcome.status == "ok" else None
+            return compute_rate(values, num_code, den_code)
+
         data = get_all_hospital_data_for_month(db, month)
-        current = compute_rate(data.get(hospital_name, {}), num_code, den_code)
+        current = _rate(data.get(hospital_name, {}))
         peers = {}
         for name, values in data.items():
             if name == hospital_name:
                 continue
-            rate = compute_rate(values, num_code, den_code)
+            rate = _rate(values)
             if rate is not None:
                 peers[name] = rate
         if current is None or len(peers) < 2:
@@ -517,8 +653,33 @@ def explain_anomaly(
     from app.engine.anomaly.zscore import RATE_DEFINITIONS
     base_name = row.rate_name.replace(" (trend)", "")
     rate_def = next((d for d in RATE_DEFINITIONS if d[0] == base_name), None)
-    num_code = rate_def[1] if rate_def else row.indicator_code
-    den_code = rate_def[2] if rate_def else None
+    # The outlier scan covers EVERY derivative indicator, not only the zscore
+    # slice RATE_DEFINITIONS describes. For any other rate the row's stored
+    # indicator_id resolves back to the registry definition, which names its
+    # real inputs and multiplier — the explanation must use them, otherwise
+    # the formula, the raw inputs and the benchmark reproduction would all be
+    # silently wrong for the new rows.
+    resolved_ref = None
+    definition = None
+    definition_multiplier: Optional[float] = None
+    num_codes: List[str] = [rate_def[1]] if rate_def else []
+    den_codes: List[str] = [rate_def[2]] if rate_def else []
+    if rate_def is None:
+        try:
+            from app.engine import indicator_service
+
+            resolved_ref = indicator_service.resolve_ref(db, row.indicator_id)
+            definition = getattr(resolved_ref, "definition", None)
+        except Exception:  # pragma: no cover - registry is optional context
+            resolved_ref, definition = None, None
+        if definition is not None:
+            num_codes = [str(code) for code in (definition.numerator_codes or [])]
+            den_codes = [str(code) for code in (definition.denominator_codes or [])]
+            definition_multiplier = float(definition.multiplier or 1.0)
+    num_code = num_codes[0] if num_codes else row.indicator_code
+    den_code = den_codes[0] if den_codes else None
+    multiplier = (definition_multiplier if definition_multiplier is not None
+                  else _rate_multiplier(num_code, den_code))
 
     # Indicator NAMES for the codes this anomaly touches (numerator,
     # denominator and the anomaly's own code). Resolved from the raw values
@@ -555,19 +716,25 @@ def explain_anomaly(
         if row.peers_detail:
             for p in row.peers_detail[:10]:
                 inputs.append({"input": f"Peer: {p.get('hospital')}", "value": p.get("rate"), "role": "peer rate"})
-        formula = (f"rate = numerator/denominator×{_rate_multiplier(num_code, den_code):g};  "
+        formula = (f"{_value_formula(row, den_codes, multiplier)};  "
                    "z = (rate − peer_mean) / peer_std  (hospital excluded from its own benchmark)")
     else:
-        formula = (f"rate = numerator/denominator×{_rate_multiplier(num_code, den_code):g};  "
+        formula = (f"{_value_formula(row, den_codes, multiplier)};  "
                    "z = (rate − historical_mean) / historical_std  (trend anomaly)")
 
     num_v = by_code.get(num_code, {}).get("value")
     den_v = by_code.get(den_code, {}).get("value") if den_code else None
-    if den_code:
-        inputs.append({"input": f"Raw numerator ({num_code} — {num_name})" if num_name else f"Raw numerator ({num_code})",
-                       "value": num_v, "role": "from uploaded data"})
-        inputs.append({"input": f"Raw denominator ({den_code} — {den_name})" if den_name else f"Raw denominator ({den_code})",
-                       "value": den_v, "role": "from uploaded data"})
+    # One row per input code: a definition may sum two elements in its
+    # numerator (adolescent pregnancies = 2.c + 2.d), and listing only the
+    # first code would hide half the calculation from the reader.
+    for code in num_codes:
+        name = _name_for(code)
+        inputs.append({"input": f"Raw numerator ({code} — {name})" if name else f"Raw numerator ({code})",
+                       "value": by_code.get(code, {}).get("value"), "role": "from uploaded data"})
+    for code in den_codes:
+        name = _name_for(code)
+        inputs.append({"input": f"Raw denominator ({code} — {name})" if name else f"Raw denominator ({code})",
+                       "value": by_code.get(code, {}).get("value"), "role": "from uploaded data"})
 
     if is_peer_row and row.peer_count is not None and row.peer_count < 3:
         problems.append({
@@ -641,7 +808,8 @@ def explain_anomaly(
     peer_check = None
     benchmark_verified = None
     if is_peer_row and den_code and hosp is not None and hosp.name:
-        rebuilt = _rebuild_peer_benchmark(db, month, hosp.name, num_code, den_code)
+        rebuilt = _rebuild_peer_benchmark(db, month, hosp.name, num_code,
+                                          den_code, resolved=resolved_ref)
         if rebuilt:
             stored_peers = {p.get("hospital") for p in (row.peers_detail or [])
                             if p.get("hospital")}
@@ -1547,9 +1715,12 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
 
     managed_indicators = indicator_service.resolve_active_definitions(
         db, site="zscore")
+    from app.engine.severity import load_analysis_config
+    analysis_config = load_analysis_config(db)
     trends = analyze_historical_trends(
         hosp.name, monthly_data,
-        additional_indicators=managed_indicators)
+        additional_indicators=managed_indicators,
+        config=analysis_config.trend_engine_config())
     row = next((t for t in trends if t.rate_name == rate_name), None)
     if row is None:
         return {"error": f"No trend row for {rate_name} / {hosp.name}"}
@@ -1578,7 +1749,18 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
         "trend_finding_slope": float(tc.get("trend_finding_slope", 5.0)),
         "trend_finding_cv": float(tc.get("trend_finding_cv", 30.0)),
         "trend_finding_deviation": float(tc.get("trend_finding_deviation", 25.0)),
-        "trend_finding_consecutive": float(tc.get("trend_finding_consecutive", 3)),
+        # Persistence is the SAME setting System Control exposes.
+        "trend_finding_consecutive": float(analysis_config.trend.min_persistence),
+        # Effective temporal-trend policy (System Control).
+        "trend_assessment_enabled": analysis_config.trend.enabled,
+        "trend_analysis_window": analysis_config.trend.window,
+        "trend_min_history_months": analysis_config.trend.min_history,
+        "trend_direction": analysis_config.trend.trend_direction,
+        "trend_min_cumulative_change_pct": analysis_config.trend.min_cumulative_change,
+        "trend_severity_policy": analysis_config.trend.policy,
+        "trend_severity_escalation": analysis_config.trend.escalation,
+        "trend_severity_target": analysis_config.trend.target,
+        "zscore_threshold": analysis_config.zscore_threshold,
     }
 
     inputs = [
@@ -1595,6 +1777,15 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
          "role": "longest run of same-direction month-over-month moves"},
         {"input": "R²", "value": round(r_squared, 3), "role": "linearity of the trend"},
     ]
+
+    # Legacy rows without a stored formula: resolve the display multiplier
+    # from the zscore registry (same helper as every other explanation here)
+    # instead of hardcoding ×100, so a per-1,000 definition reads truthfully.
+    from app.engine.anomaly.zscore import RATE_DEFINITIONS
+
+    _trend_den = next((d for _rn, n, d, _tp in RATE_DEFINITIONS
+                       if n == row.indicator_code), None)
+    trend_mult = _rate_multiplier(row.indicator_code, _trend_den)
 
     return {
         "kind": "trend_row",
@@ -1615,12 +1806,12 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
         "how": {
             "formula": (
                 (f"rate per month = {row.formula};  " if row.formula
-                 else "rate per month = numerator/denominator×100;  ")
+                 else f"rate per month = numerator/denominator×{trend_mult:g};  ")
                 + "slope = linear regression over month index;  slope% = slope/mean×100;  "
                 + "CV% = std/mean×100;  last_vs_mean% = (last−mean)/mean×100"),
             "formula_readable": (
                 (f"Each month's {rate_name} = {row.formula}. " if row.formula
-                 else f"Each month's {rate_name} = ({row.indicator_code} numerator / denominator) × 100. ")
+                 else f"Each month's {rate_name} = ({row.indicator_code} numerator / denominator) × {trend_mult:g}. ")
                 + "A linear regression over the month index gives the slope; direction/severity "
                 "classify it against the thresholds below; findings are appended for each "
                 "threshold the series crosses."
@@ -1646,6 +1837,7 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
             "severity": row.trend_severity,
             "is_significant": bool(row.is_significant),
             "findings": [str(f) for f in row.findings],
+            "trend_assessment": row.trend_assessment,
         },
         "classification": CLASS_STAT,
         "data_problems": [],
@@ -1806,7 +1998,7 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
     if row.peer_mean is not None and row.peer_count:
         peer_value_text = f"{row.peer_mean:g} across {row.peer_count} peer hospitals"
     else:
-        peer_value_text = "no peer tier with at least 2 hospitals"
+        peer_value_text = "not computable (fewer than 2 hospitals reported it)"
 
     layers = [
         _layer("raw", "Raw value", raw_value_text, row.raw_value_outlier_score,
@@ -1821,8 +2013,40 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
                "denominator change guards against volume-driven spikes" if spec.is_rate
                else "count indicators have no denominator layer"),
         _layer("peer", "Peer comparison", peer_value_text, row.peer_outlier_score,
-               "first tier (type → ownership → governorate → all) with ≥ 2 hospitals"),
+               "every hospital reporting the indicator this month (≥ 2 others), self excluded"),
     ]
+
+    # The hospital's own month-by-month series for the flagged indicator. A
+    # layered verdict is a statement about THIS hospital's history ("+150% vs
+    # baseline"), so the shape it is judged against belongs in the popup — the
+    # reviewer should not have to leave for the trend chart to see it. Capped:
+    # the popup draws a sparkline, not an archive.
+    series_rows = (
+        db.query(LayeredOutlierResult)
+        .filter(
+            LayeredOutlierResult.hospital_id == hospital_id,
+            LayeredOutlierResult.analysis_code == analysis_code,
+        )
+        .order_by(LayeredOutlierResult.month.asc())
+        .all()
+    )
+    series = [
+        {
+            "month": r.month,
+            "value": r.raw_value,
+            "rate": r.rate,
+            "type": r.outlier_type,
+            "level": r.outlier_level,
+            "current": r.month == month,
+        }
+        for r in series_rows
+    ][-18:]
+    # Which column the popup must plot. The historical and peer layers both
+    # z-score the RATE for a rate indicator (spec.is_rate), so drawing the raw
+    # numerator there would put the series and its baselines on different
+    # rulers. The unit travels with the payload rather than being re-derived
+    # in the browser from a name or a type string.
+    series_unit = "rate" if spec.is_rate else "raw"
 
     if row.raw_value is not None and raw_change_percent is not None:
         what = (f"{spec.name} {row.raw_value:g} vs {row.previous_value:g} previous "
@@ -1891,6 +2115,8 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
         "investigation_route": row.investigation_route,
         "rule_number": rule_number,
         "layers": layers,
+        "series": series,
+        "series_unit": series_unit,
         "chain": [
             {"step": "Source Data",
              "detail": f"Uploaded indicator values for {month}",

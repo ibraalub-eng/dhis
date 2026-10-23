@@ -318,6 +318,47 @@ def test_explain_layered_outlier_contract(db_session, client):
     assert any("/analysis/layered" in (n.get("endpoint") or "") for n in p["chain"])
 
 
+def test_explain_layered_outlier_draws_the_hospital_series(db_session, client):
+    """The Why popup plots the hospital's own months for the flagged
+    indicator: a layered verdict is a statement about that history, so the
+    payload carries it oldest-first with the row's own month flagged."""
+    h = db_session.query(Hospital).first()
+    _add_layered(db_session, h.id, "2027-04", raw_value=4.0)
+    _add_layered(db_session, h.id, "2027-05", raw_value=10.0)
+    _add_layered(db_session, h.id, "2027-06", raw_value=25.0)
+
+    resp = client.get(
+        f"/audit/explain?kind=layered_outlier&hospital_id={h.id}"
+        "&month=2027-06&indicator_code=rate_cs"
+    )
+    assert resp.status_code == 200, resp.text
+    series = resp.json()["series"]
+    assert [pt["month"] for pt in series] == ["2027-04", "2027-05", "2027-06"]
+    assert [pt["value"] for pt in series] == [4.0, 10.0, 25.0]
+    assert [pt["current"] for pt in series] == [False, False, True]
+    assert series[-1]["type"] == "CLINICAL_INVESTIGATION_REQUIRED"
+    # The historical and peer layers z-score the RATE of a rate indicator, so
+    # the popup is told to plot the rate series (never the raw numerator).
+    assert resp.json()["series_unit"] == "rate"
+
+
+def test_explain_layered_outlier_count_series_plots_raw_values(db_session, client):
+    """Count indicators have no rate layer — their comparison unit is the raw
+    value, and the payload says so instead of leaving the browser to guess."""
+    h = db_session.query(Hospital).first()
+    _add_layered(db_session, h.id, "2027-05", analysis_code="2", raw_value=40.0)
+    _add_layered(db_session, h.id, "2027-06", analysis_code="2", raw_value=41.0)
+
+    resp = client.get(
+        f"/audit/explain?kind=layered_outlier&hospital_id={h.id}"
+        "&month=2027-06&indicator_code=2"
+    )
+    assert resp.status_code == 200, resp.text
+    p = resp.json()
+    assert p["series_unit"] == "raw"
+    assert [pt["value"] for pt in p["series"]] == [40.0, 41.0]
+
+
 def test_explain_layered_outlier_missing_row_404s(db_session, client):
     h = db_session.query(Hospital).first()
 

@@ -49,7 +49,9 @@ def test_classification_badge_colors_follow_spec():
 def test_outliers_colspan_grew_to_ten_columns():
     js = _read("js", "outliers.js")
     assert js.count('colspan="9"') == 0
-    assert js.count('colspan="10"') == 3            # loading, error, empty rows
+    # loading, error, empty rows + the truncation notice (the endpoint caps at
+    # 100 rows; with every derivative indicator scanned a filter can exceed it)
+    assert js.count('colspan="10"') == 4
 
 
 def test_outliers_csv_carries_classification():
@@ -59,10 +61,14 @@ def test_outliers_csv_carries_classification():
 
 
 def test_outliers_why_button_still_opens_anomaly_explanation():
-    """Spec §10A: the Why button is unchanged — classification rides in the
-    badge tooltip (the one-line interpretation), not in a new popup path."""
+    """Spec §10A: the Why button keeps opening the anomaly explanation —
+    classification rides in the badge tooltip (the one-line interpretation),
+    not in a new popup path. The call passes the indicator CODE next to the
+    name so same-name rates (stillbirth per deliveries vs per live births)
+    explain their own row."""
     js = _read("js", "outliers.js")
-    assert "showWhyPopup(\\'anomaly\\'" in js
+    assert "showWhyPopup({kind:\\'anomaly\\'" in js
+    assert "indicatorCode:" in js
 
 
 def test_classification_badge_styles_exist():
@@ -292,6 +298,31 @@ def test_layered_why_uses_the_shared_modal():
     assert "body.innerHTML = _explainErrorHtml(err);" in ex
     i18n = _read("js", "i18n.js")
     assert "'Why — fixed comparison panel':" not in i18n
+
+
+def test_layered_why_popup_draws_the_indicator_trend():
+    """A layered verdict is about the hospital's own history, so the shared
+    Why popup draws that series (with the baseline mean it was measured
+    against) instead of leaving the reviewer to open the trend chart.
+    """
+    ex = _read("js", "explain.js")
+    assert "function _renderLayeredSeries(p)" in ex
+    assert "html += _renderLayeredSeries(p);" in ex
+    assert "p.series" in ex
+    # The dashed baseline is the historical mean the z-score used — no second
+    # definition invented client-side.
+    assert "inputs.historical_mean" in ex
+    # A peer-driven verdict draws the group it was compared against: the mean
+    # AND the size of that group (a mean with no count is not a comparison).
+    assert "inputs.peer_mean" in ex
+    assert "inputs.peer_count" in ex
+    # Rate indicators are plotted on the rate, the unit the layers z-scored.
+    assert "p.series_unit" in ex
+    assert "__('Rate trend')" in ex
+    i18n = _read("js", "i18n.js")
+    for key in ("'Raw value trend':", "'Rate trend':", "'baseline mean':",
+                "'peer mean':", "'this month':"):
+        assert key in i18n, key
 
 
 def test_layered_summary_badges_are_clickable_filters():
