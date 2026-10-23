@@ -13,12 +13,14 @@
       <h2 style="margin:0;color:var(--accent-blue);font-size:1.15rem;">🛡️ <span data-i18n="Smart Analytics">التحليل الذكي</span></h2>
       <div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.2rem;" data-i18n="Decision first, analysis second">قرار أولاً، تحليل ثانياً</div>
     </div>
-    <div class="smart-mode-bar" role="tablist" aria-label="Analysis mode">
-      <button id="smart-mode-monthly" class="smart-mode-btn active" role="tab" aria-selected="true" data-smart-mode="monthly" data-i18n="Monthly">شهري</button>
-      <button id="smart-mode-time" class="smart-mode-btn" role="tab" aria-selected="false" data-smart-mode="time" data-i18n="Time">زمني</button>
-      <button id="smart-mode-hospital" class="smart-mode-btn" role="tab" aria-selected="false" data-smart-mode="hospital" data-i18n="Hospital">مستشفى</button>
+    <div style="display:flex;align-items:center;gap:0.8rem;flex-wrap:wrap;">
+      <div class="smart-mode-bar" style="margin-bottom:0;" role="tablist" aria-label="Analysis mode">
+        <button id="smart-mode-monthly" class="smart-mode-btn active" role="tab" aria-selected="true" data-smart-mode="monthly" data-i18n="Monthly">شهري</button>
+        <button id="smart-mode-time" class="smart-mode-btn" role="tab" aria-selected="false" data-smart-mode="time" data-i18n="Time">زمني</button>
+        <button id="smart-mode-hospital" class="smart-mode-btn" role="tab" aria-selected="false" data-smart-mode="hospital" data-i18n="Hospital">مستشفى</button>
+      </div>
+      <button id="smart-methodology-btn" class="btn btn-sm btn-outline" aria-label="Methodology" data-i18n="Methodology">ⓘ المنهجية</button>
     </div>
-    <button id="smart-methodology-btn" class="btn btn-sm btn-outline" aria-label="Methodology" data-i18n="Methodology">ⓘ المنهجية</button>
   </div>
 
   <!-- ═══ Context bar (per-mode filters + actions) ═══ -->
@@ -53,30 +55,62 @@
   <!-- ═══ Panel: Monthly ═══ -->
   <div id="smart-monthly-panel">
 
-    <!-- Decision board (above the fold) -->
-    <div id="smart-decision-board" style="margin-bottom:1.2rem;">
-      <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.8rem;">
-        <h3 style="margin:0;color:var(--accent-blue);font-size:1rem;">🛡️ <span data-i18n="Decision Board">لوحة القرار</span></h3>
+    <!-- Decision board (above the fold): uniform card stack, open by default -->
+    <div id="smart-decision-board" class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-kpi-container">
+        <span>🛡️ <span data-i18n="Decision Board">لوحة القرار</span></span>
         <span id="smart-decision-month" style="font-size:0.8rem;font-weight:700;color:var(--accent-purple);background:rgba(67,56,202,0.12);border:1px solid var(--border-default);padding:0.2rem 0.7rem;border-radius:12px;"></span>
+        <span class="smart-toggle-icon">▾</span>
       </div>
-      <div id="smart-kpi-container" class="smart-kpi-grid"></div>
-      <div class="smart-section-card">
-        <div class="smart-section-header" data-smart-collapsible="smart-critical-block">
-          <span>🚨 <span data-i18n="Hospitals needing urgent action">مستشفيات تحتاج تدخلاً عاجلاً</span></span>
-          <span id="smart-critical-count" style="font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:12px;background:rgba(239,68,68,0.12);color:var(--accent-red);font-weight:600;"></span>
-          <span class="smart-toggle-icon">▾</span>
-        </div>
-        <div id="smart-critical-block" class="smart-section-body">
-          <div id="smart-critical-list" class="smart-priority-list"></div>
-          <div id="smart-critical-text" style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.5rem;"></div>
-        </div>
+      <div class="smart-section-body">
+        <div id="smart-kpi-container" class="smart-kpi-grid" style="margin-bottom:0;"></div>
       </div>
-      <div id="smart-early-warnings" style="margin-bottom:0.8rem;"></div>
-      <div id="smart-healthy-hospitals" style="margin-bottom:0.8rem;"></div>
     </div>
+    <div class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-critical-block">
+        <span>🚨 <span data-i18n="Hospitals needing urgent action">مستشفيات تحتاج تدخلاً عاجلاً</span></span>
+        <span id="smart-critical-count" style="font-size:0.72rem;padding:0.2rem 0.7rem;border-radius:12px;background:rgba(239,68,68,0.12);color:var(--accent-red);font-weight:600;"></span>
+        <span class="smart-toggle-icon">▾</span>
+      </div>
+      <div id="smart-critical-block" class="smart-section-body">
+        <div id="smart-critical-list" class="smart-priority-list"></div>
+        <div id="smart-critical-text" style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.5rem;"></div>
+      </div>
+    </div>
+    <div id="smart-early-warnings"></div>
+    <div id="smart-healthy-hospitals"></div>
 
     <!-- Analytics sections (collapsible, heavy ones folded) -->
-    <div class="smart-section-card">
+    <div class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-indicators-scope">
+        <span>🧭 <span data-i18n="Indicators the analysis works with">المؤشرات التي يعمل بها التحليل</span></span>
+        <span id="smart-indicators-scope-badge" style="font-size:0.72rem;font-weight:400;color:var(--text-muted);"></span>
+        <span class="smart-toggle-icon">▾</span>
+      </div>
+      <div id="smart-indicators-scope" class="smart-section-body">
+        <div class="smart-loader" data-smart-loader="indicators-scope"><span data-i18n="Computing...">جاري المعالجة...</span></div>
+        <div class="smart-error-banner" data-smart-error="indicators-scope" role="alert"></div>
+        <div class="smart-empty-state" data-smart-empty="indicators-scope"></div>
+        <div id="smart-indicators-scope-note" style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:0.5rem;line-height:1.6;"></div>
+        <div class="smart-table-wrap">
+          <table>
+            <thead><tr>
+              <th data-i18n="Indicator">المؤشر</th>
+              <th data-i18n="Type">النوع</th>
+              <th data-i18n="Source codes">رموز المصدر</th>
+              <th data-i18n="Coverage">التغطية</th>
+              <th data-i18n="Coverage trend (6 months)">اتجاه التغطية (6 أشهر)</th>
+              <th data-i18n="Disabled">معطل</th>
+              <th data-i18n="Missing">ناقص</th>
+              <th data-i18n="Status">الحالة</th>
+            </tr></thead>
+            <tbody id="smart-indicators-scope-table"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="smart-section-card open">
       <div class="smart-section-header" data-smart-collapsible="smart-hospitals-section">
         <span>🏥 <span data-i18n="Hospitals">المستشفيات</span> — <span data-i18n="Anomaly table and healthy models">جدول الشذوذ ونماذج القدوة</span></span>
         <span class="smart-toggle-icon">▾</span>
@@ -94,7 +128,7 @@
       </div>
     </div>
 
-    <div class="smart-section-card">
+    <div class="smart-section-card open">
       <div class="smart-section-header" data-smart-collapsible="smart-geo-section">
         <span>🗺️ <span data-i18n="Geography">الجغرافيا</span> — <span data-i18n="Map, governorates, regional">الخريطة والمحافظات والإقليمي</span></span>
         <span class="smart-toggle-icon">▾</span>
@@ -109,7 +143,7 @@
       </div>
     </div>
 
-    <div class="smart-section-card">
+    <div class="smart-section-card open">
       <div class="smart-section-header" data-smart-collapsible="smart-advanced-section">
         <span>🧠 <span data-i18n="Advanced Models">النماذج المتقدمة</span> — <span data-i18n="clusters, correlations, patterns, lead-lag">عنقودات، ارتباطات، أنماط، قيادة متأخرة</span></span>
         <span class="smart-toggle-icon">▾</span>
@@ -152,10 +186,17 @@
 
     <!-- Report output (kept for backward compatibility) -->
     <div id="smart-report-section" style="display:none;margin-top:1.2rem;">
-      <h3 style="color:var(--accent-blue);font-size:1rem;">📋 <span data-i18n="Comprehensive Report">التقرير الشامل</span></h3>
-      <div id="smart-report-kpi-dashboard" class="smart-kpi-grid"></div>
-      <div class="smart-section-card">
-        <div class="smart-section-header" data-smart-collapsible="smart-decision-board">
+      <div class="smart-section-card open">
+        <div class="smart-section-header" data-smart-collapsible="smart-report-kpi-dashboard">
+          <span>📋 <span data-i18n="Comprehensive Report">التقرير الشامل</span></span>
+          <span class="smart-toggle-icon">▾</span>
+        </div>
+        <div class="smart-section-body">
+          <div id="smart-report-kpi-dashboard" class="smart-kpi-grid" style="margin-bottom:0;"></div>
+        </div>
+      </div>
+      <div class="smart-section-card open">
+        <div class="smart-section-header" data-smart-collapsible="smart-decision-verdict">
           <span>🎯 <span data-i18n="Executive Decisions">قرارات تنفيذية</span></span>
           <span class="smart-toggle-icon">▾</span>
         </div>
@@ -171,7 +212,7 @@
         </div>
       </div>
       <div id="smart-report-output"></div>
-      <div class="smart-section-card">
+      <div class="smart-section-card open">
         <div class="smart-section-header" data-smart-collapsible="smart-comparison-block">
           <span>⚖️ <span data-i18n="Peer Comparison">مقارنة النظير</span></span>
           <span class="smart-toggle-icon">▾</span>
@@ -203,7 +244,7 @@
 
   <!-- ═══ Panel: Time (زمني) ═══ -->
   <div id="smart-time-panel" style="display:none;">
-    <div class="smart-section-card">
+    <div class="smart-section-card open">
       <div class="smart-section-header" data-smart-collapsible="smart-timeline-block">
         <span>📈 <span data-i18n="Anomaly Timeline">تطور درجات الشذوذ</span></span>
         <span id="smart-timeline-badge" style="font-size:0.7rem;color:var(--text-secondary);"></span>
@@ -216,7 +257,7 @@
         <div id="smart-timeline-text" style="font-size:0.75rem;color:var(--text-secondary);margin-top:0.4rem;"></div>
       </div>
     </div>
-    <div class="smart-section-card">
+    <div class="smart-section-card open">
       <div class="smart-section-header" data-smart-collapsible="smart-time-overview-block">
         <span>🌐 <span data-i18n="Time Overview">النظرة الزمنية</span></span>
         <span class="smart-toggle-icon">▾</span>
@@ -232,39 +273,83 @@
     </div>
   </div>
 
-  <!-- ═══ Panel: Hospital (مستشفى) ═══ -->
-  <div id="smart-hospital-panel" style="display:none;margin-top:1rem;">
+  <!-- ═══ Panel: Hospital (مستشفى) — same card language as the monthly mode ═══ -->
+  <div id="smart-hospital-panel" style="display:none;">
     <div class="smart-loader" data-smart-loader="hospital"><span data-i18n="Computing...">جاري المعالجة...</span></div>
     <div class="smart-error-banner" data-smart-error="hospital" role="alert"></div>
     <div class="smart-empty-state" data-smart-empty="hospital"></div>
 
-    <!-- Profile Card -->
-    <div id="smart-hospital-profile" style="display:none;background:var(--bg-elevated);border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;border:1px solid var(--border-default);"></div>
-r
-    <!-- Quality + Confidence Gauges -->
-    <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;align-items:start;margin-bottom:1rem;">
-      <!-- Model Confidence Gauge (semicircle) -->
-      <div id="smart-hospital-confidence-gauge" style="display:none;"></div>
-      <!-- Quality breakdown cards -->
-      <div id="smart-hospital-gauges" style="display:none;display:grid;grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));gap:0.5rem;"></div>
+    <!-- Profile + quality gauges -->
+    <div class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-hospital-profile">
+        <span>👤 <span data-i18n="Hospital profile">ملف المستشفى</span></span>
+        <span class="smart-toggle-icon">▾</span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-hospital-profile" style="display:none;background:var(--bg-elevated);border-radius:10px;padding:1rem 1.2rem;margin-bottom:1rem;border:1px solid var(--border-default);"></div>
+        <div style="display:grid;grid-template-columns:auto 1fr;gap:1rem;align-items:start;">
+          <!-- Model Confidence Gauge (semicircle) -->
+          <div id="smart-hospital-confidence-gauge" style="display:none;"></div>
+          <!-- Quality breakdown cards -->
+          <div id="smart-hospital-gauges" style="display:none;display:grid;grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));gap:0.5rem;"></div>
+        </div>
+      </div>
     </div>
 
     <!-- Trend Chart -->
-    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">📈 <span data-i18n="Anomaly Score Trend">اتجاه درجة الشذوذ</span></div>
-    <div id="smart-hospital-trend" style="height:240px;margin-bottom:1rem;"></div>
+    <div class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-hospital-trend">
+        <span>📈 <span data-i18n="Anomaly Score Trend">اتجاه درجة الشذوذ</span></span>
+        <span class="smart-toggle-icon">▾</span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-hospital-trend" style="height:240px;"></div>
+      </div>
+    </div>
 
     <!-- Clinical Indicators -->
-    <div id="smart-hospital-indicators" style="margin-bottom:1rem;"></div>
+    <div class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-hospital-indicators">
+        <span>📊 <span data-i18n="Clinical Indicators">المؤشرات السريرية</span></span>
+        <span class="smart-toggle-icon">▾</span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-hospital-indicators"></div>
+      </div>
+    </div>
 
     <!-- Peer Comparison -->
-    <div id="smart-hospital-peers" style="margin-bottom:1rem;"></div>
+    <div class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-hospital-peers">
+        <span>👥 <span data-i18n="Peer Comparison">مقارنة النظير</span></span>
+        <span class="smart-toggle-icon">▾</span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-hospital-peers"></div>
+      </div>
+    </div>
 
     <!-- Lag Relationships Timeline -->
-    <div id="smart-hospital-lag" style="margin-bottom:1rem;"></div>
+    <div class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-hospital-lag">
+        <span>🔗 <span data-i18n="Lead-lag relationships">علاقات القيادة والتأخر</span></span>
+        <span class="smart-toggle-icon">▾</span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-hospital-lag"></div>
+      </div>
+    </div>
 
     <!-- Root Cause Factors -->
-    <div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">🔍 <span data-i18n="Root Cause Factors">عوامل السبب الجذري</span></div>
-    <div id="smart-hospital-factors" class="smart-table-wrap"></div>
+    <div class="smart-section-card open">
+      <div class="smart-section-header" data-smart-collapsible="smart-hospital-factors">
+        <span>🔍 <span data-i18n="Root Cause Factors">عوامل السبب الجذري</span></span>
+        <span class="smart-toggle-icon">▾</span>
+      </div>
+      <div class="smart-section-body">
+        <div id="smart-hospital-factors" class="smart-table-wrap"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ═══ Methodology modal (single unified source) ═══ -->

@@ -13,7 +13,7 @@ from app.database import get_db
 from app.engine.smart import run_smart_analytics
 from app.engine.smart.schemas import SmartAnalyticsResult
 import threading
-from app.core.deps import require_permission
+from app.core.deps import get_user_hospital_ids, require_permission
 from app.core.error_handler import safe_endpoint
 from app.models import Hospital, Indicator, IndicatorValue, QualityScore
 from app.engine.smart.trajectory import run_forecast_trajectory
@@ -23,6 +23,9 @@ from app.engine.comparative.advanced_comparison import compare_peers
 router = APIRouter(prefix="/smart", tags=["Smart Analytics"], dependencies=[Depends(require_permission("smart_analytics.read"))])
 
 SMART_CACHE_VERSION = "v3"
+
+# عدد أشهر خط تغطية المؤشرات الصغير في لوحة نطاق التحليل
+COVERAGE_TREND_MONTHS = 6
 
 
 def _get_envelope_or_empty(db: Session, month: str) -> dict:
@@ -122,6 +125,7 @@ def _envelope(result: SmartAnalyticsResult) -> dict:
             "training_months": xgb.training_months,
             "hospitals_trained": xgb.hospitals_trained,
             "accuracy_note": xgb.accuracy_note,
+            "note_facts": xgb.note_facts,
             "trained_at": xgb.trained_at,
             "retrained": xgb.retrained,
             "data_fingerprint": xgb.data_fingerprint,
@@ -333,10 +337,13 @@ def _get_smart_data(db: Session, month: str) -> dict:
     }
 @router.get("/months")
 @safe_endpoint("خطأ في قائمة الأشهر")
-def smart_months(db: Session = Depends(get_db)):
+def smart_months(
+    db: Session = Depends(get_db),
+    user=Depends(require_permission("smart_analytics.read")),
+):
     """قائمة الأشهر المتاحة للتحليل الذكي (نفس مصدر analysis/months)."""
-    from app.api.analysis import list_months_with_data
-    return list_months_with_data(db)
+    from app.api.analysis import _list_months_with_data
+    return _list_months_with_data(db, get_user_hospital_ids(user, db))
 
 
 @router.get("/hospitals")
@@ -570,6 +577,55 @@ def get_forecast_signals(month: str, horizon: int = Query(3, description="أفق
     })
 
 
+@router.get("/analysis-indicators/{month}")
+@safe_endpoint("خطأ في تغطية مؤشرات التحليل", cache_keys=["smart_analysis_indicators_{month}"])
+def get_analysis_indicators(month: str, db: Session = Depends(get_db)):
+    """المؤشرات التي يمكن للتحليل الذكي العمل عليها فعلياً في شهر معيّن.
+
+    تجيب عن سؤال «على أي مؤشرات يعمل التحليل؟»: كل ميزة من FEATURE_KEYS
+    (المشتقة من رموز البيانات) مع عدد المستشفيات التي يمكن اشتقاق قيمتها،
+    والمعطّلة، والناقصة — لا صفر صامت ولا وعد بمؤشرات لا يقرأها المحرك.
+    حساب خفيف (بلا تشغيل خط الأنابيب الثقيل) ويُخزَّن مؤقتاً للمشهر، ويُرفق
+    خط تغطية آخر COVERAGE_TREND_MONTHS أشهر: نفس الحساب لكل شهر متاح ≤ هذا
+    الشهر (الأشهر بلا أي قيمة تُستبعد تلقائياً عبر استعلام الشهور).
+    """
+    from app.engine.smart import analysis_indicator_coverage
+
+    cache_key = f"smart_analysis_indicators_{month}_{SMART_CACHE_VERSION}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    result = analysis_indicator_coverage(db, month)
+    months = _recent_coverage_months(db, month, COVERAGE_TREND_MONTHS)
+    if month not in months:
+        # الشهر المطلوب يبقى آخر نقطة في الخط حتى لو لم تُسجَّل له قيم بعد
+        months = (months + [month])[-COVERAGE_TREND_MONTHS:]
+    history = []
+    for m in months:
+        rows = result["indicators"] if m == month else analysis_indicator_coverage(db, m)["indicators"]
+        history.append({
+            "month": m,
+            "coverage": {r["key"]: r["coverage_pct"] for r in rows},
+        })
+    result["coverage_history"] = history
+    result = _sanitize(result)
+    cache.set(cache_key, result, ttl=1800)
+    return result
+
+
+def _recent_coverage_months(db: Session, month: str, count: int):
+    """آخر `count` أشهر فيها بيانات ≤ الشهر المطلوب، بترتيب تصاعدي."""
+    rows = (
+        db.query(IndicatorValue.month)
+        .filter(IndicatorValue.month <= month)
+        .distinct()
+        .order_by(IndicatorValue.month.desc())
+        .limit(count)
+        .all()
+    )
+    return sorted(r[0] for r in rows)
+
+
 @router.get("/indicator-catalog")
 @safe_endpoint("خطأ في كتالوج مؤشرات التنبؤ")
 def get_indicator_catalog(db: Session = Depends(get_db)):
@@ -633,17 +689,25 @@ def get_indicator_forecast(
 
 
 def _hospital_rate_series(db: Session, hosp_names: Dict[int, str]) -> Dict[str, list]:
-    """سلسلة معدل القيصارية الشهرية لكل مستشفى (5/2×100) من قيم المؤشرات.
+    """سلسلة معدل القيصارية الشهرية لكل مستشفى — من تعريف السجل المركزي
+    (rate_config site "forecast": cs_rate = numerator/denominator×multiplier)
+    بدل صيغة ثابتة 5/2×100 مكتوبة في الكود.
 
     الشهر بمقام مفقود/صفري يُسقط (بيانات ناقصة لا صفر صامت)."""
-    ind_map = {i.id: i.code for i in db.query(Indicator).all()}
-    needed = {"2", "5"}
+    from app.engine.smart.indicator_forecast import (
+        INDICATOR_DEFS,
+        indicator_rate_from_values,
+    )
+
+    definition = INDICATOR_DEFS["cs_rate"]
+    needed = set(definition["numerator"]) | set(definition["denominator"] or ())
     per: Dict[tuple, Dict[str, float]] = {}
     rows = (
         db.query(IndicatorValue.hospital_id, IndicatorValue.month,
                  IndicatorValue.indicator_id, IndicatorValue.value)
         .filter(IndicatorValue.value.isnot(None)).all()
     )
+    ind_map = {i.id: i.code for i in db.query(Indicator).all()}
     for hid, m, iid, v in rows:
         code = ind_map.get(iid)
         if code not in needed or hid not in hosp_names:
@@ -651,13 +715,133 @@ def _hospital_rate_series(db: Session, hosp_names: Dict[int, str]) -> Dict[str, 
         per.setdefault((hid, m), {})[code] = float(v)
     series: Dict[str, list] = {}
     for (hid, m), vals in per.items():
-        denom, cs = vals.get("2"), vals.get("5")
-        if not denom or denom <= 0 or cs is None:
+        rate = indicator_rate_from_values("cs_rate", vals)
+        if rate is None:
             continue
-        series.setdefault(hosp_names[hid], []).append((m, cs / denom * 100.0))
+        series.setdefault(hosp_names[hid], []).append((m, rate))
     for name in series:
         series[name].sort(key=lambda x: x[0])
     return series
+
+
+# ── لوحة العمل: ترتيب المستشفيات بخطر متوقع لأفق مختار (المرحلة 2) ──
+
+_ACTION_SEVERITY_WEIGHT = {"critical": 1.0, "warning": 0.6, "normal": 0.3, "info": 0.2}
+_ACTION_SEVERITY_RANK = {"critical": 0, "warning": 1, "normal": 2, "info": 3}
+_ACTION_RISK_FACTOR = {"increasing": 1.0, "stable": 0.7, "decreasing": 0.4}
+_ACTION_DIRECTION = {"increasing": "rising", "decreasing": "falling", "stable": "stable"}
+_ACTION_BOARD_NOTE = (
+    "كل التنبؤات تقديرات إحصائية لا تنبؤ مؤكد — مرتّبة تنازلياً حسب الخطورة "
+    "المتوقعة (الدرجة × الثقة × الاتجاه)."
+)
+
+
+def _clamp01(x) -> float:
+    try:
+        return max(0.0, min(1.0, float(x)))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _action_board_items(month: str, envelope: dict) -> list:
+    """بنود اللوحة من مغلف الكاش — بلا أي تشغيل للمحرك.
+
+    مصدران: تنبؤات XGBoost (محور الجودة) + تحذيرات الإنذار المبكر المكاشة
+    التي ترفع الخطورة وتُحوِّل المصدر إلى «مزيج». الترتيب تنازلياً بـ risk_score
+    ثم بخطورة أعلى؛ والمستشفى بلا تنبؤ لا يُختلق له صف.
+    """
+    from app.engine.smart.early_warning import recommend_forecast_action
+
+    data = envelope.get("data") or {}
+    xgb = data.get("xgboost") or {}
+    preds = xgb.get("predictions") or []
+    mae = float(xgb.get("model_mae") or 0.0)
+
+    warnings_by_hospital = {}
+    ew = data.get("early_warnings") or {}
+    for w in (ew.get("warnings") or []):
+        name = w.get("hospital_name")
+        if name:
+            warnings_by_hospital[name] = w
+
+    items = []
+    for p in preds:
+        name = p.get("hospital_name")
+        severity = p.get("predicted_severity") or "normal"
+        risk_change = p.get("risk_change") or "stable"
+        confidence = _clamp01(p.get("confidence"))
+        expected = p.get("predicted_next_score")
+        current = p.get("current_score")
+
+        drivers = p.get("top_drivers") or []
+        driver_name = ""
+        if drivers:
+            driver_name = drivers[0].get("arabic_label") or drivers[0].get("feature") or ""
+
+        source = "xgboost"
+        warning = warnings_by_hospital.get(name)
+        if warning is not None:
+            source = "blended"
+            w_sev = warning.get("severity")
+            if (w_sev in _ACTION_SEVERITY_RANK
+                    and _ACTION_SEVERITY_RANK[w_sev] < _ACTION_SEVERITY_RANK.get(severity, 3)):
+                severity = w_sev
+
+        rec = recommend_forecast_action(risk_change, severity, driver_name)
+        risk_score = _clamp01(
+            _ACTION_SEVERITY_WEIGHT.get(severity, 0.3)
+            * confidence
+            * _ACTION_RISK_FACTOR.get(risk_change, 0.7)
+        )
+        exp = float(expected) if expected is not None else 0.0
+        items.append({
+            "hospital": name,
+            "hospital_id": p.get("hospital_id"),
+            "axis": "quality",
+            "direction": _ACTION_DIRECTION.get(risk_change, "stable"),
+            "current": current,
+            "expected": expected,
+            "lower": round(max(0.0, exp - mae), 4),
+            "upper": round(exp + mae, 4),
+            "risk_score": round(risk_score, 4),
+            "severity": severity,
+            "confidence": round(confidence, 3),
+            "source": source,
+            "recommendation": rec["recommendation"],
+            "recommendation_key": rec["recommendation_key"],
+            "drilldown": {"month": month, "hospital_id": p.get("hospital_id")},
+        })
+
+    items.sort(key=lambda it: (-it["risk_score"], _ACTION_SEVERITY_RANK.get(it["severity"], 3)))
+    return items
+
+
+@router.get("/forecast-action-board/{month}")
+@safe_endpoint("خطأ في لوحة العمل التنبؤية", cache_keys=["smart_overview_{month}"])
+def get_forecast_action_board(
+    month: str,
+    horizon: int = Query(3, description="أفق التنبؤ بالأشهر (1/3/6/9/12)"),
+    db: Session = Depends(get_db),
+):
+    """لوحة عمل مرتّبة: أعلى المستشفيات خطراً لأفق مختار مع توصية وثقة.
+
+    تُبنى من مغلف الكاش فقط (تنبؤات XGBoost + الإنذار المبكر) — بلا تشغيل
+    للمحرك. مغلف فارغ/قيد الحساب => بنود فارغة صريحة (لا صفر صامت).
+    """
+    if horizon not in (1, 3, 6, 9, 12):
+        raise HTTPException(status_code=422, detail="horizon must be 1, 3, 6, 9 or 12")
+
+    envelope = _get_envelope_or_empty(db, month)
+    if envelope.get("empty") or envelope.get("computing"):
+        return {"month": month, "horizon": horizon, "items": [], "note": _ACTION_BOARD_NOTE}
+
+    items = _action_board_items(month, envelope)
+    return _sanitize({
+        "month": month,
+        "horizon": horizon,
+        "items": items,
+        "note": _ACTION_BOARD_NOTE,
+    })
 
 
 @router.get("/xgboost/{month}")

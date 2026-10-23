@@ -683,4 +683,4 @@ def test_extended_horizons_available_and_translated():
     sa = (os.path.join(base, "app", "api", "smart_analytics.py"))
     with open(sa, encoding="utf-8") as f:
         api = f.read()
-    assert api.count("if horizon not in (1, 3, 6, 9, 12):") == 3
+    assert api.count("if horizon not in (1, 3, 6, 9, 12):") == 4

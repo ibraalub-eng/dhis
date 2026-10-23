@@ -15,11 +15,14 @@ Negative Binomial عند توفر البيانات، وتكشف الاتجاها
 """
 
 import math
+import logging
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 
 from app.engine.smart import _load_hospital_data
+
+logger = logging.getLogger(__name__)
 
 # ── أسماء المؤشرات ثنائية اللغة ──
 METRIC_NAMES_AR = {
@@ -70,33 +73,60 @@ _LOWER_IS_BETTER = {
     "lbw_rate", "smm_rate", "adolescent_rate", "high_risk_rate",
 }
 
-# معدلات تُحسب لكل ألف/مئة ألف (المقامات بالأساس)
-_RATE_SCALE = {
-    "nmr": 1000.0,
-    "mmr": 100000.0,
-    "stillbirth_rate": 1000.0,
-    "cs_rate": 100.0,
-    "preterm_rate": 100.0,
-    "lbw_rate": 100.0,
-    "smm_rate": 1000.0,
-    "adolescent_rate": 100.0,
-    "high_risk_rate": 100.0,
+# Regional output aliases mapped to the central forecast registry definitions.
+_RATE_DEFINITIONS = {
+    "nmr": "nd_per_1000",
+    "mmr": "mat_mortality_rate",
+    "stillbirth_rate": "stillbirth_rate",
+    "cs_rate": "cs_rate",
+    "preterm_rate": "preterm_rate",
+    "lbw_rate": "lbw_rate",
+    "smm_rate": "smm_per_1000_deliveries",
+    "adolescent_rate": "adolescent_rate",
+    "high_risk_rate": "high_risk_rate",
 }
 
 # عتبات خطر الوفيات (نسبة الانحراف عن معيار الإقليم)
 _DEVIATION_HIGH = 50.0
 _DEVIATION_MEDIUM = 20.0
 
+def _inactive_rate_metrics(session) -> frozenset:
+    """مقاييس إقليمية لنٍّها تعريف التسجيل موجود لكنه غير مُفعَّل (is_active=False).
+
+    شاشة المؤشرات هي مصدر الحقيقة الوحيد: إلغاء تفعيل مؤشر يُخرجه من
+    الحسابات الإقليمية الجارية (يبقى سجلّه التاريخي كما هو). التعريف الغائب
+    (قبل البذر) يحتفظ بالشريحة المدمجة كما هي.
+    مُخزَّن تحت 'analysis:' فيلغيه نفس منطق التبديل في شاشة المؤشرات.
+    """
+    from app.cache import cache
+    cached = cache.get("analysis:regional_inactive_metrics")
+    if isinstance(cached, list):
+        return frozenset(cached)
+    skip = frozenset()
+    try:
+        from app.models import IndicatorDefinition
+        # code and legacy alias pairs — seeded system definitions use
+        # sys_<site>_* codes with the builtin rate_code as legacy alias.
+        pairs = (session.query(IndicatorDefinition.code,
+                               IndicatorDefinition.legacy_code,
+                               IndicatorDefinition.is_active).all())
+        if pairs:  # registry seeded — governs hereafter
+            identity = {}
+            for canonical, legacy, is_active in pairs:
+                for key in (canonical, legacy):
+                    if key:
+                        identity[key] = bool(is_active)
+            skip = frozenset(m for m, code in _RATE_DEFINITIONS.items()
+                             if code in identity and not identity[code])
+    except Exception as exc:  # registry hiccup: keep builtin behavior
+        logger.warning("inactive-metrics lookup failed (%s); keeping builtin slice", exc)
+    cache.set("analysis:regional_inactive_metrics", sorted(skip), ttl=300)
+    return skip
+
+
 # عتبات حجم العينة: أقل من ذلك يُعلَّم «عينة صغيرة — تفسير بحذر»
 _SMALL_SAMPLE_BIRTHS = 100
 _TINY_SAMPLE_BIRTHS = 30
-
-
-def _safe_rate(num: Optional[float], den: Optional[float], scale: float) -> Optional[float]:
-    """نسبة بمقام مُتحقَّق منه: غياب/صفر المقام => None (لا نسبة وهمية)."""
-    if num is None or den is None or den <= 0:
-        return None
-    return num / den * scale
 
 
 def _gov_aggregates(all_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
@@ -120,12 +150,15 @@ def _gov_aggregates(all_data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     return govs
 
 
-def _gov_metrics(agg: Dict[str, Any]) -> Dict[str, Optional[float]]:
+def _gov_metrics(agg: Dict[str, Any], skip: frozenset = frozenset()) -> Dict[str, Optional[float]]:
     """المؤشرات المعيارية للمحافظة من المجاميع الخام مع بوابة المقام."""
+    from app.engine.smart.indicator_forecast import indicator_rate_from_values
+
     s = agg["sums"]
     births = s["live_births"] or None
     deliveries = s["deliveries"] or None
     adol = s["adol_a"] + s["adol_b"]
+    raw_values = {code: s[source] for source, code in _SRC.items()}
 
     metrics: Dict[str, Optional[float]] = {
         "births": births,
@@ -140,17 +173,12 @@ def _gov_metrics(agg: Dict[str, Any]) -> Dict[str, Optional[float]]:
         "high_risk": s["high_risk"] or None,
         "adolescent": adol if (s["adol_a"] or s["adol_b"]) else None,
     }
-    # ملاحظة التعريف: stillbirth_rate يستخدم المواليد الأحياء مقاماً — وهو
-    # التعريف المعتمد في النظام (stillbirth_rate في xgboost_predictor).
-    metrics["nmr"] = _safe_rate(metrics["nd"], births, _RATE_SCALE["nmr"])
-    metrics["mmr"] = _safe_rate(metrics["mat_deaths"], births, _RATE_SCALE["mmr"])
-    metrics["stillbirth_rate"] = _safe_rate(metrics["sb"], births, _RATE_SCALE["stillbirth_rate"])
-    metrics["cs_rate"] = _safe_rate(metrics["cs_count"], deliveries, _RATE_SCALE["cs_rate"])
-    metrics["preterm_rate"] = _safe_rate(metrics["preterm"], births, _RATE_SCALE["preterm_rate"])
-    metrics["lbw_rate"] = _safe_rate(metrics["lbw"], births, _RATE_SCALE["lbw_rate"])
-    metrics["smm_rate"] = _safe_rate(metrics["smm"], deliveries, _RATE_SCALE["smm_rate"])
-    metrics["adolescent_rate"] = _safe_rate(metrics["adolescent"], births, _RATE_SCALE["adolescent_rate"])
-    metrics["high_risk_rate"] = _safe_rate(metrics["high_risk"], births, _RATE_SCALE["high_risk_rate"])
+    for metric, definition_code in _RATE_DEFINITIONS.items():
+        # Inactive indicators (registry is_active=False, see
+        # _inactive_rate_metrics) are excluded from current calculations —
+        # None flows through the same "missing data" path as absent rows.
+        metrics[metric] = None if metric in skip else \
+            indicator_rate_from_values(definition_code, raw_values)
     return metrics
 
 
@@ -168,7 +196,7 @@ def _percentile_rank(value: float, values: List[float]) -> Optional[float]:
 def _benchmarks(metrics_by_gov: Dict[str, Dict[str, Optional[float]]]) -> Dict[str, Dict[str, float]]:
     """معيار إقليمي لكل معدل: متوسط/وسيط/أدنى/أقصى/انحراف معياري."""
     benchmarks: Dict[str, Dict[str, float]] = {}
-    for metric in _RATE_SCALE:
+    for metric in _RATE_DEFINITIONS:
         vals = [m[metric] for m in metrics_by_gov.values() if m.get(metric) is not None]
         if len(vals) == 0:
             benchmarks[metric] = {"mean": None, "median": None, "min": None, "max": None, "std": None, "n": 0}
@@ -185,28 +213,35 @@ def _benchmarks(metrics_by_gov: Dict[str, Dict[str, Optional[float]]]) -> Dict[s
     return benchmarks
 
 
-def _monthly_gov_metrics(session, month: str, months_back: int = 6) -> Dict[str, Dict[str, Dict[str, Optional[float]]]]:
+def _monthly_gov_metrics(
+    session, month: str, months_back: int = 6, hospital_ids: list[int] | None = None,
+    skip: frozenset = frozenset(),
+) -> Dict[str, Dict[str, Dict[str, Optional[float]]]]:
     """معدلات كل محافظة لكل شهر في النافذة (تغذي الاتجاهات والشذوذ التاريخي)."""
     from app.models import QualityScore
 
-    months = [
-        r[0] for r in session.query(QualityScore.month).distinct().order_by(QualityScore.month).all()
-    ]
+    months_query = session.query(QualityScore.month).distinct()
+    if hospital_ids is not None:
+        if not hospital_ids:
+            return {}
+        months_query = months_query.filter(QualityScore.hospital_id.in_(hospital_ids))
+    months = [r[0] for r in months_query.order_by(QualityScore.month).all()]
     window = [m for m in months if m <= month][-months_back:]
     per_month = {}
     for m in window:
-        data = _load_hospital_data(session, m)
+        data = _load_hospital_data(session, m, hospital_ids=hospital_ids)
         if not data:
             continue
         govs = _gov_aggregates(data)
         per_month[m] = {
-            gov: _gov_metrics(agg) for gov, agg in govs.items()
+            gov: _gov_metrics(agg, skip=skip) for gov, agg in govs.items()
         }
     return per_month
 
 
 def _regional_anomalies(session, month: str, metrics_by_gov, benchmarks, gov_names,
-                        months_back: int = 6) -> List[Dict[str, Any]]:
+                        months_back: int = 6, hospital_ids: list[int] | None = None,
+                        skip: frozenset = frozenset()) -> List[Dict[str, Any]]:
     """شذوذ إقليمي: محافظة شاذة مقابل نظيراتها (عرضي) أو مقابل تاريخها (زمني).
 
     - cross_sectional: |z| ≥ 2 لمعدل محافظة مقابل معيار الإقليم (متوسط/انحراف).
@@ -220,7 +255,7 @@ def _regional_anomalies(session, month: str, metrics_by_gov, benchmarks, gov_nam
     for gov in gov_names:
         m = metrics_by_gov[gov]
         births = m.get("births") or 0
-        for metric in _RATE_SCALE:
+        for metric in _RATE_DEFINITIONS:
             value = m.get(metric)
             bm = benchmarks.get(metric, {})
             mean_v, std_v = bm.get("mean"), bm.get("std")
@@ -264,7 +299,7 @@ def _regional_anomalies(session, month: str, metrics_by_gov, benchmarks, gov_nam
             })
 
     # ── زمني: محافظة مقابل تاريخها ──
-    per_month = _monthly_gov_metrics(session, month, months_back)
+    per_month = _monthly_gov_metrics(session, month, months_back, hospital_ids=hospital_ids, skip=skip)
     if len(per_month) >= 3:
         months_sorted = sorted(per_month)
         for gov in gov_names:
@@ -427,7 +462,10 @@ def _explain_risk(metrics_by_gov, benchmarks, risk_scores) -> List[Dict[str, Any
     return out
 
 
-def _mortality_benchmark_lines(session, month: str, benchmarks, months_back: int = 6) -> Dict[str, Any]:
+def _mortality_benchmark_lines(
+    session, month: str, benchmarks, months_back: int = 6,
+    hospital_ids: list[int] | None = None,
+) -> Dict[str, Any]:
     """خطوط مرجعية لرسم الوفيات: المتوسط + الوسيط (هدف مرجعي) + الأساس التاريخي.
 
     لا يوجد هدف سريري مكوّن في النظام => الوسيط الإقليمي يُعتمد هدفاً مرجعياً
@@ -442,7 +480,7 @@ def _mortality_benchmark_lines(session, month: str, benchmarks, months_back: int
         "target_label_ar": "الهدف المرجعي (الوسيط الإقليمي)",
         "target_label_en": "Reference target (regional median)",
     }
-    per_month = _monthly_gov_metrics(session, month, months_back)
+    per_month = _monthly_gov_metrics(session, month, months_back, hospital_ids=hospital_ids)
     prior = []
     for mth in sorted(per_month):
         if mth >= month:
@@ -459,14 +497,17 @@ def _mortality_benchmark_lines(session, month: str, benchmarks, months_back: int
     return lines
 
 
-def _regional_trends(session, month: str, months_back: int = 6) -> List[Dict[str, Any]]:
+def _regional_trends(
+    session, month: str, months_back: int = 6, hospital_ids: list[int] | None = None,
+    skip: frozenset = frozenset(),
+) -> List[Dict[str, Any]]:
     """اتجاهات «محافظة × شهر × مؤشر»: تدهور مستمر، تحسّن مستمر، طفرات مفاجئة.
 
     تُحسب المعدلات الشهرية لكل محافظة على مدى النافذة، ثم يُكشف:
     - اتجاه مستمر: انحدار خطي بـ R² ≥ 0.5 وميل يتجاوز 3% شهرياً.
     - طفرة: انحراف آخر قيمة عن متوسط ما قبلها (|z| ≥ 2).
     """
-    per_month = _monthly_gov_metrics(session, month, months_back)
+    per_month = _monthly_gov_metrics(session, month, months_back, hospital_ids=hospital_ids, skip=skip)
     window = sorted(per_month)
 
     findings: List[Dict[str, Any]] = []
@@ -603,7 +644,10 @@ def _observed_expected(metrics_by_gov: Dict[str, Dict[str, Optional[float]]], go
     # معدل الإقليم كأساس
     total_births = sum(r["births"] for r in rows)
     total_nd = sum(r["nd"] for r in rows)
-    regional_nmr = total_nd / total_births * 1000.0 if total_births > 0 else 0.0
+    from app.engine.smart.indicator_forecast import indicator_rate_from_values
+    regional_nmr = indicator_rate_from_values(
+        "nd_per_1000", {"17": total_nd, "6": total_births}
+    ) or 0.0
 
     # محاولة النموذج الانحداري عند توفر بيانات كافية
     if HAS_SM and len(rows) >= 5:
@@ -731,7 +775,10 @@ def _births_vs_mortality(metrics_by_gov: Dict[str, Dict[str, Optional[float]]], 
     }
 
 
-def _risk_scores(metrics_by_gov, benchmarks, session, month, gov_names) -> List[Dict[str, Any]]:
+def _risk_scores(
+    metrics_by_gov, benchmarks, session, month, gov_names,
+    hospital_ids: list[int] | None = None,
+) -> List[Dict[str, Any]]:
     """درجة خطر إقليمية لكل محافظة (0-100) مع بوابة جودة تُخفض الثقة.
 
     المكونات: انحراف الوفيات (35) + انحراف معدلات الخطر (15) + اتجاهات (20)
@@ -744,12 +791,19 @@ def _risk_scores(metrics_by_gov, benchmarks, session, month, gov_names) -> List[
     confidence_by_gov = {}
     quality_by_hosp = {}
     conf_by_hosp = {}
-    for q in session.query(QualityScore).filter(QualityScore.month == month).all():
+    quality_query = session.query(QualityScore).filter(QualityScore.month == month)
+    confidence_query = session.query(ConfidenceScore).filter(ConfidenceScore.month == month)
+    hospitals_query = session.query(Hospital).filter(Hospital.is_active)
+    if hospital_ids is not None:
+        quality_query = quality_query.filter(QualityScore.hospital_id.in_(hospital_ids))
+        confidence_query = confidence_query.filter(ConfidenceScore.hospital_id.in_(hospital_ids))
+        hospitals_query = hospitals_query.filter(Hospital.id.in_(hospital_ids))
+    for q in quality_query.all():
         quality_by_hosp[q.hospital_id] = q
-    for c in session.query(ConfidenceScore).filter(ConfidenceScore.month == month).all():
+    for c in confidence_query.all():
         conf_by_hosp[c.hospital_id] = c
 
-    for h in session.query(Hospital).filter(Hospital.is_active).all():
+    for h in hospitals_query.all():
         gov = h.governorate.name if h.governorate else "unknown"
         q = quality_by_hosp.get(h.id)
         c = conf_by_hosp.get(h.id)
@@ -873,9 +927,13 @@ def _risk_scores(metrics_by_gov, benchmarks, session, month, gov_names) -> List[
     return findings
 
 
-def run_regional_analysis(session, month: str, months_back: int = 6) -> Dict[str, Any]:
+def run_regional_analysis(
+    session, month: str, months_back: int = 6, hospital_ids: list[int] | None = None,
+) -> Dict[str, Any]:
     """التحليل الإقليمي الكامل لشهر واحد (يُخزَّن مؤقتاً لكل شهر)."""
-    all_data = _load_hospital_data(session, month)
+    all_data = _load_hospital_data(session, month, hospital_ids=hospital_ids)
+    # مؤشرات مُلغى تفعيلها على شاشة المؤشرات مستبعدة من كل الحسابات الجارية
+    _skip = _inactive_rate_metrics(session)
     if not all_data:
         return {
             "month": month,
@@ -897,25 +955,28 @@ def run_regional_analysis(session, month: str, months_back: int = 6) -> Dict[str
 
     govs = _gov_aggregates(all_data)
     gov_names = sorted(govs.keys())
-    metrics_by_gov = {gov: _gov_metrics(govs[gov]) for gov in gov_names}
+    metrics_by_gov = {gov: _gov_metrics(govs[gov], skip=_skip) for gov in gov_names}
     benchmarks = _benchmarks(metrics_by_gov)
 
-    trends = _regional_trends(session, month, months_back=months_back)
+    trends = _regional_trends(
+        session, month, months_back=months_back, hospital_ids=hospital_ids,
+        skip=_skip,
+    )
     anomalies = _regional_anomalies(session, month, metrics_by_gov, benchmarks, gov_names,
-                                    months_back=months_back)
+                                    months_back=months_back, hospital_ids=hospital_ids,
+                                    skip=_skip)
 
     # ── بيانات مساعدة لمقارنة المحافظات (متوسط الجودة/الشذوذ وعدّاد القيم الشاذة) ──
     from app.models import QualityScore, AnomalyResult
-    qs_by_hosp = {
-        q.hospital_id: q
-        for q in session.query(QualityScore).filter(QualityScore.month == month).all()
-    }
-    outlier_hosp_ids = {
-        a.hospital_id
-        for a in session.query(AnomalyResult).filter(
-            AnomalyResult.month == month, AnomalyResult.is_outlier.is_(True)
-        ).all()
-    }
+    quality_query = session.query(QualityScore).filter(QualityScore.month == month)
+    outlier_query = session.query(AnomalyResult).filter(
+        AnomalyResult.month == month, AnomalyResult.is_outlier.is_(True)
+    )
+    if hospital_ids is not None:
+        quality_query = quality_query.filter(QualityScore.hospital_id.in_(hospital_ids))
+        outlier_query = outlier_query.filter(AnomalyResult.hospital_id.in_(hospital_ids))
+    qs_by_hosp = {q.hospital_id: q for q in quality_query.all()}
+    outlier_hosp_ids = {a.hospital_id for a in outlier_query.all()}
     hosp_ids_by_gov = {}
     for entry in all_data.values():
         gov = entry.get("governorate") or "unknown"
@@ -950,7 +1011,7 @@ def run_regional_analysis(session, month: str, months_back: int = 6) -> Dict[str
             "sb": m["sb"],
             "rates": {},
         }
-        for metric in _RATE_SCALE:
+        for metric in _RATE_DEFINITIONS:
             bm = benchmarks.get(metric, {})
             vals = [metrics_by_gov[g].get(metric) for g in gov_names if metrics_by_gov[g].get(metric) is not None]
             value = m.get(metric)
@@ -1018,7 +1079,10 @@ def run_regional_analysis(session, month: str, months_back: int = 6) -> Dict[str
         })
     mortality.sort(key=lambda x: (x["deviation_pct"] if x["deviation_pct"] is not None else -1e9), reverse=True)
 
-    risk_scores = _risk_scores(metrics_by_gov, benchmarks, session, month, gov_names)
+    risk_scores = _risk_scores(
+        metrics_by_gov, benchmarks, session, month, gov_names,
+        hospital_ids=hospital_ids,
+    )
 
     return {
         "month": month,
@@ -1031,8 +1095,10 @@ def run_regional_analysis(session, month: str, months_back: int = 6) -> Dict[str
         "risk_scores": risk_scores,
         "anomalies": anomalies,
         "risk_explanations": _explain_risk(metrics_by_gov, benchmarks, risk_scores),
-        "mortality_benchmarks": _mortality_benchmark_lines(session, month, benchmarks,
-                                                             months_back=months_back),
+        "mortality_benchmarks": _mortality_benchmark_lines(
+            session, month, benchmarks, months_back=months_back,
+            hospital_ids=hospital_ids,
+        ),
         "referrals": {
             "available": False,
             "note_ar": "لا توجد بيانات إحالات في النظام — لا يُستنتج أي تحويل بين المحافظات.",

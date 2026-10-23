@@ -158,7 +158,7 @@ export function renderEarlyWarnings(ew) {
       <div>${badge}</div>
     </div>`;
   }).join('');
-  container.innerHTML = `<div class="smart-section-card">
+  container.innerHTML = `<div class="smart-section-card open">
     <div class="smart-section-header" data-smart-collapsible="smart-early-warnings-body">
       <span>⚠️ ${_t('Early Warning System')}</span><span class="smart-toggle-icon">▾</span>
     </div>
@@ -191,7 +191,7 @@ export function renderHealthyHospitals(healthy) {
   const bodyContent = list.length
     ? `<div class="smart-priority-list">${rows}</div>`
     : `<div class="smart-empty-state">${_t('No hospitals meet the healthy criteria this month. Upload more data or check hospitals with low anomaly scores.')}</div>`;
-  container.innerHTML = `<div class="smart-section-card">
+  container.innerHTML = `<div class="smart-section-card open">
     <div class="smart-section-header" data-smart-collapsible="smart-healthy-body">
       <span>🏆 ${_t('Healthy hospitals (models to follow)')}</span>
       <span style="font-size:0.72rem;color:var(--text-muted);">${list.length} ${_t('hospitals')}</span>

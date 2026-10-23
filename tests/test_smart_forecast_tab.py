@@ -52,7 +52,8 @@ def test_forecast_markup_moved_to_its_own_screen():
     assert 'data-smart-loader="xgboost"' in forecast
     assert 'data-smart-loader="xgboost"' not in analytics
     # removing one card must not collapse the analytics layout guard
-    assert analytics.count('class="smart-section-card"') >= 5
+    # counts bare and "open" cards alike — every card now defaults to open
+    assert analytics.count('smart-section-card') >= 5
 
 
 def test_forecast_entry_is_a_registered_module():
@@ -180,7 +181,7 @@ def test_upload_reanalysis_resets_the_forecast_tab():
 
 # ── Phase 1: sub-tabs with on-demand loading + reactive horizon ──
 
-SUBTAB_PANELS = ["models", "quality", "signals", "indicator", "hospital"]
+SUBTAB_PANELS = ["models", "quality", "signals", "indicator", "hospital", "actions"]
 
 
 def test_forecast_subtabs_and_panels_exist():
@@ -248,3 +249,114 @@ def test_forecast_subtab_i18n_keys_present():
     i18n = _read("static", "js", "i18n.js")
     for key in ("Forecasts", "Accuracy and validation", "Signals"):
         assert f"'{key}':" in i18n, key
+
+
+# ── نصوص الشاشة: لا ترميز مشوّه (UTF-8 مقروء كصفحة عربية) ──
+# البايتات العربية كانت تُفكّ سابقاً كـ cp1256 فتظهر «ط§ظ„طھظ†ط¨ط¤» بدل «التنبؤ».
+_MOJIBAKE_MARKERS = ("ط§", "طھ", "ظ„", "â€", "أ¢")  # ا،ت،ل المشوّهة + الشرطة/الاقتباس
+
+
+def test_forecast_markup_is_not_mojibake():
+    raw = open(os.path.join(BASE, "static", "tabs", "smart-forecast.html"), "rb").read()
+    html = raw.decode("utf-8")            # يرفع استثناءً لو الترميز غير سليم
+    for marker in _MOJIBAKE_MARKERS:
+        assert marker not in html, f"نص مشوّه في الترميز: {marker!r}"
+    # التسميات العربية الصحيحة موجودة بجانب مفاتيح data-i18n
+    assert 'data-i18n="Smart Forecast">التنبؤ الذكي</span>' in html
+    assert 'data-i18n="Action board">لوحة العمل</span>' in html
+    assert 'data-i18n="Indicator forecast">تنبؤ المؤشر</span>' in html
+    # الوسوم متوازنة: وسم </div> زائد كان يقفل جذر الشاشة ويخرج لوحة العمل منه
+    assert html.count("<div") == html.count("</div>")
+
+
+def test_action_panel_uses_the_screen_card_markup():
+    """لوحة العمل تستعمل صفوف البطاقات نفسها (smart-card-* غير موجود في CSS)."""
+    html = _read("static", "tabs", "smart-forecast.html")
+    assert "smart-card-header" not in html
+    assert "smart-card-body" not in html
+    css = _read("static", "css", "styles.css")
+    assert ".smart-section-body" in css and ".smart-section-card.open .smart-section-body" in css
+    start = html.index('id="forecast-panel-actions"')
+    panel = html[start:start + 1200]
+    # كل بطاقة داخل اللوحة مفتوحة كي يظهر جسمها (.smart-section-body مخفي افتراضياً)
+    assert panel.count('class="smart-section-card open"') == 2
+    assert 'id="smart-action-board"' in panel
+    assert 'id="smart-model-card"' in panel
+
+
+def test_indicator_forecast_plot_draws_two_lines():
+    """تنبؤ المؤشر يرسم الفعلي والمتوقع بخطين مختلفين (متصل مقابل متقطع)."""
+    adv = _read("static", "js", "smart", "advanced.js")
+    assert "smart-indicator-forecast-plot" in adv
+    # تسمية كل خط بالمستشفى + نوعه (فعلي/متوقع) بدل اسم المستشفى فقط
+    assert "— ${_t('Actual')}" in adv
+    assert "— ${_t('Expected')}" in adv
+    assert "dash: 'solid'" in adv and "dash: 'dash'" in adv
+    # خط التوقع يلتحم بآخر نقطة فعلية عند الشهر الأساس
+    assert "const anchor = hist.length" in adv
+    assert "if (d.base_month)" in adv
+    # مفتاح الرسم يشرح معنى الخطين للسطر والفاصل العمودي
+    assert "Solid line = actual, dashed line = forecast" in adv
+    assert "The dotted vertical line marks the base month" in adv
+
+    i18n = _read("static", "js", "i18n.js")
+    for key in ("Solid line = actual, dashed line = forecast",
+                "The dotted vertical line marks the base month"):
+        assert f"'{key}':" in i18n, key
+    assert "'Actual': 'الفعلي'" in i18n and "'Expected': 'المتوقع'" in i18n
+
+
+# ── بطاقة النموذج: لا فقرة إنجليزية داخل الواجهة العربية ──
+
+
+def test_model_card_uses_structured_facts_in_arabic():
+    """الفقرة الإنجليزية الطويلة (accuracy_note) لا تُعرض في الواجهة العربية؛
+    تُبنى البطاقة من note_facts المنظّمة مع عزل اتجاه كل رقم/اسم لاتيني."""
+    adv = _read("static", "js", "smart", "advanced.js")
+    assert "function _modelInfoHtml" in adv
+    assert "xgb.note_facts" in adv
+    assert "_isArabicUi" in adv
+    # الأرقام والرموز داخل عزل اتجاه صريح
+    assert "<bdi dir=\"ltr\"" in adv
+    # الفقرة الإنجليزية تُعرض فقط في الواجهة الإنجليزية
+    assert "if (!arabic && xgb.accuracy_note)" in adv
+
+    i18n = _read("static", "js", "i18n.js")
+    for key in ("Model ensemble", "Best model", "Classifier accuracy", "Training data",
+                "labeled rows", "Features", "base", "derived", "categorical",
+                "Walk-forward", "folds", "mean", "Data fingerprint", "feature set",
+                "Trained on", "Latest model", "No predictions for this month",
+                "Predictions are estimates based on historical patterns."):
+        assert f"'{key}':" in i18n, key
+
+
+def test_envelope_exposes_model_note_facts():
+    """الحمولة المنظّمة تصل الواجهة: _envelope يمرّر note_facts كما هي."""
+    from types import SimpleNamespace
+    from app.api.smart_analytics import _envelope
+
+    facts = {"ensemble_models": 3, "best_model": "XGBoost-Light",
+             "classifier_accuracy": 0.654, "walk_forward_folds": 6}
+    result = SimpleNamespace(
+        month="2026-08", hospitals_count=18,
+        kpi=SimpleNamespace(), anomalies=[], clustering=None, correlations=None,
+        residuals=[], stratified=[], explanations=[], geo=None, patterns=[],
+        xgboost_predictions=SimpleNamespace(
+            model_r2=0.019, model_mae=0.277, training_months=8, hospitals_trained=18,
+            accuracy_note="Ensemble of 3 models", note_facts=facts,
+            trained_at="", retrained=True, data_fingerprint="4d231e8f",
+            walk_forward=[], fold_predictions=[], feature_variant="lag_rates",
+            predictions=[], global_feature_importance=[],
+        ),
+    )
+    xgb = _envelope(result)["data"]["xgboost"]
+    assert xgb["note_facts"] == facts
+    assert xgb["accuracy_note"] == "Ensemble of 3 models"
+
+
+def test_action_board_i18n_keys_present():
+    """لوحة العمل تعرض الاتجاه بالعربية بدل مفاتيح إنجليزية."""
+    i18n = _read("static", "js", "i18n.js")
+    for key, value in (("Axis", "المحور"), ("Rising", "صاعد"), ("Falling", "هابط"),
+                       ("Action board", "لوحة العمل"), ("Model card", "بطاقة النموذج")):
+        assert f"'{key}': '{value}'" in i18n, key

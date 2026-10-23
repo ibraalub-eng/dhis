@@ -228,3 +228,4 @@ class XGBoostPredictionResult:
     walk_forward: List[Dict] = field(default_factory=list)  # تحقق زمني: R²/MAE لكل شهر تالٍ
     fold_predictions: List[Dict] = field(default_factory=list)  # تنبؤات الطيات (hospital, month, y_true, y_pred) — مصدر دقة كل مستشفى ونطاق P10–P90
     feature_variant: str = "baseline"  # مجموعة الميزات المختارة عبر walk-forward
+    note_facts: Dict = field(default_factory=dict)  # ملخص منظّم لبطاقة النموذج (للواجهة العربية)

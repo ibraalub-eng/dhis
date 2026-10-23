@@ -34,6 +34,26 @@ export function initHospitalSelect(hospitals) {
   }
 }
 
+// Hospital mode renders inside collapsible cards now. When a card is folded
+// its chart may render into a hidden container; re-render its section the
+// moment the card is re-opened so Plotly gets a real size again.
+const _HOSPITAL_SECTION_IDS = ['smart-hospital-profile', 'smart-hospital-trend',
+  'smart-hospital-indicators', 'smart-hospital-peers', 'smart-hospital-lag',
+  'smart-hospital-factors'];
+document.addEventListener('smart-section-opened', (e) => {
+  const id = e && e.detail && e.detail.id;
+  if (!_HOSPITAL_SECTION_IDS.includes(id)) return;
+  const sel = document.getElementById('smart-hospital-context-select');
+  const val = sel && sel.value;
+  if (val) loadHospitalMode(val, null).catch(() => {});
+});
+
+function _setHospitalCardVisible(id, visible) {
+  const el = document.getElementById(id);
+  const card = el && el.closest('.smart-section-card');
+  if (card) card.style.display = visible ? '' : 'none';
+}
+
 export async function loadHospitalMode(hospitalId, months) {
   const panel = document.getElementById('smart-hospital-panel');
   if (!panel) return;
@@ -57,6 +77,14 @@ export async function loadHospitalMode(hospitalId, months) {
     renderHospitalLagTimeline(drill.lag_analysis || {}, drill.indicators || []);
     // تنبؤ المستشفى المنفرد انتقل إلى شاشة التنبؤ الذكي (smart-forecast)
     renderHospitalFactors(drill.anomaly, drill.explanation);
+    // Sections without data hide their whole card instead of showing an
+    // empty frame; the next load (hospital change or card re-open) re-evaluates.
+    _setHospitalCardVisible('smart-hospital-indicators', (drill.indicators || []).length > 0);
+    _setHospitalCardVisible('smart-hospital-peers', (drill.peer_comparison || {}).peer_count > 0);
+    const _lags = (drill.lag_analysis || {}).lags || (drill.lag_analysis || {}).all_lags || [];
+    _setHospitalCardVisible('smart-hospital-lag', _lags.length > 0);
+    const _factors = (drill.explanation && drill.explanation.top_factors) || [];
+    _setHospitalCardVisible('smart-hospital-factors', _factors.length > 0);
   } catch (e) {
     showSmartSectionError('hospital', e.message);
   } finally {
@@ -360,8 +388,7 @@ export function renderHospitalForecast(forecast) {
 function renderHospitalIndicators(indicators) {
   const c = document.getElementById('smart-hospital-indicators');
   if (!c || !indicators.length) { if (c) c.innerHTML = ''; return; }
-  c.innerHTML = `<div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.4rem;">📊 ${_t('Clinical Indicators')}</div>
-  <div class="smart-table-wrap"><table><thead><tr>
+  c.innerHTML = `<div class="smart-table-wrap"><table><thead><tr>
     <th>${_t('Indicator')}</th><th>${_t('Value')}</th><th>${_t('Peer Avg')}</th><th>${_t('vs Peers')}</th></tr></thead><tbody>` +
     indicators.map(ind => {
       const val = ind.value != null ? _fmtNum(ind.value, 3) : '—';
@@ -433,8 +460,7 @@ function renderHospitalPeers(peers, anomaly) {
       <tbody>${peerRows}</tbody>
     </table>
   </div>` : '';
-  c.innerHTML = `<div style="font-size:0.85rem;font-weight:600;color:var(--text-primary);margin-bottom:0.3rem;">👥 ${_t('Peer Comparison')}</div>
-    <div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">${peers.peer_count} ${_t('peers matched by')} <strong>${matchBy}</strong></div>
+  c.innerHTML = `<div style="font-size:0.78rem;color:var(--text-secondary);margin-bottom:0.3rem;">${peers.peer_count} ${_t('peers matched by')} <strong>${matchBy}</strong></div>
     ${barHtml}${peerTable}`;
 }
 

@@ -16,14 +16,14 @@ import { apiSmartGet, setSmartLoader, showSmartSectionError,
          _smartEscapeHtml, _t } from './smart/core.js';
 import { loadXGBoostTab, loadForecastQuality, loadForecastSignalsPanel,
          initHorizonSelect, getForecastMonth, setForecastMonth,
-         initIndicatorForecast } from './smart/advanced.js';
+         initIndicatorForecast, renderActionBoard } from './smart/advanced.js';
 import { renderHospitalForecast } from './smart/hospital.js';
 
 // ── Lazy sub-tabs ──────────────────────────────────────────────────────────
 // Each panel is loaded the first time it is activated; switching back to a
 // loaded panel costs nothing. Horizon-dependent panels are marked stale when
 // the month/horizon changes and reload the next time they are shown.
-const HORIZON_PANELS = new Set(['models', 'quality', 'signals', 'indicator']);
+const HORIZON_PANELS = new Set(['models', 'quality', 'signals', 'indicator', 'actions']);
 const _loaded = new Set();
 let _active = 'models';
 
@@ -55,12 +55,26 @@ function loadHospitalForecast(hospitalId) {
     .finally(() => setSmartLoader('hospital-forecast', false));
 }
 
+function loadActionBoard() {
+  const month = getForecastMonth() || 'all';
+  const horizonSelect = document.getElementById('smart-horizon-select');
+  let horizon = 3;
+  if (horizonSelect && horizonSelect.value) {
+    const v = parseInt(horizonSelect.value, 10);
+    if (v === 1 || v === 3 || v === 6 || v === 9 || v === 12) horizon = v;
+  }
+  return apiSmartGet(`/smart/forecast-action-board/${month}?horizon=${horizon}`)
+    .then(d => renderActionBoard(d))
+    .catch(e => showSmartSectionError('smart-action-board', e.message || _t('Failed to load')));
+}
+
 // One loader per panel — called only when that panel is (re)activated.
 const _panelLoaders = {
   models: () => loadXGBoostTab(getForecastMonth()),
   quality: () => loadForecastQuality(getForecastMonth()),
   signals: () => loadForecastSignalsPanel(getForecastMonth()),
   indicator: () => initIndicatorForecast(),
+  actions: () => loadActionBoard(),
   hospital: () => loadHospitalForecast(_selectedHospital()),
 };
 

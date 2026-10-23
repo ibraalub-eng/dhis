@@ -30,7 +30,10 @@ from app.engine.smart.indicator_forecast import (
 class TestIndicatorDefs:
     def test_core_indicator_keys_exist(self):
         for key in ("cs_rate", "stillbirth_rate", "preterm_rate", "lbw_rate",
-                    "high_risk_rate", "adolescent_rate", "total_births"):
+                    "high_risk_rate", "adolescent_rate", "total_births",
+                    # عدّادات خام بمفاتيح FEATURE_KEYS (تنبؤ المؤشر الخام)
+                    "cs_count", "sb", "preterm", "lbw", "high_risk",
+                    "adolescent", "smm_total", "mat_deaths", "nd"):
             assert key in INDICATOR_DEFS, key
 
     def test_defs_carry_bilingual_labels_and_unit(self):
@@ -74,6 +77,21 @@ class TestRateFormulas:
 
     def test_total_births_is_raw_count(self):
         assert indicator_rate_from_values("total_births", {"6": 400}) == pytest.approx(400.0)
+
+    def test_raw_counters_pass_value_through(self):
+        """عدّادات خام: القيمة الخام بلا تحويل وبلا شرط مقام."""
+        assert indicator_rate_from_values("sb", {"7": 5}) == pytest.approx(5.0)
+        assert indicator_rate_from_values("nd", {"17": 2}) == pytest.approx(2.0)
+        assert indicator_rate_from_values("smm_total", {"10": 7}) == pytest.approx(7.0)
+        assert indicator_rate_from_values("mat_deaths", {"11": 1}) == pytest.approx(1.0)
+        assert indicator_rate_from_values("cs_count", {"5": 50}) == pytest.approx(50.0)
+        assert indicator_rate_from_values("preterm", {"6.f": 30}) == pytest.approx(30.0)
+        assert indicator_rate_from_values("lbw", {"6.g": 40}) == pytest.approx(40.0)
+        assert indicator_rate_from_values("high_risk", {"2.n": 80}) == pytest.approx(80.0)
+        assert indicator_rate_from_values("adolescent", {"2.c": 10, "2.d": 5}) == pytest.approx(15.0)
+        # غياب البسط => بلا قيمة (لا صفر صامت)
+        assert indicator_rate_from_values("sb", {}) is None
+        assert indicator_rate_from_values("adolescent", {"2.c": 10}) is None
 
     def test_missing_or_zero_denominator_returns_none(self):
         assert indicator_rate_from_values("cs_rate", {"5": 50}) is None
@@ -248,7 +266,30 @@ def test_endpoint_indicator_catalog(client):
     items = resp.json()
     keys = [i["key"] for i in items]
     assert "cs_rate" in keys and "stillbirth_rate" in keys
+    # العدّادات الخام تظهر في كتالوج شاشة التنبؤ
+    assert "sb" in keys and "nd" in keys and "mat_deaths" in keys and "cs_count" in keys
     assert all("label_ar" in i and "label_en" in i for i in items)
+
+
+def test_endpoint_raw_counter_forecast(client, db_session):
+    """تنبؤ مؤشر خام (الولادات الميتة، رمز 7 بلا مقام): القيمة الخام بوحدة count."""
+    months = {m: {"7": v} for m, v in zip(
+        [f"2026-{k:02d}" for k in range(1, 7)], [4, 5, 6, 6, 8, 9])}
+    _seed_series(db_session, 1, months)
+    resp = client.get("/smart/indicator-forecast/2026-06?indicator=sb&hospital_ids=1&horizon=3")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["unit"] == "count"
+    assert data["indicator"] == "sb"
+    assert data["indicator_ar"] == "الولادات الميتة"
+    h = data["hospitals"][0]
+    # القيمة الخام بلا تحويل وبلا شرط مقام (عدّاد خام بمفتاح FEATURE_KEYS)
+    assert h["current"] == pytest.approx(9.0)
+    assert h["model"] == "linear"
+    assert len(h["points"]) == 3
+    assert h["points"][-1]["value"] > h["current"]
+    # كل الأشهر الستة تبقى في السلسلة — لا يُسقط أي شهر لغياب المقام
+    assert [s["month"] for s in h["series"]] == [f"2026-{k:02d}" for k in range(1, 7)]
 
 
 def test_endpoint_unknown_hospital_goes_to_unavailable(client, db_session):

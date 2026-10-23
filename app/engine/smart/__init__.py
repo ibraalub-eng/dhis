@@ -13,28 +13,20 @@ from app.engine.smart.xgboost_predictor import run_xgboost_predictions
 from app.engine.smart.patterns import detect_composite_patterns
 
 
-def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
-    """Bulk-load hospital data for a month — 4 queries total instead of N*2."""
-    from app.models import Hospital, IndicatorValue, Indicator, HospitalIndicatorConfig
+def _disabled_maps(session: Session, month: str, hospitals, indicators, all_values):
+    """خرائط المؤشرات المعطّلة لكل مستشفى لهذا الشهر.
+
+    يعيد (combined_disabled_map, auto_disabled_map) بنفس منطق التحميل الرئيسي:
+    معطّلات المستشفى اليدوية، ومعطّلات «كل المستشفيات» الوراثية إلا إذا عارضها
+    المستشفى، ثم المعطّلات التلقائية (قيم null + مؤشرات بلا صف) عند تفعيلها.
+    استُخرجت من _load_hospital_data لتعيدها لوحة تغطية المؤشرات بلا تكرار.
+    """
+    from app.models import HospitalIndicatorConfig, IndicatorDefaultConfig
     from app.engine.pipeline import _is_auto_disable_null
 
-    hospitals = session.query(Hospital).filter(Hospital.is_active).all()
-    if not hospitals:
-        return {}
-
-    indicators = session.query(Indicator).all()
-    indicator_map = {ind.id: ind.code for ind in indicators}
     all_indicator_ids = {ind.id for ind in indicators}
 
-    # ── Bulk query 1: ALL indicator values for this month ──
-    all_values = session.query(IndicatorValue).filter(
-        IndicatorValue.month == month,
-    ).all()
-    values_by_hosp = {}
-    for iv in all_values:
-        values_by_hosp.setdefault(iv.hospital_id, []).append(iv)
-
-    # ── Bulk query 2: ALL disabled configs (not per-hospital) ──
+    # ── Manual disabled configs (not per-month) ──
     all_disabled = session.query(HospitalIndicatorConfig).filter(
         HospitalIndicatorConfig.is_enabled.is_(False),
     ).all()
@@ -42,7 +34,7 @@ def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
     for d in all_disabled:
         disabled_map.setdefault(d.hospital_id, set()).add(d.indicator_id)
 
-    # ── Default (All Hospitals) disabled for this month — inherited unless hospital overrides ──
+    # Default (All Hospitals) disabled for this month — inherited unless hospital overrides ──
     from app.models import IndicatorDefaultConfig
     default_disabled = set(
         c.indicator_id for c in session.query(IndicatorDefaultConfig).filter(
@@ -80,6 +72,171 @@ def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
             missing = all_indicator_ids - existing - manually
             auto_disabled_map[hid] = nulls | missing
 
+    return combined_disabled_map, auto_disabled_map
+
+
+# ── مصادر كل ميزة مشتقة من رموز قاعدة البيانات (نفس اشتقاق _load_hospital_data) ──
+# تُستخدم في لوحة «المؤشرات التي يمكن للتحليل العمل عليها» لعرض ما يعتمد عليه
+# المحرك فعلياً: القيصارية نسبة من رقمين، والباقي عدّادات من رمز واحد
+# (المراهقتان مجموع رمزين). أي مؤشر خارج هذه القائمة لا يدخل نماذج الشذوذ.
+FEATURE_SOURCE_CODES = {
+    "cs_rate": ("5", "2"),
+    "smm_total": ("10",),
+    "mat_deaths": ("11",),
+    "nd": ("17",),
+    "sb": ("7",),
+    "preterm": ("6.f",),
+    "lbw": ("6.g",),
+    "total_births": ("6",),
+    "high_risk": ("2.n",),
+    "adolescent": ("2.c", "2.d"),
+}
+
+
+# نوع كل ميزة كما يعرضها لوحة التغطية: نسبة مشتقة أم عدّاد خام
+FEATURE_KINDS = {k: ("rate" if k == "cs_rate" else "count") for k in FEATURE_SOURCE_CODES}
+
+
+def analysis_indicator_coverage(session: Session, month: str) -> Dict[str, Any]:
+    """تغطية كل ميزة مشتقة يعتمد عليها التحليل الذكي في شهر معيّن.
+
+    تجيب عن سؤال «ما المؤشرات التي يمكن العمل عليها؟»: لكل ميزة من
+    FEATURE_KEYS عدد المستشفيات التي يمكن اشتقاق قيمتها هذا الشهر، والمعطّلة
+    (مصدرها معطّل يدوياً/افتراضياً/تلقائياً)، والناقصة — بلا صفر صامت.
+    تُطابق اشتقاق _load_hospital_data حرفياً (نفس الخرائط المعطّلة ونفس شروط
+    المقام للقيصارية وشرط وجود رمز واحد على الأقل للمراهقتين).
+    """
+    from app.engine.smart.anomaly import FEATURE_KEYS
+    from app.engine.smart.explainability import ARABIC_NAMES
+    from app.models import Hospital, Indicator, IndicatorValue
+
+    hospitals = session.query(Hospital).filter(Hospital.is_active).all()
+    total = len(hospitals)
+    indicators = session.query(Indicator).all()
+    ind_map = {i.id: i.code for i in indicators}
+    all_values = (
+        session.query(IndicatorValue)
+        .filter(IndicatorValue.month == month)
+        .all()
+    )
+    combined_disabled_map, auto_disabled_map = _disabled_maps(
+        session, month, hospitals, indicators, all_values
+    )
+
+    values_by_hosp: Dict[int, Dict[str, float]] = {}
+    for iv in all_values:
+        code = ind_map.get(iv.indicator_id)
+        if code and iv.value is not None:
+            values_by_hosp.setdefault(iv.hospital_id, {})[code] = float(iv.value)
+
+    rows = []
+    for feature in FEATURE_KEYS:
+        codes = FEATURE_SOURCE_CODES.get(feature)
+        if not codes:
+            # ميزة بلا تعريف مصادر معروف — لا نكذب بتغطية مصطنعة
+            rows.append({
+                "key": feature, "label_ar": ARABIC_NAMES.get(feature, feature),
+                "kind": "count", "sources": [],
+                "hospitals_with_value": 0, "hospitals_disabled": 0,
+                "hospitals_missing": total, "hospitals_total": total,
+                "coverage_pct": 0.0, "status": "unavailable",
+            })
+            continue
+        with_value = disabled_count = missing = 0
+        for hosp in hospitals:
+            dis_ids = combined_disabled_map.get(hosp.id, set()) | auto_disabled_map.get(hosp.id, set())
+            dis_codes = {ind_map[i] for i in dis_ids if i in ind_map}
+            if any(c in dis_codes for c in codes):
+                # مصدر معطّل يعني أن القيمة المشتقة لا تُشتق أصلاً
+                disabled_count += 1
+                continue
+            vals = values_by_hosp.get(hosp.id, {})
+            if feature == "cs_rate":
+                den = vals.get("2")
+                derivable = vals.get("5") is not None and den is not None and den > 0
+            elif feature == "adolescent":
+                derivable = ("2.c" in vals) or ("2.d" in vals)
+            else:
+                derivable = codes[0] in vals
+            if derivable:
+                with_value += 1
+            else:
+                missing += 1
+        pct = round(100.0 * with_value / total, 1) if total else 0.0
+        if total == 0 or with_value == 0:
+            status = "unavailable"
+        elif with_value == total:
+            status = "available"
+        else:
+            status = "partial"
+        rows.append({
+            "key": feature,
+            "label_ar": ARABIC_NAMES.get(feature, feature),
+            "kind": FEATURE_KINDS.get(feature, "count"),
+            "sources": list(codes),
+            "hospitals_with_value": with_value,
+            "hospitals_disabled": disabled_count,
+            "hospitals_missing": missing,
+            "hospitals_total": total,
+            "coverage_pct": pct,
+            "status": status,
+        })
+    return {
+        "month": month,
+        "hospitals_total": total,
+        "indicators": rows,
+        "note": (
+            "التحليل الذكي يعتمد على هذه الميزات المشتقة من رموز البيانات التالية "
+            "فقط — أي مؤشر خارجها لا يدخل نماذج الشذوذ/التجميع/الارتباط. "
+            "المستشفى بلا قيمة مشتقة هذا الشهر يظهر «ناقص» لا صفراً."
+        ),
+    }
+
+
+def _registry_inactive_codes(session: Session) -> set:
+    """Registry codes deactivated on the Indicators screen (is_active=False)
+    — currently computed, cheap, and always fresh so a toggle applies on the
+    next request without cache invalidation plumbing. Empty on any registry
+    hiccup for pre-seed fallback behavior."""
+    try:
+        from app.engine.indicator_service import inactive_codes
+        return inactive_codes(session)
+    except Exception:
+        return set()
+
+
+def _load_hospital_data(
+    session: Session, month: str, hospital_ids: list[int] | None = None,
+) -> Dict[str, Any]:
+    """Bulk-load hospital data for a month — 4 queries total instead of N*2."""
+    from app.models import Hospital, IndicatorValue, Indicator
+    from app.engine.smart.indicator_forecast import indicator_rate_from_values
+
+    hospitals_query = session.query(Hospital).filter(Hospital.is_active)
+    if hospital_ids is not None:
+        if not hospital_ids:
+            return {}
+        hospitals_query = hospitals_query.filter(Hospital.id.in_(hospital_ids))
+    hospitals = hospitals_query.all()
+    if not hospitals:
+        return {}
+
+    indicators = session.query(Indicator).all()
+    indicator_map = {ind.id: ind.code for ind in indicators}
+
+    # ── Bulk query 1: ALL indicator values for this month ──
+    all_values = session.query(IndicatorValue).filter(
+        IndicatorValue.month == month,
+    ).all()
+    values_by_hosp = {}
+    for iv in all_values:
+        values_by_hosp.setdefault(iv.hospital_id, []).append(iv)
+
+    # ── Disabled maps (manual + default + auto-null), shared helper ──
+    combined_disabled_map, auto_disabled_map = _disabled_maps(
+        session, month, hospitals, indicators, all_values
+    )
+
     all_data = {}
     for hosp in hospitals:
         hid = hosp.id
@@ -102,12 +259,15 @@ def _load_hospital_data(session: Session, month: str) -> Dict[str, Any]:
                 return None
             return indicator_values.get(code)
 
-        total_deliveries = _src("2")
-        cs_count = _src("5")
-
         derived = {}
-        if total_deliveries is not None and total_deliveries > 0 and cs_count is not None:
-            derived["cs_rate"] = cs_count / total_deliveries * 100
+        # cs_rate is a seeded registry indicator; when it is deactivated on
+        # the Indicators screen its smart-analytics features must not be
+        # recomputed (historical data stays untouched).
+        _inactive = _registry_inactive_codes(session)
+        cs_rate = None if "cs_rate" in _inactive else \
+            indicator_rate_from_values("cs_rate", indicator_values)
+        if cs_rate is not None:
+            derived["cs_rate"] = cs_rate
         for feature, src_code in [
             ("smm_total", "10"), ("mat_deaths", "11"), ("nd", "17"),
             ("sb", "7"), ("preterm", "6.f"), ("lbw", "6.g"),

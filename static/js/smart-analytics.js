@@ -52,7 +52,7 @@ async function onMonthChange(month) {
   document.getElementById('smart-kpi-container').innerHTML = '';
   document.getElementById('smart-anomaly-table').innerHTML = '';
   // Clear stale empty/error banners from the previous month
-  ['anomalies', 'geo', 'advanced', 'timeline', 'time-overview', 'hospital', 'comparison'].forEach(clearSmartSectionState);
+  ['anomalies', 'geo', 'advanced', 'timeline', 'time-overview', 'hospital', 'comparison', 'indicators-scope'].forEach(clearSmartSectionState);
   // Fire decision board + section loaders in parallel instead of awaiting
   // the decision board first — the 7-engine pipeline runs on the first
   // request for a month; sections can start fetching immediately.
@@ -63,6 +63,7 @@ async function onMonthChange(month) {
 // ---- section loaders registry ----
 registerSectionLoaders({
   anomalies: { load: () => loadAnomaliesTable(smartState.month) },
+  'indicators-scope': { load: () => loadIndicatorsScope(smartState.month) },
   geo: { load: () => loadGeoSection(smartState.month) },
   advanced: { load: () => loadAdvancedSection(smartState.month) },
   timeline: { load: () => loadTimeline() },
@@ -70,6 +71,94 @@ registerSectionLoaders({
   hospital: { load: () => { const v = getSelectedHospital(); return v ? loadHospitalMode(v, null) : Promise.resolve(); } },
   comparison: { load: () => renderComparison(document.getElementById('smart-comparison-type')?.value || 'all') },
 });
+
+async function loadIndicatorsScope(month, _retries) {
+  _retries = _retries == null ? 10 : _retries;
+  try {
+    const d = await apiSmartGet(`/smart/analysis-indicators/${month}`);
+    if (d.computing) {
+      if (_retries > 0) {
+        setSmartLoader('indicators-scope', true);
+        setTimeout(() => loadIndicatorsScope(month, _retries - 1), 3000);
+      } else {
+        setSmartLoader('indicators-scope', false);
+        showSmartSectionEmpty('indicators-scope', _t('Computation timed out'));
+      }
+      return;
+    }
+    renderIndicatorsScope(d);
+  } catch (e) {
+    showSmartSectionError('indicators-scope', e.message);
+  }
+}
+
+// خط تغطية صغير (SVG) لتتبّع تغيّر تغطية المؤشر عبر الأشهر الماضية —
+// أرقام فقط من الخادم؛ الشهر والنسبة يظهران في تلميح المتصفح لكل نقطة.
+function _coverageSparkline(values, months) {
+  const pts = values
+    .map((v, i) => (v == null || !isFinite(v) ? null : { i, v, m: months[i] }))
+    .filter(Boolean);
+  if (pts.length < 2) return '<span style="color:var(--text-muted);">—</span>';
+  const W = 88, H = 22;
+  const min = Math.min(...pts.map(p => p.v));
+  const max = Math.max(...pts.map(p => p.v));
+  const span = (max - min) || 1;
+  const x = i => 3 + (i * (W - 6)) / Math.max(1, months.length - 1);
+  const y = v => H - 3 - ((v - min) / span) * (H - 6);
+  const path = pts.map((p, k) => `${k ? 'L' : 'M'}${x(p.i).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
+  const first = pts[0], last = pts[pts.length - 1];
+  // صعود التغطية → أخضر، هبوطها → برتقالي (andas-is بلا رسم مُختلق)
+  const color = last.v >= first.v ? 'var(--accent-green)' : 'var(--accent-orange)';
+  const dots = pts.map(p =>
+    `<circle cx="${x(p.i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="2" fill="${color}"><title>${_smartEscapeHtml(p.m)}: ${_fmtNum(p.v, 1)}%</title></circle>`).join('');
+  const aria = `${first.m} — ${last.m}: ${_fmtNum(first.v, 1)}% → ${_fmtNum(last.v, 1)}%`;
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" style="vertical-align:middle;" role="img"><title>${_smartEscapeHtml(aria)}</title><path d="${path}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>${dots}</svg>`;
+}
+
+function renderIndicatorsScope(d) {
+  const table = document.getElementById('smart-indicators-scope-table');
+  const note = document.getElementById('smart-indicators-scope-note');
+  const badge = document.getElementById('smart-indicators-scope-badge');
+  if (!table) return;
+  if (!d || !d.indicators || !d.indicators.length || !d.hospitals_total) {
+    if (badge) badge.textContent = '';
+    if (note) note.textContent = '';
+    table.innerHTML = '';
+    showSmartSectionEmpty('indicators-scope', _t('No data for this month'));
+    return;
+  }
+  clearSmartSectionState('indicators-scope');
+  if (note) note.textContent = _smartEscapeHtml(d.note || '');
+  const okCount = d.indicators.filter(i => i.status === 'available').length;
+  // data-i18n على كلمة الحالة وحدها حتى يترجمها toggleLang فوراً دون إعادة رسم
+  if (badge) badge.innerHTML = `${okCount}/${d.indicators.length} <span data-i18n="available">${_t('available')}</span>`;
+  const kindLabel = k => k === 'rate' ? _t('Rate') : _t('Count');
+  const statusBadge = s => {
+    const cls = s === 'available' ? 'smart-badge smart-badge-normal'
+      : s === 'partial' ? 'smart-badge smart-badge-warning' : 'smart-badge smart-badge-critical';
+    const label = s === 'available' ? _t('Available')
+      : s === 'partial' ? _t('Partially covered') : _t('Not covered');
+    return `<span class="${cls}">${label}</span>`;
+  };
+  table.innerHTML = d.indicators.map(ind => {
+    const label = smartState.lang === 'ar' ? (ind.label_ar || ind.key) : smartTranslateFeature(ind.key);
+    const src = (ind.sources || []).join(' + ');
+    const cov = `${ind.hospitals_with_value}/${ind.hospitals_total} (${_fmtNum(ind.coverage_pct, 1)}%)`;
+    const histMonths = (d.coverage_history || []).map(h => h.month);
+    const histValues = (d.coverage_history || []).map(h => (h.coverage || {})[ind.key]);
+    const spark = _coverageSparkline(histValues, histMonths);
+    return `<tr>
+      <td>${_smartEscapeHtml(label)}</td>
+      <td>${_smartEscapeHtml(kindLabel(ind.kind))}</td>
+      <td style="font-size:0.72rem;direction:ltr;text-align:left;">${_smartEscapeHtml(src)}</td>
+      <td>${cov}</td>
+      <td>${spark}</td>
+      <td>${ind.hospitals_disabled}</td>
+      <td>${ind.hospitals_missing}</td>
+      <td>${statusBadge(ind.status)}</td>
+    </tr>`;
+  }).join('');
+}
 
 async function loadAnomaliesTable(month, _retries) {
   _retries = _retries == null ? 10 : _retries;
@@ -273,6 +362,7 @@ function wireScreen() {
 // ---- error banner retry (spec 5): clicking an active error banner reloads its section ----
 const _retryLoaders = {
   anomalies: () => loadAnomaliesTable(smartState.month),
+  'indicators-scope': () => loadIndicatorsScope(smartState.month),
   geo: () => loadGeoSection(smartState.month),
   advanced: () => loadAdvancedSection(smartState.month),
   timeline: () => loadTimeline(),
@@ -307,7 +397,7 @@ function initSmartAnalytics() {
   // Safety net: force-hide all smart loaders after 8 seconds so they never
   // get stuck visible, even if a section loader's promise chain breaks.
   setTimeout(() => {
-    ['anomalies','geo','advanced','timeline','time-overview','hospital'].forEach(k => {
+    ['anomalies','geo','advanced','timeline','time-overview','hospital','indicators-scope'].forEach(k => {
       setSmartLoader(k, false);
     });
   }, 8000);

@@ -153,6 +153,34 @@ class TestForwardTargetsNoLeakage:
         assert current[0] == 0.5
 
 
+def test_xgboost_derived_rates_use_registry_formulas_and_missing_data():
+    from app.engine.smart.xgboost_predictor import _compute_derived_features
+
+    values = {
+        "2": 100, "5": 25, "6": 300, "10": 6, "11": 2, "17": 3,
+        "7": 9, "6.f": 30, "6.g": 45, "2.n": 60, "2.c": 15, "2.d": 15,
+        "cs_rate": 25,
+    }
+    derived = _compute_derived_features(values)
+
+    assert derived["smm_per_1000"] == pytest.approx(20)
+    assert derived["mat_mortality_rate"] == pytest.approx(2000 / 3)
+    assert derived["stillbirth_rate"] == pytest.approx(30)
+    assert derived["preterm_rate"] == pytest.approx(10)
+    assert derived["lbw_rate"] == pytest.approx(15)
+    assert derived["high_risk_rate"] == pytest.approx(20)
+    assert derived["adolescent_rate"] == pytest.approx(10)
+    assert derived["nd_x_sb"] == pytest.approx(30 * 10)
+
+    missing_numerator = _compute_derived_features({"6": 300, "cs_rate": 0})
+    assert np.isnan(missing_numerator["smm_per_1000"])
+    assert np.isnan(missing_numerator["stillbirth_rate"])
+    assert np.isnan(missing_numerator["nd_x_sb"])
+
+    zero_denominator = _compute_derived_features({"6": 0, "cs_rate": 0, "10": 1})
+    assert np.isnan(zero_denominator["smm_per_1000"])
+
+
 def _build_xgb_db(months=None, n_hospitals=7):
     """قاعدة بيانات مؤقتة بمستشفيات وقيم مؤشرات لأشهر متعددة (لاختبار الاستمرارية)."""
     from sqlalchemy import create_engine
@@ -215,6 +243,42 @@ class TestModelPersistence:
             assert r2.retrained is False
             assert r2.trained_at == r1.trained_at
             assert len(r2.predictions) == len(r1.predictions)
+        finally:
+            session.close()
+
+    def test_note_facts_summarize_the_model(self, tmp_path, monkeypatch):
+        """بطاقة النموذج تُبنى من أرقام منظّمة (note_facts) لا من الفقرة الإنجليزية."""
+        from app.engine.smart.xgboost_predictor import run_xgboost_predictions
+
+        monkeypatch.setattr("app.engine.smart.xgboost_predictor.MODEL_DIR", str(tmp_path / "models"))
+        session = _build_xgb_db()
+        try:
+            r1 = run_xgboost_predictions(session, "2026-03", {"xgb_n_estimators": 20})
+            f = r1.note_facts
+            assert f, "note_facts must be populated on the training path"
+            assert f["ensemble_models"] >= 1
+            assert f["best_model"] and f["feature_variant"]
+            assert f["training_months"] >= 1 and f["hospitals_trained"] >= 1
+            assert f["labeled_rows"] >= 1
+            assert f["n_features"] >= f["n_base_features"] > 0
+            assert f["n_derived_features"] >= 0
+            assert 0.0 <= f["classifier_accuracy"] <= 1.0
+            assert f["data_fingerprint"] == r1.data_fingerprint
+            assert f["retrained"] is True
+            assert f["walk_forward_folds"] == len(r1.walk_forward)
+            assert f["best_r2"] == round(float(r1.model_r2), 3)
+            assert f["best_mae"] == round(float(r1.model_mae), 3)
+            # الرقم المنظّم هو نفسه المعروض في الفقرة الإنجليزية (لا انفصال بينهما)
+            assert f"Classifier accuracy: {f['classifier_accuracy']:.1%}" in r1.accuracy_note
+            assert f"{f['training_months']} months" in r1.accuracy_note
+            assert f"{f['hospitals_trained']} hospitals" in r1.accuracy_note
+
+            # النموذج المحمّل من القرص يعيد البطاقة نفسها بلا إعادة تدريب
+            r2 = run_xgboost_predictions(session, "2026-03", {"xgb_n_estimators": 20})
+            assert r2.retrained is False
+            assert r2.note_facts["best_model"] == f["best_model"]
+            assert r2.note_facts["walk_forward_folds"] == f["walk_forward_folds"]
+            assert r2.note_facts["labeled_rows"] == f["labeled_rows"]
         finally:
             session.close()
 
