@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from app.engine.anomaly.layered import peer_z_provenance
 from app.engine.smart import _load_hospital_data
 
 logger = logging.getLogger(__name__)
@@ -218,6 +219,7 @@ def _monthly_gov_metrics(
     skip: frozenset = frozenset(),
 ) -> Dict[str, Dict[str, Dict[str, Optional[float]]]]:
     """معدلات كل محافظة لكل شهر في النافذة (تغذي الاتجاهات والشذوذ التاريخي)."""
+    from app.eligibility import exclude_disabled
     from app.models import QualityScore
 
     months_query = session.query(QualityScore.month).distinct()
@@ -225,6 +227,8 @@ def _monthly_gov_metrics(
         if not hospital_ids:
             return {}
         months_query = months_query.filter(QualityScore.hospital_id.in_(hospital_ids))
+    # Disabled hospital/months are outside the active window.
+    months_query = exclude_disabled(session, months_query, QualityScore)
     months = [r[0] for r in months_query.order_by(QualityScore.month).all()]
     window = [m for m in months if m <= month][-months_back:]
     per_month = {}
@@ -261,6 +265,15 @@ def _regional_anomalies(session, month: str, metrics_by_gov, benchmarks, gov_nam
             mean_v, std_v = bm.get("mean"), bm.get("std")
             if value is None or mean_v is None or not std_v or std_v <= 0:
                 continue
+            # The z divides by the spread of the OTHER governorates in the
+            # benchmark. Fewer than layered.MIN_PEERS_FOR_TOP_BAND of them
+            # cannot measure one (layered.PEER_Z_POLICY), so no cross-sectional
+            # finding is raised from such a group — the governorate table still
+            # reports its deviation.
+            z_provenance = peer_z_provenance(
+                max((bm.get("n") or 0) - 1, 0))
+            if not z_provenance["z_produced"]:
+                continue
             z = (value - mean_v) / std_v
             if abs(z) < 2.0:
                 continue
@@ -291,6 +304,7 @@ def _regional_anomalies(session, month: str, metrics_by_gov, benchmarks, gov_nam
                 "benchmark": round(float(mean_v), 3),
                 "deviation_pct": round(float(dev), 1),
                 "z_score": round(float(z), 2),
+                "z_provenance": z_provenance,
                 "severity": severity,
                 "direction": direction,
                 "small_sample": 0 < births < _SMALL_SAMPLE_BIRTHS,
@@ -785,14 +799,18 @@ def _risk_scores(
     + مؤشرات الخطر السريرية (15) + عقوبة ضعف الجودة (15).
     الثقة: من اكتمال المؤشرات وصحة المقامات؛ الثقة المنخفضة تَحدّ الدرجة.
     """
-    from app.models import QualityScore, ConfidenceScore, Hospital
+    from app.eligibility import exclude_disabled
+    from app.models import ConfidenceScore, Hospital, QualityScore
 
     completeness_by_gov = {}
     confidence_by_gov = {}
     quality_by_hosp = {}
     conf_by_hosp = {}
+
     quality_query = session.query(QualityScore).filter(QualityScore.month == month)
+    quality_query = exclude_disabled(session, quality_query, QualityScore)
     confidence_query = session.query(ConfidenceScore).filter(ConfidenceScore.month == month)
+    confidence_query = exclude_disabled(session, confidence_query, ConfidenceScore)
     hospitals_query = session.query(Hospital).filter(Hospital.is_active)
     if hospital_ids is not None:
         quality_query = quality_query.filter(QualityScore.hospital_id.in_(hospital_ids))
@@ -967,8 +985,10 @@ def run_regional_analysis(
                                     skip=_skip)
 
     # ── بيانات مساعدة لمقارنة المحافظات (متوسط الجودة/الشذوذ وعدّاد القيم الشاذة) ──
-    from app.models import QualityScore, AnomalyResult
+    from app.eligibility import exclude_disabled
+    from app.models import AnomalyResult, QualityScore
     quality_query = session.query(QualityScore).filter(QualityScore.month == month)
+    quality_query = exclude_disabled(session, quality_query, QualityScore)
     outlier_query = session.query(AnomalyResult).filter(
         AnomalyResult.month == month, AnomalyResult.is_outlier.is_(True)
     )
@@ -1015,6 +1035,10 @@ def run_regional_analysis(
             bm = benchmarks.get(metric, {})
             vals = [metrics_by_gov[g].get(metric) for g in gov_names if metrics_by_gov[g].get(metric) is not None]
             value = m.get(metric)
+            # Same thin-peer rule as the findings: a benchmark group too small
+            # to measure a spread produces no z, so the cell is empty and says
+            # why instead of quoting an unmeasurable magnitude.
+            z_provenance = peer_z_provenance(max((bm.get("n") or 0) - 1, 0))
             row["rates"][metric] = {
                 "value": value,
                 "mean": bm.get("mean"),
@@ -1029,8 +1053,10 @@ def run_regional_analysis(
                 ),
                 "z_score": (
                     round((value - bm["mean"]) / bm["std"], 2)
-                    if value is not None and bm.get("mean") is not None and bm.get("std") else None
+                    if value is not None and bm.get("mean") is not None
+                    and bm.get("std") and z_provenance["z_produced"] else None
                 ),
+                "z_provenance": z_provenance,
             }
 
         # ملخصات الجدول: متوسط الجودة/الشذوذ وعدد القيم الشاذة وأبرز مؤشر وأتجاه

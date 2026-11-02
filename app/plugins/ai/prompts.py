@@ -267,8 +267,12 @@ def _build_root_cause_prompt_enhanced(report_data: dict) -> str:
     if report_data.get("peer_comparisons"):
         lines.append("## Peer Comparisons")
         for group, comp in report_data["peer_comparisons"].items():
+            # A peer group too small to measure a spread produced no z
+            # (layered.PEER_Z_POLICY): say so instead of handing the model a
+            # NULL or an invented 0 it would read as a measured magnitude.
+            z = comp.get("hospital_z_score")
             lines.append(f"  {group}: percentile={comp.get('hospital_percentile', 0)}, "
-                         f"z-score={comp.get('hospital_z_score', 0)}, "
+                         f"z-score={z if z is not None else 'not produced (peer group too small to measure a spread)'}, "
                          f"gap_to_benchmark={comp.get('gap_to_benchmark', 0)}")
         lines.append("")
 

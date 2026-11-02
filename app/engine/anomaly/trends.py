@@ -1,3 +1,4 @@
+import logging
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
@@ -7,6 +8,8 @@ from app.engine import severity as severity_policy
 
 from .comparison import HospitalComparison
 from .zscore import compute_rate, RATE_DEFINITIONS, AnomalyResultData
+
+logger = logging.getLogger(__name__)
 
 
 _TRENDS_CONFIG = {
@@ -27,8 +30,32 @@ _TRENDS_CONFIG = {
 }
 
 
+#: How many times the process-global trend configuration has been
+#: overwritten in this process. Logged with the deprecation warning so a
+#: caller that has not migrated is visible in the logs instead of being
+#: discovered later through a wrong number.
+_SET_TRENDS_CONFIG_CALLS = 0
+
+
 def set_trends_config(config: dict):
+    """Deprecated (D16-A2): overwrite the process-global trend config.
+
+    Kept for callers that have not migrated. A caller that hands an
+    explicit ``config`` to the trend engine already overrides every key
+    here, so the global only decides an argument-less call.
+
+    A2 does not remove it: the warning plus the call counter make every
+    remaining caller visible, so removal can follow once none are left
+    (A3). The update semantics are unchanged.
+    """
+    global _SET_TRENDS_CONFIG_CALLS
     _TRENDS_CONFIG.update(config)
+    _SET_TRENDS_CONFIG_CALLS += 1
+    if _SET_TRENDS_CONFIG_CALLS == 1 or _SET_TRENDS_CONFIG_CALLS % 100 == 0:
+        logger.warning(
+            "set_trends_config() is deprecated (D16-A2): pass the run's "
+            "snapshot-derived configuration explicitly. Process-global "
+            "call #%d.", _SET_TRENDS_CONFIG_CALLS)
 
 
 def _resolved_settings(config: Optional[dict] = None):

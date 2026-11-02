@@ -591,6 +591,9 @@ class QualityScoreOut(BaseModel):
     consistency: Optional[float] = None
     outlier_penalty: Optional[float] = None
     issues: Optional[str] = None
+    # Configuration that produced this row; None on legacy rows.
+    scoring_fingerprint: Optional[str] = None
+    scoring_config: Optional[dict] = None
 
     class Config:
         from_attributes = True

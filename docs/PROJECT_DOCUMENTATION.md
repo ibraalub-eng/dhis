@@ -193,7 +193,8 @@
 | Hospitals | عدد المستشفيات النشطة | `db.query(Hospital).filter(is_active=True).count()` | `app/api/dashboard.py` |
 | Reports | عدد التقارير المُنشأة | عدد النتائج الفريدة في `quality_scores` | `app/api/dashboard.py` |
 | Avg Quality Score | متوسط درجة الجودة | `AVG(quality_scores.score)` | `app/api/dashboard.py` |
-| Active Alerts | عدد التنبيهات النشطة | عدد سجلات `validation_results` بحالة FAIL | `app/api/dashboard.py` |
+| Active Alerts | عدد التنبيهات النشطة | عدد مشكلات Quality Alerts المفتوحة (مستشفى + صيغة موحّدة + شهر) — نفس وحدة شاشة Quality Alerts | `app/api/dashboard.py` |
+| Rule failures | عدد إخفاقات قواعد التحقق | عدد سجلات `validation_results` بحالة FAIL (إشارة منفصلة، لا تُجمع مع التنبيهات) | `app/api/dashboard.py` |
 
 **ماذا يعني ارتفاع/انخفاض القيمة**:
 - ارتفاع عدد التقارير = تنفيذ تحليلات أكثر

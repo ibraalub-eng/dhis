@@ -386,7 +386,7 @@ def test_why_popup_trend_skips_ghost_month(app, db_session, ux_data):
     assert [d["score"] for d in r["score_trend"]] == [70.0, 85.0]
 
 
-def test_dashboard_summary_surfaces_red_quality_issues():
+def test_dashboard_summary_surfaces_very_high_quality_issues():
     """UI contract: the executive strip shows the Very High issue count from
     the Quality Alerts screen in that screen's unit, and links to it.
 
@@ -396,22 +396,52 @@ def test_dashboard_summary_surfaces_red_quality_issues():
     """
     root = Path(__file__).resolve().parent.parent
     frag = (root / "static" / "tabs" / "dashboard.html").read_text(encoding="utf-8")
-    assert 'id="dashRedIssues"' in frag
-    assert 'id="dashRedCard"' in frag
+    assert 'id="dashVeryHighIssues"' in frag
+    assert 'id="dashVeryHighCard"' in frag
     assert 'onclick="switchTab(\'quality-alerts\')"' in frag
     assert 'data-i18n="Very high issues"' in frag
     assert 'id="dashStalePolicy"' not in frag
     assert 'data-i18n="Stale policy alerts"' not in frag
 
     js = (root / "static" / "js" / "rules-manager.js").read_text(encoding="utf-8")
-    assert "data.red_quality_issues" in js
-    assert "dashRedIssues" in js
+    assert "data.very_high_quality_issues" in js
+    assert "dashVeryHighIssues" in js
     assert "data.stale_policy_alerts" not in js
     # Hidden for users who cannot open the Quality Alerts screen.
     assert "hasPermission('quality_alerts.read')" in js
 
     i18n = (root / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
     assert "'Very high issues':" in i18n
+
+
+def test_dashboard_active_alerts_card_counts_quality_issues():
+    """UI contract: "Active Alerts" is the open Quality Alerts volume.
+
+    The card used to print ``data.total_alerts`` — stored validation-rule
+    failures — so the dashboard headlined "4" while the Quality Alerts screen
+    listed thousands of findings. Rule failures now have their own card and
+    label, and the alert card reads the screen's issue count.
+    """
+    root = Path(__file__).resolve().parent.parent
+    frag = (root / "static" / "tabs" / "dashboard.html").read_text(encoding="utf-8")
+    assert 'id="dashAlerts"' in frag
+    assert 'id="dashAlertsCard"' in frag
+    assert 'data-i18n="Active alerts"' in frag
+    # The rule-failure count keeps its own card, never the alert label.
+    assert 'id="dashRuleFailures"' in frag
+    assert 'data-i18n="Rule failures"' in frag
+    assert "switchTab('alerts')" in frag
+
+    js = (root / "static" / "js" / "rules-manager.js").read_text(encoding="utf-8")
+    assert "data.active_quality_issues" in js
+    assert "data.total_alerts" in js
+    assert "dashRuleFailures" in js
+    # The alert card must not be fed the rule-failure field.
+    assert "getElementById('dashAlerts').textContent = data.total_alerts" not in js
+
+    i18n = (root / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
+    assert "'Active alerts':" in i18n
+    assert "'Rule failures':" in i18n
 
 
 def test_why_popup_explain_js_renders_sparkline():

@@ -11,6 +11,12 @@ from sqlalchemy.orm import Session, selectinload
 from app.cache import cache
 from app.core.deps import get_user_hospital_ids, require_permission
 from app.database import SessionLocal, get_db
+from app.eligibility import (
+    disabled_pairs,
+    exclude_disabled,
+    include_disabled_requested,
+    is_month_enabled,
+)
 from app.engine.anomaly import (
     analyze_historical_trends,
     compare_hospitals,
@@ -93,7 +99,11 @@ def historical_analysis(
         .order_by(IndicatorValue.month)
         .all()
     )
-    months = sorted([r[0] for r in rows])
+    # A month switched off for this hospital is outside its reporting scope, so
+    # it must not feed the trends, peer comparisons or anomalies computed here.
+    pairs = disabled_pairs(db)
+    months = sorted([r[0] for r in rows
+                     if is_month_enabled(pairs, hospital_id, r[0])])
     if len(months) < 2:
         raise HTTPException(status_code=400, detail="Need at least 2 months of data for historical analysis")
 
@@ -137,7 +147,8 @@ def historical_analysis(
             .distinct()
             .all()
         )
-        h_months = sorted([r[0] for r in h_rows])
+        h_months = sorted([r[0] for r in h_rows
+                           if is_month_enabled(pairs, h.id, r[0])])
         h_data = {}
         for m in h_months:
             v = get_enabled_values_for_hospital_month(db, h.id, m)
@@ -149,11 +160,15 @@ def historical_analysis(
     comparisons = compare_hospitals(
         all_monthly_data, last_month,
         additional_indicators=managed_indicators)
-    allowed_names = {h.name for h in all_hospitals}
+    # Peer values used for the cross-hospital anomaly must exclude hospitals
+    # whose reporting month is disabled, or a hidden month could still set the
+    # baseline the visible hospital is judged against.
+    eligible_names = {h.name for h in all_hospitals
+                      if is_month_enabled(pairs, h.id, last_month)}
     cross_hospital_data = {
         name: values
         for name, values in get_all_hospital_data_for_month(db, last_month).items()
-        if name in allowed_names
+        if name in eligible_names
     }
     cross_anomalies = detect_anomalies(
         cross_hospital_data, hospital.name, last_month,
@@ -230,10 +245,18 @@ def historical_analysis(
 @router.get("/quality-trend/{hospital_id}")
 def quality_trend(
     hospital_id: int,
+    include_disabled: bool = Query(
+        False,
+        description=(
+            "Historical/audit view: include months switched off for this "
+            "hospital. Active views must leave this false."
+        ),
+    ),
     db: Session = Depends(get_db),
     user=Depends(require_permission("analysis.read")),
 ):
     user_hosp_ids = get_user_hospital_ids(user, db)
+    include_disabled = include_disabled_requested(include_disabled)
     hospital_query = db.query(Hospital).filter(Hospital.id == hospital_id)
     if user_hosp_ids is not None:
         hospital_query = hospital_query.filter(Hospital.id.in_(user_hosp_ids))
@@ -242,19 +265,24 @@ def quality_trend(
         raise HTTPException(status_code=404, detail="Hospital not found")
 
     scope_key = "*" if user_hosp_ids is None else ",".join(map(str, sorted(user_hosp_ids)))
+    # Disabled pairs are part of the cached answer: a toggle must not be hidden
+    # behind a 24h cache written before the month was switched off.
+    _disabled_key = ",".join(
+        f"{hid}:{m}" for hid, m in sorted(disabled_pairs(db))
+    )
     cache_key = cache.make_key(
-        "analysis:quality-trend", hospital_id=hospital_id, hospital_scope=scope_key,
+        "analysis:quality-trend_v2", hospital_id=hospital_id,
+        hospital_scope=scope_key, include_disabled=include_disabled,
+        disabled=_disabled_key,
     )
     cached = cache.get(cache_key)
     if cached:
         return cached
 
-    scores = (
-        db.query(QualityScore)
-        .filter(QualityScore.hospital_id == hospital_id)
-        .order_by(QualityScore.month)
-        .all()
-    )
+    scores_q = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id)
+    if not include_disabled:
+        scores_q = exclude_disabled(db, scores_q, QualityScore, hospital_id=hospital_id)
+    scores = scores_q.order_by(QualityScore.month).all()
     if not scores:
         return QualityTrendOut(hospital=hospital.name, hospital_id=hospital_id, data=[])
 
@@ -288,6 +316,10 @@ def quality_trend(
             )
             .filter(QualityScore.month.in_(peer_months))
         )
+        if not include_disabled:
+            # Network-wide peer averages: exclude every hospital's disabled
+            # months so a switched-off pair cannot pull the benchmark.
+            peer_query = exclude_disabled(db, peer_query, QualityScore)
         if user_hosp_ids is not None:
             peer_query = peer_query.filter(QualityScore.hospital_id.in_(user_hosp_ids))
         peer_rows = peer_query.group_by(QualityScore.month).all()
@@ -461,16 +493,21 @@ def list_outliers(
 ):
     # v4: layered_type/layered_level/layered_interpretation added below — a
     # cached v3 payload would hide the classification column for up to 24h.
-    cache_key = cache.make_key("analysis:outliers_v5", month=month, hospital_id=hospital_id, rate_name=rate_name, indicator_code=indicator_code, skip=skip, limit=limit)
+    # v6: the payload now applies the shared disabled hospital/month rule, so a
+    # v5 entry written before that must not be served.
+    cache_key = cache.make_key("analysis:outliers_v6", month=month, hospital_id=hospital_id, rate_name=rate_name, indicator_code=indicator_code, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
 
     query = db.query(AnomalyResult).options(selectinload(AnomalyResult.hospital)).join(Hospital, AnomalyResult.hospital_id == Hospital.id).filter(AnomalyResult.is_outlier, Hospital.is_active.is_(True))
-    if hospital_id:
-        enabled_months = get_enabled_months(db, hospital_id=hospital_id)
-        if enabled_months:
-            query = query.filter(AnomalyResult.month.in_(enabled_months))
+    # The one shared disabled hospital/month rule (app/eligibility.py). It is a
+    # PAIR, so the network-wide list must drop hospital 19's February without
+    # dropping everybody else's. This endpoint used to re-derive a month list
+    # locally and only for a single-hospital filter, so an unfiltered list still
+    # presented disabled findings — and a month disabled for one hospital
+    # reappeared for the others.
+    query = exclude_disabled(db, query, AnomalyResult, hospital_id=hospital_id)
     if month:
         query = query.filter(AnomalyResult.month == month)
     if hospital_id:
@@ -481,6 +518,8 @@ def list_outliers(
         query = query.filter(AnomalyResult.indicator_code == indicator_code)
     total = query.count()
     results = query.order_by(AnomalyResult.z_score.desc()).offset(skip).limit(limit).all()
+
+    from app.engine.anomaly.layered import effective_row_level
 
     layered_by_key = {}
     rate_code_by_name = {}
@@ -529,13 +568,63 @@ def list_outliers(
             "peers_detail": r.peers_detail,
             # Layered classification (application-level LEFT JOIN — None when
             # no layered row exists for this hospital/month/analysis unit).
+            # The level is the band the cap policy assigns now, with the stored
+            # band beside it: this table must not show a severity the Outlier
+            # screen refuses to grade.
             "layered_type": lr.outlier_type if lr else None,
-            "layered_level": lr.outlier_level if lr else None,
+            "layered_level": effective_row_level(lr) if lr else None,
+            "layered_stored_level": lr.outlier_level if lr else None,
             "layered_interpretation": lr.interpretation if lr else None,
         })
     result = {"total": total, "skip": skip, "limit": limit, "data": output}
     cache.set(cache_key, result)
     return result
+
+
+_LAYERED_SORT_GETTERS = {
+    "month": lambda r: r.month,
+    "raw_value": lambda r: r.raw_value,
+    "rate": lambda r: r.rate,
+    "denominator": lambda r: r.denominator,
+    "type": lambda r: r.outlier_type,
+}
+
+
+def _sort_rows_by_band(rows, sort: str, order: str) -> list:
+    """Sort by the same keys as the SQL path, ordering on the effective band."""
+    from app.engine.anomaly.layered import LEVEL_RANK, effective_row_level
+
+    if sort == "level":
+        key = lambda r: LEVEL_RANK.get(effective_row_level(r), 0)  # noqa: E731
+    else:
+        key = _LAYERED_SORT_GETTERS.get(sort, _LAYERED_SORT_GETTERS["month"])
+    present = [r for r in rows if key(r) is not None]
+    missing = [r for r in rows if key(r) is None]
+    present.sort(key=key, reverse=(order == "desc"))
+    return present + missing
+
+
+def _layered_row_dict(row_obj, spec_meta: dict, assess) -> dict:
+    """One stored row as the screen reads it.
+
+    ``outlier_level`` is the band the cap policy assigns NOW;
+    ``stored_outlier_level`` is the band the row holds. A row written before a
+    cap was approved is therefore presented under the current policy without
+    being rewritten, and ``severity_cap`` says why the two differ.
+    """
+    row = {c.name: getattr(row_obj, c.name)
+           for c in LayeredOutlierResult.__table__.columns}
+    row.pop("created_at", None)
+    level, cap = assess(row_obj)
+    row["stored_outlier_level"] = row.get("outlier_level")
+    row["outlier_level"] = level
+    if cap:
+        row["severity_cap"] = cap
+    name, itype = spec_meta.get(row_obj.analysis_code, (None, None))
+    row["hospital"] = row_obj.hospital.name if row_obj.hospital else "Unknown"
+    row["indicator_name"] = name
+    row["indicator_type"] = itype
+    return row
 
 
 @router.get("/layered")
@@ -556,7 +645,7 @@ def list_layered(
     from app.engine.anomaly.layered import LEVELS, build_analysis_specs
 
     cache_key = cache.make_key(
-        "analysis:layered_v1",
+        "analysis:layered_v2",
         month=month,
         hospital=hospital,
         indicator=indicator,
@@ -578,6 +667,9 @@ def list_layered(
         .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
         .filter(Hospital.is_active.is_(True))
     )
+    # Same shared eligibility rule as Outlier Diagnostics: a month switched off
+    # for a hospital is not an active layered result either.
+    query = exclude_disabled(db, query, LayeredOutlierResult, hospital_id=hospital)
     if month:
         query = query.filter(LayeredOutlierResult.month == month)
     if hospital:
@@ -586,10 +678,39 @@ def list_layered(
         query = query.filter(LayeredOutlierResult.analysis_code == indicator)
     if classification:
         query = query.filter(LayeredOutlierResult.outlier_type == classification)
-    if level:
+    from app.engine.anomaly.layered import effective_row_level, row_level_assessment
+    # The cap policy is re-applied at READ time, exactly as Quality Alerts does:
+    # a row stored before a cap existed keeps its own band on the row, but every
+    # filter, count and badge below uses the band the policy allows now. Both
+    # caps only ever move VERY_HIGH to HIGH, so a level filter can be answered
+    # exactly by widening it to the bands a cap can lower and filtering after.
+    capped_filter = level in ("HIGH", "VERY_HIGH")
+    if capped_filter:
+        stored_levels = (("HIGH", "VERY_HIGH") if level == "HIGH"
+                         else ("VERY_HIGH",))
+        query = query.filter(LayeredOutlierResult.outlier_level.in_(stored_levels))
+    elif level:
         query = query.filter(LayeredOutlierResult.outlier_level == level)
     if investigation:
         query = query.filter(LayeredOutlierResult.investigation_route == investigation)
+
+    if capped_filter:
+        # The candidate set is the top two stored bands — bounded, so filtering
+        # and paging here is cheap and the counts match the badges.
+        rows = [r for r in query.all() if effective_row_level(r) == level]
+        rows = _sort_rows_by_band(rows, sort, order)
+        total = len(rows)
+        rows = rows[(page - 1) * page_size: page * page_size]
+
+        spec_meta = {spec.analysis_code: (spec.name, spec.indicator_type)
+                     for spec in build_analysis_specs(db)}
+        output = []
+        for r in rows:
+            output.append(_layered_row_dict(r, spec_meta, row_level_assessment))
+        result = {"total": total, "page": page, "page_size": page_size,
+                  "data": output}
+        cache.set(cache_key, result)
+        return result
 
     total = query.count()
 
@@ -613,15 +734,8 @@ def list_layered(
 
     spec_meta = {spec.analysis_code: (spec.name, spec.indicator_type)
                  for spec in build_analysis_specs(db)}
-    output = []
-    for r in rows:
-        row = {c.name: getattr(r, c.name) for c in LayeredOutlierResult.__table__.columns}
-        row.pop("created_at", None)
-        name, itype = spec_meta.get(r.analysis_code, (None, None))
-        row["hospital"] = r.hospital.name if r.hospital else "Unknown"
-        row["indicator_name"] = name
-        row["indicator_type"] = itype
-        output.append(row)
+    output = [_layered_row_dict(r, spec_meta, row_level_assessment)
+              for r in rows]
 
     result = {"total": total, "page": page, "page_size": page_size, "data": output}
     cache.set(cache_key, result)
@@ -635,7 +749,7 @@ def layered_summary(
 ):
     """Classification counts + per-hospital rollup for the Layered tab chips
     (design spec 2026-10-08 §8.2)."""
-    cache_key = cache.make_key("analysis:layered_summary_v1", month=month)
+    cache_key = cache.make_key("analysis:layered_summary_v2", month=month)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -645,6 +759,8 @@ def layered_summary(
         .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
         .filter(Hospital.is_active.is_(True))
     )
+    # Counts must agree with the table they sit above: same pair rule.
+    query = exclude_disabled(db, query, LayeredOutlierResult)
     if month:
         query = query.filter(LayeredOutlierResult.month == month)
 
@@ -709,7 +825,7 @@ def layered_trend(
     filter the table honors also narrows the points here, so the chart is a
     filter-driven view; a single hospital id collapses it to one line."""
     cache_key = cache.make_key(
-        "analysis:layered_trend_v1",
+        "analysis:layered_trend_v2",
         month=month,
         hospital=hospital,
         indicator=indicator,
@@ -727,6 +843,9 @@ def layered_trend(
         .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
         .filter(Hospital.is_active.is_(True))
     )
+    # Same shared eligibility rule as Outlier Diagnostics: a month switched off
+    # for a hospital is not an active layered result either.
+    query = exclude_disabled(db, query, LayeredOutlierResult, hospital_id=hospital)
     if month:
         query = query.filter(LayeredOutlierResult.month == month)
     if hospital:
@@ -735,14 +854,17 @@ def layered_trend(
         query = query.filter(LayeredOutlierResult.analysis_code == indicator)
     if classification:
         query = query.filter(LayeredOutlierResult.outlier_type == classification)
-    if level:
-        query = query.filter(LayeredOutlierResult.outlier_level == level)
     if investigation:
         query = query.filter(LayeredOutlierResult.investigation_route == investigation)
 
     rows = query.order_by(
         LayeredOutlierResult.month.asc(), LayeredOutlierResult.id.asc()
     ).all()
+    # The band filter is applied AFTER the read: the cap policy is re-applied at
+    # read time, so a stored VERY_HIGH that the policy caps is HIGH here too.
+    from app.engine.anomaly.layered import effective_row_level
+    if level:
+        rows = [r for r in rows if effective_row_level(r) == level]
 
     series_map: dict = {}
     for r in rows:
@@ -760,7 +882,8 @@ def layered_trend(
             "raw_value": r.raw_value,
             "rate": r.rate,
             "outlier_type": r.outlier_type,
-            "outlier_level": r.outlier_level,
+            "outlier_level": effective_row_level(r),
+            "stored_outlier_level": r.outlier_level,
         })
 
     result = {
@@ -786,14 +909,17 @@ def layered_heatmap(
     The cell carries the WORST classification present in it (order below is a
     judgment call: the data-entry suspect — a finding that is most likely a
     fixable data bug — ranks highest, a verified investigation need next, then
-    the statistical anomalies, then the contextual ones):
-    NORMAL < HISTORICAL < PEER < VOLUME_DRIVEN < RAW_VALUE < RATE <
-    CLINICAL_INVESTIGATION_REQUIRED < POSSIBLE_DATA_ENTRY_ERROR.
+    the statistical anomalies, then the contextual ones). INSUFFICIENT_HISTORY
+    ranks just above NORMAL: a withheld assessment says less than a confirmed
+    normal result, but it is not a finding either:
+    NORMAL < INSUFFICIENT_HISTORY < HISTORICAL < PEER < VOLUME_DRIVEN <
+    RAW_VALUE < RATE < CLINICAL_INVESTIGATION_REQUIRED <
+    POSSIBLE_DATA_ENTRY_ERROR.
     Cells with no matching rows under the current filters are absent (leaf
     rows only) — the UI renders them as empty, not dangerous.
     """
     cache_key = cache.make_key(
-        "analysis:layered_heatmap_v1",
+        "analysis:layered_heatmap_v2",
         month=month,
         hospital=hospital,
         indicator=indicator,
@@ -811,6 +937,9 @@ def layered_heatmap(
         .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
         .filter(Hospital.is_active.is_(True))
     )
+    # Same shared eligibility rule as Outlier Diagnostics: a month switched off
+    # for a hospital is not an active layered result either.
+    query = exclude_disabled(db, query, LayeredOutlierResult, hospital_id=hospital)
     if month:
         query = query.filter(LayeredOutlierResult.month == month)
     if hospital:
@@ -819,12 +948,15 @@ def layered_heatmap(
         query = query.filter(LayeredOutlierResult.analysis_code == indicator)
     if classification:
         query = query.filter(LayeredOutlierResult.outlier_type == classification)
-    if level:
-        query = query.filter(LayeredOutlierResult.outlier_level == level)
     if investigation:
         query = query.filter(LayeredOutlierResult.investigation_route == investigation)
 
     rows = query.all()
+    # Same read-time band as the table: a stored row keeps its own band, the
+    # filter and the grid use the band the cap policy allows now.
+    from app.engine.anomaly.layered import effective_row_level
+    if level:
+        rows = [r for r in rows if effective_row_level(r) == level]
     groups: dict = {}
     for r in rows:
         cell = groups.setdefault((r.hospital_id, r.month), {})
@@ -833,9 +965,10 @@ def layered_heatmap(
         cell[otype] = count
 
     _severity = {t: i for i, t in enumerate(
-        ["NORMAL", "UNKNOWN", "HISTORICAL_ANOMALY", "PEER_ANOMALY",
-         "VOLUME_DRIVEN_ANOMALY", "RAW_VALUE_ANOMALY", "RATE_ANOMALY",
-         "CLINICAL_INVESTIGATION_REQUIRED", "POSSIBLE_DATA_ENTRY_ERROR"],
+        ["NORMAL", "INSUFFICIENT_HISTORY", "UNKNOWN", "HISTORICAL_ANOMALY",
+         "PEER_ANOMALY", "VOLUME_DRIVEN_ANOMALY", "RAW_VALUE_ANOMALY",
+         "RATE_ANOMALY", "CLINICAL_INVESTIGATION_REQUIRED",
+         "POSSIBLE_DATA_ENTRY_ERROR"],
     )}
     worst = {
         key: (
@@ -878,6 +1011,128 @@ def layered_heatmap(
     return result
 
 
+# ── POST /analysis/layered/rescan-stale ─────────────────────────────────────
+# Preview → confirmation → a rescan of ONLY the (month, hospital) scopes whose
+# stored band the cap policy refuses. The same shape as
+# /quality-alerts/rescan-stale: the preview writes nothing, and the confirmed
+# run never touches a scope that is already consistent.
+
+class _RescanStaleLayeredBody(BaseModel):
+    confirm: bool = False          # False = preview only; nothing is written
+    months: Optional[List[str]] = None   # the months the operator confirmed
+
+
+def _stale_layered_rows(db: Session, months: Optional[List[str]] = None):
+    """Stored rows whose band an APPROVED CAP would lower, with their caps.
+
+    Only ``VERY_HIGH`` rows can move — a cap never changes anything at or below
+    HIGH — so the query is bounded to that band and the decision is the same
+    read-time rule the screens use.
+
+    The top-band eligibility gate is deliberately EXCLUDED from this write-back:
+    it is a read-time verdict whose effect on an investigated issue has to be
+    reviewed before any month is re-bandered. A gate-lowered row therefore keeps
+    its stored band on disk and is presented under the gate by the screens; the
+    rescan continues to rewrite only what the two approved caps refuse.
+    """
+    from app.engine.anomaly.layered import row_level_assessment
+
+    query = (
+        db.query(LayeredOutlierResult)
+        .join(Hospital, LayeredOutlierResult.hospital_id == Hospital.id)
+        .filter(Hospital.is_active.is_(True),
+                LayeredOutlierResult.outlier_level == "VERY_HIGH")
+    )
+    query = exclude_disabled(db, query, LayeredOutlierResult)
+    if months is not None:
+        query = query.filter(LayeredOutlierResult.month.in_(set(months)))
+    stale = []
+    for row in query.all():
+        level, cap = row_level_assessment(row)
+        if cap is None or level == row.outlier_level:
+            continue
+        if not (cap.get("zero_spread_layers") or cap.get("thin_peer_group")):
+            # Refused by the eligibility gate only: presented, never rewritten.
+            continue
+        stale.append((row, cap))
+    return stale
+
+
+def _stale_layered_summary(stale) -> dict:
+    by_month: dict = {}
+    for row, cap in stale:
+        entry = by_month.setdefault(row.month, {
+            "month": row.month, "rows": 0, "hospitals": set(), "moves": {},
+        })
+        entry["rows"] += 1
+        entry["hospitals"].add(row.hospital_id)
+        move = f"{row.outlier_level}\u2192{cap['severity']}"
+        entry["moves"][move] = entry["moves"].get(move, 0) + 1
+    months = [
+        {"month": entry["month"], "rows": entry["rows"],
+         "hospitals": len(entry["hospitals"]), "moves": entry["moves"]}
+        for entry in sorted(by_month.values(), key=lambda e: e["month"])
+    ]
+    return {
+        "months": months,
+        "total_rows": len(stale),
+        "total_hospitals": len({(row.month, row.hospital_id)
+                                for row, _cap in stale}),
+    }
+
+
+@router.post("/layered/rescan-stale",
+             dependencies=[Depends(require_permission("dashboard.write"))])
+def rescan_stale_layered(
+    body: _RescanStaleLayeredBody,
+    db: Session = Depends(get_db),
+    user=Depends(require_permission("dashboard.write")),
+):
+    """Recompute only the Diagnostics scopes still holding an uncapped band.
+
+    The stored band stays on every row until it is recomputed; the screen
+    already presents the policy band at read time, so this is for operators who
+    want the STORE restated. ``confirm=false`` (default) writes nothing and
+    reports the affected months, hospitals and level moves. ``confirm=true``
+    re-runs the canonical analysis for each affected (month, hospital) scope
+    only — never a whole month, and never a scope that is already consistent.
+    """
+    stale = _stale_layered_rows(db, body.months)
+    totals = _stale_layered_summary(stale)
+    if not body.confirm:
+        return {"confirm_required": True, **totals}
+    if not stale:
+        return {"confirm_required": False, **totals, "rescanned": [],
+                "errors": [], "remaining": 0}
+
+    scopes = sorted({(row.month, row.hospital_id) for row, _cap in stale})
+    rescanned: List[dict] = []
+    errors: List[str] = []
+    for month, hospital_id in scopes:
+        try:
+            report = run_full_analysis(db, hospital_id, month, force=True)
+        except Exception as exc:  # noqa: BLE001 - reported, never swallowed
+            db.rollback()
+            errors.append(f"{month}/{hospital_id}: {exc}")
+            continue
+        issues = report.get("issues") or []
+        if "Analysis failed during report generation" in issues:
+            errors.append(f"{month}/{hospital_id}: analysis failed")
+        rescanned.append({"month": month, "hospital_id": hospital_id,
+                          "score": report.get("data_quality_score")})
+
+    cache.invalidate()
+    remaining = _stale_layered_summary(_stale_layered_rows(db, body.months))
+    return {
+        "confirm_required": False,
+        **totals,
+        "rescanned": rescanned,
+        "errors": errors,
+        "remaining": remaining["total_rows"],
+        "actor": getattr(user, "username", None),
+    }
+
+
 @router.get("/ml")
 def get_ml_analysis(
     month: str = Query(..., description="Month YYYY-MM"),
@@ -900,10 +1155,6 @@ def get_ml_analysis(
         hospitals_query = hospitals_query.filter(Hospital.id.in_(user_hosp_ids))
     hospitals = hospitals_query.all()
     if not hospitals:
-        return {}
-
-    enabled_months = get_enabled_months(db)
-    if month not in enabled_months:
         return {}
 
     disabled_ids = set()
@@ -935,6 +1186,10 @@ def get_ml_analysis(
         .join(Indicator, IndicatorValue.indicator_id == Indicator.id)
         .filter(IndicatorValue.month == month)
     )
+    # A disabled pair contributes no input, without hiding the month for the
+    # hospitals that still report it. (The endpoint used to drop the whole
+    # month when ANY hospital had it switched off.)
+    value_query = exclude_disabled(db, value_query, IndicatorValue)
     if user_hosp_ids is not None:
         value_query = value_query.filter(IndicatorValue.hospital_id.in_(user_hosp_ids))
     value_rows = value_query.all()
@@ -968,7 +1223,8 @@ def list_rule_failures(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    cache_key = cache.make_key("analysis:rule-failures_v4", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, q=q, sort_by=sort_by, order=order, skip=skip, limit=limit)
+    # v5: same reason as the outliers key — eligibility is part of the answer.
+    cache_key = cache.make_key("analysis:rule-failures_v5", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, q=q, sort_by=sort_by, order=order, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -983,10 +1239,9 @@ def list_rule_failures(
             func.upper(ValidationResult.rule_type) != "BENCHMARK",
         ),
     )
-    if hospital_id:
-        enabled_months = get_enabled_months(db, hospital_id=hospital_id)
-        if enabled_months:
-            query = query.filter(ValidationResult.month.in_(enabled_months))
+    # Rule failures follow the same pair rule as every other analysis reader.
+    query = exclude_disabled(db, query, ValidationResult,
+                             hospital_id=hospital_id)
     if month:
         query = query.filter(ValidationResult.month == month)
     if hospital_id:
@@ -1236,7 +1491,18 @@ def analysis_cache_status(db: Session = Depends(get_db)):
 
 
 @router.get("/heatmap")
-def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: Session = Depends(get_db)):
+def heatmap_data(
+    month: str = Query(None),
+    hospital_id: int = Query(None),
+    include_disabled: bool = Query(
+        False,
+        description=(
+            "Historical/audit view: include stored scores for months switched "
+            "off for a hospital. Active views render them as no data."
+        ),
+    ),
+    db: Session = Depends(get_db),
+):
     # NOTE: hospital_id is accepted (and ignored) for API compatibility. The
     # Quality Score heatmap is a network-wide view: it always shows every
     # active hospital regardless of the dashboard's selected hospital, so
@@ -1266,26 +1532,13 @@ def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: S
     hosp_map = {h.id: h for h in db.query(Hospital).all()}
     active_ids = {h.id for h in hosp_map.values() if h.is_active}
 
-    # Months enabled per hospital (manual disable toggles in SystemSetting).
-    # Queried fresh — NOT via get_enabled_months, whose month list comes from
-    # a 24h-cached endpoint and would reintroduce the staleness this endpoint
-    # just had removed.
-    from app.api.config_api import MONTH_SETTINGS_PREFIX
-    from app.models import SystemSetting
+    # Months enabled per hospital — the ONE shared eligibility rule, read
+    # fresh from SystemSetting (not the 24h-cached month list).
     all_months = {r[0] for r in db.query(IndicatorValue.month).distinct().all()}
-    disabled_rows = db.query(SystemSetting).filter(
-        SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
-    ).all()
     disabled_by_hid: dict = {}
-    for row in disabled_rows:
-        if row.value != "false":
-            continue
-        # key format: month_enabled_<hid>_<YYYY-MM>
-        rest = row.key[len(MONTH_SETTINGS_PREFIX):]
-        hid_str, _, m = rest.partition("_")
-        if not hid_str.isdigit() or not m:
-            continue
-        disabled_by_hid.setdefault(int(hid_str), set()).add(m)
+    for hid, m in disabled_pairs(db):
+        disabled_by_hid.setdefault(hid, set()).add(m)
+    include_disabled = include_disabled_requested(include_disabled)
 
     hospitals = sorted(h.name for h in hosp_map.values() if h.is_active)
     # Column months must have REAL indicator data (same ghost doctrine as
@@ -1300,11 +1553,13 @@ def heatmap_data(month: str = Query(None), hospital_id: int = Query(None), db: S
 
     # A scored cell is shown unless its month was manually disabled for that
     # hospital (then rendered as "--"). Months a hospital never analyzed
-    # (no IndicatorValue) also render as "--" through this gate.
+    # (no IndicatorValue) also render as "--". The explicit historical flag is
+    # the only way to expose stored disabled-month cells.
     enabled_by_hid: dict = {}
-    for hid in {r.hospital_id for r in rows}:
-        if hid in active_ids:
-            enabled_by_hid[hid] = all_months - disabled_by_hid.get(hid, set())
+    if not include_disabled:
+        for hid in {r.hospital_id for r in rows}:
+            if hid in active_ids:
+                enabled_by_hid[hid] = all_months - disabled_by_hid.get(hid, set())
 
     matrix: dict = {}
     for r in rows:

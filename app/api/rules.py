@@ -728,6 +728,12 @@ def rule_failures(
     )
     if hospital_id:
         query = query.filter(ValidationResult.hospital_id == hospital_id)
+    # Shared pair rule: months switched off for a hospital are not rule-failure
+    # history for an active reader, exactly as on the Alerts screen.
+    from app.eligibility import exclude_disabled
+
+    query = exclude_disabled(db, query, ValidationResult,
+                             hospital_id=hospital_id)
     rows = query.order_by(ValidationResult.month.desc()).all()
 
     month_map = {}

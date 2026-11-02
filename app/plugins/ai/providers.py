@@ -631,7 +631,10 @@ def _local_root_cause_fallback_enhanced(report_data: dict) -> List[AIRuleDef]:
     comparisons = report_data.get("peer_comparisons", {})
     for group, comp_data in comparisons.items():
         gap_pct = comp_data.get("gap_pct", 0)
-        z_score = comp_data.get("hospital_z_score", 0)
+        # None when the peer group is too small to measure a spread
+        # (layered.PEER_Z_POLICY): a withheld z must not be formatted as a
+        # number nor compared arithmetically.
+        z_score = comp_data.get("hospital_z_score")
         ind_name = comp_data.get("indicator_name", comp_data.get("indicator_code", group))
         ar_name = _ar_label(ind_name)
 
@@ -660,7 +663,7 @@ def _local_root_cause_fallback_enhanced(report_data: dict) -> List[AIRuleDef]:
                 indicators_monitored=[comp_data.get("indicator_code", "")],
             ))
 
-        if abs(z_score) > 2:
+        if z_score is not None and abs(z_score) > 2:
             direction = "above" if z_score > 0 else "below"
             direction_ar = "أعلى" if z_score > 0 else "أدنى"
             recs.append(AIRuleDef(

@@ -155,3 +155,35 @@ def test_clinical_recommendation_root_cause_opens_a_new_tab():
     src = _read("validation.js")
     assert "window.openScreenInNewTab('root-cause'" in src
     assert "hospital_id: hid" in src
+
+
+def test_audit_link_query_carries_the_indicator_code_verbatim():
+    """The Quality Alert -> Audit hand-off preserves the indicator identity."""
+    script = r"""
+import { pathToFileURL } from 'node:url';
+globalThis.document = {
+    createElement: () => ({ style: {}, click() {}, remove() {} }),
+    body: { appendChild() {} },
+};
+globalThis.window = { location: { origin: 'http://127.0.0.1:8000', href: '' } };
+const m = await import(pathToFileURL('./static/js/newtab.js').href);
+const code = 'QA & RATE+1/2 %#?';
+const url = m.screenUrl('audit', {
+    mode: 'trail', kind: 'quality_score', hospital_id: 3, month: '2026-08',
+    indicator_code: code, rate_name: null, indicator_id: null,
+});
+const p = new URL(url).searchParams;
+console.log(JSON.stringify({
+    code: p.get('indicator_code'), screen: p.get('screen'), mode: p.get('mode'),
+    kind: p.get('kind'), hid: p.get('hospital_id'), month: p.get('month'),
+    keys: [...p.keys()].sort(),
+}));
+"""
+    out = json.loads(_run_node(script))
+    assert out["code"] == "QA & RATE+1/2 %#?"
+    assert out["screen"] == "audit"
+    assert out["mode"] == "trail", "the boot path still replays the trail"
+    assert out["kind"] == "quality_score"
+    assert out["hid"] == "3" and out["month"] == "2026-08"
+    assert out["keys"] == ["hospital_id", "indicator_code", "kind", "mode",
+                           "month", "screen"]

@@ -173,7 +173,7 @@ fixed order (peer never runs first):
 | 2 | **Rate** | current rate vs the hospital's own historical rates | rate rows only |
 | 3 | **Historical baseline** | current value vs the baseline window (mean/median/std/z), optional Theil–Sen `trend_deviation` blend when configured | all rows |
 | 4 | **Volume** | % change of the **denominator** vs previous month; missing/zero denominator ⇒ `den_ok=False` and rate layers become not-computable | rate rows only |
-| 5 | **Peer comparison** | z-score of this month's unit value vs **every other active hospital reporting the indicator that month** (the single canonical baseline — self excluded, ≥ 2 others required) | rows with peers enabled |
+| 5 | **Peer comparison** | z-score of this month's unit value vs **every other active hospital reporting the indicator that month** (the single canonical baseline — self excluded, ≥ 2 others required for the layer to exist; a **z-score** needs ≥ 4 peers, so a 2–3 peer comparison is scored but carries no z) | rows with peers enabled |
 
 ### 3.3 Method auto-selection (per series)
 
@@ -207,7 +207,8 @@ first match wins:
 
 | Rule | Condition (summary) | Classification | Route |
 |------|--------------------|----------------|-------|
-| 1 | fewer than `minimum_history_period` prior months | NORMAL (insufficient history) | none |
+| 1 | history not evaluable, peer band below HIGH | **INSUFFICIENT_HISTORY** (assessment withheld, not normal) | none |
+| 11 | history not evaluable, peer band HIGH or above | **PEER_ANOMALY** (peer evidence only; history score NULL) | contextual |
 | 2 | raw + rate + history all HIGH, volume ≤ LOW, change ≥ **+300%** | **POSSIBLE_DATA_ENTRY_ERROR** | data_quality |
 | 3 | raw HIGH + volume HIGH, rate ≤ MODERATE | **VOLUME_DRIVEN_ANOMALY** | contextual |
 | 4 | rate HIGH + history HIGH, volume ≤ LOW | **CLINICAL_INVESTIGATION_REQUIRED** | clinical |
@@ -220,9 +221,17 @@ first match wins:
 
 Overall level = highest applicable layer score (capped at **LOW** for
 rate-based types when a `minimum_denominator` guard trips — small
-denominators can never claim HIGH). Rules 2, 4, 6, 7 flag
-`investigation_required`. The interpretation sentence is composed from the
-actual numbers (`build_interpretation`) — never a canned string.
+denominators can never claim HIGH); rule 1 forces NONE. Rules 2, 4, 6, 7, 11
+flag `investigation_required`. The interpretation sentence is composed from
+the actual numbers (`build_interpretation`) — never a canned string — and
+states an agreement or conflict between the history and peer evidence.
+
+Insufficient history is a distinct outcome, not a normal result: a month
+whose history is not evaluable is `INSUFFICIENT_HISTORY` (level NONE, history
+score NULL, no detection) unless the peer layer reaches HIGH, in which case
+rule 11 classifies it `PEER_ANOMALY` at the peer band. The full decision
+table, the conflict rules and the Quality Alerts reconciliation live in
+[OUTLIER-COMPARISON-POLICY.md](OUTLIER-COMPARISON-POLICY.md).
 
 ### 3.6 Persistence rule
 
@@ -248,7 +257,7 @@ Outlier Analysis screen).
 |---|---|---|
 | Question answered | *Is* this hospital an outlier on a derivative indicator? | *Why* is this row classified the way it is? |
 | Reference set | other hospitals (same month) **or** own history | own 5-layer evidence: raw, rate, history, volume, peers |
-| Decision | binary `|z| > 2.5` | 10-rule deterministic classification + 5-level severity |
+| Decision | binary `|z| > 2.5` | 11-rule deterministic classification + 5-level severity |
 | Unit of analysis | registry/managed rate definitions | every data element **and** every active rate spec |
 | Table | `anomaly_results` | `layered_outlier_results` |
 

@@ -98,17 +98,87 @@
             'Name cannot be empty': 'الاسم لا يمكن أن يكون فارغًا',
             'Hospital risks · Indicator outliers · Peer comparisons': 'مخاطر المستشفيات · قيم شاذة للمؤشرات · مقارنة النظراء',
             'Run Scan': 'تشغيل الفحص',
-            'Very High (Red) alerts only': 'تنبيهات الشدة العالية فقط (الحمراء)',
-            'Showing only Very High (Red) alerts — other severities stay in the audit trail': 'يعرض هذا القسم تنبيهات الشدة العالية فقط (الحمراء) — بقية درجات الخطورة تبقى مسجلة في سجل التدقيق',
+            'Very High': 'عالية جداً',
+            'Skip low confidence': 'استبعاد الثقة المنخفضة',
+            'Showing only Very High alerts — other severities stay in the audit trail': 'يعرض هذا القسم تنبيهات الشدة العالية فقط — بقية درجات الخطورة تبقى مسجلة في سجل التدقيق',
+            'Very High lists any issue with at least one Very High perspective — issues that are only High or lower stay out of this list': 'فلتر «عالية جداً» يعرض كل مشكلة لديها زاوية مقارنة واحدة على الأقل عالية جداً — أما المشكلات التي كل زواياها «عالية» أو أدنى فتبقى خارج هذه القائمة',
+            // "Every perspective" was read as agreement between comparisons,
+            // but most Very-High-only issues fired on a single perspective. The
+            // card states that split; this label only names the bucket.
+            'no lower band': 'بلا درجة أدنى',
+            'Perspectives that fired on the Very High only issues': 'زوايا المقارنة التي أطلقت مشكلات «عالية جداً فقط»',
+            'click a card to filter': 'اضغط على بطاقة للتصفية',
+            'click the card again to clear': 'اضغط على البطاقة مرة أخرى لإلغاء التصفية',
+            'Very High cards ignore the severity filter': 'لا تتأثر بطاقات Very High بمرشّح الشدّة',
+            // D4: the band and the card scope intersect, so the empty state
+            // names the pair and repeats the Very High KPI instead of letting
+            // an empty table imply that population is zero.
+            'No issue satisfies both the selected severity and the card scope.': 'لا توجد مشكلة تحقق شرط الشدّة المحدد ونطاق البطاقة معًا.',
+            'The Very High cards still count': 'بطاقات Very High ما زالت تحصي',
+            'because they ignore the severity and the card scope.': 'لأنها لا تتأثر بمرشّح الشدّة ولا بنطاق البطاقة.',
+            'mixed': 'مختلطة',
+            'total in view': 'الإجمالي في النطاق',
             'Scan ALL reporting periods?': 'فحص جميع فترات الرصد؟',
-            'Red Alerts': 'التنبيهات الحمراء',
             'Very high outliers': 'شذوذ عالٍ جدًا',
-            'Red only': 'أحمر فقط',
-            'Every perspective very high': 'كل زوايا المقارنة عالية جدًا',
+            'Very High only': 'عالية جداً فقط',
+            'No lower band on any perspective': 'لا توجد درجة أدنى في أي زاوية مقارنة',
             'Mixed severity': 'شدة مختلطة',
-            'Red plus lower bands': 'أحمر مع درجات شدة أدنى',
-            'Total active alerts': 'إجمالي التنبيهات النشطة',
-            'Across all perspectives': 'عبر جميع زوايا المقارنة',
+            'Corroborated': 'مؤكدة بزاويتين أو أكثر',
+            'Very High on 2+ perspectives': 'عالية جداً في زاويتَي مقارنة أو أكثر',
+            'Very High plus lower bands': 'عالية جداً مع درجات شدة أدنى',
+            // The Very High only card states its split: the issues 2+ comparisons
+            // agreed on, and the issues where only one fired (nothing could have
+            // disagreed with it).
+            'Single perspective': 'زاوية مقارنة واحدة',
+            'both add up to Very High only': 'مجموعهما «عالية جداً فقط»',
+            'No Very High only issues in this scope': 'لا توجد مشكلات «عالية جداً فقط» في هذا النطاق',
+            // Step 10D-6e — identity-based evidence breakdown on the cards.
+            'Very High issues': 'مشكلات عالية جداً',
+            'At least one Very High comparison': 'مقارنة واحدة على الأقل عالية جداً',
+            'Split by comparison evidence below': 'التفصيل حسب دليل المقارنة أدناه',
+            'Very High only · evidence breakdown': 'عالية جداً فقط · تفصيل الدليل',
+            'Five mutually exclusive categories; they add up to Very High only': 'خمس فئات متباينة لا تتداخل، ومجموعها يساوي «عالية جداً فقط»',
+            'Multiple peer comparisons': 'مقارنات متعددة مع النظراء',
+            'Two or more distinct groups of hospitals were compared': 'قُورنت مجموعتان مختلفتان أو أكثر من المستشفيات',
+            'Single peer comparison': 'مقارنة واحدة مع النظراء',
+            'Exactly one group of hospitals was compared, so nothing else could agree or disagree': 'قُورنت مجموعة واحدة فقط من المستشفيات، لذا لم يكن هناك ما يمكن أن يوافق أو يخالف',
+            'Temporal-only': 'زمنية فقط',
+            "No peer group was used; the value was compared with the hospital's own earlier months": 'لم تُستخدم مجموعة نظراء؛ قُورنت القيمة بأشهر المستشفى السابقة',
+            'Unknown comparison identity': 'هوية مقارنة غير معروفة',
+            'The stored evidence does not say which hospitals were compared, so it is not counted as a peer comparison': 'الدليل المخزَّن لا يحدد المستشفيات المقارَنة، لذا لا يُحتسب مقارنة مع النظراء',
+            'The stored comparison record is inconsistent and was not used': 'سجل المقارنة المخزَّن متناقض ولم يُستخدم',
+            'Comparison evidence not available for this scope': 'دليل المقارنة غير متاح في هذا النطاق',
+            'The categories add up to {sum} but Very High only is {total} (difference {diff}). The stored counts are shown unchanged; nothing was adjusted.': 'مجموع الفئات {sum} بينما «عالية جداً فقط» {total} (الفرق {diff}). الأعداد المخزَّنة معروضة كما هي دون أي تعديل.',
+            'Very High only {only} + Mixed severity {mixed} = {sum}': 'عالية جداً فقط {only} + شدة مختلطة {mixed} = {sum}',
+            'Very High only + Mixed severity = Very High issues': 'عالية جداً فقط + شدة مختلطة = مشكلات عالية جداً',
+            'Very High only + Mixed severity ({sum}) does not match Very High issues ({total}); difference {diff}. The stored counts are shown unchanged; nothing was adjusted.': 'مجموع «عالية جداً فقط» و«شدة مختلطة» ({sum}) لا يطابق «مشكلات عالية جداً» ({total})؛ الفرق {diff}. الأعداد المخزَّنة معروضة كما هي دون أي تعديل.',
+            'Comparison relationships (inside multiple peer comparisons)': 'علاقات المقارنة (داخل المقارنات المتعددة مع النظراء)',
+            'Secondary detail — these are not additional issues': 'تفصيل ثانوي — وليست مشكلات إضافية',
+            'All disjoint': 'منفصلة تماماً',
+            'Nested only': 'متداخلة فقط',
+            'Overlapping only': 'متقاطعة فقط',
+            'Mixed relationships': 'علاقات مختلطة',
+            'No shared hospitals between the groups': 'لا مستشفيات مشتركة بين المجموعات',
+            'One group is contained in the other': 'مجموعة داخل الأخرى',
+            'The groups share hospitals without one containing the other': 'تشترك المجموعات في مستشفيات دون أن تحتوي إحداها الأخرى',
+            'More than one of the three relationships occurs': 'يحدث أكثر من نوع من العلاقات الثلاث',
+            'Relationship detail unavailable': 'تفصيل العلاقات غير متاح',
+            'Relationship counts add up to {sum} but Multiple peer comparisons is {count} (difference {diff}). The stored counts are shown unchanged; nothing was adjusted.': 'مجموع فئات العلاقات {sum} بينما «مقارنات متعددة مع النظراء» {count} (الفرق {diff}). الأعداد المخزَّنة معروضة كما هي دون أي تعديل.',
+            'Legacy diagnostic (perspective labels)': 'تشخيص قديم (تسميات زوايا المقارنة)',
+            'counts perspective labels, not peer comparison groups': 'يحتسب تسميات زوايا المقارنة لا مجموعات النظراء',
+            'Legacy split · Corroborated (labels)': 'تقسيم قديم · مؤكدة (تسميات)',
+            // What each card means, in the tooltip and under the strip.
+            'Every perspective that fired is Very High — no lower band on any comparison': 'كل زاوية مقارنة أطلقت المشكلة عالية جداً — لا توجد درجة أدنى في أي مقارنة',
+            'At least one perspective is Very High and another came out lower (High, Moderate or Low)': 'زاوية مقارنة واحدة على الأقل عالية جداً وأخرى أدنى (عالية أو متوسطة أو منخفضة)',
+            'Corroborated is part of Very High only: two or more distinct perspectives all graded Very High — perspectives are not independent clinical evidence': '«مؤكدة بزاويتين أو أكثر» جزء من «عالية جداً فقط»: زاويتا مقارنة أو أكثر جميعها عالية جداً — وزوايا المقارنة ليست أدلة سريرية مستقلة',
+            'Corroborated is part of Very High only — two or more distinct perspectives all graded Very High. Perspectives are not independent clinical evidence: they compare the same reported value.': '«مؤكدة بزاويتين أو أكثر» جزء من «عالية جداً فقط» — زاويتا مقارنة أو أكثر جميعها عالية جداً. وزوايا المقارنة ليست أدلة سريرية مستقلة: فهي تقارن القيمة نفسها المبلّغ عنها.',
+            'Mixed severity means at least one perspective is Very High and another came out lower (High, Moderate or Low).': '«شدة مختلطة» تعني أن زاوية مقارنة واحدة على الأقل عالية جداً وأخرى أدنى (عالية أو متوسطة أو منخفضة).',
+            'Total issues': 'إجمالي المشكلات',
+            'Selected severity only': 'الدرجة المحددة فقط',
+            'Table scope:': 'نطاق الجدول:',
+            'shown of': 'معروض من أصل',
+            'matching issues': 'مشكلة مطابقة',
+            'One per hospital · indicator · month': 'مشكلة واحدة لكل مستشفى · مؤشر · شهر',
             'Hospitals affected': 'المستشفيات المتأثرة',
             'Unique hospitals': 'مستشفيات فريدة',
             'Indicators affected': 'المؤشرات المتأثرة',
@@ -118,10 +188,26 @@
             'Under review': 'قيد المراجعة',
             'Open issues': 'مشكلات مفتوحة',
             'New · Under Review · Confirmed Issue': 'جديد · قيد المراجعة · مؤكد',
+            // One label per code: workflow statuses and comparison
+            // perspectives (the API sends codes; the screen translates them).
+            'New': 'جديد',
+            'Under Review': 'قيد المراجعة',
+            'Confirmed Issue': 'مؤكد',
+            'False Positive': 'إيجابية كاذبة',
+            'Resolved': 'تم الحل',
+            'Hospital history': 'سجل المستشفى',
+            'Similar hospitals (type)': 'مستشفيات مشابهة (النوع)',
+            'Ownership peers': 'نظراء الملكية',
+            'Facility-type peers': 'نظراء نوع المرفق',
+            'Regional peers (governorate)': 'نظراء المحافظة',
+            'Governance / managing authority': 'الحوكمة / الجهة الإدارية',
+            'This explanation reports the pre-cap assessment (stored severity {stored}). The operational band is {effective}.':
+                'هذا التفسير يعرض التقييم قبل تطبيق الحد الأعلى (الخطورة المخزنة {stored}). النطاق التشغيلي هو {effective}.',
             'Open investigations': 'تحقيقات مفتوحة',
             'Comparison perspectives': 'زوايا المقارنة',
             'Risk issues': 'المشكلات المخاطرة',
             'Baseline': 'خط الأساس',
+            'Prior-months baseline': 'خط أساس الأشهر السابقة',
             'Deviation': 'الانحراف',
             'Perspectives': 'زوايا المقارنة',
             'Detected': 'تاريخ الاكتشاف',
@@ -176,6 +262,8 @@
             'Isolation Forest disagrees — low confidence': 'نموذج isolation forest لا يوافق — ثقة منخفضة',
             'Select a reporting period before running the scan.': 'اختر فترة التقرير قبل تشغيل الفحص.',
             'Page': 'صفحة',
+            'Rows per page': 'عدد الصفوف في الصفحة',
+            'Showing all': 'عرض الكل',
             'System Control': 'التحكم في النظام',
             'Hospital:': 'المستشفى:',
             'Month:': 'الشهر:',
@@ -242,6 +330,7 @@
             'Reports': 'التقارير',
             'Avg Quality Score': 'متوسط درجة الجودة',
             'Active Alerts': 'التنبيهات النشطة',
+            'Active alerts': 'التنبيهات النشطة',
             'Quality Score Trend': 'اتجاه درجة الجودة',
             'Year-over-Year Comparison': 'مقارنة سنة بسنة',
             'Confidence Distribution': 'توزيع الثقة',
@@ -509,7 +598,7 @@
             "Explains WHY a hospital's score changed: component contributions + peer comparisons.": 'يفسر لماذا تغيرت درجة المستشفى: مساهمات المكونات ومقارنات النظراء.',
             'Use: monthly management review pre-read.': 'الاستخدام: قراءة مسبقة لمراجعة الإدارة الشهرية.',
             'FAQ': 'أسئلة شائعة',
-            'What is the difference between Raw value and Rate? Between the 8 classifications? How are peers chosen?': 'ما الفرق بين القيمة الخام والنسبة؟ وبين التصنيفات الثمانية؟ كيف يُختار النظراء؟',
+            'What is the difference between Raw value and Rate? Between the 9 classifications? How are peers chosen?': 'ما الفرق بين القيمة الخام والنسبة؟ وبين التصنيفات التسعة؟ كيف يُختار النظراء؟',
             'Answered in the printable legend (top button) and inside each Why popup.': 'تُجاب في الدليل القابل للطباعة (زر أعلى الصفحة) وداخل كل نافذة لماذا.',
             'Every screen also has its own Explain/Why button — the fastest way to understand a number in context.': 'كل شاشة لها زر لماذا أيضاً — أسرع طريقة لفهم أي رقم في سياقه.',
             'Investigation': 'تحقيق',
@@ -529,6 +618,8 @@
             'Rate trend': 'اتجاه المعدل',
             'baseline mean': 'متوسط خط الأساس',
             'peer mean': 'متوسط النظراء',
+            'Band at this month': 'النطاق لهذا الشهر',
+            'stored band': 'النطاق المخزَّن',
             'this month': 'هذا الشهر',
             'Raw value': 'القيمة الخام',
             'Select an indicator to view the trend.': 'اختر مؤشراً لعرض الاتجاه.',
@@ -805,6 +896,13 @@
             'Expression': 'التعبير',
             'Enabled': 'مفعل',
             'Edit': 'تعديل',
+            // Hospital-month audit trail (who enabled/disabled a month, when)
+            'Month change history': 'سجل تغييرات الأشهر',
+            'Who enabled or disabled a month for this hospital. Newest first.': 'من فعّل أو عطّل شهراً لهذا المستشفى. الأحدث أولاً.',
+            'No month changes recorded yet.': 'لا توجد تغييرات مسجّلة على الأشهر بعد.',
+            'Not set': 'غير محدد',
+            'Unknown user': 'مستخدم غير معروف',
+            'Could not load month history: ': 'تعذّر تحميل سجل الأشهر: ',
             'Del': 'حذف',
             'Rules are sorted by code. Disabled rules are skipped during analysis.': 'القواعد مرتبة حسب الرمز. القواعد المعطلة يتم تخطيها أثناء التحليل.',
             'Expression Types Reference': 'مرجع أنواع التعبيرات',
@@ -1447,6 +1545,12 @@
             'Stored': 'المخزَّن',
             'Stored z': 'القيمة المخزنة z',
             'Recomputed z': 'z المُعاد حسابه',
+            // A peer group too small to measure a spread produces no z
+            // (layered.PEER_Z_POLICY) — the screens say so instead of a dash.
+            'Not graded': 'غير مُقيَّم',
+            'not produced: too few peers to measure a spread': 'لم يُحتسب: عدد النظير غير كافٍ لقياس التشتّت',
+            'z not produced: the comparison group is too small to measure a spread': 'لم يُحتسب z: مجموعة المقارنة أصغر من أن تُقاس شدّتها',
+            'not produced (too few peers)': 'لم يُحتسب (عدد النظير قليل)',
             'Verified — the number reproduces exactly from the source data': 'مُوثَّق ✓ — الرقم يُستنتج بدقة من بيانات المصدر',
             'Not verified — recomputed value differs from the stored one (configuration may have changed after analysis)': 'غير مطابق — القيمة المعاد حسابها تختلف عن المخزنة (قد تكون الإعدادات تغيّرت بعد التحليل)',
             'Show weighted component contributions': 'إظهار مساهمات المكونات المرجّحة',
@@ -1707,6 +1811,111 @@
             'No clinical direction configured — statistical only': 'لا توجد اتجاهات سريرية مُعدة — إحصائي فقط',
             'Baseline is zero — relative change undefined': 'خط الأساس صفر — لا يمكن حساب نسبة التغير',
             'Comparison group has no spread': 'لا يوجد تباين في مجموعة المقارنة',
+            'No measurable spread for this method': 'لا يوجد تباين قابل للقياس لهذه الطريقة',
+            'no spread': 'لا يوجد تباين',
+            'no z': 'بدون درجة z',
+            // Top-band eligibility: three states, three sentences. "not judged"
+            // must never be mistaken for "no deviation".
+            'top band refused by the history window': 'المستوى الأعلى مرفوض: نافذة التاريخ لا تدعمه',
+            'not judged': 'لم يُقدّر (المقارنة غير قابلة للحكم)',
+            'history window supports the top band': 'نافذة التاريخ تدعم المستوى الأعلى',
+            // PEER eligibility (Rule B): one sentence per reason, because the
+            // peer method is not the history window. Each sentence states the
+            // STATISTICAL verdict only; the comparability and definition clauses
+            // are appended at render time from what the payload actually stores,
+            // so neither is ever a fixed claim baked into the sentence.
+            'peer top band supported by both robust scales — statistical: eligible': 'المستوى الأعلى مدعوم بمقياسي التباين — إحصائيًا: مؤهل',
+            'peer top band supported by the only usable robust scale — statistical: eligible': 'المستوى الأعلى مدعوم بمقياس التباين الوحيد المتاح — إحصائيًا: مؤهل',
+            'peer robust scales disagree — statistical: not judged': 'مقياسا التباين للنظير متعارضان — إحصائيًا: لم يُقدّر',
+            'the only usable peer scale rejects the top band — statistical: not judged': 'مقياس التباين الوحيد المتاح لا يدعم المستوى الأعلى — إحصائيًا: لم يُقدّر',
+            'peer indicator definition not establishable — statistical: not judged': 'تعريف المؤشر للمقارنة النظيرة غير قابل للإثبات — إحصائيًا: لم يُقدّر',
+            'no usable robust scale in the peer group — statistical: insufficient robust scale': 'لا يوجد مقياس تباين صالح في مجموعة النظير — إحصائيًا: مقياس غير كافٍ',
+            'peer comparison group not recorded — statistical: not judged': 'مجموعة المقارنة النظيرة غير محفوظة — إحصائيًا: لم يُقدّر',
+            // Names WHO owns the claim, not why this record lacks one: the peer
+            // policy grades it on the alert record, so a Diagnostics row's same
+            // reason is not evidence that no group was stored.
+            'peer claim not graded on this record — statistical: not judged': 'الادعاء النظير غير مُقدّر في هذا السجل — إحصائيًا: لم يُقدّر',
+            'too few usable peer values — statistical: not judged': 'قيم النظير الصالحة قليلة جدًا — إحصائيًا: لم يُقدّر',
+            'current value missing — statistical: not judged': 'القيمة الحالية مفقودة — إحصائيًا: لم يُقدّر',
+            'peer comparison not judged — statistical: reason not reported': 'لم تُقدّر المقارنة النظيرة — إحصائيًا: السبب غير مُبلّغ',
+            // Quality Alerts peer perspectives (Step 6B): each stored
+            // perspective is a separate analytical record. The block states the
+            // distinction, and every reading is selected by verdict + reason.
+            'Quality Alerts — Peer Perspectives': 'تنبيهات الجودة — زوايا النظراء',
+            'Diagnostics shows this analysis row and its own analytical layers. Quality Alerts may contain separate peer perspectives for the same hospital, month, and indicator. These are different analytical records evaluated under different policies. A peer result at the very high band does not imply that the Diagnostics historical assessment is also at that band.': 'يعرض التشخيص صف التحليل هذا وطبقاته التحليلية. قد تحتوي تنبيهات الجودة على زوايا نظراء منفصلة لنفس المستشفى والشهر والمؤشر. هذه سجلات تحليلية مختلفة تُقيَّم بسياسات مختلفة. نتيجة النظير عند المستوى الأعلى لا تعني أن التقييم التاريخي في التشخيص هو أيضًا عند المستوى الأعلى.',
+            'Alert': 'تنبيه',
+            'Rule B verdict': 'حكم القاعدة B',
+            'Reason': 'السبب',
+            'eligible': 'مؤهل',
+            'undecided': 'غير مُقدّر',
+            'ineligible': 'مرفوض',
+            'insufficient_robust_scale': 'مقياس تباين غير كافٍ',
+            'not_applicable': 'لا ينطبق',
+            'Confirmed — both robust scales support the top band.': 'مؤكد — كلا مقياسي التباين الصالحين يدعمان المستوى الأعلى.',
+            'Confirmed — the only usable robust scale supports the top band.': 'مؤكد — مقياس التباين الصالح الوحيد يدعم المستوى الأعلى.',
+            'Not confirmed — the available robust scales disagree.': 'غير مؤكد — مقاييس التباين المتاحة متعارضة.',
+            'Not confirmed — the only usable scale does not support the top band.': 'غير مؤكد — المقياس الصالح الوحيد لا يدعم المستوى الأعلى.',
+            'Not confirmed — the indicator definition cannot be established.': 'غير مؤكد — لا يمكن إثبات تعريف المؤشر.',
+            'Not confirmed — the peer group has no usable robust scale.': 'غير مؤكد — لا توجد في مجموعة النظراء أي مقياس تباين صالح.',
+            'Not confirmed — both usable robust scales refuse the top band.': 'غير مؤكد — كلا مقياسي التباين الصالحين يرفضان المستوى الأعلى.',
+            'Not confirmed — no stored peer values are available.': 'غير مؤكد — لا توجد قيم نظير محفوظة.',
+            'Not confirmed — too few usable peer values are available.': 'غير مؤكد — القيم الصالحة للنظراء قليلة جدًا.',
+            'Not confirmed — the current value is missing.': 'غير مؤكد — القيمة الحالية مفقودة.',
+            'Not interpreted — the policy verdict and reason do not agree.': 'لم يُفسَّر — حكم السياسة وسببها غير متوافقين.',
+            'Not interpreted — the policy reason is not recognised.': 'لم يُفسَّر — سبب السياسة غير معروف.',
+            'unavailable': 'غير متاح',
+            'usable': 'صالح',
+            'unusable': 'غير صالح',
+            'MAD': 'الانحراف المتوسط المطلق (MAD)',
+            'IQR': 'المدى الربيعي (IQR)',
+            'Scales supporting': 'المقاييس الداعمة',
+            'Comparability': 'التماثل',
+            'Zero share': 'نسبة القيم الصفرية',
+            'of peer values are zero. Review the source-data semantics.': 'من قيم النظراء تساوي صفرًا. راجع دلالات البيانات المصدرية.',
+            // The two dimensions appended to every peer sentence. The status
+            // VALUES are printed as stored (translated when a label exists), so a
+            // future "verified" cannot be shadowed by a hardcoded sentence.
+            'comparability': 'التماثل',
+            'definition': 'التعريف',
+            'not_verified': 'غير مُتحقق',
+            'verified': 'مُتحقق',
+            'catalog_only': 'من الكتالوج فقط',
+            'self_contained_no_catalog': 'مكتفٍ ذاتيًا (خارج الكتالوج)',
+            'not_establishable': 'غير قابل للإثبات',
+            'Top band': 'المستوى الأعلى',
+            // Names the record a diagnostic verdict belongs to: the cross-check
+            // lists the stored alert perspectives above it.
+            'Diagnostics row top band': 'المستوى الأعلى لصف التشخيص',
+            // The two PEER policy sentences, quoted verbatim from
+            // app.engine.anomaly.layered (TOP_BAND_ROUTE_POLICY[peer] and
+            // PEER_ELIGIBILITY_POLICY). The key must equal the backend string
+            // byte for byte or the lookup silently falls back to English, so a
+            // test pins them together. The history/volume/raw-count policy
+            // sentences stay untranslated (they fall back as before).
+            'The top band rests on a peer comparison. Rule B judges it from the comparison group\'s own usable robust scales — a STATISTICAL verdict only: clinical/operational comparability between the hospitals stays not_verified, and nothing about their data quality is established. The thin-peer limit (fewer than 4 hospitals) and a zero-spread group are separate caps, not Rule B\'s verdict, and the history window\'s dispersion never decides a peer claim': 'يعتمد المستوى الأعلى على مقارنة نظيرة. تحكمها القاعدة B باستخدام مقاييس التباين الصالحة الخاصة بمجموعة المقارنة — حكم إحصائي فقط: التماثل السريري/التشغيلي بين المستشفيات يبقى غير مُتحقق، ولا يُثبت أي شيء عن جودة بياناتها. حدّ النظير القليل (أقل من 4 مستشفيات) والمجموعة التي لا تباين فيها حدّان منفصلان، وليسا حكم القاعدة B، وتباين نافذة التاريخ لا يحدد أبدًا ادعاءً نظيرًا',
+            'Rule B grades a peer top band STATISTICALLY: the band is supported when every USABLE robust scale of the comparison group reaches VERY_HIGH; two usable scales that disagree leave the claim undecided; a single usable scale cannot refuse on its own; and a group whose robust scales are degenerate is reported as insufficient_robust_scale rather than refused or accepted. The indicator\'s definition must be established first (a row formula with a usable numerator and denominator, or a definition the live catalog resolves), and clinical/operational comparability between the hospitals stays not_verified — statistical eligibility is not evidence of comparability or of data quality': 'تُقدّر القاعدة B المستوى الأعلى النظير إحصائيًا: يُدعم المستوى عندما يبلغ كل مقياس تباين صالح في مجموعة المقارنة المستوى VERY_HIGH؛ ومقياسان صالحان متعارضان يتركان الادعاء غير مُقدّر؛ ومقياس واحد صالح لا يستطيع الرفض بمفرده؛ والمجموعة التي تكون مقاييس تباينها منحلّة تُبلّغ بحالة insufficient_robust_scale بدلًا من الرفض أو القبول. ويجب أولًا إثبات تعريف المؤشر (صيغة في الصف مع بسط ومقام صالحين، أو تعريف يستخرجه الكتالوج الحالي)، ويبقى التماثل السريري/التشغيلي بين المستشفيات غير مُتحقق — فالأهلية الإحصائية ليست دليلًا على التماثل ولا على جودة البيانات',
+            'Too few peer hospitals to measure a spread — no z-score is produced for this comparison': 'عدد المستشفيات النظيرة قليل جدًا لقياس التباين — لا تُنتج درجة z لهذه المقارنة',
+            'Stored': 'المحفوظة',
+            'the comparison cannot be graded, so the band is capped': 'لا يمكن تقدير حجم المقارنة، لذا تُحدّد أقصى درجة لها',
+            // The fallback reason: a cap block this build does not recognise.
+            'the comparison cannot be graded': 'لا يمكن تقدير حجم المقارنة',
+            // The two approved cap sentences, quoted verbatim from
+            // app.engine.anomaly.layered (ZERO_SPREAD_POLICY and
+            // THIN_PEER_POLICY). The keys must equal the backend strings byte
+            // for byte or the lookup falls back to English; the thin-peer one
+            // keeps the {peers} placeholder its formatter fills in.
+            'The comparison has no measurable spread for the method used, so the deviation cannot be graded; the level is capped at HIGH': 'لا يوجد تباين قابل للقياس في هذه المقارنة للطريقة المستخدمة، لذا لا يمكن تقدير حجم الانحراف؛ تُحدّد أقصى درجة عند HIGH',
+            'The peer group is too small ({peers} peers) to measure a spread, so the deviation cannot be graded; the level is capped at HIGH': 'مجموعة النظير صغيرة جدًا ({peers} نظيرًا) لقياس التباين، لذا لا يمكن تقدير حجم الانحراف؛ تُحدّد أقصى درجة عند HIGH',
+            // The three cap sources named apart: a degenerate group, a group too
+            // small to measure, and a window that measured and disagreed. A
+            // row can carry more than one, so the badge joins them.
+            'no measurable spread: every value in the comparison is identical': 'لا يوجد تباين قابل للقياس: كل القيم في المقارنة متطابقة',
+            'too few peer hospitals to measure a spread': 'مستشفيات نظيرة أقل من اللازم لقياس التباين',
+            'the hospital\u2019s own history window does not support the top band': 'نافذة تاريخ المستشفى نفسه لا تدعم المستوى الأعلى',
+            'Not produced — the comparison group is too small to measure a spread': 'لم تُنتج — مجموعة المقارنة أصغر من أن تُقاس درجة تباينها',
+            'Fewer than 4 peer hospitals cannot measure a spread, so no z-score is produced for this comparison. The peer values, their mean and the score are kept.': 'أقل من 4 مستشفيات نظيرة لا يكفي لقياس التباين، لذا لا تُنتج درجة z لهذه المقارنة. تُحفظ قيم النظير ومتوسطها والدرجة.',
+            'The comparison has no measurable spread for the method used, so the deviation cannot be graded. The finding is kept and its level is capped at HIGH.': 'لا يوجد تباين قابل للقياس في هذه المقارنة للطريقة المستخدمة، لذا لا يمكن تقدير حجم الانحراف. يُحتفظ بالنتيجة وتُحدّد أقصى درجة لها عند HIGH.',
+            'Every value in this comparison is identical, so the deviation cannot be graded. The level is capped at HIGH.': 'كل القيم في هذه المقارنة متطابقة، لذا لا يمكن تقدير حجم الانحراف. تُحدّد أقصى درجة عند HIGH.',
             'Z-score': 'درجة z',
             'vs baseline': 'مقابل خط الأساس',
             'note': 'ملاحظة',
@@ -1774,6 +1983,10 @@
             'Recompute': 'إعادة الحساب',
             'Recomputed': 'أُعيد حساب',
             'Recompute failed: ': 'فشلت إعادة الحساب: ',
+            // Outlier Diagnostics: rewrite only the months the cap policy refuses
+            'Recompute stale months': 'إعادة حساب الأشهر القديمة',
+            'No stored diagnostics results are older than the saved cap policy.': 'لا توجد نتائج تشخيص محفوظة أقدم من سياسة السقوف المحفوظة.',
+            'Only the outliers marked stale — those months and hospitals — are re-analysed under the current saved cap policy. Every other stored result is left untouched.': 'تُعاد تحليل النتائج المعلّمة كقديمة فقط — في هذه الأشهر والمستشفيات — وفق سياسة السقوف المحفوظة السارية، وتبقى بقية النتائج المحفوظة دون تغيير.',
             'new': 'جديد',
             'updated': 'محدّث',
             'no longer detected': 'لم يعد مكتشفاً',
@@ -1786,8 +1999,130 @@
             'Failed to save note: ': 'تعذّر حفظ الملاحظة: ',
             'Type a note first.': 'اكتب ملاحظة أولاً.',
             'Note saved.': 'تم حفظ الملاحظة.',
+            // Quality Alerts: open vs closed investigation scope
+            'Open only': 'المفتوحة فقط',
+            'Search hospital / indicator': 'ابحث عن مستشفى / مؤشر',
+            'closed': 'مغلق',
+            'All statuses (incl. closed)': 'كل الحالات (بما فيها المغلقة)',
+            'Marked ': 'تم وضع علامة ',
+            ' — it left the open alerts and stays available under Status.': ' — خرج من التنبيهات المفتوحة ويبقى متاحاً ضمن عامل تصفية الحالة.',
             'Compare with the hospital\'s own explanation before concluding a data or care issue': 'قارن ذلك بتفسير المستشفى نفسه قبل استنتاج وجود مشكلة في البيانات أو الرعاية',
             'error': 'خطأ',
+            // Step 6D: stored identifiers and backend policy sentences are
+            // shown as words. The API's own codes stay the stored contract;
+            // these keys only change how the popup prints them.
+            'VERY_HIGH': 'مرتفع جدًا',
+            // Detection types printed in the outlier headline ("… — {type}
+            // ({level} level)") and in the outliers list. Without these keys
+            // the Arabic popup kept the English words "Historical anomaly".
+            'HISTORICAL_ANOMALY': 'شذوذ تاريخي',
+            'PEER_ANOMALY': 'شذوذ مقارنة بالنظراء',
+            'VOLUME_DRIVEN_ANOMALY': 'شذوذ مدفوع بالحجم',
+            'RAW_VALUE_ANOMALY': 'شذوذ القيمة الخام',
+            'RATE_ANOMALY': 'شذوذ المعدل',
+            'CLINICAL_INVESTIGATION_REQUIRED': 'يستلزم تحقيقاً سريرياً',
+            'POSSIBLE_DATA_ENTRY_ERROR': 'خطأ محتمل في إدخال البيانات',
+            'INSUFFICIENT_HISTORY': 'تاريخ غير كافٍ',
+            'NORMAL': 'طبيعي',
+            'UNKNOWN': 'غير معروف',
+            'MODERATE': 'متوسط',
+            'NONE': 'لا يوجد',
+            'agree': 'متوافق',
+            'differs': 'مختلف',
+            'differs_by_perspective': 'مختلف بحسب زاوية النظر',
+            'no_stored_alert': 'لا يوجد تنبيه محفوظ',
+            'BOTH_SCALES_SUPPORT': 'كلا مقياسي التباين يدعمان المستوى الأعلى',
+            'ONLY_AVAILABLE_SCALE_SUPPORTS': 'مقياس التباين الصالح الوحيد يدعم المستوى الأعلى',
+            'SCALES_DISAGREE': 'مقاييس التباين متعارضة',
+            'ONLY_AVAILABLE_SCALE_REFUSES': 'المقياس الصالح الوحيد يرفض المستوى الأعلى',
+            'DEFINITION_NOT_ESTABLISHABLE': 'تعريف المؤشر غير قابل للإثبات',
+            'NO_ROBUST_SCALE': 'لا يوجد مقياس تباين صالح في مجموعة النظراء',
+            'BOTH_USABLE_SCALES_REFUSE': 'كلا مقياسي التباين الصالحين يرفضان المستوى الأعلى',
+            'NO_STORED_PEER_VALUES': 'لا توجد قيم نظير محفوظة',
+            'INSUFFICIENT_PEER_VALUES': 'قيم النظير الصالحة قليلة جدًا',
+            'CURRENT_VALUE_MISSING': 'القيمة الحالية مفقودة',
+            'Historical baseline': 'الأساس التاريخي',
+            'Patient volume': 'حجم المرضى',
+            'Peer comparison': 'المقارنة النظيرة',
+            'Only qualifying top-band peer perspectives are shown as cards. Other perspectives may appear in the cross-check list.': 'تُعرض كبطاقات فقط المنظورات النظيرة التي تستوفي شروط مستوى الخطورة الأعلى. وقد تظهر منظورات أخرى في قائمة المقارنة.',
+            // Cross-check block: the section heading, the stored/displayed band
+            // line and the two suffixes the list composes itself.
+            'Quality Alerts cross-check': 'مقارنة تنبيهات الجودة',
+            // Step 10D-5 — grouped peer-comparison evidence (Explain popup).
+            'Peer comparison evidence': 'دليل مقارنة النظراء',
+            'No stored perspective label holds a complete peer group, so no peer comparison is described here.': 'لا يحمل أي منظور مخزَّن مجموعة نظراء مكتملة، لذا لا تُوصف هنا أي مقارنة مع النظراء.',
+            '{rows} stored perspective labels describe one peer comparison: the labels name the same peer set, so it is counted once.': 'تصف {rows} تسمية منظور مخزَّنة مقارنة واحدة مع النظراء: فالتسميات تشير إلى مجموعة النظراء نفسها، لذا تُحتسب مرة واحدة.',
+            'One stored perspective label describes one peer comparison ({labels}).': 'تصف تسمية منظور مخزَّنة واحدة مقارنة واحدة مع النظراء ({labels}).',
+            '{rows} stored perspective labels describe {comparisons} distinct peer comparisons.': 'تصف {rows} تسمية منظور مخزَّنة {comparisons} مقارنة متمايزة مع النظراء.',
+            '{duplicates} of those labels name a peer set that is already counted, so they add no second comparison.': '{duplicates} من تلك التسميات تشير إلى مجموعة نظراء محتسبة بالفعل، لذا لا تضيف مقارنة ثانية.',
+            'Stored labels': 'التسميات المخزَّنة',
+            'Effective severity': 'الشدة الفعلية',
+            'Stored severity': 'الشدة المخزَّنة',
+            'Comparison identity': 'هوية المقارنة',
+            'Comparison source': 'مصدر المقارنة',
+            'Policy version': 'إصدار السياسة',
+            'Relationship': 'العلاقة',
+            'shared hospitals': 'مستشفى مشترك',
+            'Nested peer groups': 'مجموعات نظراء متداخلة',
+            'Overlapping peer groups': 'مجموعات نظراء متقاطعة',
+            'Disjoint peer groups': 'مجموعات نظراء منفصلة',
+            'Unknown relationship': 'علاقة غير معروفة',
+            'Temporal evidence (history)': 'الدليل الزمني (التاريخ)',
+            'Observations': 'المشاهدات',
+            'Evidence quality flags': 'علامات جودة الدليل',
+            'The history perspective is temporal evidence, not a peer comparison: it compares the hospital with its own earlier months and is never counted as a peer comparison.': 'منظور التاريخ دليل زمني وليس مقارنة مع النظراء: فهو يقارن المستشفى بأشهره السابقة، ولا يُحتسب أبداً ضمن مقارنات النظراء.',
+            'The history perspective stores no readable window, so its temporal evidence is unknown; it is not turned into a peer comparison.': 'لا يخزّن منظور التاريخ نافذة قابلة للقراءة، لذا فدليله الزمني غير معروف؛ ولا يُحوَّل إلى مقارنة مع النظراء.',
+            'Unknown evidence': 'دليل غير معروف',
+            'Invalid evidence': 'دليل غير صالح',
+            'Truncated peer evidence': 'دليل نظراء مبتور',
+            'Conflicting statistics': 'إحصاءات متعارضة',
+            'Mixed policy versions': 'إصدارات سياسة مختلطة',
+            '{label}: the stored peer evidence contradicts itself ({reason}), so it is not counted as a comparison.': '{label}: دليل النظراء المخزَّن يناقض نفسه ({reason})، لذا لا يُحتسب مقارنة.',
+            '{label}: the stored peer evidence is incomplete, so the comparison cannot be established and is reported as unknown.': '{label}: دليل النظراء المخزَّن غير مكتمل، لذا لا يمكن إثبات المقارنة ويُبلَّغ عنها كغير معروفة.',
+            '{label}: the stored peer evidence does not name the compared hospitals ({reason}), so the comparison is unknown.': '{label}: دليل النظراء المخزَّن لا يسمّي المستشفيات المقارَنة ({reason})، لذا فالمقارنة غير معروفة.',
+            '{labels}: the stored rows on this one peer set disagree on {fields}; that is conflicting statistics on one comparison, not a second comparison.': '{labels}: الصفوف المخزَّنة على مجموعة النظراء نفسها تختلف في {fields}؛ وهذه إحصاءات متعارضة على مقارنة واحدة وليست مقارنة ثانية.',
+            'More than one comparison-policy version is stored for this formula ({versions}); that is provenance, not another sample.': 'يُخزَّن أكثر من إصدار لسياسة المقارنة لهذه المعادلة ({versions})؛ وهذا اختلاف في المصدر وليس عيّنة أخرى.',
+            'peer_policy': 'سياسة النظراء',
+            'history_policy': 'سياسة التاريخ',
+            'current_value': 'القيمة الحالية',
+            'baseline_value': 'قيمة الأساس',
+            'z_score': 'درجة z',
+            'stored_severity': 'الشدة المخزَّنة',
+            'peer_count': 'عدد النظراء',
+            'direction': 'الاتجاه',
+            'no_readable_history_window': 'لا نافذة تاريخية قابلة للقراءة',
+            'truncated_nested_peer_ids': 'معرّفات النظراء المتداخلة مبتورة',
+            'top_level_truncation_possible': 'احتمال بتر قائمة النظراء العليا',
+            'incomplete_top_level_peer_ids': 'معرّفات النظراء العليا غير مكتملة',
+            'peer_count_mismatch': 'عدد النظراء لا يطابق القائمة',
+            'Diagnostics band': 'نطاق التشخيص',
+            'stored': 'المخزَّن',
+            'stratified': 'طبقي',
+            // The comparison engine's closed label set (anomaly/comparison.py).
+            // Listed explicitly so a known label is translated and an unknown
+            // one is left readable rather than guessed.
+            'normal': 'طبيعي',
+            'above average': 'أعلى من المتوسط',
+            'below average': 'أدنى من المتوسط',
+            'significantly above average': 'أعلى من المتوسط بدرجة دالة',
+            'significantly below average': 'أدنى من المتوسط بدرجة دالة',
+            'critically above average': 'أعلى من المتوسط بدرجة حرجة',
+            'critically below average': 'أدنى من المتوسط بدرجة حرجة',
+            // The trend engine's own words (engine/anomaly/trends.py).
+            // ``stable`` and ``critical`` are already listed above; these are
+            // the remaining direction/severity words, so the Trend Analysis
+            // headline reads Arabic instead of "decreasing (low)".
+            'increasing': 'متزايد',
+            'decreasing': 'متناقص',
+            'negligible': 'مهمل',
+            'low': 'منخفض',
+            'moderate': 'متوسط',
+            'high': 'مرتفع',
+            'Quality Alerts scores each labelled perspective (history, type, ownership, facility type, governorate, all hospitals); Outlier Diagnostics classifies against the single all-hospital detection baseline and its own-history baseline.': 'تقيّم تنبيهات الجودة كل منظور مُسمّى (التاريخ، النوع، الملكية، نوع المنشأة، المحافظة، جميع المستشفيات)؛ بينما يصنّف التشخيص الاستقصائي مقابل خط أساس الكشف الوحيد لجميع المستشفيات وخط أساس تاريخ المستشفى نفسه.',
+            'The top band rests on a volume (denominator) comparison, which was not graded by a spread; the history window\'s dispersion does not decide it': 'يعتمد المستوى الأعلى على مقارنة الحجم (المقام)، ولم تُقدّر بتباين؛ وتباين نافذة التاريخ لا يحددها.',
+            'The top band rests on a raw COUNT layer of a RATE analysis: the history window holds rates, so it cannot judge the count': 'يعتمد المستوى الأعلى على طبقة العدّ الخام في تحليل معدّل: نافذة التاريخ تحمل معدّلات، لذا لا يمكنها الحكم على العدّ.',
+            'No measured layer holds the top band for this row': 'لا توجد طبقة مقيسة تحمل المستوى الأعلى لهذا الصف',
+            'VERY_HIGH requires the comparison\'s own dispersion to support the top band: a robust scale (MAD/IQR) can sit at its floor and grade any change as maximal, so the same window\'s dispersion-aware score decides whether the top band may be claimed. Below it the band is HIGH': 'يتطلب المستوى الأعلى أن يدعمه تباين المقارنة نفسها: فقد يستقر مقياس التباين المتين (MAD/IQR) عند حده الأدنى فيصنّف أي تغيير كأقصى ما يمكن، لذا تحدد الدرجة الواعية بالتباين في النافذة نفسها ما إذا كان يمكن ادعاء المستوى الأعلى. ودون ذلك يكون المستوى HIGH',
         };
 
         export function __(text) {
@@ -1872,6 +2207,11 @@
             });
             // Walk DOM for any remaining translatable text nodes
             translateDOM();
+            // Sentences built in JS (with live numbers) cannot carry
+            // data-i18n; tell their screens to rebuild them.
+            try {
+                window.dispatchEvent(new CustomEvent('dhis:lang', { detail: { lang: currentLang } }));
+            } catch (e) { /* no CustomEvent (very old browser) */ }
         }
 
         // Expose for main.js (tab-load re-translation) — ES module exports are not on window

@@ -725,6 +725,11 @@ window._adminAssignHospitals = function(id, btn) {
               <div style="margin-top:0.5rem;">
                   <span id="monthSaveStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
               </div>
+              <div style="margin-top:0.7rem;padding-top:0.6rem;border-top:1px dashed var(--border-default);">
+                  <div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.2rem;">${__('Month change history')}</div>
+                  <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.4rem;">${__('Who enabled or disabled a month for this hospital. Newest first.')}</div>
+                  <div id="monthAuditList" style="max-height:180px;overflow-y:auto;font-size:0.74rem;line-height:1.5;"></div>
+              </div>
             </div>
         </div>
         <!-- Logs Panel -->
@@ -2025,7 +2030,35 @@ window._adminAssignHospitals = function(id, btn) {
         months.forEach(function(m) { window._monthSettings[m] = true; });
       }
       adminRenderMonthToggles();
+      adminLoadMonthAudit(hospitalId);
     } catch(e) {}
+  }
+  async function adminLoadMonthAudit(hospitalId) {
+    var container = document.getElementById("monthAuditList");
+    if (!container || !hospitalId) return;
+    try {
+      var rows = await api("/config/month-settings/audit?limit=25&hospital_id=" + hospitalId);
+      if (!Array.isArray(rows) || rows.length === 0) {
+        container.innerHTML = '<span style="color:var(--text-muted);">' + __('No month changes recorded yet.') + '</span>';
+        return;
+      }
+      container.innerHTML = rows.map(function(r) {
+        var when = String(r.created_at || "").replace("T", " ").slice(0, 16);
+        var off = r.action === "disabled";
+        var action = off ? __('Disabled') : __('Enabled');
+        var prevLabel = r.previous_state === "unset" ? __('Not set')
+          : (r.previous_state === "disabled" ? __('Disabled') : __('Enabled'));
+        return '<div style="display:flex;gap:0.5rem;padding:0.15rem 0;border-bottom:1px solid var(--border-default);">' +
+          '<span style="min-width:112px;color:var(--text-muted);">' + esc(when) + '</span>' +
+          '<span style="min-width:60px;">' + esc(String(r.month || "")) + '</span>' +
+          '<span style="min-width:64px;font-weight:600;color:' + (off ? "var(--accent-red)" : "var(--accent-green)") + ';">' + esc(action) + '</span>' +
+          '<span style="color:var(--text-muted);">' + __('from') + ' ' + esc(prevLabel) + '</span>' +
+          '<span style="margin-left:auto;color:var(--text-secondary);">' + esc(r.actor || __('Unknown user')) + '</span>' +
+        '</div>';
+      }).join("");
+    } catch(e) {
+      container.innerHTML = '<span style="color:var(--accent-red);">' + __('Could not load month history: ') + esc(e.message) + '</span>';
+    }
   }
   window.onMonthHospitalChange = function() {
     var sel = document.getElementById("monthHospitalSelect");
@@ -2079,6 +2112,7 @@ window._adminAssignHospitals = function(id, btn) {
         st.textContent = "✓ Saved — " + enabledCount + "/" + totalCount + " months enabled";
         st.style.color = "var(--accent-green)";
         setTimeout(function() { st.textContent = ""; }, 5000);
+        adminLoadMonthAudit(hospitalId);
       }
     }).catch(function(e) {
       if (st) { st.textContent = "✗ Error: " + e.message; st.style.color = "var(--accent-red)"; }

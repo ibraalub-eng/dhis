@@ -41,26 +41,43 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from sqlalchemy.orm import Session
 
 from app.config_utils import get_config_dict
-from app.indicators import SYNTHETIC_INDICATOR_CODES
-from app.engine import indicator_service, severity as severity_policy
+from app.engine import (
+    canonical_identity,
+    comparison_policy,
+    indicator_service,
+)
+from app.engine.config_resolver import (
+    PolicySnapshot,
+    PolicyUnavailable,
+    load_policy_snapshot,
+)
+from app.engine.policy_view import (
+    alerts_config_from_snapshot,
+    analysis_config_from_snapshot,
+    comparison_policy_from_snapshot,
+)
+from app.engine import (
+    severity as severity_policy,
+)
 from app.engine.anomaly import layered
 from app.engine.pipeline import (
     get_all_hospital_data_for_month,
     get_enabled_values_for_hospital_month,
     get_historical_months,
 )
+from app.indicators import SYNTHETIC_INDICATOR_CODES
 from app.models import (
+    QUALITY_ALERT_STATUSES,
     Hospital,
     Indicator,
     IndicatorValue,
     QualityAlert,
     QualityAlertEvent,
-    QUALITY_ALERT_STATUSES,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,6 +130,26 @@ STATUS_RESOLVED = "Resolved"
 # Issue-level status rollup priority (first present wins).
 _STATUS_ROLLUP = (STATUS_CONFIRMED, STATUS_UNDER_REVIEW, STATUS_NEW,
                   STATUS_FALSE_POSITIVE, STATUS_RESOLVED)
+_STATUS_PRIORITY = {status: rank for rank, status in enumerate(_STATUS_ROLLUP)}
+
+# ── Open vs closed investigation state ────────────────────────────────────
+# A reviewer CLOSES an alert by marking it Resolved (the finding was dealt with)
+# or False Positive (it was skipped: the deviation is not a real issue).
+# Closing is a decision about ALERTING, not about storage: the row keeps its
+# statistics, its ``active`` flag (which only says "the scan still detects this
+# finding") and its whole event trail. What changes is presentation — every open
+# view (the Quality Alerts list and KPIs, the dashboard cards, the stale
+# recompute) stops raising it, and it reappears only when someone asks for that
+# status explicitly. Otherwise a closed alert would keep alerting forever, with
+# nothing but a coloured badge to tell the reader it was already dealt with.
+CLOSED_STATUSES = (STATUS_RESOLVED, STATUS_FALSE_POSITIVE)
+OPEN_STATUSES = tuple(status for status in QUALITY_ALERT_STATUSES
+                      if status not in CLOSED_STATUSES)
+
+
+def is_open_status(status: Optional[str]) -> bool:
+    """True while an alert still needs attention (not Resolved / skipped)."""
+    return status not in CLOSED_STATUSES
 
 
 def _alerts_config(db: Session) -> dict:
@@ -146,11 +183,15 @@ def _alerts_config(db: Session) -> dict:
         z_threshold = 2.5
     if z_threshold <= 0:
         z_threshold = 2.5
+    # Window/minimums come from the shared comparison policy, not from a
+    # second copy of the clamping rules. The scan later replaces them with a
+    # policy that also honours the System Control trend window.
+    policy = comparison_policy.resolve_comparison_policy(alerts_cfg)
     return {
         "min_score": _f("alerts_min_score", 0.5),
-        "min_peers": max(1, _i("alerts_min_peers", 2)),
-        "min_history": max(2, _i("alerts_min_history", 3)),
-        "history_window": max(3, _i("alerts_history_window", 12)),
+        "min_peers": policy.peer.min_peers,
+        "min_history": policy.history.min_observations,
+        "history_window": policy.history.window,
         "ml_enabled": _i("alerts_ml_enabled", 1) == 1,
         "ml_min_samples": max(4, _i("alerts_ml_min_samples", 12)),
         "z_threshold": z_threshold,
@@ -174,8 +215,45 @@ def resolve_registry(db: Session) -> List[object]:
 
     This is the same resolution the pipeline and outlier screens use — the
     Alerts module analyses ONLY registered indicators, never raw ad-hoc math.
+    Readers that resolve a STORED code (detail, trend, peer groups) use this so
+    a historical row on an alias code stays renderable.
     """
     return indicator_service.resolve_active_definitions(db)
+
+
+def resolve_canonical_registry(db: Session) -> List[object]:
+    """Every active LOGICAL formula once — the scan's candidate set.
+
+    The registry holds one row per analysis site, and those rows can carry an
+    identical formula (the per-site C-section copies). They compute the same
+    number, so scanning both would raise the same clinical finding twice and
+    inflate every dashboard total. Each canonical identity is scanned once; the
+    equivalent codes travel with the finding in ``evidence["canonical"]`` so it
+    stays traceable to every registration.
+    """
+    return indicator_service.canonical_formulas(db)
+
+
+def canonical_code_index(db: Session) -> Dict[str, dict]:
+    """code -> canonical identity, for every registry code (active or not).
+
+    Read side only: stored alerts may predate canonical scanning and still
+    carry an alias code. They must be grouped under the canonical identity (a
+    single unique issue) rather than counted again — and an inactive alias must
+    keep resolving, because its historical findings are still on record.
+    """
+    return indicator_service.canonical_code_index(db)
+
+
+def canonical_formula_index(db: Session) -> Dict[str, dict]:
+    """identity key -> canonical registration, for naming stored findings.
+
+    Readers group rows by the formula each row carries; this index only names
+    the representative code and every equivalent registration. A key the
+    registry no longer holds (formula edited since the scan) misses on purpose:
+    the row keeps the code it was written with.
+    """
+    return indicator_service.canonical_formula_index(db)
 
 
 def _calculate(resolved, values: Dict[str, float], hospital_id: int,
@@ -212,6 +290,8 @@ class RawElementRef:
     is_raw: bool = True
     historical_enabled: bool = True
     peer_comparison_enabled: bool = True
+    minimum_history_period: int = comparison_policy.MIN_HISTORY_OBSERVATIONS_DEFAULT
+    outlier_method: str = "auto"
 
 
 def resolve_data_elements(db: Session) -> List[RawElementRef]:
@@ -231,6 +311,9 @@ def resolve_data_elements(db: Session) -> List[RawElementRef]:
             indicator_type=row.indicator_type or "count",
             historical_enabled=row.historical_enabled is not False,
             peer_comparison_enabled=row.peer_comparison_enabled is not False,
+            minimum_history_period=(row.minimum_history_period
+                                    or comparison_policy.MIN_HISTORY_OBSERVATIONS_DEFAULT),
+            outlier_method=(row.outlier_method or "auto"),
         )
         for row in rows
     ]
@@ -319,6 +402,72 @@ def _hospital_directory(db: Session) -> Dict[int, Hospital]:
     return {h.id: h for h in hospitals}
 
 
+def _rate_analysis_settings(db: Session) -> Dict[str, dict]:
+    """Per-formula analysis settings from the rate configuration.
+
+    Diagnostics builds its spec from ``rate_config`` (method, minimum history,
+    history/peer toggles); the registry definition of the same formula is what
+    Alerts scans. Keying the settings by the shared canonical identity lets
+    both engines apply the same per-formula choices without either inventing
+    its own.
+    """
+    from app.engine.rate_config import load_rate_specs
+
+    index: Dict[str, dict] = {}
+    for spec in load_rate_specs(db).values():
+        key = canonical_identity.identity_key(
+            canonical_identity.ratio_identity(
+                spec.numerator_codes, spec.denominator_codes, "/",
+                spec.rate_multiplier, spec.unit))
+        index.setdefault(key, {
+            "minimum_history_period": spec.minimum_history_period,
+            "outlier_method": spec.outlier_method or "auto",
+            "historical_enabled": spec.historical_enabled is not False,
+            "peer_comparison_enabled": spec.peer_comparison_enabled is not False,
+            "source": "rate_config",
+        })
+    return index
+
+
+def _item_comparison_settings(resolved, rate_index: Dict[str, dict],
+                              policy: comparison_policy.ComparisonPolicy) -> dict:
+    """Effective window/method/toggles for one scanned indicator.
+
+    Raw elements and resolved rate specs carry their own columns; a registry
+    definition without those columns inherits the settings of the rate_config
+    row with the same canonical formula. Anything unmatched uses the approved
+    system defaults — never a hidden per-engine override.
+    """
+    defaults = {
+        "minimum_history_period": policy.history.min_observations,
+        "outlier_method": "auto",
+        "historical_enabled": True,
+        "peer_comparison_enabled": True,
+        "source": "comparison_policy",
+    }
+    spec = getattr(resolved, "spec", None)
+    if spec is not None:
+        return {
+            "minimum_history_period": spec.minimum_history_period,
+            "outlier_method": spec.outlier_method or "auto",
+            "historical_enabled": spec.historical_enabled is not False,
+            "peer_comparison_enabled": spec.peer_comparison_enabled is not False,
+            "source": "rate_config",
+        }
+    if getattr(resolved, "is_raw", False):
+        return {
+            "minimum_history_period": (resolved.minimum_history_period
+                                       or policy.history.min_observations),
+            "outlier_method": resolved.outlier_method or "auto",
+            "historical_enabled": resolved.historical_enabled is not False,
+            "peer_comparison_enabled": resolved.peer_comparison_enabled is not False,
+            "source": "indicator",
+        }
+    key = canonical_identity.identity_key(
+        canonical_identity.resolved_identity(resolved))
+    return dict(rate_index.get(key, defaults))
+
+
 def _peer_members(directory: Dict[int, Hospital], self_id: int,
                   attribute: Optional[str],
                   values: Dict[int, Optional[float]]) -> List[Tuple[int, float]]:
@@ -343,7 +492,15 @@ def _peer_members(directory: Dict[int, Hospital], self_id: int,
 
 def _peer_score(current: float, member_values: Sequence[float],
                 z_threshold: float) -> Tuple[Optional[float], Optional[float], dict]:
-    """z-score against peer mean (self excluded) + layered score + stats."""
+    """z-score against peer mean (self excluded) + layered score + stats.
+
+    A group too small to measure a spread is still SCORED — the deviation is
+    real evidence — but produces no z-score (``layered.PEER_Z_POLICY``): the z
+    divides by the group's own spread, and 2-3 hospitals cannot measure one.
+    ``stats["z_provenance"]`` records that, so the screen explains the dash
+    instead of leaving it to guesswork. Identical to the Diagnostics peer
+    layer, which stores the same NULL z for the same group.
+    """
     import statistics
 
     stats = {
@@ -360,18 +517,540 @@ def _peer_score(current: float, member_values: Sequence[float],
         z = 0.0 if current == mean else None
         score = 0.0 if current == mean else 1.0
     else:
-        z = (current - mean) / std
-        score = layered.score_from_z(z, z_threshold)
+        graded_z = (current - mean) / std
+        score = layered.score_from_z(graded_z, z_threshold)
+        z = (graded_z if layered.peer_z_measurable(len(member_values))
+             else None)
+    stats["z_provenance"] = layered.peer_z_provenance(len(member_values))
     return z, score, stats
 
 
+# ── Degenerate comparisons (no dispersion) ─────────────────────────────────
+# A comparison whose values are all identical has no scale: the z-score is
+# undefined (0/0) and the relative deviation is undefined (baseline 0 or a
+# flat baseline). The shared score builders answer such a comparison with
+# 1.0 — "maximal deviation" — which is the right RAW evidence signal (the
+# hospital really is the only one off the level) but not a measurable
+# magnitude. Every hospital that is the only one reporting a rare event
+# therefore used to land in the top band: in the live database 889 stored
+# alerts (24% of all VERY_HIGH) had a baseline of exactly 0, score 1.0 and no
+# z-score. Such findings are KEPT — "only this hospital reports it" is
+# evidence — but their level is capped at HIGH, and the row records the cap
+# (``evidence["dispersion"]``) so the screens explain it instead of quoting a
+# graded maximum. Measured deviations (spread > 0) are untouched, so the
+# existing thresholds still decide every non-degenerate comparison.
+# The policy itself lives in the shared engine module (layered.cap_zero_spread)
+# because Outlier Diagnostics applies the same cap to its own bands; these are
+# thin adapters over a stats dict so the alert and diagnostic rows carry the
+# identical provenance shape.
+ZERO_SPREAD_LEVEL_CAP = layered.ZERO_SPREAD_LEVEL_CAP
+ZERO_SPREAD_POLICY = layered.ZERO_SPREAD_POLICY
+
+
+def stored_threshold(evidence: Optional[dict]) -> Optional[float]:
+    """The z threshold the scan STORED on this row, if it recorded one.
+
+    ``evidence["z_threshold"]`` is the value the scan actually scored with, so
+    a row is judged with its own threshold rather than today's setting; a row
+    written before it was recorded returns ``None`` and the caller falls back
+    to the configured value (``layered.gate_threshold``).
+    """
+    raw = (evidence or {}).get("z_threshold")
+    try:
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def stored_series(evidence: Optional[dict]) -> List[float]:
+    """The comparison window a stored alert was scored against.
+
+    ``evidence["history"]`` is the exact series handed to the scorer at scan
+    time, so a robust method's divisor (MAD / IQR) can be recomputed from it
+    for rows written before those divisors were stored.
+    """
+    out: List[float] = []
+    for item in (evidence or {}).get("history") or ():
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            value = item[1]
+            if value is None:
+                continue
+            try:
+                out.append(float(value))
+            except (TypeError, ValueError):
+                continue
+    return out
+
+
+def peer_definition_codes(db: Session) -> set:
+    """The analysis codes the PEER definition gate can resolve from the catalog.
+
+    Deliberately ``layered.build_analysis_specs``: the catalog the SCAN itself
+    covers — registered indicators plus active derived rates. A synthetic
+    forecast indicator is absent from it, so a comparison resting on one stays
+    ``not_establishable`` instead of being "resolved" by a lookup the scan never
+    graded. (A formula identity is NOT a definition: the canonical evidence
+    block is written on every alert, so keying on it would silently define rows
+    the catalog does not analyse.)
+    """
+    from app.engine.anomaly.layered import build_analysis_specs
+
+    return {spec.analysis_code for spec in build_analysis_specs(db)}
+
+
+def stored_peer_group(evidence: Optional[dict]) -> dict:
+    """The peer group a STORED alert recorded: hospital id -> value.
+
+    The scan writes the exact members that produced the row's peer score to
+    ``evidence["comparison_policy"]["peer"]["values"]`` (the focal hospital is
+    not one of them), so the peer policy is judged on the group the finding was
+    created from rather than on a recomputed one. A row written before that
+    block existed returns an empty dict; nothing is inferred.
+
+    The stored values carry 4 decimals (the scan rounds them), which is the
+    documented tolerance of this read path — the group membership and the
+    original z-score are never re-derived from them.
+    """
+    block = ((evidence or {}).get("comparison_policy") or {}).get("peer")
+    values = block.get("values") if isinstance(block, dict) else None
+    return dict(values) if isinstance(values, dict) else {}
+
+
+def alert_peer_definition(alert, catalog_codes=None) -> dict:
+    """One stored alert's own definition evidence.
+
+    Shape expected by ``layered.peer_definition_status``. The formula and the
+    ratio come from the ROW (the definition the finding was computed with); the
+    catalog only supplements it, through ``catalog_codes`` — and a row that
+    leans on the catalog is marked ``catalog_only``, never reported as verified
+    group-wide comparability.
+    """
+    evidence = getattr(alert, "evidence", None) or {}
+    canonical = evidence.get("canonical") or {}
+    codes = [canonical.get("code"), getattr(alert, "indicator_code", None)]
+    codes += list(canonical.get("registered_codes") or ())
+    resolved = {str(code) for code in (catalog_codes or ()) if code}
+    return {
+        "formula": (getattr(alert, "formula", None)
+                    or canonical.get("formula")),
+        "numerator": evidence.get("numerator"),
+        "denominator": evidence.get("denominator"),
+        "catalog_resolved": any(str(code) in resolved for code in codes if code),
+    }
+
+
+def peer_gate_inputs(alert, catalog_codes=None) -> dict:
+    """``top_band_gate`` keyword arguments for one stored alert's peer evidence.
+
+    Empty for any route that is not ``peer``: a history, volume or raw-count
+    claim must never be judged by the peer policy, even when the row happens to
+    carry a peer block beside it.
+    """
+    route = alert_route(getattr(alert, "perspective", None),
+                        getattr(alert, "method", None))
+    if route != layered.ROUTE_PEER:
+        return {}
+    values = stored_peer_group(getattr(alert, "evidence", None))
+    if not values:
+        # No stored group: a row written before the peer evidence existed keeps
+        # exactly the answer it had (``undecided`` / ``PEER_POLICY``). Supplying
+        # an empty group instead would restate it as ``NO_STORED_PEER_VALUES``,
+        # which is a different claim about the SAME missing evidence.
+        return {}
+    return {
+        "peer_values": values,
+        "peer_definition": alert_peer_definition(alert, catalog_codes),
+    }
+
+
+def _stored_spread(stats: Optional[dict], method: Optional[str],
+                   series: Optional[Sequence[float]] = None
+                   ) -> Tuple[Optional[float], str]:
+    """``(divisor, kind)`` for one STORED comparison, or ``(None, "std")``.
+
+    The no-dispersion cap must test the spread the score divided by: a
+    ``rolling_median_mad`` row divides by MAD and an ``iqr`` row by the IQR,
+    either of which can be 0 while the window's std is not. Rows written
+    before those divisors were recorded recompute them from the stored history
+    series; when neither is available the std-only test still applies.
+    """
+    stats = stats or {}
+    values = [float(v) for v in (series or ()) if v is not None]
+    if method == layered.METHOD_ROLLING_MEDIAN_MAD:
+        if stats.get("mad") is not None:
+            return float(stats["mad"]), "mad"
+        return (layered.mad(values), "mad") if values else (None, "std")
+    if method == layered.METHOD_IQR:
+        if stats.get("iqr") is not None:
+            return float(stats["iqr"]), "iqr"
+        if len(values) >= 2:
+            q1, _q2, q3 = layered.quartiles(values)
+            return q3 - q1, "iqr"
+        return None, "std"
+    if method == layered.METHOD_TREND_DEVIATION:
+        if stats.get("residual_std") is not None:
+            return float(stats["residual_std"]), "residual_std"
+        return None, "std"
+    if stats.get("std") is not None:
+        return float(stats["std"]), "std"
+    return None, "std"
+
+
+def zero_spread(stats: Optional[dict], method: Optional[str] = None,
+                series: Optional[Sequence[float]] = None) -> bool:
+    """True when a dispersion-based comparison had no dispersion.
+
+    ``method`` narrows the check to the methods whose score divides by the
+    spread; ``series`` lets a robust method's divisor be recomputed from the
+    window it was scored against. Without either only the stored statistics
+    are inspected (used where the method is not available).
+    """
+    spread, kind = _stored_spread(stats, method, series)
+    return layered.zero_dispersion((stats or {}).get("std"), method,
+                                   spread=spread, spread_kind=kind)
+
+
+def cap_zero_spread(severity: str, stats: Optional[dict],
+                    method: Optional[str] = None,
+                    series: Optional[Sequence[float]] = None
+                    ) -> Tuple[str, Optional[dict]]:
+    """Apply the documented no-dispersion cap to a resolved severity band.
+
+    Returns ``(level, provenance)``; provenance is ``None`` when the
+    comparison had real spread (nothing was capped). The cap never lowers a
+    level below the configured thresholds for a degenerate comparison — it
+    only stops an unmeasurable comparison from claiming the top band.
+    """
+    spread, kind = _stored_spread(stats, method, series)
+    return layered.cap_zero_spread(severity, (stats or {}).get("std"), method,
+                                   spread=spread, spread_kind=kind)
+
+
+# A comparison group below this size is reported as low confidence. For a PEER
+# perspective the same boundary also caps the BAND at HIGH: a z-score divides
+# by the group's own spread, and 2-3 other hospitals cannot measure one (stored
+# rows carried |z| = 224 from a 2-peer group). The finding, its score, its z
+# and its peer list are untouched — only the top band is refused.
+SMALL_COMPARISON_GROUP = layered.MIN_PEERS_FOR_TOP_BAND
+THIN_PEER_LEVEL_CAP = layered.THIN_PEER_LEVEL_CAP
+
+
+def cap_thin_peer(severity: str, peer_count: Optional[int],
+                  method: Optional[str] = None
+                  ) -> Tuple[str, Optional[dict]]:
+    """Apply the documented thin-peer-group cap to a resolved severity band.
+
+    Returns ``(level, provenance)``; provenance is ``None`` when the group is
+    large enough (nothing was capped). Only peer comparisons are affected:
+    the history perspective stores the number of baseline MONTHS in
+    ``peer_count``, which is governed by the history-observation minimum.
+    """
+    return layered.cap_thin_peer(severity, peer_count, method)
+
+
+PERSPECTIVE_HISTORY = "history"
+
+
+def _peer_definition_tier(peer_definition) -> str:
+    """The definition tier for one peer alert.
+
+    Accepts the evidence itself (``formula`` / ``numerator`` / ``denominator`` /
+    ``catalog_resolved``), an already-resolved tier, or nothing — and nothing
+    means NOT establishable, because the approved policy requires a definition
+    to be shown before a comparison can be graded.
+    """
+    if isinstance(peer_definition, str) and peer_definition.strip():
+        return peer_definition.strip()
+    if isinstance(peer_definition, Mapping):
+        return layered.peer_definition_status(**peer_definition)
+    return layered.PEER_DEFINITION_NOT_ESTABLISHABLE
+
+
+def alert_route(perspective: Optional[str], method: Optional[str]) -> str:
+    """Which rule judges a STORED alert's top band.
+
+    An alert row scores ONE labelled perspective: ``history`` is the hospital's
+    own months, every other label (``all``, ``type``, ``ownership``,
+    ``facility_type``, ``governorate``) is a comparison against other
+    hospitals. Only the history perspective is judged by the top-band gate; a
+    peer perspective keeps the two approved peer policies that already decide
+    it.
+
+    Rows written before the perspective was read alongside the band are routed
+    by their method instead — a ``peer_zscore`` row is a peer comparison, every
+    other method scores the hospital's own window — which is the same narrowing
+    ``cap_thin_peer`` already applies.
+    """
+    if perspective:
+        return (layered.ROUTE_HISTORY if perspective == PERSPECTIVE_HISTORY
+                else layered.ROUTE_PEER)
+    if method == layered.METHOD_PEER_ZSCORE:
+        return layered.ROUTE_PEER
+    return layered.ROUTE_HISTORY
+
+
+def top_band_gate(level: Optional[str], *, method: Optional[str] = None,
+                  perspective: Optional[str] = None,
+                  series: Optional[Sequence[float]] = None,
+                  current: Optional[float] = None,
+                  threshold: Optional[float] = None,
+                  peer_values: Optional[Mapping] = None,
+                  peer_definition=None,
+                  denominator_review: bool = False
+                  ) -> Tuple[Optional[str], Optional[dict], dict]:
+    """The top-band eligibility gate for one STORED alert row.
+
+    Returns ``(level, provenance, assessment)``: ``provenance`` is ``None`` when
+    nothing was refused, and ``assessment`` always states the routed verdict
+    (``decision`` is one of ``eligible`` / ``ineligible`` / ``undecided`` /
+    ``not_applicable``, plus the peer-only ``insufficient_robust_scale``) so a
+    reader can name WHY a top band was or was not judged instead of guessing.
+
+    A HISTORY row with no window or no current value is ``undecided`` — an
+    absent measurement is not a refusal.
+
+    A PEER perspective is judged by the approved peer policy (Rule B) once the
+    caller supplies the stored peer group in ``peer_values``. ``peer_definition``
+    is that row's definition evidence (a mapping for
+    :func:`layered.peer_definition_status`, or an already-resolved tier) and is
+    applied BEFORE any scale: a comparison whose indicator definition cannot be
+    established is ``undecided``, never eligible. With no definition evidence a
+    row is treated as not establishable, because an unproven definition must not
+    read as a verified one.
+
+    Rule B NEVER changes the band: ``level`` is returned exactly as passed in
+    whichever way a peer row is judged, and ``provenance`` is ``None`` (nothing
+    was capped), so no reader starts showing a different severity. Callers that
+    pass no peer evidence keep the previous answer verbatim — ``undecided`` with
+    the peer-policy reason.
+    """
+    route = alert_route(perspective, method)
+    assessment = {
+        "route": route,
+        "decision": layered.DECISION_NOT_APPLICABLE,
+        "applicable": False,
+        "eligible": None,
+        "reason": layered.NOT_APPLICABLE,
+        "original_band": level,
+        "final_band": level,
+        "history_window": len(list(series or ())),
+        "current": current,
+        "policy": layered.TOP_BAND_ROUTE_POLICY.get(route, ""),
+    }
+    if (level is None
+            or layered.LEVEL_RANK.get(level, 0)
+            < layered.LEVEL_RANK[layered.LEVEL_VERY_HIGH]):
+        return level, None, assessment
+    if route == layered.ROUTE_PEER and peer_values is not None:
+        # The definition gate runs first, then Rule B on the peer group's own
+        # robust scales. Both are read-only: the stored band, score and
+        # evidence are untouched, and the band cannot move.
+        definition_status = _peer_definition_tier(peer_definition)
+        verdict = layered.peer_very_high_eligibility(
+            level, peer_values, current,
+            definition_status=definition_status,
+            threshold=threshold,
+            denominator_review=denominator_review)
+        assessment.update({
+            "decision": verdict["decision"],
+            "reason": verdict["reason"],
+            "applicable": verdict["applicable"],
+            "eligible": verdict["eligible"],
+            "policy": verdict["policy"],
+            "threshold": verdict["threshold"],
+            "final_band": level,          # Rule B never moves the band
+            "definition_status": verdict["definition_status"],
+            "group_comparability_status": verdict["group_comparability_status"],
+            "zero_share": verdict["zero_share"],
+            "zero_share_warning": verdict["zero_share_warning"],
+            "denominator_review": verdict["denominator_review"],
+            "peer_eligibility": verdict,
+        })
+        return level, None, assessment
+    if route != layered.ROUTE_HISTORY:
+        assessment["decision"] = layered.DECISION_UNDECIDED
+        assessment["reason"] = layered.ROUTE_PEER.upper() + "_POLICY"
+        return level, None, assessment
+    used = layered.gate_threshold(threshold)
+    assessment["threshold"] = used
+    # ONE assessment, measured once: the band and its provenance are both read
+    # from it, so the dispersion is no longer computed twice for one row.
+    eligible = layered.very_high_eligibility(
+        level, list(series or ()), current, used)
+    provenance = layered.eligibility_provenance(eligible)
+    gated = eligible["final_band"]
+    assessment.update({
+        "applicable": eligible["applicable"],
+        "eligible": eligible["eligible"],
+        "reason": eligible["reason"],
+        "assessment": eligible,
+        "final_band": gated,
+        "policy": eligible["policy"],
+        "decision": (layered.DECISION_ELIGIBLE if eligible["eligible"]
+                     else layered.DECISION_INELIGIBLE
+                     if eligible["eligible"] is False
+                     else layered.DECISION_UNDECIDED),
+    })
+    if eligible["applicable"] and eligible["eligible"] is None:
+        # Say whether the window or the value was the missing input.
+        assessment["reason"] = (layered.REASON_NO_WINDOW
+                                if not list(series or ())
+                                else layered.REASON_NO_CURRENT)
+    return gated, provenance, assessment
+
+
+def effective_severity(severity: Optional[str], *, stats: Optional[dict] = None,
+                       method: Optional[str] = None,
+                       peer_count: Optional[int] = None,
+                       series: Optional[Sequence[float]] = None,
+                       current: Optional[float] = None,
+                       perspective: Optional[str] = None,
+                       threshold: Optional[float] = None) -> Optional[str]:
+    """The band the APPROVED policy assigns to a stored comparison result.
+
+    The scan applies both caps when it WRITES a row (a comparison with no
+    dispersion, and a peer group too small to measure a spread). Rows written
+    before a cap was approved still carry the uncapped band, but both caps are
+    derivable from the row's own stored evidence — counting the stored band
+    instead kept reporting findings the policy refuses to grade: on the live
+    store 231 of 1448 open Very High issues were Very High only through such a
+    comparison, and the dashboard's Very High Issues KPI and this screen's KPI
+    cards both kept calling them Very High.
+
+    The TOP-BAND ELIGIBILITY GATE is composed after those caps, for the history
+    perspective only (see :func:`top_band_gate`): a robust scale can sit at its
+    floor and grade any change as maximal, so the same window's
+    dispersion-aware score decides whether ``VERY_HIGH`` may be claimed. It is
+    never applied to a peer, volume or stratified claim, and it never lowers a
+    band below HIGH.
+
+    Every reader that counts or filters alerts uses this band, so the dashboard
+    KPI, the screen's KPI cards and its table agree about the same row. Applying
+    it to a row the scan already capped is idempotent: a cap never raises a
+    band, and the cap it applied is the same one this function recomputes.
+    """
+    level, _ = cap_zero_spread(severity, stats or {}, method, series)
+    level, thin = cap_thin_peer(level, peer_count, method)
+    level, _gate, _assessment = top_band_gate(
+        level, method=method, perspective=perspective, series=series,
+        current=current, threshold=threshold)
+    return level
+
+
+def severity_cap(severity: Optional[str], *, stats: Optional[dict] = None,
+                 method: Optional[str] = None,
+                 peer_count: Optional[int] = None,
+                 series: Optional[Sequence[float]] = None,
+                 current: Optional[float] = None,
+                 perspective: Optional[str] = None,
+                 threshold: Optional[float] = None) -> Optional[dict]:
+    """Provenance for :func:`effective_severity`; ``None`` when nothing capped.
+
+    Carries the stored band, the band the policy allows and which cap applied,
+    so a reader reports "stored VERY_HIGH, capped to HIGH: too few peers to
+    measure a spread" instead of silently showing a different severity. A band
+    refused by the top-band gate is reported under ``very_high_eligibility``
+    with the window, value and threshold it was judged with.
+    """
+    level, dispersion = cap_zero_spread(severity, stats or {}, method, series)
+    level, thin = cap_thin_peer(level, peer_count, method)
+    level, gate, assessment = top_band_gate(
+        level, method=method, perspective=perspective, series=series,
+        current=current, threshold=threshold)
+    if not dispersion and not thin and not gate:
+        return None
+    return {
+        "stored_severity": severity,
+        "severity": level,
+        "dispersion": dispersion,
+        "thin_peer_group": thin,
+        "very_high_eligibility": gate,
+        "route": assessment["route"],
+    }
+
+
+def eligibility_assessment(severity: Optional[str], *,
+                           stats: Optional[dict] = None,
+                           method: Optional[str] = None,
+                           peer_count: Optional[int] = None,
+                           series: Optional[Sequence[float]] = None,
+                           current: Optional[float] = None,
+                           perspective: Optional[str] = None,
+                           threshold: Optional[float] = None,
+                           peer_values: Optional[Mapping] = None,
+                           peer_definition=None,
+                           denominator_review: bool = False) -> dict:
+    """The routed top-band verdict for one stored alert, caps included.
+
+    The caps run FIRST (a comparison they already refuse is not the gate's
+    business), so ``decision`` always describes the band the reader actually
+    sees. Readers use this to explain a band instead of recomputing the policy.
+
+    ``peer_values`` is the peer group the scan STORED on the row (see
+    :func:`stored_peer_group`); with it a PEER row is judged by the approved
+    peer policy (Rule B) after the definition gate (``peer_definition``). The
+    returned ``decision`` is the only thing that changes — this function
+    returns no band, so nothing here can alter a severity.
+    """
+    level, _ = cap_zero_spread(severity, stats or {}, method, series)
+    level, _thin = cap_thin_peer(level, peer_count, method)
+    _gated, _gate, assessment = top_band_gate(
+        level, method=method, perspective=perspective, series=series,
+        current=current, threshold=threshold, peer_values=peer_values,
+        peer_definition=peer_definition,
+        denominator_review=denominator_review)
+    return assessment
+
+
+def effective_z_score(z: Optional[float], *, method: Optional[str] = None,
+                      peer_count: Optional[int] = None) -> Optional[float]:
+    """The z-score a stored comparison can actually support, at read time.
+
+    The scan withholds a peer z for a group below MIN_PEERS_FOR_TOP_BAND
+    (``layered.PEER_Z_POLICY``): a z divides by the group's own spread, and
+    2-3 hospitals cannot measure one. Rows written before that policy still
+    carry the uncapped z, so every reader presents the z the policy in effect
+    NOW allows — exactly as :func:`effective_severity` presents the current
+    band — instead of the detail screen quoting ``z = 224.30`` beside a band
+    the same policy caps at HIGH.
+
+    Only PEER comparisons are affected: a history baseline's ``peer_count``
+    counts prior MONTHS, not hospitals, and is governed by the
+    history-observation minimum instead. The stored value is never rewritten;
+    the caller reports it as ``stored_z_score``.
+    """
+    if method != layered.METHOD_PEER_ZSCORE:
+        return z
+    return z if layered.peer_z_measurable(peer_count) else None
+
+
+def z_score_provenance(z: Optional[float], *, method: Optional[str] = None,
+                       peer_count: Optional[int] = None
+                       ) -> Optional[dict]:
+    """Why a stored peer z is or is not presented (:func:`effective_z_score`).
+
+    ``None`` for a non-peer comparison: those z-scores are not governed by this
+    policy and must not borrow its explanation. A peer row — including one
+    written before the policy, whose ``stats`` carry no provenance block — gets
+    the block here, so a withheld z is explained instead of read as a missing
+    measurement.
+    """
+    if method != layered.METHOD_PEER_ZSCORE:
+        return None
+    provenance = layered.peer_z_provenance(peer_count)
+    provenance["scope"] = "peer"
+    return provenance
+
+
 def _history_score(spec_type: str, series: Sequence[float], current: float,
-                   z_threshold: float) -> Tuple[Optional[float], str, Optional[float], dict]:
+                   z_threshold: float, outlier_method: Optional[str] = None
+                   ) -> Tuple[Optional[float], str, Optional[float], dict]:
     """Score current against the hospital's own baseline window.
 
-    Uses the layered engine's method auto-selection (rare-event counts ->
-    rolling median+MAD, stable series -> %change, enough points -> IQR, else
-    z-score) so the alert screen and Diagnostics agree.
+    Uses the layered engine's method selection (an explicitly configured
+    method, else rare-event counts -> rolling median+MAD, stable series ->
+    %change, enough points -> IQR, else z-score) and the SAME prepared window
+    as Diagnostics, so the two screens cannot disagree for one formula.
     """
     import statistics
 
@@ -385,12 +1064,31 @@ def _history_score(spec_type: str, series: Sequence[float], current: float,
     stats.update(mean=statistics.fmean(values), median=statistics.median(values),
                  min=min(values), max=max(values))
     stats["std"] = statistics.stdev(values) if len(values) >= 2 else None
+    # The divisor a robust method actually divides by. Recorded so a reader
+    # can tell a MAD=0 (no measurable spread for that method) from a flat
+    # window without recomputing it, and so the cap tests the right scale
+    # (layered.spread_used).
+    stats["mad"] = layered.mad(values) if values else None
+    stats["iqr"] = (lambda q: q[2] - q[0])(layered.quartiles(values)) \
+        if len(values) >= 2 else None
     z = None
     if stats["std"] not in (None, 0):
         z = (float(current) - stats["mean"]) / stats["std"]
-    method = layered.select_method(None, values, spec_type)
-    score = layered._score_window(  # same-package reuse: one scoring implementation
+    method = layered.select_method(outlier_method, values, spec_type)
+    # One scoring implementation for both engines. A percentage-change score
+    # comes back clamped to the score this window's z supports
+    # (layered.PCT_CHANGE_CAP_POLICY); the change before the clamp is recorded
+    # so the alert keeps the evidence that was actually observed.
+    score, pct_before_cap = layered.score_window_detail(
         method, values, float(current), values[-1], z_threshold)
+    if pct_before_cap is not None:
+        stats["pct_change_capped"] = {
+            "pct_change_score": round(float(pct_before_cap), 4),
+            "score": round(float(score), 4) if score is not None else None,
+            "z_score": round(float(z), 4) if z is not None else None,
+            "z_threshold": z_threshold,
+            "policy": layered.PCT_CHANGE_CAP_POLICY,
+        }
     return score, method, z, stats
 
 
@@ -696,6 +1394,7 @@ class ScanStats:
     created: int = 0
     updated: int = 0
     deactivated: int = 0
+    deduplicated: int = 0
     perspectives_evaluated: int = 0
     errors: List[str] = field(default_factory=list)
 
@@ -706,6 +1405,9 @@ class ScanStats:
             "created": self.created,
             "updated": self.updated,
             "deactivated": self.deactivated,
+            # Rows retired because they duplicated a canonical formula that
+            # this run re-detected under its canonical code.
+            "deduplicated": self.deduplicated,
             "perspectives_evaluated": self.perspectives_evaluated,
             "errors": self.errors[:10],
         }
@@ -729,6 +1431,70 @@ def _severity_source(perspective: str) -> str:
     if perspective == PERSPECTIVE_HISTORY:
         return severity_policy.SOURCE_STATISTICAL_OUTLIER
     return severity_policy.SOURCE_PEER_COMPARISON
+
+
+def _canonical_evidence(resolved, canonical_by_code: Dict[str, object],
+                        identity_index: Dict[str, dict]) -> dict:
+    """Traceability block stored with every finding.
+
+    ``key`` is the canonical formula identity shared with Anomaly Diagnostics,
+    ``code`` the representative registration, and ``registered_codes`` every
+    equivalent code (so a stored finding can always be traced back to the
+    formula AND to any diagnostic result computed for it). A raw data element
+    has no formula, so it is its own identity.
+    """
+    formula = canonical_by_code.get(getattr(resolved, "code", None))
+    if formula is not None:
+        return {
+            "key": formula.key,
+            "code": formula.code,
+            "formula": getattr(resolved, "formula", None),
+            "registered_codes": list(formula.registered_codes),
+        }
+    info = identity_index.get(getattr(resolved, "code", None))
+    if info:
+        return {
+            "key": info["key"],
+            "code": info["code"],
+            "formula": getattr(resolved, "formula", None),
+            "registered_codes": list(info["registered_codes"]),
+        }
+    identity = canonical_identity.resolved_identity(resolved)
+    return {
+        "key": canonical_identity.identity_key(identity),
+        "code": getattr(resolved, "code", None),
+        "formula": getattr(resolved, "formula", None),
+        "registered_codes": [getattr(resolved, "code", None)],
+    }
+
+
+def _merge_investigation_state(db: Session, target: QualityAlert,
+                               source: QualityAlert, now: datetime) -> bool:
+    """Carry investigation state from a retired duplicate to its canonical row.
+
+    Only the more advanced status wins (``_STATUS_ROLLUP`` order) and an
+    existing assignee is never overwritten. Returns True when anything moved;
+    a status/note event records the merge on the surviving row so the
+    provenance of a Confirmed Issue stays readable.
+    """
+    moved: List[str] = []
+    old_status = target.status
+    if (_STATUS_PRIORITY.get(source.status, 99)
+            < _STATUS_PRIORITY.get(target.status, 99)):
+        target.status = source.status
+        moved.append(f"status {source.status}")
+    if source.assignee and not target.assignee:
+        target.assignee = source.assignee
+        moved.append(f"assignee {source.assignee}")
+    if not moved:
+        return False
+    target.updated_at = now
+    db.add(QualityAlertEvent(
+        alert_id=target.id, from_status=old_status, to_status=target.status,
+        note=("Merged investigation state from duplicate registration "
+              f"{source.indicator_code} ({', '.join(moved)})."),
+        actor="system", created_at=now))
+    return True
 
 
 def _reason_text(resolved, perspective: str, severity: str,
@@ -758,7 +1524,8 @@ def _reason_text(resolved, perspective: str, severity: str,
 
 
 def scan(db: Session, month: str, hospital_id: Optional[int] = None,
-         indicator_codes: Optional[Sequence[str]] = None) -> dict:
+         indicator_codes: Optional[Sequence[str]] = None,
+         policy: Optional[PolicySnapshot] = None) -> dict:
     """Run the multi-perspective scan for one reporting month and persist.
 
     Upserts one row per (hospital, indicator, month, perspective); reviewed
@@ -769,37 +1536,81 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
     re-checking the rows already known to be stale must never deactivate (or
     rewrite) a sibling indicator's untouched rows for the same hospital/month.
     """
-    cfg = _alerts_config(db)
     stats = ScanStats()
-    # Saved severity/trend configuration (System Control). A configuration
-    # read failure aborts the scan with a visible error — the scan never falls
-    # back to hidden hardcoded rules.
-    try:
-        sev_cfg = severity_policy.load_analysis_config(db)
-    except severity_policy.AnalysisConfigError as exc:
-        logger.error("Quality Alerts scan aborted: %s", exc)
-        return {"error": str(exc), "configuration_error": True,
-                **stats.as_dict()}
-    # One Z-score threshold: the value the shared loader already validated and
-    # clamped (thresholds.zscore_threshold) replaces this scan's own read.
+    # D16-A2: the scan resolves policy ONCE for the whole month (or receives
+    # the snapshot of the analysis run that triggered it). A read failure
+    # still aborts with a visible error — never hidden hardcoded rules.
+    if policy is None:
+        try:
+            policy = load_policy_snapshot(db)
+        except PolicyUnavailable as exc:
+            logger.error("Quality Alerts scan aborted: %s", exc)
+            return {"error": str(exc), "configuration_error": True,
+                    **stats.as_dict()}
+    if policy.invalid_keys:
+        logger.warning(
+            "Quality Alerts scan %s is using %d fallback value(s) from "
+            "invalid stored settings: %s", month, len(policy.invalid_keys),
+            ", ".join(policy.invalid_keys))
+    # Stage 1 — the alerts plane's OWN pre-policy view (alert window only,
+    # unclamped Z), exactly as _alerts_config built it.
+    cfg = alerts_config_from_snapshot(policy)
+    sev_cfg = analysis_config_from_snapshot(policy)
+    # One Z-score threshold: the value the shared surface already validated
+    # and clamped (thresholds.zscore_threshold) replaces this scan's own.
     cfg["z_threshold"] = sev_cfg.zscore_threshold
+    # Stage 2 — the shared temporal/peer policy, trend window applied. The
+    # same window and minimum peer count apply to Diagnostics and to the
+    # equivalent Alerts perspectives; narrower perspectives stay narrower
+    # and are labelled as such. Both stages stay distinct: the pre-policy
+    # window is never overwritten in the snapshot, only in this scan-local
+    # dict.
+    comparison = comparison_policy_from_snapshot(policy)
+    cfg["history_window"] = comparison.history.window
+    cfg["min_history"] = comparison.history.min_observations
+    cfg["min_peers"] = comparison.peer.min_peers
+    rate_settings = _rate_analysis_settings(db)
     # Identifies this exact saved configuration; stored with every row.
     policy_fingerprint = severity_policy.policy_fingerprint(sev_cfg)
     registry = resolve_registry(db)
-    # ALL catalog kinds are searched: rate specs + derivative definitions
-    # (same table) AND raw data elements. Codes are unique across kinds in
-    # practice; a raw element shadowing a registry code is skipped (the
-    # managed definition wins) so one code can never overwrite the other's
-    # persisted rows.
+    # One row per LOGICAL formula, not per registered code: the registry keeps
+    # a per-site copy of most rates, and analysing every copy would raise the
+    # same deviation (and count it) once per code.
+    formulas = resolve_canonical_registry(db)
+    # ALL catalog kinds are searched: canonical rate/derivative definitions
+    # AND raw data elements. Codes are unique across kinds in practice; a raw
+    # element shadowing a registry code is skipped (the managed definition
+    # wins) so one code can never overwrite the other's persisted rows.
     def_codes = {d.code for d in registry}
     elements = [e for e in resolve_data_elements(db) if e.code not in def_codes]
-    if not registry and not elements:
+    if not formulas and not elements:
         return {"error": "Indicators Registry has no active definitions",
                 **stats.as_dict()}
-    scanned = list(registry) + list(elements)
+    scanned = [formula.resolved for formula in formulas] + list(elements)
+    identity_index = canonical_code_index(db)
+    canonical_by_code = {formula.resolved.code: formula for formula in formulas}
+    # Duplicate registrations of formulas being analysed this run. Their stored
+    # rows are retired once the canonical row exists (see the stale sweep).
+    alias_to_canonical = {
+        code: formula.code
+        for formula in formulas
+        for code in formula.registered_codes
+        if code != formula.code
+    }
     code_filter: Optional[set] = None
     if indicator_codes is not None:
-        code_filter = {str(code) for code in indicator_codes}
+        requested = {str(code) for code in indicator_codes}
+        # A caller may name a duplicate registration (e.g. the stale-policy
+        # rescan walks stored rows). Its canonical representative is what is
+        # actually scanned, so widen the filter to the whole canonical group.
+        canonical_requested = {
+            (identity_index.get(code) or {}).get("code", code)
+            for code in requested
+        }
+        code_filter = requested | {
+            code for code, info in identity_index.items()
+            if info["code"] in canonical_requested
+        }
         scanned = [item for item in scanned if item.code in code_filter]
         if not scanned:
             return {"error": "No matching indicators to scan",
@@ -856,9 +1667,14 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
     # re-query the same months once per element).
     history_cache: Dict[int, Dict[str, Dict[str, float]]] = {}
     for resolved in scanned:
-        is_raw = getattr(resolved, "is_raw", False)
-        peers_allowed = not (is_raw and not resolved.peer_comparison_enabled)
-        history_allowed = not (is_raw and not resolved.historical_enabled)
+        canonical_evidence = _canonical_evidence(
+            resolved, canonical_by_code, identity_index)
+        item_settings = _item_comparison_settings(
+            resolved, rate_settings, comparison)
+        peers_allowed = item_settings["peer_comparison_enabled"]
+        history_allowed = item_settings["historical_enabled"]
+        item_history_policy = comparison.history.with_item_minimum(
+            item_settings["minimum_history_period"])
         by_hospital = cross_section.get(resolved.code, {})
         valid_values = {
             hid: c.value for hid, c in by_hospital.items()
@@ -883,12 +1699,17 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
             for perspective, attribute, _label in (
                     PEER_PERSPECTIVES if peers_allowed else ()):
                 members = _peer_members(directory, hid, attribute, valid_values)
-                if len(members) < cfg["min_peers"]:
+                if len(members) < comparison.peer.min_peers:
                     continue  # peer group too small — avoid misleading comparisons
                 z, score, pstats = _peer_score(
                     current, [v for _mid, v in members], cfg["z_threshold"])
                 if score is None:
                     continue
+                peer_group = (
+                    comparison_policy.DETECTION_PEER_GROUP
+                    if perspective == PERSPECTIVE_ALL
+                    else comparison_policy.stratified_peer_group(perspective)
+                )
                 findings.append({
                     "perspective": perspective,
                     "score": score, "z": z, "method": "peer_zscore",
@@ -896,6 +1717,23 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     "peer_count": len(members),
                     "stats": pstats,
                     "peer_ids": [mid for mid, _v in members],
+                    "comparison": {
+                        "perspective_scope": (
+                            "detection_baseline"
+                            if perspective == PERSPECTIVE_ALL else "stratified"),
+                        "peer": {
+                            "policy_version": comparison.version,
+                            "group": peer_group,
+                            "group_label": PERSPECTIVE_LABELS.get(
+                                perspective, perspective),
+                            "month": month,
+                            "min_peers": comparison.peer.min_peers,
+                            "eligible_count": len(members),
+                            "peer_ids": [mid for mid, _v in members],
+                            "values": {str(mid): round(float(value), 4)
+                                       for mid, value in members},
+                        },
+                    },
                 })
 
             # ── History perspective (own prior periods) ──
@@ -904,28 +1742,27 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                 if hid not in history_cache:
                     history_cache[hid] = get_historical_months(db, hid, month)
                 history = history_cache[hid]
-                # Both the alert history window and the System Control trend
-                # window apply; the shorter one wins.
-                window = min(int(cfg["history_window"]),
-                             int(sev_cfg.trend.window))
-                months_sorted = sorted(history.keys())[-window:]
-                series: List[float] = []
-                series_months: List[str] = []
-                for m in months_sorted:
-                    prior = _candidate(resolved, history[m], hid, m)
-                    if prior.value is not None:
-                        series.append(float(prior.value))
-                        series_months.append(m)
+                # The same shared window as Diagnostics: the last N reporting
+                # months, missing observations skipped, minimum valid points
+                # from the system policy with the per-indicator floor.
+                history_window = comparison_policy.history_window(
+                    history, month, item_history_policy,
+                    lambda m, _h=history, _hid=hid, _r=resolved: (
+                        _candidate(_r, _h[m], _hid, m).value),
+                )
+                series = history_window.values
+                series_months = [m for m, _v in history_window.observations]
                 # ONE trend assessment per hospital/indicator, shared by every
                 # perspective row persisted below (no second trend rule set).
                 trend_assessment = severity_policy.assess_trend(
                     series, series_months, config=sev_cfg.trend,
                     bands=sev_cfg.trend_bands,
                     indicator_direction=direction)
-                if len(series) >= cfg["min_history"]:
+                if len(series) >= item_history_policy.min_observations:
                     spec_type = getattr(resolved, "indicator_type", None) or "rate"
                     hscore, method, z, hstats = _history_score(
-                        spec_type, series, current, cfg["z_threshold"])
+                        spec_type, series, current, cfg["z_threshold"],
+                        outlier_method=item_settings["outlier_method"])
                     if hscore is not None:
                         findings.append({
                             "perspective": PERSPECTIVE_HISTORY,
@@ -933,7 +1770,24 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                             "baseline": hstats["mean"],
                             "peer_count": len(series),
                             "stats": hstats,
-                            "history": list(zip(series_months, series)),
+                            "history": list(zip(series_months, series,
+                                                strict=False)),
+                            "comparison": {
+                                "perspective_scope": "detection_baseline",
+                                "history": {
+                                    "policy_version": comparison.version,
+                                    "window": item_history_policy.window,
+                                    "min_observations": (
+                                        item_history_policy.min_observations),
+                                    "months": history_window.months,
+                                    "valid_count": history_window.valid_count,
+                                    "skipped_months": (
+                                        history_window.skipped_months),
+                                    "method": method,
+                                    "observation_config_source": (
+                                        item_settings["source"]),
+                                },
+                            },
                         })
 
             # ── Persist each perspective that clears the floor ──
@@ -949,7 +1803,16 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     data_quality=(completeness_by_hospital.get(hid)
                                   if sev_cfg.trend.min_completeness > 0 else None),
                 )
-                severity = resolution.final.level
+                severity, dispersion = cap_zero_spread(
+                    resolution.final.level, finding.get("stats"),
+                    finding.get("method"))
+                # A peer comparison with too few peers cannot measure a spread,
+                # so it may not claim the top band (THIN_PEER_POLICY). Applied
+                # after the severity policy, exactly like the no-dispersion
+                # cap, and only ever downward.
+                severity, thin_peer = cap_thin_peer(
+                    severity, finding.get("peer_count"),
+                    finding.get("method"))
                 stats.perspectives_evaluated += 1
                 interpretation = interpret_deviation(
                     direction, current, finding["baseline"],
@@ -961,7 +1824,7 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     ml_agrees = hid in ml_out
                     if not ml_agrees:
                         confidence = "low"
-                if finding["peer_count"] < 4:
+                if finding["peer_count"] < SMALL_COMPARISON_GROUP:
                     confidence = "low"  # small comparison group
                 finding_evidence = {
                     "baseline_label": PERSPECTIVE_LABELS.get(
@@ -978,11 +1841,21 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     finding_evidence["peer_ids"] = finding["peer_ids"][:50]
                 if "history" in finding:
                     finding_evidence["history"] = finding["history"]
+                # Effective window / peer group / eligible peers behind THIS
+                # row, so the exact comparison can be audited after the
+                # configuration or data changes.
+                if "comparison" in finding:
+                    finding_evidence["comparison_policy"] = finding["comparison"]
                 evidence = dict(finding_evidence)
                 if candidate.denominator is not None:
                     evidence["denominator"] = candidate.denominator
                 if candidate.numerator is not None:
                     evidence["numerator"] = candidate.numerator
+                # Canonical formula traceability: the identity every engine
+                # (Anomaly Diagnostics included) keys this formula by, and
+                # every registered code that carries it — an auditor can walk
+                # from this alert to any result computed for the same formula.
+                evidence["canonical"] = canonical_evidence
                 # Three auditable outputs. The base classification is stored
                 # verbatim; the final level is what the alert row carries.
                 evidence["base_severity"] = resolution.base.as_dict()
@@ -998,6 +1871,16 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     # policy instead of silently trusting its severity.
                     "fingerprint": policy_fingerprint,
                 }
+                if dispersion is not None:
+                    # The comparison had no spread: record the cap next to the
+                    # evidence that produced it, so a reader sees WHY the level
+                    # is not the top band and what the score alone would say.
+                    evidence["dispersion"] = dispersion
+                if thin_peer is not None:
+                    # The peer group is too small to measure a spread: record
+                    # the cap beside the evidence, so "differs from 2 peers but
+                    # only HIGH" can be explained from the row itself.
+                    evidence["thin_peer_group"] = thin_peer
                 reason = _reason_text(
                     resolved, finding["perspective"], severity, current,
                     float(finding["baseline"]), finding["z"],
@@ -1006,6 +1889,21 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     reason += (f" Base severity {resolution.base.level} was "
                                f"changed to {severity} by the configured "
                                f"temporal-trend policy.")
+                if dispersion is not None:
+                    reason += " " + ZERO_SPREAD_POLICY + "."
+                if thin_peer is not None and thin_peer.get("capped"):
+                    reason += " " + thin_peer["policy"] + "."
+                pct_cap = (finding.get("stats") or {}).get("pct_change_capped")
+                if pct_cap:
+                    # The change was real but the window's spread does not
+                    # support the band it alone implies: state it, so the row
+                    # never reads as "large change, no reason given".
+                    evidence["pct_change_cap"] = pct_cap
+                    reason += (" Percentage change "
+                               f"({pct_cap['pct_change_score']:.2f}) is "
+                               "clamped to the level the window's z-score "
+                               f"supports ({pct_cap['score']:.2f}); the change "
+                               "itself is still reported.")
 
                 _upsert_alert(
                     db, stats, seen_keys,
@@ -1036,10 +1934,32 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
     seen_set = set(seen_keys)
     for alert in stale_query.all():
         key = (alert.hospital_id, alert.indicator_code, alert.month, alert.perspective)
-        if key not in seen_set:
-            alert.active = False
-            alert.updated_at = now
-            stats.deactivated += 1
+        if key in seen_set:
+            continue
+        canonical_code = alias_to_canonical.get(alert.indicator_code)
+        if canonical_code is not None:
+            # Only a row computed with the SAME formula may be folded: a code
+            # whose definition was edited since the row was written represents
+            # a different finding and keeps its own record.
+            group = identity_index.get(alert.indicator_code) or {}
+            stored_key = canonical_identity.identity_key(
+                canonical_identity.alert_identity(alert))
+            if group.get("key") != stored_key:
+                canonical_code = None
+        if canonical_code is not None:
+            # A duplicate registration of a formula that IS still analysed.
+            # Retire the row (never delete it: the row and its event trail stay
+            # on record) after moving the investigation state to the canonical
+            # row, so a reviewer's work is not lost in the deduplication.
+            counterpart = db.query(QualityAlert).filter_by(
+                hospital_id=alert.hospital_id, indicator_code=canonical_code,
+                month=alert.month, perspective=alert.perspective).first()
+            if counterpart is not None and counterpart.id != alert.id:
+                _merge_investigation_state(db, counterpart, alert, now)
+                stats.deduplicated += 1
+        alert.active = False
+        alert.updated_at = now
+        stats.deactivated += 1
 
     stats.hospitals_scanned = (len(target_hospitals)
                                if target_hospitals is not None
@@ -1048,7 +1968,8 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
     return stats.as_dict()
 
 
-def scan_all_months(db: Session) -> dict:
+def scan_all_months(db: Session,
+                    policy: Optional[PolicySnapshot] = None) -> dict:
     """Scan every reporting month that has data (catch-up / backfill).
 
     Used by the "Run Scan" button when no period is selected and by anyone
@@ -1062,15 +1983,24 @@ def scan_all_months(db: Session) -> dict:
     per_month: List[dict] = []
     totals = {
         "months_scanned": len(months),
-        "created": 0, "updated": 0, "deactivated": 0,
+        "created": 0, "updated": 0, "deactivated": 0, "deduplicated": 0,
         "hospitals_scanned": 0, "perspectives_evaluated": 0,
         "errors": [],
     }
+    if policy is None:
+        try:
+            # One snapshot for the whole backfill: every month is scanned
+            # under the same configuration, not one read per month.
+            policy = load_policy_snapshot(db)
+        except PolicyUnavailable as exc:
+            logger.error("Quality Alerts backfill aborted: %s", exc)
+            policy = None  # each scan reports the failure per month
     for m in months:
-        result = scan(db, m)
+        result = scan(db, m, policy=policy)
         per_month.append({"month": m, **{k: result.get(k) for k in
-                         ("created", "updated", "deactivated", "error")}})
-        for key in ("created", "updated", "deactivated",
+                         ("created", "updated", "deactivated",
+                          "deduplicated", "error")}})
+        for key in ("created", "updated", "deactivated", "deduplicated",
                     "perspectives_evaluated"):
             totals[key] += result.get(key) or 0
         totals["hospitals_scanned"] = max(

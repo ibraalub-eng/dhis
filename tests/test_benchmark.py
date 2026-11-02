@@ -51,8 +51,13 @@ def test_benchmark_peer_breakdown(db_session):
     assert nicu["peer_count"] == 1
     assert nicu["percentile"] == 100.0  # only peer is strictly below -> rank 1 of 1
     assert nicu["peers_below"] == 1
-    assert nicu["z_score"] == 0.0  # single peer -> zero std
     assert nicu["peer_std"] == 0.0  # single peer -> std dev is undefined
+    # One peer cannot measure a spread, so the z and the status it grades are
+    # withheld (layered.PEER_Z_POLICY) — every statistic above is kept.
+    assert nicu["z_score"] is None
+    assert nicu["status"] is None
+    assert nicu["z_provenance"]["z_produced"] is False
+    assert nicu["z_provenance"]["min_peers_for_z"] == 4
 
     assert nicu["peer_breakdown"] == {
         "total_active": 5,  # 3 seeded + 2 with no data (inactive excluded)
@@ -95,7 +100,10 @@ def test_benchmark_percentile_reports_ties_honestly(db_session):
 
 
 def test_benchmark_z_score_exposes_calculation_parts(db_session):
-    """peer_std and peer_average must be returned so the UI can render the formula."""
+    """peer_std and peer_average must be returned so the UI can render the
+    formula — and a group too small to measure a spread returns them WITHOUT a
+    z, with the reason (layered.PEER_Z_POLICY).
+    """
     import math
     gh, cm, cc = db_session.query(Hospital).order_by(Hospital.id).all()
     month = "2026-08"
@@ -113,8 +121,39 @@ def test_benchmark_z_score_exposes_calculation_parts(db_session):
     avg = 6.0
     assert nicu["peer_average"] == avg
     assert nicu["peer_std"] == round(std, 2) == 1.41
-    # z = (8 - 6) / sqrt(2) ≈ 1.4142 -> 1.41 (rounded the same way as std, not from peer_std)
-    assert nicu["z_score"] == round((nicu["hospital_value"] - avg) / std, 2) == 1.41
+    # z = (8 - 6) / sqrt(2) ≈ 1.41 — NOT quoted: two peers cannot measure a
+    # spread, so the calculation parts stay and the magnitude does not.
+    assert nicu["z_score"] is None
+    assert nicu["z_provenance"]["z_produced"] is False
+    assert "no z-score is produced" in nicu["z_provenance"]["policy"]
+    assert nicu["status"] is None
+
+
+def test_benchmark_quotes_the_z_for_a_group_that_can_measure_one(db_session):
+    """Four peers: the z is quoted exactly as before — no threshold moved."""
+    import math
+    gh, cm, cc = db_session.query(Hospital).order_by(Hospital.id).all()
+    month = "2026-08"
+    _add_values(db_session, gh.id, month, {"16": 8, "6": 100})
+    _add_values(db_session, cm.id, month, {"16": 5, "6": 100})
+    _add_values(db_session, cc.id, month, {"16": 6, "6": 100})
+    extra = [Hospital(name="Peer Extra A"), Hospital(name="Peer Extra B")]
+    db_session.add_all(extra)
+    db_session.flush()
+    _add_values(db_session, extra[0].id, month, {"16": 6, "6": 100})
+    _add_values(db_session, extra[1].id, month, {"16": 9, "6": 100})
+
+    result = get_benchmark(db_session, gh.id, month)
+    nicu = result["comparisons"]["NICU admission rate"]
+    peers = [5.0, 6.0, 6.0, 9.0]
+    avg = sum(peers) / len(peers)
+    std = math.sqrt(sum((p - avg) ** 2 for p in peers) / (len(peers) - 1))
+    assert nicu["peer_count"] == 4
+    assert nicu["peer_average"] == round(avg, 2)
+    assert nicu["peer_std"] == round(std, 2)
+    assert nicu["z_score"] == round((8.0 - avg) / std, 2)
+    assert nicu["z_provenance"]["z_produced"] is True
+    assert nicu["status"] is not None
 
 
 def test_benchmark_rate_requires_reported_numerator(db_session):

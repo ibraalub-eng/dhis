@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func, case, or_
 from typing import Optional
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import case, func, or_
+from sqlalchemy.orm import Session
+
+from app.core.deps import get_user_hospital_ids, require_permission
 from app.database import get_db
+from app.eligibility import exclude_disabled
 from app.models import Hospital, Rule, ValidationResult
-from app.core.deps import require_permission, get_user_hospital_ids
 
 router = APIRouter(prefix="/alerts", tags=["alerts"], dependencies=[Depends(require_permission("alerts.read"))])
 
@@ -35,6 +38,17 @@ def _non_benchmark_failures(query):
     )
 
 
+def _eligible(db, query):
+    """Apply the shared disabled hospital/month rule to a failure query.
+
+    The Alerts screen is a rule-failure reader, so it follows the same pair
+    rule as the analysis screens: a month switched off for a hospital
+    contributes no alerts, while the same month stays visible for every other
+    hospital.
+    """
+    return exclude_disabled(db, query, ValidationResult)
+
+
 def _severity_color(sev: str) -> str:
     return {"CRITICAL": "#b71c1c", "HIGH": "#c62828", "MEDIUM": "#e65100", "LOW": "#1565c0"}.get(sev, "#888")
 
@@ -51,9 +65,9 @@ def alerts_overview(
     user=Depends(require_permission("alerts.read")),
 ):
     user_hosp_ids = get_user_hospital_ids(user, db)
-    q = _non_benchmark_failures(
+    q = _eligible(db, _non_benchmark_failures(
         db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
-    )
+    ))
     if user_hosp_ids is not None:
         q = q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:
@@ -78,14 +92,14 @@ def alerts_overview(
         if s not in sev_map:
             sev_map[s] = {"count": 0, "color": _severity_color(s), "icon": _severity_icon(s)}
 
-    hospital_counts = _non_benchmark_failures(
+    hospital_counts = _eligible(db, _non_benchmark_failures(
         db.query(
             ValidationResult.hospital_id,
             func.count().label("cnt"),
         )
         .filter(ValidationResult.status == "FAIL")
         .filter(ValidationResult.severity.in_(["CRITICAL", "HIGH"]))
-    )
+    ))
     if user_hosp_ids is not None:
         hospital_counts = hospital_counts.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:
@@ -97,12 +111,12 @@ def alerts_overview(
         hosp = db.query(Hospital).filter(Hospital.id == row.hospital_id).first()
         hc.append({"hospital_id": row.hospital_id, "hospital": hosp.name if hosp else "Unknown", "alert_count": row.cnt})
 
-    critical_q = _non_benchmark_failures(
+    critical_q = _eligible(db, _non_benchmark_failures(
         db.query(ValidationResult).filter(
             ValidationResult.status == "FAIL",
             ValidationResult.severity == "CRITICAL",
         )
-    )
+    ))
     if user_hosp_ids is not None:
         critical_q = critical_q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:
@@ -145,9 +159,9 @@ def alerts_list(
     user=Depends(require_permission("alerts.read")),
 ):
     user_hosp_ids = get_user_hospital_ids(user, db)
-    q = _non_benchmark_failures(
+    q = _eligible(db, _non_benchmark_failures(
         db.query(ValidationResult).filter(ValidationResult.status == "FAIL")
-    )
+    ))
     if user_hosp_ids is not None:
         q = q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if month:

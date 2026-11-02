@@ -10,6 +10,12 @@ import threading
 from app.database import get_db, SessionLocal
 from app.tasks import create_task, run_task
 from app.cache import cache
+from app.eligibility import (
+    disabled_pairs,
+    exclude_disabled,
+    include_disabled_requested,
+    month_disabled,
+)
 from app.models import (
     AnomalyResult,
     Hospital,
@@ -116,6 +122,8 @@ def _data_element_outliers(db: Session, hospital: Hospital, month: str):
     hospitals = (db.query(Hospital).filter(Hospital.is_active.is_(True)).all())
     names = {h.id: h.name for h in hospitals}
 
+    from app.engine.anomaly.layered import effective_row_level
+
     items = []
     for row in elements:
         indicator = indicators[row.indicator_id]
@@ -136,12 +144,15 @@ def _data_element_outliers(db: Session, hospital: Hospital, month: str):
                 value=(round(float(peer_values[pid]), 4)
                        if peer_values.get(pid) is not None else None))
                 for pid in peer_ids],
-            outlier_level=row.outlier_level,
+            # The band the cap policy assigns now, like the Outlier screen: a
+            # row stored before a cap was approved keeps its own band on the
+            # row but is never reported at a level the policy refuses.
+            outlier_level=effective_row_level(row),
             outlier_type=row.outlier_type,
             method=row.outlier_method,
             interpretation=row.interpretation,
             layers=layer_breakdown(row),
-            is_outlier=is_detection_outlier(row.outlier_level),
+            is_outlier=is_detection_outlier(effective_row_level(row)),
             kind="element",
         ))
     items.sort(key=lambda i: (_LAYERED_LEVEL_ORDER.get(i.outlier_level or "NONE", 9),
@@ -229,16 +240,52 @@ def _check_hospital_access(user, db: Session, hospital_id: int) -> None:
         raise HTTPException(status_code=403, detail="No access to this hospital")
 
 
+def _ensure_month_eligible(db: Session, hospital_id: int, month: str,
+                           include_disabled: bool = False) -> None:
+    """Reject an active report/export for a disabled hospital-month pair.
+
+    Called before any analysis run so a disabled month is not silently
+    recomputed or presented as current. The stored rows stay in the database;
+    the documented ``include_disabled=true`` historical view bypasses this gate.
+    """
+    if include_disabled:
+        return
+    if month_disabled(db, hospital_id, month):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Month {month} is disabled for this hospital. "
+                "Use include_disabled=true for the historical view."
+            ),
+        )
+
+
 @router.get("/", response_model=List[ReportOut])
 def list_reports(
     month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),
     hospital_id: Optional[int] = Query(None, description="Filter by hospital ID"),
     source_file: Optional[str] = Query(None, description="Filter by source file name"),
+    include_disabled: bool = Query(
+        False,
+        description=(
+            "Historical/audit view: include stored scores for hospital/month "
+            "combinations switched off in month settings. Active reports must "
+            "leave this false; disabled rows are never deleted."
+        ),
+    ),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    """List stored quality reports.
+
+    Active results exclude every disabled ``(hospital_id, month)`` pair using
+    the shared eligibility rule. ``include_disabled=true`` is the documented
+    historical/audit view; it returns the same rows with ``is_enabled=false``
+    and never modifies or deletes them.
+    """
+    include_disabled = include_disabled_requested(include_disabled)
     query = db.query(QualityScore)
     user_hosp_ids = get_user_hospital_ids(user, db)
     if user_hosp_ids is not None:
@@ -247,6 +294,10 @@ def list_reports(
         query = query.filter(QualityScore.hospital_id == hospital_id)
     if month:
         query = query.filter(QualityScore.month == month)
+    # Filter BEFORE pagination: a disabled row skipped after offset/limit would
+    # shorten a page and disagree with the total the export sees.
+    if not include_disabled:
+        query = exclude_disabled(db, query, QualityScore, hospital_id=hospital_id)
     if source_file:
         file_subs = (
             db.query(IndicatorValue.hospital_id, IndicatorValue.month)
@@ -258,16 +309,22 @@ def list_reports(
             file_subs,
             (QualityScore.hospital_id == file_subs.c.hospital_id) & (QualityScore.month == file_subs.c.month),
         )
+    disabled_set = disabled_pairs(db)
+    _disabled_key = ",".join(
+        f"{hid}:{m}" for hid, m in sorted(disabled_set)
+    )
     cache_key = cache.make_key(
-        # v4: card outliers are counted from the layered rows only (rates and
-        # data elements), so the count matches Outlier Diagnostics.
-        "reports:list_v4",
+        # v5: disabled hospital/month pairs are part of the answer (and the
+        # historical flag is part of the request), so a toggle invalidates it.
+        "reports:list_v5",
         uid=getattr(user, "id", 0),
         month=month,
         source_file=source_file,
         skip=skip,
         limit=limit,
         hospital_id=hospital_id,
+        include_disabled=include_disabled,
+        disabled=_disabled_key,
     )
     cached = cache.get(cache_key)
     if cached:
@@ -300,6 +357,8 @@ def list_reports(
         )
         .all()
     )
+    from app.engine.anomaly.layered import effective_row_level
+
     indicator_names = {ind.id: ind.name for ind in db.query(Indicator).all()}
     spec_names = {spec.analysis_code: spec.name
                   for spec in build_analysis_specs(db)}
@@ -318,15 +377,10 @@ def list_reports(
             "value": row.rate if row.rate is not None else row.raw_value,
             "benchmark": (row.peer_mean if row.peer_mean is not None
                           else row.historical_mean),
-            "level": row.outlier_level,
+            # Read-time band, same as the Outlier screen (caps re-applied).
+            "level": effective_row_level(row),
             "kind": "element" if is_element else "rate",
         })
-
-    # Determine enabled months per hospital
-    from app.api.analysis import get_enabled_months
-    enabled_by_hospital: dict = {}
-    for hid in hospital_ids:
-        enabled_by_hospital[hid] = set(get_enabled_months(db, hospital_id=hid))
 
     results = []
     for s in scores:
@@ -337,7 +391,8 @@ def list_reports(
             key=lambda o: (_LAYERED_LEVEL_ORDER.get(o["level"] or "NONE", 9),
                            o["indicator"] or ""),
         )
-        is_enabled = s.month in enabled_by_hospital.get(s.hospital_id, set())
+        # is_enabled uses the same eligibility rule that filtered the query.
+        is_enabled = not month_disabled(db, s.hospital_id, s.month, pairs=disabled_set)
         results.append(ReportOut(
             hospital=hosp.name if hosp else "Unknown",
             month=s.month,
@@ -355,8 +410,15 @@ def list_reports(
 
 
 @router.get("/generate/{hospital_id}", response_model=ReportOut)
-def generate_report(hospital_id: int, month: str = Query(..., description="Month YYYY-MM"), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def generate_report(
+    hospital_id: int,
+    month: str = Query(..., description="Month YYYY-MM"),
+    include_disabled: bool = Query(False, description="Historical/audit view"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     _check_hospital_access(user, db, hospital_id)
+    _ensure_month_eligible(db, hospital_id, month, include_disabled)
     try:
         report = run_full_analysis(db, hospital_id, month)
     except ValueError as e:
@@ -368,11 +430,13 @@ def generate_report(hospital_id: int, month: str = Query(..., description="Month
 def generate_report_background(
     hospital_id: int,
     month: str = Query(..., description="Month YYYY-MM"),
+    include_disabled: bool = Query(False, description="Historical/audit view"),
     background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
     _check_hospital_access(user, db, hospital_id)
+    _ensure_month_eligible(db, hospital_id, month, include_disabled)
     task_id = create_task("Generate Report", lambda: None)
 
     def _run(tid, hid, m):
@@ -400,8 +464,15 @@ def generate_report_background(
 
 
 @router.get("/detail/{hospital_id}", response_model=ReportSummaryOut)
-def detailed_report(hospital_id: int, month: str = Query(..., description="Month YYYY-MM"), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def detailed_report(
+    hospital_id: int,
+    month: str = Query(..., description="Month YYYY-MM"),
+    include_disabled: bool = Query(False, description="Historical/audit view"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     _check_hospital_access(user, db, hospital_id)
+    _ensure_month_eligible(db, hospital_id, month, include_disabled)
     hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hosp:
         raise HTTPException(status_code=404, detail="Hospital not found")
@@ -488,8 +559,14 @@ def detailed_report(hospital_id: int, month: str = Query(..., description="Month
 
 
 @router.get("/from-file/{source_file}", response_model=List[ReportOut])
-def reports_from_file(source_file: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def reports_from_file(
+    source_file: str,
+    include_disabled: bool = Query(False, description="Historical/audit view"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
     user_hosp_ids = get_user_hospital_ids(user, db)
+    disabled_set = set() if include_disabled_requested(include_disabled) else disabled_pairs(db)
     values = (
         db.query(IndicatorValue)
         .filter(IndicatorValue.source_file == source_file)
@@ -502,6 +579,8 @@ def reports_from_file(source_file: str, db: Session = Depends(get_db), user=Depe
 
     hospital_months = set()
     for v in values:
+        if (v.hospital_id, v.month) in disabled_set:
+            continue
         hospital_months.add((v.hospital_id, v.month))
 
     reports = []
@@ -514,9 +593,11 @@ def reports_from_file(source_file: str, db: Session = Depends(get_db), user=Depe
     return reports
 
 
-def _get_export_data(db: Session, hospital_id: int, month: str, user=None) -> dict:
+def _get_export_data(db: Session, hospital_id: int, month: str, user=None,
+                     include_disabled: bool = False) -> dict:
     if user is not None:
         _check_hospital_access(user, db, hospital_id)
+    _ensure_month_eligible(db, hospital_id, month, include_disabled)
     hosp = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hosp:
         raise HTTPException(status_code=404, detail="Hospital not found")
@@ -578,14 +659,25 @@ def _register_unicode_font():
 
 
 @router.get("/export/{hospital_id}/pdf")
-def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def export_report_pdf(
+    hospital_id: int,
+    month: str = Query(...),
+    include_disabled: bool = Query(False, description="Historical/audit view"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    # Check eligibility before importing/rendering the document so a disabled
+    # month answers 404 instead of a generator error in a lean deployment.
+    _check_hospital_access(user, db, hospital_id)
+    _ensure_month_eligible(db, hospital_id, month, include_disabled)
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.lib import colors
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     try:
-        d = _get_export_data(db, hospital_id, month, user=user)
+        d = _get_export_data(db, hospital_id, month, user=user,
+                             include_disabled=include_disabled)
     except HTTPException:
         raise
     except Exception as e:
@@ -720,10 +812,19 @@ def export_report_pdf(hospital_id: int, month: str = Query(...), db: Session = D
 
 
 @router.get("/export/{hospital_id}/excel")
-def export_report_excel(hospital_id: int, month: str = Query(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+def export_report_excel(
+    hospital_id: int,
+    month: str = Query(...),
+    include_disabled: bool = Query(False, description="Historical/audit view"),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    _check_hospital_access(user, db, hospital_id)
+    _ensure_month_eligible(db, hospital_id, month, include_disabled)
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-    d = _get_export_data(db, hospital_id, month, user=user)
+    d = _get_export_data(db, hospital_id, month, user=user,
+                         include_disabled=include_disabled)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Quality Report"

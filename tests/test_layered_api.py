@@ -81,6 +81,214 @@ def test_layered_endpoint_filters_by_month(db_session, client):
     assert [row["month"] for row in body["data"]] == ["2027-06"]
 
 
+def _legacy_peer_row(db, hospital_id, month, *, peers, peer_count,
+                     historical_score=None, history=None, **overrides):
+    """A row as a PRE-POLICY scan stored it: no classification provenance.
+
+    It carries the peer group's own values, which is the evidence the read-time
+    cap has to decide from, plus no key naming the cap it never applied.
+    """
+    fields = dict(
+        analysis_code="17",
+        peer_outlier_score=1.0,
+        peer_count=peer_count,
+        peer_mean=(sum(peers) / len(peers) if peers else None),
+        peer_provenance={"values": {str(i): value
+                                    for i, value in enumerate(peers)}},
+        raw_value_outlier_score=None,
+        rate_outlier_score=None,
+        historical_outlier_score=historical_score,
+        volume_anomaly_score=None,
+        outlier_level="VERY_HIGH",
+        outlier_type=("PEER_ANOMALY" if not history else "HISTORICAL_ANOMALY"),
+        outlier_method="peer_zscore",
+        investigation_route="data_quality",
+    )
+    if history is not None:
+        fields["history_provenance"] = {"values": list(history)}
+    fields.update(overrides)
+    return _add_layered(db, hospital_id, month, **fields)
+
+
+def test_diagnostics_applies_the_thin_peer_cap_at_read_time(db_session, client):
+    """A stored VERY_HIGH from a 2-3 peer group reads HIGH, stored band kept."""
+    h = db_session.query(Hospital).first()
+    _legacy_peer_row(db_session, h.id, "2027-07", peers=[10.0, 11.0, 12.0],
+                     peer_count=3)
+
+    body = client.get("/analysis/layered?month=2027-07").json()
+    assert body["total"] == 1
+    row = body["data"][0]
+    assert row["outlier_level"] == "HIGH", "the top band is refused"
+    assert row["stored_outlier_level"] == "VERY_HIGH", "the row is not rewritten"
+    cap = row["severity_cap"]
+    assert cap["stored_severity"] == "VERY_HIGH"
+    assert cap["severity"] == "HIGH"
+    assert cap["thin_peer_group"]["capped"] is True
+    assert cap["thin_peer_group"]["peer_count"] == 3
+
+    # Filters answer with the same band the badge shows.
+    assert client.get(
+        "/analysis/layered?month=2027-07&level=VERY_HIGH").json()["total"] == 0
+    assert client.get(
+        "/analysis/layered?month=2027-07&level=HIGH").json()["total"] == 1
+
+
+def test_diagnostics_applies_the_no_dispersion_cap_at_read_time(
+        db_session, client):
+    """A stored VERY_HIGH whose peer group has no spread reads HIGH."""
+    h = db_session.query(Hospital).first()
+    _legacy_peer_row(db_session, h.id, "2027-07", peers=[10.0] * 8,
+                     peer_count=8)
+
+    row = client.get("/analysis/layered?month=2027-07").json()["data"][0]
+    assert row["outlier_level"] == "HIGH"
+    assert row["stored_outlier_level"] == "VERY_HIGH"
+    cap = row["severity_cap"]
+    assert cap["zero_spread_layers"] == ["peer"]
+    assert cap["thin_peer_group"] is None, "eight peers are not thin"
+
+
+def test_diagnostics_keeps_a_measured_comparison_at_very_high(db_session, client):
+    """The read-time rule must not become a blanket downgrade."""
+    h = db_session.query(Hospital).first()
+    _legacy_peer_row(db_session, h.id, "2027-07", peers=[10.0, 20.0, 30.0],
+                     peer_count=9)
+
+    row = client.get("/analysis/layered?month=2027-07").json()["data"][0]
+    assert row["outlier_level"] == "VERY_HIGH"
+    assert row["stored_outlier_level"] == "VERY_HIGH"
+    assert "severity_cap" not in row
+
+
+def test_a_measured_layer_keeps_the_band_a_thin_peer_layer_cannot(db_session, client):
+    """A cap on one layer never lowers a band another layer earned."""
+    h = db_session.query(Hospital).first()
+    _legacy_peer_row(db_session, h.id, "2027-07", peers=[10.0, 11.0, 12.0],
+                     peer_count=3, historical_score=1.0,
+                     history=[10.0, 10.0, 11.0, 12.0])
+
+    row = client.get("/analysis/layered?month=2027-07").json()["data"][0]
+    assert row["outlier_level"] == "VERY_HIGH", "the history layer still holds it"
+    assert "severity_cap" not in row
+
+
+def test_the_history_gate_refuses_a_top_band_the_window_does_not_support(
+        db_session, client):
+    """The gate is per LAYER, so a history layer it refuses stops holding the
+    band even though the peer layer was only capped, not removed."""
+    h = db_session.query(Hospital).first()
+    _legacy_peer_row(db_session, h.id, "2027-07", peers=[10.0, 11.0, 12.0],
+                     peer_count=3, historical_score=1.0,
+                     history=[10.0, 20.0, 35.0, 15.0])
+
+    row = client.get("/analysis/layered?month=2027-07").json()["data"][0]
+    assert row["outlier_level"] == "HIGH", "the window does not support the top band"
+    assert row["stored_outlier_level"] == "VERY_HIGH", "the row is not rewritten"
+    cap = row["severity_cap"]
+    assert cap["route"] == "history"
+    gate = cap["very_high_eligibility"]
+    assert gate["capped"] is True
+    assert gate["eligible"] is False
+    assert gate["resolved_level"] == "VERY_HIGH"
+    assert gate["final_level"] == "HIGH"
+    assert gate["history_window"] == 4
+
+
+def test_diagnostics_level_filters_agree_on_the_trend(db_session, client):
+    """The chart narrows by the same band as the table."""
+    h = db_session.query(Hospital).first()
+    _legacy_peer_row(db_session, h.id, "2027-07", peers=[10.0, 11.0, 12.0],
+                     peer_count=3)
+
+    top = client.get("/analysis/layered/trend?month=2027-07&level=VERY_HIGH").json()
+    assert top["months"] == [] and top["series"] == []
+
+    high = client.get("/analysis/layered/trend?month=2027-07&level=HIGH").json()
+    assert high["months"] == ["2027-07"]
+    assert high["series"][0]["points"][0]["outlier_level"] == "HIGH"
+    assert high["series"][0]["points"][0]["stored_outlier_level"] == "VERY_HIGH"
+
+
+def _stale_then(client, body):
+    return client.post("/analysis/layered/rescan-stale", json=body)
+
+
+def test_rescan_stale_preview_lists_only_the_refused_months(
+        db_session, client):
+    """Preview is read-only and reports the scopes that still disagree."""
+    h = db_session.query(Hospital).first()
+    stale = _legacy_peer_row(db_session, h.id, "2027-07",
+                            peers=[10.0, 11.0, 12.0], peer_count=3)
+    _legacy_peer_row(db_session, h.id, "2027-08", peers=[10.0, 20.0, 30.0],
+                     peer_count=9)
+
+    resp = _stale_then(client, {"confirm": False})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["confirm_required"] is True
+    assert [m["month"] for m in body["months"]] == ["2027-07"]
+    assert body["months"][0]["rows"] == 1
+    assert body["months"][0]["hospitals"] == 1
+    assert body["months"][0]["moves"] == {"VERY_HIGH\u2192HIGH": 1}
+    assert body["total_rows"] == 1
+    assert body["total_hospitals"] == 1
+
+    # Nothing was written: the row still holds the band it was stored with.
+    db_session.refresh(stale)
+    assert stale.outlier_level == "VERY_HIGH"
+
+
+def test_rescan_stale_confirm_recomputes_only_that_scope(
+        db_session, client, monkeypatch):
+    """Confirmation re-runs the affected (month, hospital) and nothing else."""
+    import app.api.analysis as analysis_api
+
+    h = db_session.query(Hospital).first()
+    stale = _legacy_peer_row(db_session, h.id, "2027-07",
+                            peers=[10.0, 11.0, 12.0], peer_count=3)
+    other = _legacy_peer_row(db_session, h.id, "2027-08",
+                             peers=[10.0, 20.0, 30.0], peer_count=9)
+
+    calls = []
+
+    def fake_run(session, hospital_id, month, force=False):
+        calls.append((hospital_id, month, force))
+        # What a real rescan does for a capped comparison.
+        row = (session.query(LayeredOutlierResult)
+               .filter_by(hospital_id=hospital_id, month=month).one())
+        row.outlier_level = "HIGH"
+        session.commit()
+        return {"data_quality_score": 88.0, "issues": []}
+
+    monkeypatch.setattr(analysis_api, "run_full_analysis", fake_run)
+
+    resp = _stale_then(client, {"confirm": True, "months": ["2027-07"]})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert calls == [(h.id, "2027-07", True)]
+    assert body["rescanned"] == [{"month": "2027-07",
+                                 "hospital_id": h.id, "score": 88.0}]
+    assert body["remaining"] == 0
+    assert body["errors"] == []
+
+    db_session.refresh(stale)
+    db_session.refresh(other)
+    assert stale.outlier_level == "HIGH"
+    assert other.outlier_level == "VERY_HIGH", "untouched scope"
+
+
+def test_rescan_stale_reports_nothing_when_every_row_is_current(
+        db_session, client):
+    h = db_session.query(Hospital).first()
+    _legacy_peer_row(db_session, h.id, "2027-07", peers=[10.0, 20.0, 30.0],
+                     peer_count=9)
+
+    body = _stale_then(client, {"confirm": False}).json()
+    assert body["months"] == []
+    assert body["total_rows"] == 0
+
+
 def test_layered_endpoint_filters_by_hospital(db_session, client):
     """Scenario 15: only the requested hospital comes back."""
     h1, h2 = db_session.query(Hospital).order_by(Hospital.id).limit(2).all()
@@ -280,7 +488,12 @@ def test_explain_layered_outlier_contract(db_session, client):
     """Spec §9: full contract payload; stored scores + current history
     reproduce rule 4's clinical classification."""
     h = db_session.query(Hospital).first()
-    _add_history_values(db_session, h.id, ["2027-03", "2027-04", "2027-05"])
+    # rate_cs needs BOTH its numerator (5) and denominator (2): three stored
+    # months with only the denominator are three stored months but ZERO valid
+    # observations, which the engine (and now this popup) calls insufficient.
+    for month in ("2027-03", "2027-04", "2027-05"):
+        _add_history_values(db_session, h.id, [month], code="2", value=100.0)
+        _add_history_values(db_session, h.id, [month], code="5", value=10.0)
     _add_layered(db_session, h.id, "2027-06")
 
     resp = client.get(

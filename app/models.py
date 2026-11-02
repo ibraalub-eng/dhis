@@ -529,6 +529,15 @@ class LayeredOutlierResult(Base):
     interpretation = Column(Text, nullable=True)
     investigation_required = Column(Boolean, nullable=True, server_default=text("false"))
     investigation_route = Column(String(20), nullable=True)
+    # Temporal and peer provenance: the exact window/observations behind the
+    # history score, and the exact peer group (ids + values) behind the peer
+    # score. NULL on rows written before this was recorded.
+    history_provenance = Column(JSON, nullable=True)
+    peer_provenance = Column(JSON, nullable=True)
+    # Zero-dispersion cap: which layers were built on a spread of 0 (their band
+    # capped at HIGH) and the band the raw scores alone implied. NULL on rows
+    # written before the policy, which is what marks them for recalculation.
+    classification_provenance = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     hospital = relationship("Hospital")
@@ -553,6 +562,13 @@ class QualityScore(Base):
     consistency = Column(Float, nullable=True)
     outlier_penalty = Column(Float, nullable=True)
     issues = Column(Text, nullable=True)
+    # Which scoring configuration produced this row (see
+    # app.engine.quality.scoring.scoring_config_fingerprint). NULL on rows
+    # written before provenance was recorded: unknown, never "wrong".
+    scoring_fingerprint = Column(String(32), nullable=True, index=True)
+    # The fully resolved configuration behind that fingerprint, kept verbatim
+    # so an old digest can be explained after the AppConfig values change.
+    scoring_config = Column(JSON, nullable=True)
 
     hospital = relationship("Hospital", back_populates="quality_scores")
 
@@ -560,6 +576,31 @@ class QualityScore(Base):
         Index("ix_qs_hosp_month", "hospital_id", "month"),
         Index("ix_qs_month", "month"),
     )
+
+
+class QualityScoreRevision(Base):
+    """Append-only record of a QualityScore row being overwritten.
+
+    Re-analysis and repair both replace the stored components in place. Before
+    any numeric value changes, the previous values, the configuration that
+    produced them and the new values are written here, so a recalculated score
+    never erases the evidence of what it replaced.
+    """
+    __tablename__ = "quality_score_revisions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hospital_id = Column(Integer, ForeignKey("hospitals.id"), nullable=False, index=True)
+    month = Column(String(7), nullable=False, index=True)
+    action = Column(String(40), nullable=False, index=True)
+    actor = Column(String(120), nullable=False, default="system")
+    previous_score = Column(Float, nullable=True)
+    new_score = Column(Float, nullable=True)
+    previous_fingerprint = Column(String(32), nullable=True)
+    new_fingerprint = Column(String(32), nullable=True)
+    previous_values = Column(JSON, nullable=True)
+    new_values = Column(JSON, nullable=True)
+    config = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
 class ClinicalInsight(Base):
@@ -766,7 +807,7 @@ class MenuItem(Base):
 # (indicator_service.calculate_from_values), and severity uses the existing
 # layered band cutoffs — no hardcoded clinical formulas in this module.
 
-QUALITY_ALERT_SEVERITIES = ("LOW", "MODERATE", "HIGH", "VERY_HIGH")  # VERY_HIGH = RED ALERT — same bands as layered.BAND_CUTOFFS
+QUALITY_ALERT_SEVERITIES = ("LOW", "MODERATE", "HIGH", "VERY_HIGH")  # same bands as layered.BAND_CUTOFFS
 QUALITY_ALERT_STATUSES = ("New", "Under Review", "Confirmed Issue", "False Positive", "Resolved")
 QUALITY_ALERT_PERSPECTIVES = (
     "history",        # hospital vs its own prior periods
@@ -866,3 +907,32 @@ class QualityAlertAudit(Base):
     months = Column(JSON, nullable=True)     # ["2026-08", "2026-09"]
     details = Column(JSON, nullable=True)    # hospitals / indicators / counters
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class HospitalMonthAudit(Base):
+    """Who switched a hospital's reporting month on or off, and when.
+
+    ``PUT /config/month-settings`` writes exactly one row per REAL state
+    change; re-saving the same value records nothing. Rows are append-only:
+    no reader updates or deletes them.
+
+    The names are snapshotted because the trail must outlive its subjects — a
+    deleted user or hospital must not turn "who did this" into a dangling id
+    (the FK is SET NULL, like ``rule_history``). ``previous_state`` is
+    ``unset`` when no setting row existed, i.e. the month was enabled by
+    default, so the first disable is still explainable.
+    """
+
+    __tablename__ = "hospital_month_audit"
+
+    id = Column(Integer, primary_key=True, index=True)
+    hospital_id = Column(Integer, ForeignKey("hospitals.id", ondelete="SET NULL"),
+                         nullable=True, index=True)
+    hospital_name = Column(String(500), nullable=True)
+    month = Column(String(7), nullable=False, index=True)
+    action = Column(String(10), nullable=False)          # enabled | disabled
+    previous_state = Column(String(10), nullable=True)   # enabled | disabled | unset
+    actor_id = Column(Integer, nullable=True)
+    actor = Column(String(120), nullable=True)           # username snapshot
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False,
+                        index=True)

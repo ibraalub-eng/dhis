@@ -1,7 +1,8 @@
-from typing import List, Dict, Optional
+import hashlib
+import json
+from typing import Dict, List, Optional
 
 from .rules import RuleResult, RuleStatus
-
 
 # The ONE place the four Quality Score weight names + fallbacks live. Every
 # surface (engine, dashboard KPI recalc, indicator-config recalc, audit tools,
@@ -35,6 +36,23 @@ SEVERITY_WEIGHT_DEFAULTS = {
     "LOW": 1.0,
 }
 
+# One authoritative outlier multiplier. 2.0 is the approved value: it is what
+# ``app/main.py`` seeds into AppConfig, what System Control displays, and what
+# the engine computed before commit a85b3b3. That commit reduced only the
+# HIDDEN FALLBACK to 1.5 without touching the seeded setting, so a path with no
+# AppConfig row silently scored differently from every path that loaded it.
+# Both penalty components (classic and layered) now share this default, and the
+# read-only scoring audit uses PREVIOUS_OUTLIER_MULTIPLIER to recognise rows
+# that were actually computed with the old fallback (never to assume they are
+# wrong).
+OUTLIER_MULTIPLIER_KEY = "outlier_multiplier"
+OUTLIER_MULTIPLIER_DEFAULT = 2.0
+PREVIOUS_OUTLIER_MULTIPLIER = 1.5
+
+# Every AppConfig key that can change a stored Quality Score.
+SEVERITY_WEIGHT_KEYS = {
+    name: f"severity_{name.lower()}" for name in SEVERITY_WEIGHT_DEFAULTS
+}
 # Layered (Data-Tree) levels that count as an outlier for the Quality Score.
 # The score's outlier component must cover the indicators the pipeline
 # actually analyses — every non-synthetic Data Tree element plus the active
@@ -48,17 +66,78 @@ FLAGGED_LEVELS = frozenset({"HIGH", "VERY_HIGH"})
 MAX_LAYERED_ISSUES = 10
 
 
+def _as_float(value, default: float) -> float:
+    """Config value as float; a missing/blank/bad entry keeps the default."""
+    try:
+        if value is None or value == "":
+            return float(default)
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def resolve_scoring_config(config: Optional[Dict] = None) -> Dict[str, float]:
+    """Every setting that can change a stored Quality Score, fully resolved.
+
+    ``config`` is the AppConfig mapping for category ``quality`` (e.g. from
+    ``get_config_dict(db, "quality")``). Missing keys take the canonical
+    defaults — including the APPROVED outlier multiplier — so a DB without the
+    rows and a DB with them produce the same configuration, and therefore the
+    same fingerprint. Values are cast to float, so a config dict coming from a
+    text source cannot turn a ratio into a string multiplication.
+    """
+    cfg = config or {}
+    resolved: Dict[str, float] = {
+        key: _as_float(cfg.get(key), QUALITY_WEIGHT_DEFAULTS[name])
+        for name, key in QUALITY_WEIGHT_KEYS.items()
+    }
+    resolved[OUTLIER_MULTIPLIER_KEY] = _as_float(
+        cfg.get(OUTLIER_MULTIPLIER_KEY), OUTLIER_MULTIPLIER_DEFAULT)
+    for name, key in SEVERITY_WEIGHT_KEYS.items():
+        resolved[key] = _as_float(cfg.get(key),
+                                  SEVERITY_WEIGHT_DEFAULTS[name])
+    return resolved
+
+
+def scoring_config_with_multiplier(multiplier: float,
+                                   config: Optional[Dict] = None) -> Dict[str, float]:
+    """Current resolved config with the outlier multiplier replaced.
+
+    Used by the audit to fingerprint the configuration the old hidden fallback
+    produced, without pretending the rest of that configuration was different.
+    """
+    resolved = resolve_scoring_config(config)
+    resolved[OUTLIER_MULTIPLIER_KEY] = float(multiplier)
+    return resolved
+
+
+def scoring_config_snapshot(config: Optional[Dict] = None) -> str:
+    """Canonical JSON of the resolved configuration (the stored evidence)."""
+    return json.dumps(resolve_scoring_config(config), sort_keys=True,
+                      separators=(",", ":"))
+
+
+def scoring_config_fingerprint(config: Optional[Dict] = None) -> str:
+    """Stable digest of the resolved scoring configuration.
+
+    Same shape as the Quality Alert policy fingerprint: a change to any weight,
+    the outlier multiplier or a severity weight changes the digest, so a stored
+    score can say which configuration produced it without guessing from
+    current settings. Idempotent: passing an already-resolved config yields the
+    same digest.
+    """
+    snapshot = scoring_config_snapshot(config)
+    return hashlib.sha256(snapshot.encode("utf-8")).hexdigest()[:16]
+
+
 def quality_weights(config: Optional[Dict] = None) -> Dict[str, float]:
     """Resolve the four Quality Score weights from config.
 
     `config` is a mapping keyed by the AppConfig keys (e.g. the dict returned
     by get_config_dict(db, "quality") or {row.key: row.value}). Missing keys
     fall back to the canonical defaults above."""
-    cfg = config or {}
-    return {
-        name: float(cfg.get(key, QUALITY_WEIGHT_DEFAULTS[name]))
-        for name, key in QUALITY_WEIGHT_KEYS.items()
-    }
+    resolved = resolve_scoring_config(config)
+    return {name: resolved[key] for name, key in QUALITY_WEIGHT_KEYS.items()}
 
 
 def combine_quality_score(
@@ -110,25 +189,39 @@ def calculate_quality_score(
     config: Optional[Dict[str, float]] = None,
     covered_codes: Optional[set] = None,
     layered_results: Optional[list] = None,
+    outlier_eligible_codes: Optional[set] = None,
+    eligible_codes: Optional[set] = None,
 ) -> Dict:
     """Compute the four Quality Score components and the combined score.
 
     ``layered_results`` — the per-indicator LayerResult rows for this
     hospital+month (data-tree coverage). When supplied, the outlier component
-    is the share of those rows flagged HIGH/VERY_HIGH, so the score follows
-    the indicators the engine actually analyses instead of only the
-    Indicators-screen definitions. ``anomaly_results`` stays the source when
+    is the share of the APPROVED ELIGIBLE assessment units flagged
+    HIGH/VERY_HIGH — see ``outlier_eligible_codes`` — so the score follows the
+    indicators the engine is required to assess instead of only the rows that
+    happened to be evaluated. ``anomaly_results`` stays the source when
     layered results are unavailable (registry-only legacy fallback).
     """
     cfg = config or {}
+    # ``eligible_codes`` is the name the denominator policy was specified and
+    # tested under; keep it as an alias so both spellings reach one policy.
+    if outlier_eligible_codes is None:
+        outlier_eligible_codes = eligible_codes
 
     rule_compliance = _calc_rule_compliance(rule_results)
     completeness = compute_completeness(values, required_codes, covered_codes or set())
     consistency = _calc_consistency(rule_results, cfg)
     if layered_results is None:
-        outlier_penalty = _calc_outlier_penalty(anomaly_results, cfg)
+        outlier_penalty = anomaly_outlier_penalty(anomaly_results, cfg)
+        outlier_denominator = len(anomaly_results or ())
     else:
-        outlier_penalty = _calc_layered_outlier_penalty(layered_results, cfg)
+        outlier_penalty = layered_outlier_penalty(
+            layered_results, cfg, eligible_codes=outlier_eligible_codes)
+        outlier_denominator = (
+            len({c for c in outlier_eligible_codes if c})
+            if outlier_eligible_codes is not None
+            else len(layered_results or ()))
+
 
     score = combine_quality_score(
         rule_compliance * 100,
@@ -145,7 +238,13 @@ def calculate_quality_score(
     if layered_results is None:
         for a in anomaly_results:
             if hasattr(a, "is_outlier") and a.is_outlier:
-                issues.append(f"Anomaly: {a.rate_name} (z={a.z_score})")
+                # A comparison group too small to measure a spread carries no z
+                # (layered.PEER_Z_POLICY): the issue names the peer count
+                # rather than the word "None" or an invented magnitude.
+                magnitude = (f"z={a.z_score}" if a.z_score is not None
+                             else f"no z; {getattr(a, 'peer_count', None) or 'too few'} "
+                                  "peer hospital(s) cannot measure a spread")
+                issues.append(f"Anomaly: {a.rate_name} ({magnitude})")
     else:
         flagged = [r for r in layered_results
                    if _layered_attr(r, "outlier_level") in FLAGGED_LEVELS]
@@ -156,13 +255,22 @@ def calculate_quality_score(
             issues.append(
                 f"... and {len(flagged) - MAX_LAYERED_ISSUES} more flagged indicator(s)")
 
+    resolved = resolve_scoring_config(cfg)
     return {
         "score": score,
         "rule_compliance": round(rule_compliance * 100, 1),
         "completeness": round(completeness * 100, 1),
         "consistency": round(consistency * 100, 1),
         "outlier_penalty": round(outlier_penalty * 100, 1),
+        # The assessment-unit denominator the penalty used. Exposed so a
+        # stored score can be reproduced even when the eligible set is no
+        # longer reconstructible from today's indicator configuration.
+        "outlier_denominator": outlier_denominator,
         "issues": issues,
+        # Provenance, persisted with the score so a later reader can tell which
+        # configuration produced it without consulting today's AppConfig.
+        "scoring_fingerprint": scoring_config_fingerprint(resolved),
+        "scoring_config": resolved,
     }
 
 
@@ -212,14 +320,34 @@ def _calc_consistency(rule_results: List[RuleResult], config: Optional[Dict[str,
 def _calc_outlier_penalty(anomaly_results: list, config: Optional[Dict[str, float]] = None) -> float:
     if not anomaly_results:
         return 0.0
-    cfg = config or {}
-    multiplier = cfg.get("outlier_multiplier", 1.5)
+    resolved = resolve_scoring_config(config)
+    multiplier = resolved[OUTLIER_MULTIPLIER_KEY]
     outlier_count = sum(1 for a in anomaly_results if hasattr(a, "is_outlier") and a.is_outlier)
     total = len(anomaly_results)
     if total == 0:
         return 0.0
     ratio = outlier_count / total
     return min(1.0, ratio * multiplier)
+
+
+def anomaly_outlier_penalty(anomaly_results: list,
+                            config: Optional[Dict[str, float]] = None) -> float:
+    """Public entry point for the classic (AnomalyResult) penalty."""
+    return _calc_outlier_penalty(anomaly_results, config)
+
+
+def layered_outlier_penalty(layered_results: list,
+                            config: Optional[Dict[str, float]] = None,
+                            eligible_codes: Optional[set] = None) -> float:
+    """Public entry point for the data-tree (LayeredOutlierResult) penalty.
+
+    ``eligible_codes`` is the approved assessment denominator (see
+    ``quality.outlier_eligibility``). When it is omitted the denominator stays
+    the number of evaluated rows, preserving the legacy engine contract for
+    callers that only have live results.
+    """
+    return _calc_layered_outlier_penalty(layered_results, config,
+                                         eligible_codes=eligible_codes)
 
 
 def _layered_attr(result, name: str):
@@ -243,19 +371,31 @@ def _layered_name(result) -> str:
 
 
 def _calc_layered_outlier_penalty(layered_results: list,
-                                  config: Optional[Dict[str, float]] = None) -> float:
+                                  config: Optional[Dict[str, float]] = None,
+                                  eligible_codes: Optional[set] = None) -> float:
     """Outlier penalty from the data-tree layered analysis.
 
-    Same shape as the classic penalty — share of analysed indicators flagged,
-    scaled by ``outlier_multiplier`` and capped at 1.0 — but the denominator
-    is every element/rate the layered engine evaluated for this hospital+month
-    (the Outlier Diagnostics rows), so the score no longer depends on how many
-    definitions happen to be active in the Indicators screen.
+    The numerator is the number of flagged HIGH/VERY_HIGH rows (every finding
+    is counted, even in the defensive case where a row's code is not in the
+    eligible set); the denominator is the approved eligible set. Missing
+    required observations stay in the denominator but contribute no row, so
+    incompleteness cannot shrink the denominator and inflate the penalty —
+    completeness is already its own component. Zero-valued observations are
+    ordinary rows and stay fully eligible.
+
+    Without ``eligible_codes`` the denominator is the number of evaluated rows
+    (legacy contract). The pipeline always supplies the approved set.
     """
-    total = len(layered_results or ())
-    if total == 0:
-        return 0.0
-    flagged = sum(1 for r in layered_results
+    rows = list(layered_results or ())
+    flagged = sum(1 for r in rows
                   if _layered_attr(r, "outlier_level") in FLAGGED_LEVELS)
-    multiplier = float((config or {}).get("outlier_multiplier", 1.5))
-    return min(1.0, flagged / total * multiplier)
+    if eligible_codes is None:
+        denominator = len(rows)
+    else:
+        denominator = len({code for code in eligible_codes if code})
+    if denominator <= 0:
+        return 0.0
+    multiplier = resolve_scoring_config(config)[OUTLIER_MULTIPLIER_KEY]
+    # Findings are never dropped from the numerator, even in the defensive
+    # case where a flagged row's code is missing from the eligible set.
+    return min(1.0, flagged / denominator * multiplier)

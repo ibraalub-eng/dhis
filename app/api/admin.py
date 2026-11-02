@@ -560,11 +560,21 @@ def repair_quality_scores(
             "message": f"Deep repair started for {len(targets)} hospital/month pairs. Use /tasks/{task_id} to check status.",
         }
 
+    from app.config_utils import get_config_dict
+    from app.engine.quality.scoring import (
+        resolve_scoring_config,
+        scoring_config_fingerprint,
+    )
+    from app.engine.quality.scoring_audit import apply_score_update
+
     w = _quality_weights(db)
+    resolved = resolve_scoring_config(get_config_dict(db, "quality"))
     mismatches, _sentinels = _shallow_check(w, rows)
+    actor = getattr(_user, "username", "system")
     repaired = 0
     for s, expected in mismatches:
-        s.score = expected
+        apply_score_update(db, s, resolved, "repair_shallow", actor,
+                           score=expected)
         repaired += 1
     if repaired:
         db.commit()
@@ -573,6 +583,136 @@ def repair_quality_scores(
         "total_rows": len(rows),
         "repaired": repaired,
         "already_consistent": len(rows) - repaired,
+        "scoring_fingerprint": scoring_config_fingerprint(resolved),
+    }
+
+
+@router.get("/quality-scores/disabled-month-inventory")
+def disabled_month_score_inventory(
+    hospital_id: Optional[int] = Query(None),
+    month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("system.manage_data")),
+):
+    """Read-only: stored scores for disabled hospital/month pairs.
+
+    These rows are deliberately retained as historical evidence. Active
+    dashboards/reports/exports exclude them through ``app.eligibility``; this
+    endpoint is the authorized audit view that reports them without deleting
+    or rewriting anything.
+    """
+    from app.eligibility import disabled_quality_scores
+
+    rows = disabled_quality_scores(db, hospital_id=hospital_id, month=month)
+    by_pair: dict = {}
+    for row in rows:
+        key = (row["hospital_id"], row["month"], row["hospital"])
+        by_pair.setdefault(key, []).append(row)
+    return {
+        "count": len(rows),
+        "deleted": 0,
+        "read_only": True,
+        "pairs": [
+            {
+                "hospital_id": hid,
+                "hospital": name,
+                "month": m,
+                "count": len(items),
+                "scores": items,
+            }
+            for (hid, m, name), items in sorted(by_pair.items())
+        ],
+        "note": (
+            "Stored disabled-month scores are retained. They are hidden from "
+            "active readers and reappear when the hospital/month is re-enabled."
+        ),
+    }
+
+
+@router.get("/quality-scores/scoring-audit")
+def quality_scores_scoring_audit(
+    limit_examples: int = Query(50, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("system.manage_data")),
+):
+    """Read-only: which stored Quality Scores used which scoring configuration.
+
+    Rows without a fingerprint are reported as ``unknown``; they are counted as
+    affected only when their stored numbers reproduce under a different
+    configuration from the persisted outlier rows. Nothing is written.
+    """
+    from app.engine.quality.scoring_audit import identify_scores
+
+    return identify_scores(db, limit_examples=limit_examples)
+
+
+@router.post("/quality-scores/recompute")
+def recompute_quality_scores_from_stored_evidence(
+    apply: bool = Query(False, description="Write the changes; default is a dry run"),
+    hospital_id: Optional[int] = Query(None),
+    month_from: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    month_to: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    limit_examples: int = Query(50, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("system.manage_data")),
+):
+    """Controlled recompute of stored scores under the approved configuration.
+
+    Reuses the persisted outlier rows and stored components — detection is NOT
+    rerun — so the result is repeatable and deterministic. Dry run by default.
+    With ``apply=true`` each changed row first records a QualityScoreRevision
+    holding its previous values and configuration. Months without persisted
+    outlier rows are reported for the deep repair (raw-data) path instead of
+    being guessed at.
+    """
+    from app.engine.quality.scoring_audit import recompute_quality_scores
+
+    return recompute_quality_scores(
+        db, apply=apply,
+        actor=getattr(_user, "username", "system"),
+        hospital_id=hospital_id,
+        month_from=month_from,
+        month_to=month_to,
+        limit_examples=limit_examples,
+    )
+
+
+@router.get("/quality-scores/{hospital_id}/{month}/revisions")
+def quality_score_revisions(
+    hospital_id: int,
+    month: str,
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("system.manage_data")),
+):
+    """Append-only history of every overwrite of one stored score."""
+    from app.models import QualityScoreRevision
+
+    rows = (
+        db.query(QualityScoreRevision)
+        .filter(QualityScoreRevision.hospital_id == hospital_id,
+                QualityScoreRevision.month == month)
+        .order_by(QualityScoreRevision.created_at, QualityScoreRevision.id)
+        .all()
+    )
+    return {
+        "hospital_id": hospital_id,
+        "month": month,
+        "revisions": [
+            {
+                "id": r.id,
+                "action": r.action,
+                "actor": r.actor,
+                "previous_score": r.previous_score,
+                "new_score": r.new_score,
+                "previous_fingerprint": r.previous_fingerprint,
+                "new_fingerprint": r.new_fingerprint,
+                "previous_values": r.previous_values,
+                "new_values": r.new_values,
+                "config": r.config,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ],
     }
 
 

@@ -1,7 +1,8 @@
-import { apiGet } from './api.js';
+import { apiGet, apiPostJSON } from './api.js';
 import { __ } from './i18n.js';
 import { esc } from './tree.js';
 import { classificationBadge } from './outliers.js';
+import { confirmAction } from './confirm-modal.js';
 
 // ── CSV export utility (same shape as outliers.js) ─────────────────
 function downloadCSV(filename, headers, rows) {
@@ -28,6 +29,18 @@ const _LEVEL_BADGES = {
     NONE: 'badge-muted', LOW: 'badge-low', MODERATE: 'badge-medium',
     HIGH: 'badge-high', VERY_HIGH: 'badge-critical',
 };
+
+// What the CELL prints. The stored code and the API value are untouched; a
+// raw VERY_HIGH beside a translated Level filter made one band look like two
+// and left the Arabic screen with English labels.
+const _LEVEL_LABELS = {
+    NONE: 'None', LOW: 'Low', MODERATE: 'Moderate', HIGH: 'High',
+    VERY_HIGH: 'Very High',
+};
+
+function _levelLabel(level) {
+    return __(_LEVEL_LABELS[level] || 'None');
+}
 
 function _filterQuery() {
     const hosp = document.getElementById('layeredHospitalFilter').value;
@@ -66,9 +79,34 @@ function _deltaCsv(v) {
     return (v >= 0 ? '+' : '') + Number(v).toFixed(1);
 }
 
-function _levelBadge(level) {
+// The cap sources are NOT interchangeable: a degenerate comparison has NO
+// measurable spread, a thin peer group is too small to measure one, and a
+// refusal by the row's own window measured a scale and disagreed with it. Each
+// is named from the block that actually applied, so one cap cannot be read as
+// another. (The keys differ from Quality Alerts' provenance: this block is
+// built per layer, so a degenerate cap is a list of layer names.)
+function _capReason(cap) {
+    const reasons = [];
+    if ((cap.zero_spread_layers || []).length) reasons.push(__('no measurable spread: every value in the comparison is identical'));
+    if (cap.thin_peer_group) reasons.push(__('too few peer hospitals to measure a spread'));
+    if (cap.very_high_eligibility) reasons.push(__('the hospital\u2019s own history window does not support the top band'));
+    return reasons.length ? reasons.join(' \u00b7 ') : __('the comparison cannot be graded');
+}
+
+function _levelBadge(level, cap) {
     const cls = _LEVEL_BADGES[level] || 'badge-muted';
-    return '<span class="badge ' + cls + '">' + esc(level || 'NONE') + '</span>';
+    const badge = '<span class="badge ' + cls + '">' + esc(_levelLabel(level)) + '</span>';
+    // A row written before a cap was approved still carries its own band. The
+    // table shows the band the policy allows now and marks the stored one, the
+    // same way Quality Alerts does — never a severity the policy refuses.
+    if (!cap || !cap.stored_severity) return badge;
+    // Nothing was lowered: printing "HIGH → HIGH" would mark a row as capped
+    // while its band never moved. The provenance is kept on the payload.
+    if (cap.severity === cap.stored_severity) return badge;
+    return badge + ' <span class="badge badge-medium" title="' +
+        esc(__('Stored') + ' ' + _levelLabel(cap.stored_severity) + ' \u2014 ' +
+            _capReason(cap)) + '">' +
+        esc(_levelLabel(cap.stored_severity) + ' \u2192 ' + _levelLabel(cap.severity)) + '</span>';
 }
 
 // ── Five-layer sparkline ──────────────────────────────────────────
@@ -199,6 +237,9 @@ let _trendCollapsed = false;
 
 const _TREND_COLORS = {
     NORMAL: '#22c55e',
+    // Assessment withheld (too little own history, no strong peer evidence):
+    // neutral gray, never the green that means "confirmed normal".
+    INSUFFICIENT_HISTORY: '#94a3b8',
     POSSIBLE_DATA_ENTRY_ERROR: '#ef4444',
     CLINICAL_INVESTIGATION_REQUIRED: '#f59e0b',
     PEER_ANOMALY: '#3b82f6',
@@ -212,6 +253,7 @@ const _TREND_COLORS = {
 // the classification legend (layered-faq) and the severity ink tokens.
 const _TREND_COLORS_LIGHT = {
     NORMAL: '#15803d',
+    INSUFFICIENT_HISTORY: '#475569',
     POSSIBLE_DATA_ENTRY_ERROR: '#b91c1c',
     CLINICAL_INVESTIGATION_REQUIRED: '#b45309',
     PEER_ANOMALY: '#1d4ed8',
@@ -340,9 +382,10 @@ function wireLayeredSort() {
 // Client-side severity mirror of the endpoint's ordering — used for the
 // month-direction arrow (Δ severity vs the previous month cell) and to
 // highlight each hospital's worst cell of the row.
-const _CELL_SEVERITY = ['NORMAL', 'UNKNOWN', 'HISTORICAL_ANOMALY', 'PEER_ANOMALY',
-    'VOLUME_DRIVEN_ANOMALY', 'RAW_VALUE_ANOMALY', 'RATE_ANOMALY',
-    'CLINICAL_INVESTIGATION_REQUIRED', 'POSSIBLE_DATA_ENTRY_ERROR'];
+const _CELL_SEVERITY = ['NORMAL', 'INSUFFICIENT_HISTORY', 'UNKNOWN',
+    'HISTORICAL_ANOMALY', 'PEER_ANOMALY', 'VOLUME_DRIVEN_ANOMALY',
+    'RAW_VALUE_ANOMALY', 'RATE_ANOMALY', 'CLINICAL_INVESTIGATION_REQUIRED',
+    'POSSIBLE_DATA_ENTRY_ERROR'];
 const _cellSeverity = t => Math.max(0, _CELL_SEVERITY.indexOf(t));
 
 function _renderLayeredHeatmap(body) {
@@ -504,7 +547,7 @@ export async function loadLayered() {
                 '<td>' + esc(d.indicator_name || d.analysis_code || '') + '</td>' +
                 '<td>' + rawCell + '</td>' +
                 '<td>' + rateCell + '</td>' +
-                '<td>' + _levelBadge(d.outlier_level) + '</td>' +
+                '<td>' + _levelBadge(d.outlier_level, d.severity_cap) + '</td>' +
                 '<td>' + classificationBadge(d.outlier_type, d.interpretation) + '</td>' +
                 '<td>' + whyBtn + '</td>' +
                 '</tr>';
@@ -514,6 +557,49 @@ export async function loadLayered() {
         tbody.innerHTML = '<tr><td colspan="8" style="color:red;">Error: ' + err.message + '</td></tr>';
     } finally {
         if (loadingEl) loadingEl.classList.add('hidden');
+    }
+}
+
+// ── Restate the stored band only where the policy refuses it ───────────────
+// Preview → explicit confirmation → a scoped re-analysis. The screen already
+// SHOWS the policy band at read time; this writes it into the store, and the
+// server re-runs only the (month, hospital) scopes that still disagree.
+export async function recomputeStaleLayered() {
+    const btn = document.getElementById('layeredRescanStaleBtn');
+    if (btn) btn.disabled = true;
+    try {
+        const preview = await apiPostJSON('/analysis/layered/rescan-stale',
+                                          { confirm: false });
+        const months = (preview && preview.months) || [];
+        if (!months.length) {
+            alert(__('No stored diagnostics results are older than the saved cap policy.'));
+            return;
+        }
+        const details = months.map(m =>
+            esc(m.month) + ' \u2014 ' + m.rows + ' ' + __('rows') + ' \u00b7 ' +
+            m.hospitals + ' ' + __('hospitals')).join('<br>');
+        const ok = await confirmAction({
+            title: __('Recompute stale months'),
+            message: __('Only the outliers marked stale — those months and hospitals — are re-analysed under the current saved cap policy. Every other stored result is left untouched.'),
+            details: details,
+            okLabel: __('Recompute') + ' ' + months.length + ' ' + __('months'),
+            cancelLabel: __('Cancel'),
+            warning: true,
+        });
+        if (!ok) return;
+
+        const result = await apiPostJSON('/analysis/layered/rescan-stale', {
+            confirm: true,
+            months: months.map(m => m.month),
+        });
+        alert(__('Recomputed') + ' ' + ((result.months || []).length) + ' ' +
+            __('months') + ': ' + (result.total_rows || 0) + ' ' + __('rows'));
+        await loadLayered();
+    } catch (err) {
+        alert(__('Recompute failed: ') +
+              (err && err.message ? err.message : __('error')));
+    } finally {
+        if (btn) btn.disabled = false;
     }
 }
 

@@ -210,6 +210,9 @@ tbody tr { transition: background 0.12s; }
 .badge-c-volume { background: #FEF3C7; color: #B45309; }
 .badge-c-peer { background: #DBEAFE; color: #1D4ED8; }
 .badge-c-entry { background: #DC2626; color: #fff; }
+/* INSUFFICIENT_HISTORY: an assessment withheld, not a normal result —
+   deliberately neutral (slate) so it never reads as green/safe. */
+.badge-c-insufficient { background: #E2E8F0; color: #475569; }
 [data-theme=dark] .badge-c-normal { background: #14532d; color: #86efac; }
 [data-theme=dark] .badge-c-raw { background: #134e4a; color: #5eead4; }
 [data-theme=dark] .badge-c-rate { background: #4a2907; color: #fbbf24; }
@@ -218,6 +221,7 @@ tbody tr { transition: background 0.12s; }
 [data-theme=dark] .badge-c-volume { background: #713f12; color: #fde047; }
 [data-theme=dark] .badge-c-peer { background: #1e3a5f; color: #93c5fd; }
 [data-theme=dark] .badge-c-entry { background: #7f1d1d; color: #fca5a5; border: 1px solid var(--severity-critical-border); }
+[data-theme=dark] .badge-c-insufficient { background: #334155; color: #cbd5e1; }
 /* Layer breakdown strip (Quality report table): one chip per detection layer,
    coloured by the same per-layer palette as the classification badges. A
    layer that could not be computed is dimmed (never green), and a layer that
@@ -493,6 +497,13 @@ canvas { background: transparent !important; }
 
 @media (max-width: 480px) {
   .header h1 { font-size: 0.95rem; }
+  /* Header controls WRAP instead of pushing the document sideways: at
+     360-430px the control row (menu · user · logout · language · theme) is
+     wider than the viewport, which made every page scroll horizontally by
+     ~58px. Wrapping keeps every control visible and touchable; nothing is
+     hidden, and desktop (>480px) is untouched. */
+  .header > div:last-child { flex-wrap: wrap; justify-content: flex-start; gap: 0.35rem; min-width: 0; max-width: 100%; }
+  .header #user-info { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
   .subtitle { display: none; }
   .container { padding: 0.5rem; }
   .card { padding: 0.7rem; margin-bottom: 0.8rem; }
@@ -612,6 +623,9 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
 .kpi-card { background: var(--bg-surface); border-radius: 12px; padding: 1.2rem; text-align: center; box-shadow: var(--shadow-sm); border: 1px solid var(--border-default); transition: transform 0.2s, box-shadow 0.2s; }
 .kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+/* A KPI card that is also a filter states whether it is the active one. */
+.kpi-card.is-active { outline: 2px solid var(--accent-blue); outline-offset: 1px; border-color: var(--accent-blue); }
+.kpi-card.is-active::after { content: '\2713'; font-size: 0.7rem; color: var(--accent-blue); }
 .kpi-card .icon { font-size: 2rem; margin-bottom: 0.5rem; }
 .kpi-card .value { font-size: 1.8rem; font-weight: 700; color: var(--accent-blue); line-height: 1.2; }
 .kpi-card .label { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.3rem; }
@@ -1830,3 +1844,40 @@ body.rtl .qa-detail { direction: rtl; }
 /* Inline trend sparkline in the Quality Alerts list (one per risk issue) */
 .qa-spark { display: block; overflow: visible; }
 .qa-spark polyline, .qa-spark line, .qa-spark circle { shape-rendering: geometricPrecision; }
+
+/* ── Quality Alerts KPI strip & tooltips (Step 10D-8) ───────────────────── */
+/* Eight cards: auto-fit keeps two readable columns on phones, while the wide
+   rule fixes four columns so 1280px is a balanced 4x2 rather than 7 + orphan. */
+.qa-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0.6rem; margin-bottom:0.6rem; }
+@media (min-width:1100px) { .qa-kpis { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+/* aria-describedby points at .qa-tip-help; CSS reveals that same node on
+   hover/focus (focus fires on tap too), so there is one copy of the text. */
+.qa-tip { position:relative; }
+.qa-tip-help { position:absolute; z-index:60; inset-inline-start:0; top:calc(100% + 3px); display:block; width:100%; max-width:280px; padding:0.35rem 0.5rem; background:var(--bg-elevated,#252A36); color:var(--text-primary); border:1px solid var(--border-default); border-radius:6px; box-shadow:var(--shadow-md); font-size:0.66rem; line-height:1.45; white-space:normal; text-align:start; visibility:hidden; opacity:0; pointer-events:none; }
+.qa-tip:hover > .qa-tip-help, .qa-tip:focus > .qa-tip-help, .qa-tip:focus-within > .qa-tip-help { visibility:visible; opacity:1; }
+.qa-tip:focus-visible { outline:2px solid var(--accent-blue); outline-offset:2px; }
+
+/* Quality Alert issue rows are focusable (tabindex=0) so keyboard users can
+   open the detail; the row keeps its table semantics, so the focus ring is the
+   only affordance added. :focus as well as :focus-visible: a row is not an
+   input, and Chromium did not always report the row as focus-visible after a
+   Tab, which would have left keyboard users with no indicator at all. */
+.qa-issue-row:focus,
+.qa-issue-row:focus-visible {
+    outline: 2px solid var(--accent-blue, #2563eb);
+    outline-offset: -2px;
+    background: var(--bg-hover, rgba(37, 99, 235, 0.08));
+}
+
+/* Capped row: the engine sentence describes the pre-cap assessment, so it is
+   explicitly labelled instead of being allowed to contradict the badge. */
+.qa-cap-note {
+    margin-top: 0.45rem;
+    padding: 0.4rem 0.55rem;
+    border-left: 3px solid var(--severity-high, #d97706);
+    background: var(--bg-hover, rgba(217, 119, 6, 0.08));
+    border-radius: 4px;
+    font-size: 0.74rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}

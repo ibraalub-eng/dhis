@@ -1,12 +1,18 @@
 import json
 import logging
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
 from app.engine.anomaly import detect_anomalies, detect_monthly_trend, set_trends_config
 from app.engine.confidence import build_indicator_rule_map, calculate_confidence
+from app.engine.config_resolver import (
+    PolicySnapshot,
+    PolicyUnavailable,
+    load_policy_snapshot,
+)
+from app.engine.policy_view import analysis_config_from_snapshot
 from app.engine.ml import run_ml_analysis
 from app.engine.quality import (
     RuleResult,
@@ -17,6 +23,7 @@ from app.engine.quality import (
     run_rules_from_db,
     set_rules_config,
 )
+from app.engine.quality.outlier_eligibility import eligible_outlier_units
 from app.indicators import INDICATOR_CODE_TO_NAME, PARENT_CHILD_MAP, SYNTHETIC_INDICATOR_CODES
 from app.models import (
     AnomalyResult,
@@ -37,6 +44,13 @@ logger = logging.getLogger(__name__)
 USE_DB_RULES = True
 
 KEY_INDICATOR_CODES = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "16", "17", "18", "26"]
+
+
+def _layered_analysis_code(result) -> str:
+    """Analysis-unit key for a live LayerResult (spec) or a stored row."""
+    spec = getattr(result, "spec", None)
+    return (getattr(spec, "analysis_code", None)
+            or getattr(result, "analysis_code", None))
 
 
 def _build_code_resolver(code_to_name: Dict[str, str]):
@@ -156,6 +170,19 @@ def get_enabled_values_for_hospital_month(session: Session, hospital_id: int, mo
         if val.value is not None:
             result[ind.code] = val.value
     return result
+
+
+def get_outlier_eligible_codes(session, hospital_id, month,
+                                evaluated_codes=None) -> set:
+    """The approved denominator for the layered outlier penalty.
+
+    Required elements count whether reported or missing; Optional elements and
+    derived rates count only when assessed. Manual disable and covered-by-total
+    exclusion apply; auto-disable-on-null deliberately does not. See
+    ``app.engine.quality.outlier_eligibility`` for the full policy.
+    """
+    return eligible_outlier_units(
+        session, hospital_id, month, evaluated_codes=evaluated_codes)
 
 
 def get_optional_source_indicator_ids(session) -> set:
@@ -381,7 +408,10 @@ def check_analysis_exists(session: Session, hospital_id: int, month: str) -> boo
     ).first() is not None
 
 
-def _compute_full_analysis(session: Session, hospital_id: int, month: str, force: bool = False) -> Dict:
+def _compute_full_analysis(session: Session, hospital_id: int, month: str,
+                           force: bool = False,
+                           policy: Optional[PolicySnapshot] = None) -> Dict:
+    """Analyse one hospital/month from the run's single PolicySnapshot."""
     hospital = session.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital:
         raise ValueError(f"Hospital id {hospital_id} not found")
@@ -455,22 +485,35 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
     )
 
     from app.config_utils import get_config_dict
-    from app.engine.severity import load_analysis_config
+
+    # D16-A2: every analysis policy is resolved ONCE, here at the entry
+    # point, into `policy`; nothing below re-reads System Control. A caller
+    # that already holds the run's snapshot (bulk re-analysis, the alerts
+    # auto-scan) passes it in, so one run shares one configuration.
+    if policy is None:
+        policy = load_policy_snapshot(session)
+    if policy.invalid_keys:
+        logger.warning(
+            "Analysis %s/%s is using %d fallback value(s) from invalid "
+            "stored settings: %s", hospital.name, month,
+            len(policy.invalid_keys), ", ".join(policy.invalid_keys))
 
     rules_config = get_config_dict(session, "rules")
     set_rules_config(rules_config)
 
-    # Saved severity/trend configuration (System Control) is authoritative —
-    # including the trend controls stored as SystemSetting rows and the single
-    # zscore_threshold. A configuration read failure raises and is reported by
-    # the caller; it never silently falls back to hardcoded rules.
-    analysis_config = load_analysis_config(session)
+    analysis_config = analysis_config_from_snapshot(policy)
+    # The legacy trend-engine gates (trend_finding_slope/-deviation/-cv/
+    # -r_squared, trend_r_squared) are not the resolver's authority yet, so
+    # that ONE category is still read here — at the entry point, never
+    # downstream. Every setting the snapshot owns is applied last, so the
+    # two sources cannot disagree inside the run.
     trends_config = get_config_dict(session, "trends")
     rates_config = get_config_dict(session, "rates")
     trends_config.update(rates_config)
     trends_config.update(analysis_config.trend_engine_config())
+    # Compatibility shim (removal is A3): keep the process-global populated
+    # for callers that still read it. This run's own decisions never do.
     set_trends_config(trends_config)
-
     anomaly_config = {"zscore_threshold": analysis_config.zscore_threshold}
 
     ml_config = get_config_dict(session, "ml")
@@ -508,7 +551,7 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
 
     from app.engine import indicator_service
     from app.engine.anomaly.layered import is_detection_outlier
-    from app.engine.anomaly.projection import project_rate_rows
+    from app.engine.anomaly.projection import project_rate_rows, row_z_score
 
     # ── ONE detection engine ─────────────────────────────────────────────────
     # The layered engine analyses every data-tree element and every active rate
@@ -607,10 +650,21 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
     quality_config = get_config_dict(session, "quality")
     covered_codes = get_covered_child_codes(ctx, session)
 
+    # The outlier penalty answers "what share of the REQUIRED assessment units
+    # were flagged?", not "what share of the rows we happened to evaluate?"
+    # Missing required observations therefore stay in the denominator instead
+    # of shrinking it; completeness already measures the missingness.
+    outlier_eligible_codes = None
+    if layered_ok:
+        outlier_eligible_codes = get_outlier_eligible_codes(
+            session, hospital_id, month,
+            evaluated_codes=[_layered_analysis_code(r) for r in layered_results])
+
     quality = calculate_quality_score(
         rule_results, values, anomaly_results, required_codes, quality_config,
         covered_codes=covered_codes,
         layered_results=layered_results if layered_ok else None,
+        outlier_eligible_codes=outlier_eligible_codes,
     )
 
     indicator_rule_map = build_indicator_rule_map(session)
@@ -651,7 +705,8 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
         try:
             # Rows were computed before scoring; persist them now. An empty
             # list still clears stale rows for the month.
-            _save_layered_results(session, hospital_id, month, layered_results)
+            _save_layered_results(session, hospital_id, month, layered_results,
+                                  zscore_threshold=anomaly_config["zscore_threshold"])
         except Exception:
             # Layered rows are additive (spec §7): never discard the quality/
             # validation/anomaly results already committed above, and never trip
@@ -669,6 +724,10 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
             if not is_detection_outlier(r.classification.outlier_level):
                 continue
             value = r.rate.rate if r.spec.is_rate else r.raw.value
+            # The z of the comparison that produced the benchmark — and no
+            # substitute when that comparison was not graded (too few peers to
+            # measure a spread produces no z; see projection.row_z_score).
+            row_z = row_z_score(r.peer, r.historical)
             outliers.append({
                 "indicator": r.spec.name,
                 "value": float(value) if value is not None else None,
@@ -676,9 +735,7 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
                               if r.peer.peer_mean is not None
                               else (float(r.historical.mean)
                                     if r.historical.mean is not None else None)),
-                "z_score": (float(r.peer.z) if r.peer.z is not None
-                            else (float(r.historical.z_score)
-                                  if r.historical.z_score is not None else None)),
+                "z_score": float(row_z) if row_z is not None else None,
                 "level": r.classification.outlier_level,
                 "kind": "rate" if r.spec.is_rate else "element",
             })
@@ -725,7 +782,8 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str, force
     }
 
 
-def _maybe_auto_scan_quality_alerts(session: Session, month: str) -> None:
+def _maybe_auto_scan_quality_alerts(session: Session, month: str,
+                                   policy: Optional[PolicySnapshot] = None) -> None:
     """Run the Quality Alerts scan for ``month`` after a fresh analysis.
 
     Default ON (AppConfig ``alerts_auto_scan`` = 1, category ``alerts``):
@@ -748,7 +806,10 @@ def _maybe_auto_scan_quality_alerts(session: Session, month: str) -> None:
     try:
         # Lazy import: quality_alerts imports this module for its data helpers.
         from app.engine import quality_alerts
-        stats = quality_alerts.scan(session, month)
+        # The scan that follows an analysis reuses THIS run's snapshot: the
+        # alerts and the analysis that triggered them cannot see two
+        # versions of the same setting.
+        stats = quality_alerts.scan(session, month, policy=policy)
         scanned.add(month)
         if stats.get("created") or stats.get("updated") or stats.get("deactivated"):
             logger.info("Quality Alerts auto-scan %s: %s", month, stats)
@@ -760,7 +821,9 @@ def _maybe_auto_scan_quality_alerts(session: Session, month: str) -> None:
             pass
 
 
-def run_full_analysis(session: Session, hospital_id: int, month: str, force: bool = False) -> Dict:
+def run_full_analysis(session: Session, hospital_id: int, month: str,
+                      force: bool = False,
+                      policy: Optional[PolicySnapshot] = None) -> Dict:
     """Run full analysis for a hospital/month, guaranteeing a QualityScore row is
     persisted so the report always appears in /reports/ and /analysis/months.
 
@@ -779,7 +842,18 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
             f"Invalid month for analysis: {month!r} — expected YYYY-MM (the '__all__' selector must be expanded to concrete months by the caller)"
         )
     try:
-        result = _compute_full_analysis(session, hospital_id, month, force=force)
+        # One snapshot for the whole run — the analysis AND the alerts
+        # auto-scan that follows it. A cached report is returned without any
+        # configuration work, exactly as before, so a configuration outage
+        # cannot hide a result that was already computed: if the snapshot is
+        # unreadable here, the analysis path resolves (and reports) it.
+        if policy is None:
+            try:
+                policy = load_policy_snapshot(session)
+            except PolicyUnavailable:
+                policy = None
+        result = _compute_full_analysis(session, hospital_id, month,
+                                        force=force, policy=policy)
         # Empty/missing-data path returns early without persisting — persist it
         # so the detected month still shows a report row.
         if not result.get("cached") and not check_analysis_exists(session, hospital_id, month):
@@ -794,7 +868,7 @@ def run_full_analysis(session: Session, hospital_id: int, month: str, force: boo
         # Fresh analysis -> refresh this month's Quality Alerts for all
         # hospitals (default on; see _maybe_auto_scan_quality_alerts).
         if not result.get("cached"):
-            _maybe_auto_scan_quality_alerts(session, month)
+            _maybe_auto_scan_quality_alerts(session, month, policy=policy)
         return result
     except ValueError:
         raise
@@ -986,13 +1060,20 @@ def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
             AnomalyResult.month == month,
         ).all()
 
+        outlier_eligible_codes = None
+        if layered_rows:
+            outlier_eligible_codes = get_outlier_eligible_codes(
+                session, hospital_id, month,
+                evaluated_codes=[r.analysis_code for r in layered_rows])
+
         quality = calculate_quality_score(
             rule_results, values, anomaly_rows, required_codes, quality_config,
             covered_codes=covered_codes,
             layered_results=layered_rows if layered_rows else None,
+            outlier_eligible_codes=outlier_eligible_codes,
         )
         _save_validation_results(session, hospital_id, month, rule_results)
-        _save_quality_score(session, hospital_id, month, quality)
+        _save_quality_score(session, hospital_id, month, quality, action="revalidate")
         done += 1
         if progress_cb:
             try:
@@ -1096,15 +1177,32 @@ def _build_layered_results(session: Session, hospital_id: int, month: str,
     history = dict(historical)
     history[month] = values
 
+    from app.engine.comparison_policy import load_comparison_policy
+
+    comparison_policy = load_comparison_policy(session)
     results = run_layered_analysis(
         specs, history, month, hospital_id,
         peer_values_by_hospital, peer_attributes,
-        Thresholds(peer_z_threshold=float(zscore_threshold)),
+        Thresholds(peer_z_threshold=float(zscore_threshold),
+                   min_peers=comparison_policy.peer.min_peers),
+        history_policy=comparison_policy.history,
+        peer_policy=comparison_policy.peer,
     )
     return [r for r in results if should_persist(r)]
 
 
-def _save_layered_results(session: Session, hospital_id: int, month: str, results: list):
+def _save_layered_results(session: Session, hospital_id: int, month: str, results: list,
+                          zscore_threshold: Optional[float] = None):
+    from app.engine.anomaly.layered import (
+        MIN_PEERS_FOR_TOP_BAND,
+        THIN_PEER_LEVEL_CAP,
+        ZERO_SPREAD_LEVEL_CAP,
+    )
+    from app.engine.comparison_policy import (
+        COMPARISON_POLICY_VERSION,
+        DETECTION_PEER_GROUP,
+    )
+
     session.query(LayeredOutlierResult).filter(
         LayeredOutlierResult.hospital_id == hospital_id,
         LayeredOutlierResult.month == month,
@@ -1154,32 +1252,89 @@ def _save_layered_results(session: Session, hospital_id: int, month: str, result
             interpretation=c.interpretation,
             investigation_required=c.investigation_required,
             investigation_route=c.investigation_route,
+            history_provenance={
+                "policy_version": COMPARISON_POLICY_VERSION,
+                "window": r.historical.window,
+                "min_observations": r.historical.min_observations,
+                "months": list(r.historical.window_months),
+                "values": [float(v) for v in r.historical.series],
+                "skipped_months": list(r.historical.skipped_months),
+            },
+            peer_provenance={
+                "policy_version": COMPARISON_POLICY_VERSION,
+                # The engine's canonical tier is named "all"; persist the
+                # policy's stable group id so readers do not depend on that
+                # internal label.
+                "group": (DETECTION_PEER_GROUP
+                          if r.peer.group in (None, "all")
+                          else r.peer.group),
+                "month": month,
+                "min_peers": r.peer.min_peers,
+                "scored_peer_count": r.peer.peer_count,
+                "eligible_count": r.peer.eligible_count,
+                "peer_ids": list(r.peer.eligible_ids),
+                "values": dict(r.peer.peer_values or {}),
+            },
+            # Which layers could not grade a magnitude — no spread at all, or a
+            # peer group too small to measure one — and the band their raw
+            # scores alone implied. Readers use this to explain the level, and
+            # the Why popup re-applies the same caps when it recomputes the
+            # classification.
+            classification_provenance={
+                "policy_version": COMPARISON_POLICY_VERSION,
+                # The z threshold this row was CLASSIFIED with. The top-band
+                # eligibility gate is applied at read time and must ask the
+                # same question the scan answered; without this the gate falls
+                # back to today's setting and a row classified under a
+                # different threshold is graded with the wrong scale.
+                "zscore_threshold": (float(zscore_threshold)
+                                     if zscore_threshold is not None else None),
+                "zero_spread_layers": list(c.zero_spread_layers),
+                "thin_peer_layers": list(c.thin_peer_layers),
+                "min_peers_for_top_band": MIN_PEERS_FOR_TOP_BAND,
+                "level_from_layers": (c.level_capped_from
+                                      or c.outlier_level),
+                "level": c.outlier_level,
+                "cap": (ZERO_SPREAD_LEVEL_CAP
+                        if c.zero_spread_layers else
+                        (THIN_PEER_LEVEL_CAP if c.thin_peer_layers else None)),
+            },
         ))
     session.commit()
 
 
-def _save_quality_score(session: Session, hospital_id: int, month: str, quality: Dict):
+def _save_quality_score(session: Session, hospital_id: int, month: str, quality: Dict,
+                        action: str = "analysis", actor: str = "system"):
+    """Persist the computed score WITH its scoring configuration provenance.
+
+    An overwrite is recorded in quality_score_revisions first, so the values
+    that were replaced (and the configuration that produced them) stay
+    explainable.
+    """
+    from app.engine.quality.scoring_audit import apply_score_update
+
     existing = session.query(QualityScore).filter(
         QualityScore.hospital_id == hospital_id,
         QualityScore.month == month,
     ).first()
+    changes = dict(
+        score=quality["score"],
+        rule_compliance=quality["rule_compliance"],
+        completeness=quality["completeness"],
+        consistency=quality["consistency"],
+        outlier_penalty=quality["outlier_penalty"],
+        issues=json.dumps(quality["issues"]),
+    )
     if existing:
-        existing.score = quality["score"]
-        existing.rule_compliance = quality["rule_compliance"]
-        existing.completeness = quality["completeness"]
-        existing.consistency = quality["consistency"]
-        existing.outlier_penalty = quality["outlier_penalty"]
-        existing.issues = json.dumps(quality["issues"])
+        apply_score_update(session, existing, quality["scoring_config"],
+                           action, actor, **changes)
     else:
         qs = QualityScore(
             hospital_id=hospital_id,
             month=month,
-            score=quality["score"],
-            rule_compliance=quality["rule_compliance"],
-            completeness=quality["completeness"],
-            consistency=quality["consistency"],
-            outlier_penalty=quality["outlier_penalty"],
-            issues=json.dumps(quality["issues"]),
+            scoring_fingerprint=quality.get("scoring_fingerprint"),
+            scoring_config=quality.get("scoring_config"),
+            **changes,
         )
         session.add(qs)
     session.commit()

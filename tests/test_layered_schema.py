@@ -107,7 +107,11 @@ def test_layered_outlier_results_columns_match_spec():
         "raw_value_outlier_score", "rate_outlier_score", "historical_outlier_score",
         "volume_anomaly_score", "peer_outlier_score", "peer_mean", "peer_count",
         "outlier_level", "outlier_type", "outlier_method", "interpretation",
-        "investigation_required", "investigation_route", "created_at",
+        "investigation_required", "investigation_route",
+        # Comparison provenance: exact history window and peer group, plus the
+        # zero-dispersion cap that decided this row's band.
+        "history_provenance", "peer_provenance", "classification_provenance",
+        "created_at",
     }
     assert set(cols.keys()) == expected
     assert cols["hospital_id"].nullable is False
@@ -247,5 +251,11 @@ def test_migration_revision_is_new_head():
 
     from app.config import BASE_DIR
     script = ScriptDirectory.from_config(AlembicConfig(os.path.join(BASE_DIR, "alembic.ini")))
-    assert script.get_current_head() == "b3c4d5e6f7a8"
-    assert script.get_revision("b3c4d5e6f7a8").down_revision == "f7a8b9c0d1e2"
+    # Head moves with every new migration; the classification-provenance
+    # revision sits directly on top of the hospital-month audit table, and the
+    # quality-score revision repair closes the chain.
+    assert script.get_current_head() == "a1c2e3f4b5d6"
+    assert script.get_revision("a1c2e3f4b5d6").down_revision == "f5a6b7c8d9e0"
+    assert script.get_revision("f5a6b7c8d9e0").down_revision == "c3d4e5f6a7b8"
+    assert script.get_revision("c3d4e5f6a7b8").down_revision == "e1f2a3b4c5d6"
+    assert script.get_revision("e1f2a3b4c5d6").down_revision == "d6f7a8b9c0d1"

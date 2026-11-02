@@ -3,6 +3,7 @@ from scipy import stats as scipy_stats
 from sqlalchemy.orm import Session
 
 from app.engine import indicator_service
+from app.engine.anomaly.layered import peer_z_measurable, peer_z_provenance
 from app.engine.pipeline import get_all_hospital_data_for_month
 from app.engine.rate_config import SITE_ZSCORE
 from app.models import Hospital
@@ -69,15 +70,26 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
             continue
         no_denominator = [h for h in other_hospitals if rname not in all_rates[h]]
 
+        peer_count = len(peers)
         avg = round(float(np.mean(peers)), 2)
         med = round(float(np.median(peers)), 2)
         std = float(np.std(peers, ddof=1)) if len(peers) > 1 else 0
+        # The z divides by the group's own spread: fewer than
+        # layered.MIN_PEERS_FOR_TOP_BAND other hospitals cannot measure one
+        # (layered.PEER_Z_POLICY), so this screen withholds the z AND the
+        # status it grades rather than quoting |z| = 224 from a 2-peer group.
+        # The values, mean/median, range and percentile are kept, so the
+        # comparison is still fully readable.
+        z_graded = peer_z_measurable(peer_count)
         z = round((tval - avg) / std, 2) if std > 0 else 0
+        if not z_graded:
+            z = None
         pct_dev = round(((tval - avg) / avg) * 100, 1) if avg else 0
         below = sum(1 for p in peers if p < tval)
         equal = sum(1 for p in peers if p == tval)
         percentile = round((below + 0.5 * equal) / len(peers) * 100, 1)
-        status = "critical" if abs(z) >= 3 else ("high" if abs(z) >= 2 else ("elevated" if abs(z) >= 1.5 else "normal"))
+        status = None if z is None else (
+            "critical" if abs(z) >= 3 else ("high" if abs(z) >= 2 else ("elevated" if abs(z) >= 1.5 else "normal")))
         ci = None
         if len(peers) >= 3 and std > 0:
             se = std / (len(peers) ** 0.5)
@@ -90,9 +102,12 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
             "peer_median": med,
             "peer_min": round(float(min(peers)), 2),
             "peer_max": round(float(max(peers)), 2),
-            "peer_count": len(peers),
+            "peer_count": peer_count,
             "peer_std": round(std, 2),
             "z_score": z,
+            # Whether a z was produced for this group, and why not — a NULL z
+            # is the policy's output, not a missing measurement.
+            "z_provenance": peer_z_provenance(peer_count),
             "percent_deviation": pct_dev,
             "percentile": percentile,
             "peers_below": below,
@@ -133,13 +148,19 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
         ]
         if not peer_values:
             continue
+        peer_count = len(peer_values)
         average = float(np.mean(peer_values))
         median = float(np.median(peer_values))
         std = float(np.std(peer_values, ddof=1)) if len(peer_values) > 1 else 0.0
+        # Same rule as the system-rate loop above: a group too small to measure
+        # a spread produces no z, so neither the z nor a z-graded status is
+        # quoted for it.
         z_score = (target_value - average) / std if std > 0 else 0.0
+        if not peer_z_measurable(peer_count):
+            z_score = None
         below = sum(1 for peer in peer_values if peer < target_value)
         equal = sum(1 for peer in peer_values if peer == target_value)
-        status = (
+        status = None if z_score is None else (
             "critical" if abs(z_score) >= 3 else
             "high" if abs(z_score) >= 2 else
             "elevated" if abs(z_score) >= 1.5 else "normal"
@@ -155,9 +176,10 @@ def get_benchmark(db: Session, hospital_id: int, month: str) -> dict:
             "peer_median": round(median, 2),
             "peer_min": round(float(min(peer_values)), 2),
             "peer_max": round(float(max(peer_values)), 2),
-            "peer_count": len(peer_values),
+            "peer_count": peer_count,
             "peer_std": round(std, 2),
-            "z_score": round(z_score, 2),
+            "z_score": (None if z_score is None else round(z_score, 2)),
+            "z_provenance": peer_z_provenance(peer_count),
             "percent_deviation": round(
                 ((target_value - average) / average) * 100, 1) if average else 0,
             "percentile": round(

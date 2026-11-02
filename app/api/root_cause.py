@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 _PEER_MODE_PATTERN = "^(auto|type|governorate|ownership|all)$"
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.eligibility import include_disabled_requested, month_disabled
 
 logger = logging.getLogger(__name__)
 from app.models import Hospital, QualityScore, ConfidenceScore
@@ -36,6 +37,7 @@ def get_root_cause_timeline(
     month: str = Query(..., description="Month YYYY-MM"),
     months_back: int = Query(6, ge=2, le=12, description="Months of history to compare"),
     peer_mode: str = Query("auto", description="Peer group selection", pattern=_PEER_MODE_PATTERN),
+    include_disabled: bool = Query(False, description="Historical/audit view"),
     db: Session = Depends(get_db),
 ):
     """المقارنة الزمنية لكل مؤشر: قيمة المستشفى شهراً بشهر مقابل متوسط النظير.
@@ -47,6 +49,16 @@ def get_root_cause_timeline(
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail="Hospital not found")
+    if not include_disabled_requested(include_disabled) and month_disabled(
+        db, hospital_id, month
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Month {month} is disabled for this hospital. "
+                "Use include_disabled=true for the historical view."
+            ),
+        )
 
     # Build disabled-indicator set so the timeline skips disabled codes
     from app.engine.pipeline import get_disabled_indicator_ids as _gdi
@@ -126,11 +138,22 @@ def get_root_cause_analysis(
     compare_peers: bool = Query(False, description="Include peer comparison analysis"),
     months_back: int = Query(6, description="Months of history to analyze"),
     peer_mode: str = Query("auto", description="Peer group selection: auto|type|governorate|ownership|all", pattern=_PEER_MODE_PATTERN),
+    include_disabled: bool = Query(False, description="Historical/audit view"),
     db: Session = Depends(get_db),
 ):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail="Hospital not found")
+    if not include_disabled_requested(include_disabled) and month_disabled(
+        db, hospital_id, month
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Month {month} is disabled for this hospital. "
+                "Use include_disabled=true for the historical view."
+            ),
+        )
 
     quality_data = None
     confidence_data = None
@@ -301,6 +324,9 @@ def get_root_cause_analysis(
                 "peer_std": v.peer_std,
                 "hospital_percentile": v.hospital_percentile,
                 "hospital_z_score": v.hospital_z_score,
+                # A peer group too small to measure a spread produced no z
+                # (layered.PEER_Z_POLICY): the reason travels with the row.
+                "z_provenance": v.z_provenance,
                 "gap_pct": v.gap_pct,
                 "peer_governorates": v.peer_governorates,
                 "peer_governorate_counts": v.peer_governorate_counts,

@@ -263,11 +263,32 @@ def _check_migration_sync():
             print(f"[startup] Schema in sync (revision {head_rev})")
         else:
             schema_in_sync = False
-            msg = (
-                f"[startup] *** SCHEMA DRIFT *** database revision {applied} != code head {head_rev}. "
-                "Run 'alembic upgrade head' on this database. Endpoints touching "
-                "newer columns may 500 until then."
-            )
+            # A recorded revision with no migration file is a different failure
+            # from being behind head: alembic raises "Can't locate revision"
+            # before running anything, so 'upgrade head' cannot fix it and the
+            # generic message would misdirect the operator.
+            resolvable = True
+            if applied:
+                lookup = getattr(script, "get_revisions", None)
+                if lookup is not None:
+                    try:
+                        lookup(applied)
+                    except Exception:
+                        resolvable = False
+            if not resolvable:
+                msg = (
+                    f"[startup] *** SCHEMA DRIFT *** database revision {applied} has no "
+                    f"migration file in the code chain (code head is {head_rev}). A revision "
+                    "was renamed or removed, so 'alembic upgrade head' cannot run on this "
+                    "database: restamp alembic_version at a revision whose file still "
+                    "exists, then upgrade. Endpoints touching newer columns may 500."
+                )
+            else:
+                msg = (
+                    f"[startup] *** SCHEMA DRIFT *** database revision {applied} != code head {head_rev}. "
+                    "Run 'alembic upgrade head' on this database. Endpoints touching "
+                    "newer columns may 500 until then."
+                )
             print(msg)
             logging.getLogger("uvicorn.error").warning(msg)
     except Exception as e:
@@ -708,10 +729,8 @@ async def lifespan(app: FastAPI):
             # Z-score SystemSetting. thresholds.zscore_threshold (2.5) remains
             # the single authoritative Z-score threshold.
             try:
-                from app.api.config_api import (
-                    reconcile_legacy_settings,
-                    seed_severity_trend_settings,
-                )
+                from app.api.config_api import reconcile_legacy_settings
+                from app.engine.severity import seed_severity_trend_settings
                 created = seed_severity_trend_settings(session)
                 if created:
                     print(f"[startup] Seeded {created} severity/trend setting(s).")
@@ -1092,17 +1111,23 @@ class CachedStaticFiles(StaticFiles):
 
     async def get_response(self, path, scope):
         response = await super().get_response(path, scope)
-        # HTML should never be cached (served via /dashboard route anyway)
+        # HTML is the document that carries the fingerprints: never store it.
         if path.endswith(".html"):
             response.headers["Cache-Control"] = "no-store"
+            return response
+        # A ?v= stamp is a promise that this exact URL can never change, so it
+        # may be cached for a year. Everything else (JS imported by another JS
+        # module, a CSS file linked without a stamp, a hand-typed asset path)
+        # is revalidated on every use: a deployment is then picked up even when
+        # a file is copied with an unchanged mtime, instead of leaving the
+        # browser on a year-old stylesheet.
+        query = scope.get("query_string", b"")
+        if isinstance(query, bytes):
+            query = query.decode("latin-1", "ignore")
+        if "v=" in query:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         else:
-            # JS modules imported inside other JS (e.g. hospitals.js via app.js)
-            # never get ?v= cache-busting, so we use no-cache to force revalidation.
-            # Static assets referenced in HTML get ?v= so they ARE fully cached.
-            if path.endswith(".js"):
-                response.headers["Cache-Control"] = "public, no-cache, must-revalidate"
-            else:
-                response.headers["Cache-Control"] = "public, max-age=31536000"
+            response.headers["Cache-Control"] = "public, no-cache, must-revalidate"
         return response
 
 

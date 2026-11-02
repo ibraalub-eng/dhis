@@ -1326,7 +1326,10 @@ function loadHospitalsSettings() {
                                     '<span style="font-weight:600;font-size:0.78rem;">' + esc(c.indicator_name || c.indicator_code) + '</span>' +
                                     '<span style="font-size:0.7rem;color:' + color + ';font-weight:700;">' + (over ? '▲ +' : '▼ ') + Math.abs(gap).toFixed(1) + '%</span>' +
                                 '</div>' +
-                                '<div style="font-size:0.68rem;color:var(--text-muted);">' + __('Hospital') + ' ' + c.hospital_value + ' ' + __('vs peer average') + ' ' + c.peer_mean + ' (' + c.peer_count + ' ' + __('hospitals') + ') — ' + __('percentile') + ' ' + c.hospital_percentile + ' | z=' + c.hospital_z_score + '</div>' +
+                                // A peer group too small to measure a spread produced no z
+                                // (layered.PEER_Z_POLICY): the comparison is stated, the
+                                // magnitude is not quoted as if it had been measured.
+                                '<div style="font-size:0.68rem;color:var(--text-muted);">' + __('Hospital') + ' ' + c.hospital_value + ' ' + __('vs peer average') + ' ' + c.peer_mean + ' (' + c.peer_count + ' ' + __('hospitals') + ') — ' + __('percentile') + ' ' + c.hospital_percentile + ' | z=' + ((c.hospital_z_score === null || c.hospital_z_score === undefined) ? esc(__('not produced (too few peers)')) : c.hospital_z_score) + '</div>' +
                                 (govParts || types ? '<div style="font-size:0.66rem;color:var(--text-muted);margin-top:0.1rem;">' + __('Peers') + ' — ' + __('governorates') + ': ' + (govParts || '—') + ' | ' + __('types') + ': ' + (types || '—') + '</div>' : '') +
                             '</div>';
                         }).join('');
@@ -2470,7 +2473,9 @@ function loadHospitalsSettings() {
             const hi = Math.max(...values);
             const span = hi - lo;
             const stepSize = span <= 8 ? 2 : span <= 20 ? 5 : span <= 50 ? 10 : 20;
-            const height = Math.max(span, stepSize * 3);
+            // Zoom out a little: pad the fitted window so the line keeps
+            // headroom above and below instead of hugging the plot edges.
+            const height = Math.max(span * 1.5, stepSize * 3);
             const mid = (lo + hi) / 2;
             return {
                 min: Math.max(0, Math.floor((mid - height / 2) / stepSize) * stepSize),
@@ -2777,7 +2782,7 @@ function loadHospitalsSettings() {
             document.getElementById('dashLoading').style.display = 'inline';
 
             // Add skeletons for summary cards
-            const sumCards = ['dashHospitals', 'dashReports', 'dashAvgScore', 'dashAlerts', 'dashRedIssues'];
+            const sumCards = ['dashHospitals', 'dashReports', 'dashAvgScore', 'dashAlerts', 'dashRuleFailures', 'dashVeryHighIssues'];
             sumCards.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
@@ -2806,23 +2811,55 @@ function loadHospitalsSettings() {
                 // reports — show a dash, never a fake 0.
                 document.getElementById('dashAvgScore').textContent = (data.avg_quality_score != null && isFinite(data.avg_quality_score))
                     ? data.avg_quality_score : '\u2014';
-                document.getElementById('dashAlerts').textContent = data.total_alerts;
+                // Open risk alerts: the Quality Alerts screen's own unit (one
+                // per hospital+canonical formula+month), so this card agrees
+                // with that screen's Total issues KPI. It used to show
+                // the stored validation-rule failure count, which read 4 beside
+                // 1,200 Very High issues and was not an alert volume at all.
+                const alertsEl = document.getElementById('dashAlerts');
+                const alertsCard = document.getElementById('dashAlertsCard');
+                if (alertsEl) {
+                    const active = data.active_quality_issues;
+                    alertsEl.textContent = (active == null) ? '\u2014' : active;
+                }
+                if (alertsCard) {
+                    if (typeof window.hasPermission === 'function') {
+                        alertsCard.style.display = window.hasPermission('quality_alerts.read') ? '' : 'none';
+                    }
+                    alertsCard.title = __('Open Quality Alerts — one per hospital, indicator and month. Click for the full list and investigation workflow.');
+                }
+
+                // Validation-rule failures keep their own card and their own
+                // unit (a stored FAIL row per hospital-month-rule), so the two
+                // signals are never added together or read as one number.
+                const failEl = document.getElementById('dashRuleFailures');
+                const failCard = document.getElementById('dashRuleFailuresCard');
+                if (failEl) {
+                    const failed = data.total_alerts;
+                    failEl.textContent = (failed == null) ? '\u2014' : failed;
+                }
+                if (failCard) {
+                    if (typeof window.hasPermission === 'function') {
+                        failCard.style.display = window.hasPermission('alerts.read') ? '' : 'none';
+                    }
+                    failCard.title = __("Validation rule failures — open the Validation Alerts screen for the failed rules.");
+                }
 
                 // Quality risk: Very High issues from the Quality Alerts
                 // screen, in that screen's own unit — one per
                 // hospital+indicator+month. Perspective rows would overstate
                 // it, because one issue can fire on several comparisons.
-                const redEl = document.getElementById('dashRedIssues');
-                const redCard = document.getElementById('dashRedCard');
-                if (redEl) {
-                    const red = data.red_quality_issues;
-                    redEl.textContent = (red == null) ? '\u2014' : red;
+                const veryHighEl = document.getElementById('dashVeryHighIssues');
+                const veryHighCard = document.getElementById('dashVeryHighCard');
+                if (veryHighEl) {
+                    const veryHigh = data.very_high_quality_issues;
+                    veryHighEl.textContent = (veryHigh == null) ? '\u2014' : veryHigh;
                 }
-                if (redCard) {
+                if (veryHighCard) {
                     if (typeof window.hasPermission === 'function') {
-                        redCard.style.display = window.hasPermission('quality_alerts.read') ? '' : 'none';
+                        veryHighCard.style.display = window.hasPermission('quality_alerts.read') ? '' : 'none';
                     }
-                    redCard.title = __('Very High risk issues — open Quality Alerts for the full list and investigation workflow.');
+                    veryHighCard.title = __('Very High risk issues — open Quality Alerts for the full list and investigation workflow.');
                 }
 
                 // KPI cards

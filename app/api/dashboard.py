@@ -11,6 +11,12 @@ from app.models import (Hospital, QualityAlert, QualityScore, ConfidenceScore,
 from sqlalchemy import func, text, and_
 from app.engine.pipeline import get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
+from app.eligibility import disabled_pairs, exclude_disabled
+
+# Compatibility aliases: other modules historically imported these names from
+# here. They all now resolve to the single shared rule in app.eligibility.
+_disabled_pairs = disabled_pairs
+_exclude_disabled = exclude_disabled
 
 
 # ── Shared helper: "actually analyzed" gate ──
@@ -52,9 +58,15 @@ def _stale_policy_alert_count(db, user_hosp_ids, hospital_id, month_from,
         logger.warning("Dashboard policy drift unavailable: %s", exc)
         return None
 
+    from app.engine.quality_alerts import CLOSED_STATUSES
+
     stamped = QualityAlert.evidence["severity_policy"]["fingerprint"].as_string()
     q = (db.query(func.count(QualityAlert.id))
          .filter(QualityAlert.active.is_(True),
+                 # A closed alert (Resolved / False Positive) is not drift the
+                 # operator has to act on, and the Quality Alerts screen no
+                 # longer shows it as stale.
+                 QualityAlert.status.notin_(CLOSED_STATUSES),
                  stamped.isnot(None),
                  stamped != severity_policy.policy_fingerprint(cfg)))
     if user_hosp_ids is not None:
@@ -70,22 +82,25 @@ def _stale_policy_alert_count(db, user_hosp_ids, hospital_id, month_from,
     return int(q.scalar() or 0)
 
 
-def _red_quality_issue_count(db, user_hosp_ids, hospital_id, month_from,
-                             month_to, year):
-    """Very High risk issues — the unit the Quality Alerts table lists.
+def _open_quality_alert_scope(db, user_hosp_ids, hospital_id, month_from,
+                              month_to, year):
+    """The open Quality Alerts population every dashboard alert card counts.
 
-    One issue is a (hospital, indicator, month) scope and may carry several
-    perspective rows, so counting rows would report more findings than the red
-    filter can display. Grouped exactly like ``/quality-alerts/summary``'s
-    ``red_issues`` and scoped to active hospitals, so this card and that
-    screen cannot disagree about the same window.
+    Exactly the scope ``/quality-alerts/summary`` counts: active hospitals,
+    rows still flagged ``active``, no finding a reviewer closed, this user's
+    hospital scope, the selected month window and the shared disabled-month
+    rule. Both alert cards derive from this one ladder, so a card can never
+    disagree with the screen — or with the other card — about the same window.
     """
-    q = (db.query(QualityAlert.hospital_id, QualityAlert.indicator_code,
-                  QualityAlert.month)
+    from app.engine.quality_alerts import CLOSED_STATUSES
+
+    q = (db.query(QualityAlert)
          .join(Hospital, QualityAlert.hospital_id == Hospital.id)
          .filter(Hospital.is_active.is_(True),
                  QualityAlert.active.is_(True),
-                 QualityAlert.severity == "VERY_HIGH"))
+                 # Same scope as the Quality Alerts screen's open view: an
+                 # issue a reviewer resolved or skipped is no longer open.
+                 QualityAlert.status.notin_(CLOSED_STATUSES)))
     if user_hosp_ids is not None:
         q = q.filter(QualityAlert.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -96,61 +111,101 @@ def _red_quality_issue_count(db, user_hosp_ids, hospital_id, month_from,
         q = q.filter(QualityAlert.month <= month_to)
     elif year:
         q = q.filter(QualityAlert.month.like(f"{year}-%"))
-    return int(q.distinct().count())
+    return exclude_disabled(db, q, QualityAlert)
 
 
-def _disabled_pairs(db):
-    """Set of (hospital_id, month) pairs whose month was explicitly disabled
-    for that hospital (month_enabled_<hid>_<YYYY-MM> = false). A disabled
-    month leaves the hospital's KPI aggregates ENTIRELY — score, completeness,
-    compliance, consistency, confidence — in per-hospital AND network-wide
-    views (the old intersection-only rule only handled network-wide months
-    and ignored per-hospital disables when any month filter was set).
+def _quality_issue_counts(db, user_hosp_ids, hospital_id, month_from,
+                          month_to, year) -> dict:
+    """(all open issues, Very High issues) — the unit the screen lists.
+
+    One issue is a (hospital, CANONICAL FORMULA, month) scope and may carry
+    several perspective rows, so counting rows would report more findings than
+    the table can display. Equivalent formulas registered under several codes
+    are one formula, so those rows are folded together before counting —
+    exactly like ``/quality-alerts/summary``'s ``total_issues`` /
+    ``very_high_issues``, which this powers, so the cards and that screen cannot
+    disagree about the same window.
+
+    The Very High count uses the band the approved cap policy assigns
+    (``engine.effective_severity``): a comparison with no dispersion, or a peer
+    group too small to measure a spread, is not Very High however it was
+    stored. Rows written before those caps were approved therefore stop
+    inflating this card without a re-scan.
+
+    Asking for the whole open set and the Very High subset in one place is what
+    keeps the two cards ordered by construction: ``very_high <= total`` always
+    holds.
     """
-    from app.models import SystemSetting
-    from app.api.config_api import MONTH_SETTINGS_PREFIX
-    rows = db.query(SystemSetting).filter(
-        SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
-    ).all()
-    out = set()
-    for row in rows:
-        if row.value != "false":
-            continue
-        rest = row.key[len(MONTH_SETTINGS_PREFIX):]
-        hid_str, _, m = rest.partition("_")
-        if hid_str.isdigit() and m:
-            out.add((int(hid_str), m))
-    return out
+    from app.engine.canonical_identity import identity_key, stored_identity
+    from app.engine.quality_alerts import (
+        effective_severity,
+        stored_series,
+        stored_threshold,
+    )
+
+    # Fold equivalent formulas together before counting: the identity comes
+    # from the formula STORED on each row, so a historical row on a duplicate
+    # code (or one computed before a formula edit) is filed with the finding it
+    # actually belongs to — no schema change and no historical rewrite.
+    def _key(hid, code, month, formula, unit):
+        return (hid, identity_key(stored_identity(formula, unit, code)), month)
+
+    # The total needs identity columns only, so the evidence JSON is never
+    # loaded for the (much larger) all-bands population.
+    total_q = _open_quality_alert_scope(
+        db, user_hosp_ids, hospital_id, month_from, month_to, year,
+    ).with_entities(QualityAlert.hospital_id, QualityAlert.indicator_code,
+                    QualityAlert.month, QualityAlert.formula,
+                    QualityAlert.unit)
+    issues = {_key(*row) for row in total_q.all()}
+
+    # A cap only ever LOWERS a band, so a stored VERY_HIGH row is the complete
+    # superset of the rows that can still end up Very High under it.
+    very_high_q = _open_quality_alert_scope(
+        db, user_hosp_ids, hospital_id, month_from, month_to, year,
+    ).with_entities(QualityAlert.hospital_id, QualityAlert.indicator_code,
+                    QualityAlert.month, QualityAlert.formula,
+                    QualityAlert.unit, QualityAlert.severity,
+                    QualityAlert.method, QualityAlert.peer_count,
+                    # The top-band gate's inputs, read from the SAME row the
+                    # Quality Alerts screen reads: the value that was compared
+                    # and the perspective that produced the band. Without them
+                    # this card would judge every history row as undecided and
+                    # report a higher Very High count than the screen.
+                    QualityAlert.current_value, QualityAlert.perspective,
+                    QualityAlert.evidence
+                    ).filter(QualityAlert.severity == "VERY_HIGH")
+    very_high = set()
+    # No SQL DISTINCT: the fold below is already a set, and a JSON column
+    # cannot be compared in Postgres anyway.
+    for (hid, code, month, formula, unit, severity, method, peer_count,
+         current_value, perspective, evidence) in very_high_q.all():
+        band = effective_severity(
+            severity, stats=(evidence or {}).get("stats"), method=method,
+            peer_count=peer_count,
+            series=stored_series(evidence),
+            current=current_value, perspective=perspective,
+            threshold=stored_threshold(evidence)) or severity
+        if band == "VERY_HIGH":
+            very_high.add(_key(hid, code, month, formula, unit))
+    return {"total": len(issues), "very_high": len(very_high)}
 
 
-def _exclude_disabled(db, q, model, hospital_id=None):
-    """Apply the disabled-(hospital, month) exclusion to a QualityScore (or
-    ConfidenceScore) query. Cheap no-op when nothing is disabled."""
-    pairs = _disabled_pairs(db)
-    if not pairs:
-        return q
-    if hospital_id is not None:
-        months = {m for (hid, m) in pairs if hid == hospital_id}
-        if months:
-            q = q.filter(~model.month.in_(months))
-        return q
-    from sqlalchemy import and_, or_
-    by_hosp: dict = {}
-    for hid, m in pairs:
-        by_hosp.setdefault(hid, set()).add(m)
-    # One condition per hospital THAT HAS disabled months; every other
-    # hospital must pass through untouched — a `NOT IN ()` over an empty
-    # list evaluates FALSE in SQL and would silently drop whole hospitals.
-    conds = [
-        or_(model.hospital_id != hid, ~model.month.in_(months))
-        for hid, months in by_hosp.items()
-    ]
-    return q.filter(and_(*conds)) if conds else q
+def _very_high_quality_issue_count(db, user_hosp_ids, hospital_id, month_from,
+                                   month_to, year):
+    """Very High open issues alone (:func:`_quality_issue_counts`).
+
+    Kept as a named entry point because callers and tests import it directly;
+    it reads the SAME fold as the total, so the Very High card can never exceed
+    the total card beside it.
+    """
+    return _quality_issue_counts(
+        db, user_hosp_ids, hospital_id, month_from, month_to, year)["very_high"]
 
 
 # ── Shared helper: confidence aggregate with the score query's filters ──
 def _conf_avg_q(db, hospital_id=None, exclude_self=False, lo=None, hi=None,
-                month=None, year=None, enabled_months=None, user_hosp_ids=None):
+                month=None, year=None, user_hosp_ids=None):
     """Average ``ConfidenceScore.overall_confidence`` under EXACTLY the ghost,
     disabled-month, hospital and window filters the QualityScore query uses.
 
@@ -185,8 +240,6 @@ def _conf_avg_q(db, hospital_id=None, exclude_self=False, lo=None, hi=None,
         q = q.filter(ConfidenceScore.month == month)
     elif year:
         q = q.filter(ConfidenceScore.month.like(f"{year}-%"))
-    elif enabled_months:
-        q = q.filter(ConfidenceScore.month.in_(enabled_months))
     return q
 
 
@@ -246,8 +299,6 @@ def dashboard_overview(
 ):
     # Filter by user's assigned hospitals
     user_hosp_ids = get_user_hospital_ids(user, db)
-    from app.api.analysis import get_enabled_months
-    enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
     if year is not None and not re.match(r"^\d{4}$", str(year)):
         return {"error": "Invalid year format"}
@@ -267,6 +318,8 @@ def dashboard_overview(
     reports_q = db.query(QualityScore.hospital_id, QualityScore.month).distinct().filter(
         _analyzed_exists(db, QualityScore)
     )
+    reports_q = _exclude_disabled(db, reports_q, QualityScore,
+                                  hospital_id=hospital_id)
     if user_hosp_ids is not None:
         reports_q = reports_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -277,13 +330,12 @@ def dashboard_overview(
         reports_q = reports_q.filter(QualityScore.month <= month_to)
     elif year:
         reports_q = reports_q.filter(QualityScore.month.like(f"{year}-%"))
-    elif enabled_months:
-        reports_q = reports_q.filter(QualityScore.month.in_(enabled_months))
     total_reports = reports_q.count()
 
     q = db.query(func.avg(QualityScore.score)).filter(
         _analyzed_exists(db, QualityScore)
     )
+    q = _exclude_disabled(db, q, QualityScore, hospital_id=hospital_id)
     if user_hosp_ids is not None:
         q = q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -294,14 +346,14 @@ def dashboard_overview(
         q = q.filter(QualityScore.month <= month_to)
     elif year:
         q = q.filter(QualityScore.month.like(f"{year}-%"))
-    elif enabled_months:
-        q = q.filter(QualityScore.month.in_(enabled_months))
     _avg = q.scalar()
     avg_score = round(float(_avg), 1) if _avg is not None else None
 
     alerts_q = db.query(ValidationResult).filter(
         ValidationResult.status == "FAIL"
     )
+    alerts_q = _exclude_disabled(db, alerts_q, ValidationResult,
+                                 hospital_id=hospital_id)
     if user_hosp_ids is not None:
         alerts_q = alerts_q.filter(ValidationResult.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -314,12 +366,20 @@ def dashboard_overview(
         alerts_q = alerts_q.filter(ValidationResult.month.like(f"{year}-%"))
     alerts_total = alerts_q.count()
 
+    # Both alert cards come from one fold (see _quality_issue_counts), so the
+    # "Active Alerts" card and the "Very high issues" card always describe the
+    # same open population and can never be ordered the wrong way round.
+    _quality_issues = _quality_issue_counts(
+        db, user_hosp_ids, hospital_id, month_from, month_to, year)
+
     trend_q = db.query(
         QualityScore.month,
         func.avg(QualityScore.score).label("score"),
     ).filter(
         _analyzed_exists(db, QualityScore)
     )
+    trend_q = _exclude_disabled(db, trend_q, QualityScore,
+                                hospital_id=hospital_id)
     if user_hosp_ids is not None:
         trend_q = trend_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -330,8 +390,6 @@ def dashboard_overview(
         trend_q = trend_q.filter(QualityScore.month <= month_to)
     elif year:
         trend_q = trend_q.filter(QualityScore.month.like(f"{year}-%"))
-    elif enabled_months:
-        trend_q = trend_q.filter(QualityScore.month.in_(enabled_months))
     trend_rows = trend_q.group_by(QualityScore.month).order_by(QualityScore.month.desc()).limit(12).all()
     trend_data = sorted(
         [{"month": t[0], "score": round(float(t[1]), 1)} for t in trend_rows],
@@ -354,6 +412,8 @@ def dashboard_overview(
     ).filter(
         Hospital.is_active.is_(True)
     )
+    comp_q = _exclude_disabled(db, comp_q, QualityScore,
+                               hospital_id=hospital_id)
     if user_hosp_ids is not None:
         comp_q = comp_q.filter(Hospital.id.in_(user_hosp_ids))
     if month_from:
@@ -362,8 +422,6 @@ def dashboard_overview(
         comp_q = comp_q.filter(QualityScore.month <= month_to)
     elif year:
         comp_q = comp_q.filter(QualityScore.month.like(f"{year}-%"))
-    elif enabled_months:
-        comp_q = comp_q.filter(QualityScore.month.in_(enabled_months))
     comp = comp_q.group_by(Hospital.id, Hospital.name).having(
         func.count(QualityScore.id) >= 0
     ).order_by(
@@ -385,6 +443,8 @@ def dashboard_overview(
         ConfidenceScore.level,
         func.count(ConfidenceScore.id).label("count"),
     )
+    conf_q = _exclude_disabled(db, conf_q, ConfidenceScore,
+                               hospital_id=hospital_id)
     if user_hosp_ids is not None:
         conf_q = conf_q.filter(ConfidenceScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -406,6 +466,8 @@ def dashboard_overview(
         func.avg(QualityScore.completeness).label("completeness"),
         func.avg(QualityScore.consistency).label("consistency"),
     )
+    radar_q = _exclude_disabled(db, radar_q, QualityScore,
+                                hospital_id=hospital_id)
     if user_hosp_ids is not None:
         radar_q = radar_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -416,8 +478,6 @@ def dashboard_overview(
         radar_q = radar_q.filter(QualityScore.month <= month_to)
     elif month:
         radar_q = radar_q.filter(QualityScore.month == month)
-    elif enabled_months:
-        radar_q = radar_q.filter(QualityScore.month.in_(enabled_months))
     if year:
         radar_q = radar_q.filter(QualityScore.month.like(f"{year}-%"))
     radar_row = radar_q.first()
@@ -432,8 +492,6 @@ def dashboard_overview(
         _radar_q = _radar_q.filter(QualityScore.month >= month_from)
     if month_to:
         _radar_q = _radar_q.filter(QualityScore.month <= month_to)
-    elif enabled_months:
-        _radar_q = _radar_q.filter(QualityScore.month.in_(enabled_months))
     if year:
         _radar_q = _radar_q.filter(QualityScore.month.like(f"{year}-%"))
     _radar_scores = _radar_q.all()
@@ -445,6 +503,8 @@ def dashboard_overview(
         "Consistency": round(float(radar_row.consistency), 1) if radar_row and radar_row.consistency is not None else None,
     }
     outlier_q = db.query(func.avg(func.abs(QualityScore.outlier_penalty)).label("avg_op"))
+    outlier_q = _exclude_disabled(db, outlier_q, QualityScore,
+                                  hospital_id=hospital_id)
     if user_hosp_ids is not None:
         outlier_q = outlier_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
@@ -455,8 +515,6 @@ def dashboard_overview(
         outlier_q = outlier_q.filter(QualityScore.month <= month_to)
     elif month:
         outlier_q = outlier_q.filter(QualityScore.month == month)
-    elif enabled_months:
-        outlier_q = outlier_q.filter(QualityScore.month.in_(enabled_months))
     if year:
         outlier_q = outlier_q.filter(QualityScore.month.like(f"{year}-%"))
     outlier_row = outlier_q.first()
@@ -471,11 +529,20 @@ def dashboard_overview(
         "total_hospitals": total_hospitals,
         "total_reports": total_reports,
         "avg_quality_score": avg_score,
+        # Stored validation-rule failures (a FAIL row per hospital-month-rule).
+        # This is the Validation Alerts signal, NOT the risk-outlier alert
+        # volume: the dashboard's "Active Alerts" card reads
+        # ``active_quality_issues`` below and the rule count has its own card,
+        # so the two units can never be read as one number again.
         "total_alerts": alerts_total,
+        # Open Quality Alerts, in the unit the Quality Alerts table lists and
+        # pages through (one per hospital+canonical formula+month). This is the
+        # alert volume the dashboard reports; the Very High subset sits beside
+        # it.
+        "active_quality_issues": _quality_issues["total"],
         # Very High risk issues (one per hospital+indicator+month): the unit
         # the Quality Alerts table lists and pages through.
-        "red_quality_issues": _red_quality_issue_count(
-            db, user_hosp_ids, hospital_id, month_from, month_to, year),
+        "very_high_quality_issues": _quality_issues["very_high"],
         # Policy drift: stored Quality Alerts resolved under a different saved
         # severity/trend policy than the one in effect now (null = unreadable).
         "stale_policy_alerts": _stale_policy_alert_count(
@@ -505,21 +572,9 @@ def dashboard_trend(db: Session = Depends(get_db), user=Depends(require_permissi
     # like 2027-01 into it), which silently dropped real months from this
     # trend. Ghost (never-analyzed) months are already excluded by
     # _analyzed_exists, so no cached month list is needed here.
-    from app.models import SystemSetting
-    from app.api.config_api import MONTH_SETTINGS_PREFIX
-    disabled_rows = db.query(SystemSetting).filter(
-        SystemSetting.key.like(MONTH_SETTINGS_PREFIX + "%")
-    ).all()
     disabled_by_hid: dict = {}
-    for row in disabled_rows:
-        if row.value != "false":
-            continue
-        # key format: month_enabled_<hid>_<YYYY-MM>
-        rest = row.key[len(MONTH_SETTINGS_PREFIX):]
-        hid_str, _, m = rest.partition("_")
-        if not hid_str.isdigit() or not m:
-            continue
-        disabled_by_hid.setdefault(int(hid_str), set()).add(m)
+    for hid, m in disabled_pairs(db):
+        disabled_by_hid.setdefault(hid, set()).add(m)
     # Exclude a month only when EVERY scored hospital disabled it.
     _scored_q = db.query(QualityScore.hospital_id).distinct()
     user_hosp_ids = get_user_hospital_ids(user, db)
@@ -538,6 +593,9 @@ def dashboard_trend(db: Session = Depends(get_db), user=Depends(require_permissi
     ).filter(
         _analyzed_exists(db, QualityScore)
     )
+    # Exclude disabled PAIRS, not whole months: a month switched off for one
+    # hospital must still average that month's active hospitals.
+    trend_q = _exclude_disabled(db, trend_q, QualityScore)
     if user_hosp_ids is not None:
         trend_q = trend_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if common_disabled:
@@ -552,10 +610,8 @@ def dashboard_trend(db: Session = Depends(get_db), user=Depends(require_permissi
 
 @router.get("/kpi")
 def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, month_from: str | None = None, month_to: str | None = None, year: str | None = None, db: Session = Depends(get_db), user=Depends(require_permission("dashboard.read"))):
-    from app.api.analysis import get_enabled_months
     from app.cache import get_data_epoch
     user_hosp_ids = get_user_hospital_ids(user, db)
-    enabled_months = get_enabled_months(db, hospital_id=hospital_id)
     if year is not None and not re.match(r"^\d{4}$", str(year)):
         return {"error": "Invalid year format"}
     base = db.query(QualityScore).filter(
@@ -574,8 +630,6 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         base = base.filter(QualityScore.month == month)
     elif year:
         base = base.filter(QualityScore.month.like(f"{year}-%"))
-    elif enabled_months:
-        base = base.filter(QualityScore.month.in_(enabled_months))
 
     # Recalculate completeness using current disabled indicator set
     _kpi_scores = base.all()
@@ -608,7 +662,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         # above, shared with the previous-period and peer comparators below.
         conf_high_pct = _conf_avg_value(_conf_avg_q(
             db, hospital_id=hospital_id, lo=month_from, hi=month_to,
-            month=month, year=year, enabled_months=enabled_months,
+            month=month, year=year,
             user_hosp_ids=user_hosp_ids,
         ).first())
 
@@ -723,8 +777,6 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             net = net.filter(QualityScore.month == month)
         elif year:
             net = net.filter(QualityScore.month.like(f"{year}-%"))
-        elif enabled_months:
-            net = net.filter(QualityScore.month.in_(enabled_months))
 
         def _net_val(kid):
             if kid == "conf_high":
@@ -735,7 +787,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
                 return _conf_avg_value(_conf_avg_q(
                     db, hospital_id=hospital_id, exclude_self=True,
                     lo=month_from, hi=month_to, month=month, year=year,
-                    enabled_months=enabled_months, user_hosp_ids=user_hosp_ids,
+                    user_hosp_ids=user_hosp_ids,
                 ).first())
             if kid == "completeness":
                 cp = _recalc_completeness(db, net.all())
@@ -807,7 +859,9 @@ def dashboard_attention(hospital_id: int | None = None, month_from: str | None =
             q = q.filter(model.month.like(f"{year}-%"))
         return q
 
-    scores = _base_q(QualityScore).order_by(QualityScore.hospital_id, QualityScore.month).all()
+    scores_q = _base_q(QualityScore)
+    scores_q = _exclude_disabled(db, scores_q, QualityScore, hospital_id=hospital_id)
+    scores = scores_q.order_by(QualityScore.hospital_id, QualityScore.month).all()
     by_hosp: dict = {}
     for s in scores:
         if s.hospital_id in hospitals:
@@ -927,8 +981,9 @@ def dashboard_attention(hospital_id: int | None = None, month_from: str | None =
     _an_cfg = get_anomaly_settings(db)
     _z_thresh = _an_cfg["anomaly_zscore_threshold"]
     _drift_len = int(_an_cfg["anomaly_drift_months"])
-    hq = db.query(QualityScore).filter(_analyzed_exists(db, QualityScore)).order_by(
-        QualityScore.hospital_id, QualityScore.month)
+    hq = db.query(QualityScore).filter(_analyzed_exists(db, QualityScore))
+    hq = _exclude_disabled(db, hq, QualityScore, hospital_id=hospital_id)
+    hq = hq.order_by(QualityScore.hospital_id, QualityScore.month)
     if year:
         hq = hq.filter(QualityScore.month.like(f"{year}-%"))
     hist: dict = {}
@@ -1012,9 +1067,6 @@ def dashboard_attention(hospital_id: int | None = None, month_from: str | None =
 
 @router.get("/ranking")
 def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = None, month_to: str | None = None, db: Session = Depends(get_db), user=Depends(require_permission("dashboard.read"))):
-    from app.api.analysis import get_enabled_months
-    enabled_months = get_enabled_months(db)
-
     user_hosp_ids = get_user_hospital_ids(user, db)
     if hospital_id is not None and user_hosp_ids is not None and hospital_id not in user_hosp_ids:
         raise HTTPException(status_code=404, detail="Hospital not found")
@@ -1036,8 +1088,6 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
             q = q.filter(QualityScore.month >= month_from)
         if month_to:
             q = q.filter(QualityScore.month <= month_to)
-        elif enabled_months:
-            q = q.filter(QualityScore.month.in_(enabled_months))
         scores = q.order_by(QualityScore.month.asc()).all()
 
         if not scores:
@@ -1057,9 +1107,17 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
         else:
             direction = "stable"
 
-        conf = db.query(ConfidenceScore).filter(
-            ConfidenceScore.hospital_id == h.id
-        ).order_by(ConfidenceScore.month.desc()).first()
+        # Confidence must describe the same active months as the score row;
+        # taking the latest confidence blindly could quote a disabled month.
+        conf = (
+            db.query(ConfidenceScore)
+            .filter(
+                ConfidenceScore.hospital_id == h.id,
+                ConfidenceScore.month.in_([s.month for s in scores]),
+            )
+            .order_by(ConfidenceScore.month.desc())
+            .first()
+        )
         conf_score = round(conf.overall_confidence, 1) if conf else 0
 
         alerts_count = db.query(ValidationResult).filter(
@@ -1137,8 +1195,13 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db), user=D
 
     # Confidence: use weighted overall_confidence (matches the engine calculation)
     from app.models import ConfidenceScore as _CS
-    conf_q = db.query(func.avg(_CS.overall_confidence)).filter(_CS.hospital_id == hospital_id).first()
-    avg_confidence = round(float(conf_q[0] or 0), 1)
+    conf_q = db.query(func.avg(_CS.overall_confidence)).filter(
+        _CS.hospital_id == hospital_id,
+        _analyzed_exists(db, _CS),
+    )
+    conf_q = _exclude_disabled(db, conf_q, _CS, hospital_id=hospital_id)
+    conf_row = conf_q.first()
+    avg_confidence = round(float(conf_row[0] or 0), 1)
 
     if avg_score >= 90: grade = "A"
     elif avg_score >= 75: grade = "B"
@@ -1237,18 +1300,25 @@ def recalculate_completeness(db: Session = Depends(get_db), user=Depends(require
     from app.config_utils import get_config_dict
     from app.engine.pipeline import compute_hospital_completeness as _chc
     from app.engine.quality import combine_quality_score
+    from app.engine.quality.scoring import resolve_scoring_config
+    from app.engine.quality.scoring_audit import apply_score_update
     scores = db.query(QualityScore).all()
     if not scores:
         return {"updated": 0, "total": 0}
     # Weights come from the engine's single source of truth.
     cfg_map = get_config_dict(db, "quality")
+    resolved = resolve_scoring_config(cfg_map)
+    actor = getattr(user, "username", "system")
     updated = 0
     for s in scores:
         try:
             new_cp = round(_chc(db, s.hospital_id, s.month), 1)
-            s.completeness = new_cp
-            s.score = combine_quality_score(
-                s.rule_compliance, new_cp, s.consistency, s.outlier_penalty, cfg_map
+            apply_score_update(
+                db, s, resolved, "recalculate_completeness", actor,
+                completeness=new_cp,
+                score=combine_quality_score(
+                    s.rule_compliance, new_cp, s.consistency,
+                    s.outlier_penalty, resolved),
             )
             updated += 1
         except Exception:
@@ -1270,9 +1340,7 @@ def component_diagnostics(
 ):
     """Detailed per-component diagnostics with causes, impact, and monthly history.
     If metric is specified (e.g. completeness, rule_compliance), return only that component."""
-    from app.api.analysis import get_enabled_months
     from app.models import Indicator, IndicatorValue, HospitalIndicatorConfig
-    enabled_months = get_enabled_months(db, hospital_id=hospital_id)
 
     # The drilldown must answer the SAME question as the KPI card it was opened
     # from: same analyzed gate, same disabled-month exclusion, same user
@@ -1293,8 +1361,6 @@ def component_diagnostics(
         base = base.filter(QualityScore.month <= month_to)
     elif year:
         base = base.filter(QualityScore.month.like(f"{year}-%"))
-    elif enabled_months:
-        base = base.filter(QualityScore.month.in_(enabled_months))
 
     scores = base.order_by(QualityScore.month.asc()).all()
     if not scores:

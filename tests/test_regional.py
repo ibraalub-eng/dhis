@@ -333,6 +333,44 @@ def test_regional_anomalies_cross_sectional(db_session):
     assert "لا يعني" in outlier[0]["summary_ar"] or outlier[0]["summary_ar"]
 
 
+def test_regional_cross_sectional_needs_a_measurable_group(db_session):
+    """مجموعتان لقياس تشتت أقل من الحد لا تنتج شذوذاً عارضياً ولا z مُقتَبساً
+    (layered.PEER_Z_POLICY)."""
+    for i, nd in enumerate((5.0, 90.0)):
+        _seed_gov(db_session, f"محافظة صغيرة {i}", [f"م ص {i}"], values_by_hosp={
+            f"م ص {i}": {"2": 300.0, "5": 80.0, "6": 280.0, "17": nd},
+        })
+
+    data = _load_for(db_session, "2026-06")
+    govs = _gov_aggregates(data)
+    gov_names = sorted(govs)
+    metrics = {g: _gov_metrics(a) for g, a in govs.items()}
+    bm = _benchmarks(metrics)
+    assert bm["nmr"]["n"] == 2  # محافظتان فقط
+
+    findings = _regional_anomalies(db_session, "2026-06", metrics, bm, gov_names)
+    assert [f for f in findings if f["type"] == "cross_sectional"] == []
+
+
+def test_regional_table_withholds_the_z_for_a_thin_benchmark(db_session):
+    """جدول المحافظات يعرض الانحراف بلا z ويقول السبب بدلاً من قياس وهمي."""
+    for i, nd in enumerate((5.0, 90.0)):
+        _seed_gov(db_session, f"محافظة جدول {i}", [f"م ج {i}"], values_by_hosp={
+            f"م ج {i}": {"2": 300.0, "5": 80.0, "6": 280.0, "17": nd},
+        })
+
+    res = run_regional_analysis(db_session, "2026-06")
+    rows = {r["governorate"]: r for r in res["governorates"]}
+    assert len(rows) == 2
+    for row in rows.values():
+        nmr = row["rates"]["nmr"]
+        assert nmr["value"] is not None
+        assert nmr["deviation_pct"] is not None, "الانحراف يبقى"
+        assert nmr["z_score"] is None
+        assert nmr["z_provenance"]["z_produced"] is False
+        assert nmr["z_provenance"]["min_peers_for_z"] == 4
+
+
 def test_regional_anomalies_historical_spike(db_session):
     """قفزة في معدل وفيات محافظة مقابل أشهرها السابقة => شذوذ تاريخي."""
     from app.models import QualityScore, Hospital

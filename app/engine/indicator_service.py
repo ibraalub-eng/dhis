@@ -281,6 +281,102 @@ def _outlier_preference(resolved: ResolvedIndicator) -> tuple:
             resolved.code or "")
 
 
+@dataclass
+class CanonicalFormula:
+    """One logical formula with every registry code that carries it.
+
+    ``resolved`` is the representative used for analysis, ``code`` is its code
+    and ``registered_codes`` lists every equivalent registration (the
+    representative included). ``key`` is the stable identity fingerprint.
+    """
+    key: str
+    code: str
+    resolved: ResolvedIndicator
+    registered_codes: List[str] = field(default_factory=list)
+
+
+def _canonical_formulas(db, include_inactive: bool = False) -> List[CanonicalFormula]:
+    """Group registry definitions by canonical formula identity.
+
+    Equivalent formulas (the same expression at the same unit scale — e.g. the
+    per-site copies of ``rate_cs``) collapse into ONE group, with the same
+    representative preference the outlier scan has always used. Inactive rows
+    are excluded from analysis but included when building the code index, so a
+    stored finding on a since-deactivated alias can still be traced.
+    """
+    from app.engine import canonical_identity
+    from app.models import IndicatorDefinition
+
+    query = db.query(IndicatorDefinition)
+    if not include_inactive:
+        query = query.filter(IndicatorDefinition.is_active.is_(True))
+    groups: Dict[str, CanonicalFormula] = {}
+    for definition in query.order_by(IndicatorDefinition.code).all():
+        resolved = _resolved_definition(definition)
+        key = canonical_identity.identity_key(
+            canonical_identity.resolved_identity(resolved))
+        group = groups.get(key)
+        if group is None:
+            groups[key] = CanonicalFormula(
+                key=key, code=resolved.code, resolved=resolved,
+                registered_codes=[resolved.code])
+            continue
+        group.registered_codes.append(resolved.code)
+        if _outlier_preference(resolved) < _outlier_preference(group.resolved):
+            group.resolved = resolved
+            group.code = resolved.code
+    return list(groups.values())
+
+
+def canonical_formulas(db) -> List[CanonicalFormula]:
+    """Every ACTIVE logical formula, once — the analysis candidate set.
+
+    Anomaly Diagnostics and Quality Alerts both analyse one identity per
+    formula: the outlier scan takes ``resolved`` from each group, and the alert
+    scan analyses it once and records the group in its evidence so a finding
+    can never be counted once per registered code.
+    """
+    return _canonical_formulas(db)
+
+
+def canonical_code_index(db) -> Dict[str, dict]:
+    """code -> canonical identity for EVERY registry code (active or not).
+
+    Used by the scan (resolving a requested duplicate code to its
+    representative) and by readers that only hold a code. Codes absent from the
+    registry (raw data elements) are the caller's fallback — they keep their
+    own identity.
+    """
+    index: Dict[str, dict] = {}
+    for group in _canonical_formulas(db, include_inactive=True):
+        for code in group.registered_codes:
+            index[code] = {
+                "key": group.key,
+                "code": group.code,
+                "registered_codes": list(group.registered_codes),
+            }
+    return index
+
+
+def canonical_formula_index(db) -> Dict[str, dict]:
+    """identity key -> canonical registration for every formula in the registry.
+
+    Readers group STORED findings by the formula the row carries
+    (``canonical_identity.alert_identity``) and use this index only to name the
+    representative code and list every equivalent registration. An identity the
+    registry no longer contains (a formula edited since the scan) simply misses:
+    the row keeps its own code instead of being re-filed under the new formula.
+    """
+    index: Dict[str, dict] = {}
+    for group in _canonical_formulas(db, include_inactive=True):
+        index[group.key] = {
+            "key": group.key,
+            "code": group.code,
+            "registered_codes": list(group.registered_codes),
+        }
+    return index
+
+
 def resolve_outlier_candidates(db) -> List[ResolvedIndicator]:
     """Every derivative indicator, once — the outlier engine's candidate set.
 
@@ -288,21 +384,14 @@ def resolve_outlier_candidates(db) -> List[ResolvedIndicator]:
     forecast), and the same rate appears in several of them with an identical
     formula. The outlier scan must cover ALL derivative indicators (not only
     the zscore slice it used to read), but each rate may be counted only once:
-    grouping is by formula + unit SCALE (``per 1000`` and ``per 1,000`` are the
-    same scale), and the zscore copy represents its group.
+    grouping is the shared canonical formula identity (formula + unit scale),
+    and the zscore copy represents its group.
 
     Shared, user-created definitions (``source_site`` NULL) fall in their own
     group and are picked up automatically.
     """
-    from app.engine.rate_config import multiplier_for_unit
-
-    chosen: Dict[tuple, ResolvedIndicator] = {}
-    for resolved in resolve_active_definitions(db):
-        key = (resolved.formula or "", multiplier_for_unit(resolved.unit))
-        current = chosen.get(key)
-        if current is None or _outlier_preference(resolved) < _outlier_preference(current):
-            chosen[key] = resolved
-    return sorted(chosen.values(), key=lambda r: ((r.name or "").lower(), r.code or ""))
+    return sorted((group.resolved for group in _canonical_formulas(db)),
+                  key=lambda r: ((r.name or "").lower(), r.code or ""))
 
 
 def inactive_codes(db) -> set:

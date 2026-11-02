@@ -10,19 +10,70 @@ import { confirmAction } from './confirm-modal.js';
 // computes a rate or embeds an indicator formula.
 
 const PAGE_SIZE = 25;
-// This screen shows ONLY Very High (Red) alerts — every KPI, count and the
-// issue table are scoped to them. Detection still records all severities
-// server-side (audit trail intact); lower bands are simply not displayed.
-const _PINNED_SEVERITY = 'VERY_HIGH';
+// The screen opens on the Very High band, as it always has, but the band is no
+// longer pinned: the Severity dropdown widens the list to a lower band or to
+// every severity. Detection has always recorded all severities server-side;
+// this only decides which of them the list, its KPIs and its pager are scoped
+// to.
+const _DEFAULT_SEVERITY = 'VERY_HIGH';
+// The list is an OPEN-alert view: a finding a reviewer closed (Resolved /
+// False Positive) leaves it. This sentinel is the explicit "show closed too"
+// choice in the Status filter — it sends include_closed, not a status value.
+const _ALL_STATUSES = '__all__';
 const _state = {
     inited: false,
     page: 1,
+    pageSize: PAGE_SIZE,      // rows per page; 0 = every matching issue
+    // Very High split, as chosen by clicking one of the two KPI cards:
+    // null = both, 'only' = every fired perspective Very High, 'mixed' = a
+    // Very High perspective beside a lower band.
+    vhScope: null,
     perspectives: new Set(),   // multi-select chips; empty = all
     meta: null,
     issues: [],
     issuesTotal: 0,           // grouped issues matching the filters (pager unit)
     summary: null,
 };
+
+// ── One vocabulary ─────────────────────────────────────────────────────
+// The API speaks in codes; the screen speaks in one label per code, always
+// through the same helper. Printing the raw band in a table cell beside a
+// translated "Very High" in the filter made one severity look like two, and
+// left the Arabic screen with English statuses and perspective names.
+const _SEVERITY_LABELS = {
+    VERY_HIGH: 'Very High',
+    HIGH: 'High',
+    MODERATE: 'Moderate',
+    LOW: 'Low',
+};
+// The engine's perspective keys, for rows that arrive without their label.
+const _PERSPECTIVE_KEYS = {
+    history: 'Hospital history',
+    type: 'Similar hospitals (type)',
+    ownership: 'Ownership peers',
+    facility_type: 'Facility-type peers',
+    governorate: 'Regional peers (governorate)',
+    all: 'All hospitals',
+};
+
+function _severityLabel(band) {
+    return band ? __(_SEVERITY_LABELS[band] || band) : '';
+}
+
+// Statuses are stored English workflow names; the dictionary supplies the
+// Arabic form, and an unknown status still shows itself.
+function _statusLabel(status) {
+    return status ? __(status) : '';
+}
+
+function _perspectiveLabel(label, key) {
+    // The trend payload composes "<perspective label> — mean"; translating the
+    // head and keeping the suffix avoids a half-English legend.
+    const tail = ' — mean';
+    const text = label || _PERSPECTIVE_KEYS[key] || key || '';
+    if (text.endsWith(tail)) return __(text.slice(0, -tail.length)) + ' — ' + __('mean');
+    return __(text);
+}
 
 const _SEVERITY_BADGES = {
     VERY_HIGH: 'badge badge-critical',
@@ -70,16 +121,70 @@ function _fmtDate(iso) {
     return String(iso).slice(0, 10);
 }
 
+// Degenerate comparison: every value in the group was identical, so the
+// baseline is simply the level everyone reported (very often 0) and the
+// deviation has no measurable scale. The row is still a finding, but its level
+// is capped at HIGH — this badge says why, so a bare 0 cannot be read as a
+// measured baseline or as broken arithmetic.
+function _zeroSpreadBadge() {
+    return ' <span class="badge badge-medium" style="font-size:0.62rem;padding:0 4px;" title="' +
+        esc(__('The comparison has no measurable spread for the method used, so the deviation cannot be graded. The finding is kept and its level is capped at HIGH.')) +
+        '">' + __('no spread') + '</span>';
+}
+
+// Why a comparison cannot be graded. A z/mad/iqr method divides by its own
+// spread, and MAD or IQR can be zero while the values still differ — so "the
+// group has no spread" is only said when that is literally true.
+function _spreadNote(a, stats) {
+    if (!a.zero_spread) return '';
+    if (stats && Number(stats.std) === 0) return __('Comparison group has no spread');
+    return __('No measurable spread for this method');
+}
+
 // ── Filter query string ────────────────────────────────────────────────
+function _selectedSeverity() {
+    const el = document.getElementById('qaSeverityFilter');
+    // Missing element = an older fragment: keep the historical Very-High-only scope.
+    return el ? el.value : _DEFAULT_SEVERITY;
+}
+
+function _skipsLowConfidence() {
+    const el = document.getElementById('qaSkipLowConfidence');
+    return !!(el && el.checked);
+}
+
+function _statusFilterOptions(meta) {
+    const statuses = ((meta && meta.statuses) || [])
+        .map(s => ({ value: s, label: _statusLabel(s) }));
+    // Closed rows are reachable, just not by default: one row per status plus
+    // one explicit "include the closed ones" choice.
+    return statuses.concat([{ value: _ALL_STATUSES, label: __('All statuses (incl. closed)') }]);
+}
+
 function _filterQuery() {
     const p = new URLSearchParams();
-    // Pinned severity: this screen is the Red-Alerts screen (see above).
-    p.set('severity', _PINNED_SEVERITY);
+    // Severity: empty means "all severities", which sends no severity param.
+    const severity = _selectedSeverity();
+    if (severity) p.set('severity', severity);
+    // Status: no selection keeps the open scope (Resolved / False Positive
+    // excluded server-side); one status shows exactly those rows; the "all
+    // statuses" choice asks the server to include closed ones as well.
+    // The two are mutually exclusive BY CONSTRUCTION: asking for one status
+    // and for the closed ones together would be contradictory (the server
+    // lets the status win), and the sentinel never travels as a status value
+    // because it is not one.
+    const statusEl = document.getElementById('qaStatusFilter');
+    if (statusEl && statusEl.value === _ALL_STATUSES) p.set('include_closed', '1');
+    else if (statusEl && statusEl.value) p.set('status', statusEl.value);
+    // Low confidence = small comparison group or ML cross-check disagreement.
+    // Applied server-side so the KPIs and the pager count exactly the rows the
+    // table lists.
+    if (_skipsLowConfidence()) p.set('confidence', 'high');
     const pairs = [
         ['month', 'qaMonthFilter'], ['hospital_id', 'qaHospitalFilter'],
         ['indicator', 'qaIndicatorFilter'],
         ['indicator_type', 'qaIndicatorTypeFilter'],
-        ['status', 'qaStatusFilter'], ['ownership_id', 'qaOwnershipFilter'],
+        ['ownership_id', 'qaOwnershipFilter'],
         ['governorate_id', 'qaGovernorateFilter'],
         ['hospital_type_id', 'qaTypeFilter'],
     ];
@@ -89,12 +194,13 @@ function _filterQuery() {
     });
     const search = document.getElementById('qaSearchFilter');
     if (search && search.value.trim()) p.set('q', search.value.trim());
-    const persps = [..._state.perspectives];
-    if (persps.length === 1) p.set('perspective', persps[0]);
-    else if (persps.length > 1) {
-        // Multi-select: the server takes one perspective, so chip filtering
-        // for >1 chips is applied client-side over the fetched page.
-    }
+    // Chosen on the two Very High cards; the server grades each issue from its
+    // whole evidence, so this narrows the list to exactly the card's number.
+    if (_state.vhScope) p.set('very_high_scope', _state.vhScope);
+    // Every selected chip is sent, as repeated parameters the server ORs, so
+    // the KPIs, the total and every page describe the whole filtered
+    // population instead of whichever page happened to load.
+    [..._state.perspectives].forEach(key => p.append('perspective', key));
     return p.toString();
 }
 
@@ -146,8 +252,7 @@ async function _loadOptions() {
     _fillSelect('qaTypeFilter', (typesR.value || typesR || []).map(t => ({ value: t.id, label: t.name })));
     _state.meta = metaR;
     if (metaR) {
-        // Severity is pinned to VERY_HIGH — no severity dropdown on purpose.
-        _fillSelect('qaStatusFilter', (metaR.statuses || []).map(s => ({ value: s, label: s })));
+        _fillSelect('qaStatusFilter', _statusFilterOptions(metaR), __('Open only'));
         _renderPerspectiveChips(metaR.perspectives || []);
     }
 }
@@ -158,17 +263,19 @@ function _renderPerspectiveChips(perspectives) {
     if (!wrap) return;
     wrap.innerHTML = perspectives.map(p => {
         const selectable = p.available !== false;
-        return '<button data-perspective="' + esc(p.key) + '" ' +
+        return '<button data-perspective="' + esc(p.key) + '"' +
+            ' data-label="' + esc(p.label || '') + '" ' +
             (selectable ? 'onclick="qualityAlertsTogglePerspective(this)"' : 'disabled title="' + esc(p.unavailable_reason || '') + '"') +
             ' class="badge ' + (selectable ? 'badge-muted' : 'badge-muted" style="opacity:0.45') +
             '" style="cursor:' + (selectable ? 'pointer' : 'not-allowed') + ';font-size:0.7rem;">' +
-            esc(p.label) + (p.available === false ? ' — ' + __('not configured') : '') + '</button>';
+            '<span class="qa-chip-label">' + esc(_perspectiveLabel(p.label, p.key)) + '</span>' +
+            (p.available === false ? ' — ' + esc(__('not configured')) : '') + '</button>';
     }).join('');
     const note = document.getElementById('qaPerspectiveNote');
     if (note) {
         const missing = perspectives.filter(p => p.available === false);
         note.textContent = missing.length
-            ? missing.map(p => p.label + ': ' + (p.unavailable_reason || '')).join(' · ')
+            ? missing.map(p => _perspectiveLabel(p.label, p.key) + ': ' + (p.unavailable_reason || '')).join(' · ')
             : '';
     }
 }
@@ -185,8 +292,33 @@ export function qualityAlertsTogglePerspective(btn) {
 }
 
 // ── Data loading ───────────────────────────────────────────────────────
+function _renderScopeNote() {
+    // The "only Very High" explanation is true only while the list really is
+    // Very-High-only; the dropdown itself states the scope otherwise.
+    const note = document.getElementById('qaScopeNote');
+    if (note) note.style.display = _selectedSeverity() === 'VERY_HIGH' ? '' : 'none';
+}
+
 export function qualityAlertsFilterChanged() {
     _state.page = 1;
+    // Severity and the card scope INTERSECT (D4). Changing the band keeps the
+    // card the operator chose: clearing it here made the pair unreachable and
+    // silently discarded a filter the screen still showed as active. An empty
+    // intersection is explained by the empty state instead.
+    _renderScopeNote();
+    loadQualityAlerts();
+}
+
+// The two Very High cards are filters, not just numbers: clicking one lists
+// exactly the issues it counts, and clicking the active card clears it.
+export function qualityAlertsToggleVeryHighScope(scope) {
+    _state.vhScope = _state.vhScope === scope ? null : scope;
+    _state.page = 1;
+    // The card narrows the list ON TOP OF the band (D4): it no longer moves the
+    // Severity dropdown, because a selection the operator made must not change
+    // under them. The pair may legitimately be empty; the empty state says so
+    // while the cards keep their own numbers.
+    _renderScopeNote();
     loadQualityAlerts();
 }
 
@@ -203,7 +335,26 @@ export function qualityAlertsPage(delta) {
     loadQualityAlerts();
 }
 
+// Page sizes the selector offers, in order. 0 is the API's "every matching
+// issue" mode (see app/api/quality_alerts.py), shown as "All".
+const _PAGE_SIZES = [25, 50, 100, 0];
+
+export function qualityAlertsPageSizeChanged(size) {
+    const value = Number(size);
+    // Anything unrecognised falls back to the default rather than producing a
+    // page size the API would reject.
+    _state.pageSize = _PAGE_SIZES.includes(value) ? value : PAGE_SIZE;
+    // Row count changes what page 3 means, so the list restarts at the top.
+    _state.page = 1;
+    loadQualityAlerts();
+}
+
+function _pageSize() {
+    return _state.pageSize;
+}
+
 export async function loadQualityAlerts() {
+    _renderScopeNote();
     const loading = document.getElementById('qaLoading');
     if (loading) loading.classList.remove('hidden');
     try {
@@ -211,7 +362,7 @@ export async function loadQualityAlerts() {
         const [summary, issues] = await Promise.all([
             apiGet('/quality-alerts/summary' + (qs ? '?' + qs : '')),
             apiGet('/quality-alerts/issues?' + qs +
-                (qs ? '&' : '') + 'page=' + _state.page + '&page_size=' + PAGE_SIZE +
+                (qs ? '&' : '') + 'page=' + _state.page + '&page_size=' + _pageSize() +
                 '&sort=severity&order=desc'),
         ]);
         _state.summary = summary;
@@ -225,7 +376,7 @@ export async function loadQualityAlerts() {
     } catch (err) {
         const body = document.getElementById('qaTableBody');
         if (body) {
-            body.innerHTML = '<tr><td colspan="10" style="color:var(--accent-red);padding:1rem;">' +
+            body.innerHTML = '<tr><td colspan="11" style="color:var(--accent-red);padding:1rem;">' +
                 __('Error: ') + esc(err && err.message ? err.message : __('error')) + '</td></tr>';
         }
     } finally {
@@ -233,40 +384,397 @@ export async function loadQualityAlerts() {
     }
 }
 
+// ── Very High only: evidence breakdown (Step 10D-6e) ────────────────────
+// Five MUTUALLY EXCLUSIVE categories partition "Very High only" by the
+// comparison each issue actually made (the server's identity classification).
+// Relationship detail is secondary and describes only the multiple-peer
+// bucket: it is never added to an issue total. Every number printed here is
+// the server's. When a balance fails the discrepancy is printed with both
+// stored figures — nothing is re-added, smoothed or corrected in the browser.
+const _COMPARISON_CATEGORY_ROWS = [
+    ['qaKpiMultiplePeer', 'very_high_multiple_peer_issues',
+     'Multiple peer comparisons',
+     'Two or more distinct groups of hospitals were compared'],
+    ['qaKpiSinglePeer', 'very_high_single_peer_issues',
+     'Single peer comparison',
+     'Exactly one group of hospitals was compared, so nothing else could agree or disagree'],
+    ['qaKpiTemporalOnly', 'very_high_temporal_only_issues',
+     'Temporal-only',
+     "No peer group was used; the value was compared with the hospital's own earlier months"],
+    ['qaKpiUnknownIdentity', 'very_high_unknown_identity_issues',
+     'Unknown comparison identity',
+     'The stored evidence does not say which hospitals were compared, so it is not counted as a peer comparison'],
+    ['qaKpiInvalidEvidence', 'very_high_invalid_evidence_issues',
+     'Invalid evidence',
+     'The stored comparison record is inconsistent and was not used'],
+];
+
+const _RELATIONSHIP_ROWS = [
+    ['qaKpiRelDisjoint', 'all_disjoint', 'All disjoint',
+     'No shared hospitals between the groups'],
+    ['qaKpiRelNested', 'nested_only', 'Nested only',
+     'One group is contained in the other'],
+    ['qaKpiRelOverlapping', 'overlapping_only', 'Overlapping only',
+     'The groups share hospitals without one containing the other'],
+    ['qaKpiRelMixed', 'mixed_relationships', 'Mixed relationships',
+     'More than one of the three relationships occurs'],
+];
+
+// A missing or null field is NOT zero: the API contract publishes these as
+// counts, so an absent one means "not measured here" and prints as a dash.
+function _countOrNull(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+function _countText(value) {
+    if (value === null || value === undefined) return '\u2014';
+    const n = Number(value);
+    return Number.isFinite(n) ? n.toLocaleString('en-US') : '\u2014';
+}
+
+function _fillSentence(text, values) {
+    let out = __(text);
+    Object.keys(values || {}).forEach(function (name) {
+        out = out.split('{' + name + '}').join(String(values[name]));
+    });
+    return out;
+}
+
+function _breakdownNote(text, warn, numeric) {
+    return '<div' + (numeric ? ' dir="ltr"' : ' dir="auto"') +
+        ' style="font-size:0.66rem;line-height:1.5;margin-top:0.25rem;overflow-wrap:anywhere;color:' +
+        (warn ? 'var(--accent-orange,#b45309)' : 'var(--text-muted)') + ';">' +
+        esc(text) + '</div>';
+}
+
+// Tooltip text lives in a hidden node referenced by aria-describedby: title=
+// is invisible to keyboard and touch users, and pairing it with a description
+// would announce the same sentence twice.
+let _tipSeq = 0;
+function _tipHelp(text) {
+    const id = 'qaTipHelp' + (++_tipSeq);
+    return {describedby: ' aria-describedby="' + id + '"',
+            html: '<span class="qa-tip-help" id="' + id + '" role="tooltip">' +
+                esc(text) + '</span>'};
+}
+
+// A prose line with no figures: it inherits the page direction, so the Arabic
+// sentence reads RTL while the equation below it stays LTR.
+function _breakdownSentence(text) {
+    return '<div style="font-size:0.66rem;line-height:1.5;margin-top:0.25rem;overflow-wrap:anywhere;color:var(--text-muted);text-align:start;">' +
+        esc(text) + '</div>';
+}
+
+function _breakdownCell(id, label, help, value) {
+    const tip = _tipHelp(__(help));
+    return '<div class="qa-tip" tabindex="0"' + tip.describedby +
+        ' style="padding:0.3rem 0.45rem;background:var(--bg-elevated,#f7f7f7);border-left:2px solid var(--accent-red,#c62828);border-radius:0 4px 4px 0;min-width:0;">' +
+        '<div style="font-size:0.64rem;color:var(--text-muted);line-height:1.35;overflow-wrap:anywhere;">' + esc(__(label)) + '</div>' +
+        '<div id="' + id + '" dir="ltr" style="font-size:0.95rem;font-weight:700;text-align:start;">' + _countText(value) + '</div>' +
+        tip.html + '</div>';
+}
+
+function _relationshipHtml(shadow, multiplePeers) {
+    const byRelationship = shadow && shadow.multiple_peer_by_relationship;
+    let html = '<div style="margin-top:0.45rem;padding-top:0.35rem;border-top:1px dashed var(--border-default);">' +
+        '<div style="font-size:0.72rem;font-weight:700;overflow-wrap:anywhere;">' +
+        esc(__('Comparison relationships (inside multiple peer comparisons)')) + '</div>' +
+        '<div style="font-size:0.64rem;color:var(--text-muted);overflow-wrap:anywhere;">' +
+        esc(__('Secondary detail — these are not additional issues')) + '</div>';
+    if (!byRelationship || typeof byRelationship !== 'object') {
+        html += _breakdownNote(__('Relationship detail unavailable'), true);
+        return html + '</div>';
+    }
+    let sum = 0;
+    let complete = true;
+    let chips = '';
+    _RELATIONSHIP_ROWS.forEach(function (row) {
+        const value = _countOrNull(byRelationship[row[1]]);
+        if (value === null) complete = false;
+        else sum += value;
+        const tip = _tipHelp(__(row[3]));
+        chips += '<span class="qa-tip badge badge-muted" tabindex="0"' + tip.describedby +
+            ' style="font-size:0.64rem;padding:0 5px;white-space:nowrap;">' +
+            esc(__(row[2])) + ': <b id="' + row[0] + '" dir="ltr">' +
+            _countText(value) + '</b>' + tip.html + '</span>';
+    });
+    html += '<div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-top:0.25rem;">' + chips + '</div>';
+    if (complete && multiplePeers !== null && sum !== multiplePeers) {
+        html += _breakdownNote(_fillSentence(
+            'Relationship counts add up to {sum} but Multiple peer comparisons is {count} (difference {diff}). The stored counts are shown unchanged; nothing was adjusted.',
+            {sum: sum.toLocaleString('en-US'),
+             count: multiplePeers.toLocaleString('en-US'),
+             diff: Math.abs(sum - multiplePeers).toLocaleString('en-US')}), true);
+    }
+    return html + '</div>';
+}
+
+function _comparisonBreakdownHtml(s) {
+    const source = s || {};
+    const total = _countOrNull(source.very_high_only_issues);
+    const categories = _COMPARISON_CATEGORY_ROWS.map(function (row) {
+        return {id: row[0], label: row[2], help: row[3],
+                value: _countOrNull(source[row[1]])};
+    });
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:0.4rem;">';
+    categories.forEach(function (cell) {
+        html += _breakdownCell(cell.id, cell.label, cell.help, cell.value);
+    });
+    html += '</div>';
+
+    if (categories.some(function (cell) { return cell.value === null; })) {
+        // Nothing is added up from a partial set: the missing figure is named
+        // and the partition line is withheld rather than shown as if complete.
+        return html + _breakdownNote(
+            __('Comparison evidence not available for this scope'), true);
+    }
+
+    const sum = categories.reduce(function (acc, cell) { return acc + cell.value; }, 0);
+    const equation = categories.map(function (cell) {
+        return _countText(cell.value);
+    }).join(' + ') + ' = ' + _countText(total);
+    html += _breakdownNote(equation, false, true);
+    if (total !== null && sum !== total) {
+        html += _breakdownNote(_fillSentence(
+            'The categories add up to {sum} but Very High only is {total} (difference {diff}). The stored counts are shown unchanged; nothing was adjusted.',
+            {sum: sum.toLocaleString('en-US'),
+             total: total.toLocaleString('en-US'),
+             diff: Math.abs(sum - total).toLocaleString('en-US')}), true);
+    }
+
+    const mixed = _countOrNull(source.mixed_severity_issues);
+    const veryHigh = _countOrNull(source.very_high_issues);
+    if (total !== null && mixed !== null) {
+        const combined = total + mixed;
+        // Sentence first (page direction, so Arabic is fully RTL), then the
+        // figures alone in a forced-LTR line. Mixing Arabic label words with
+        // digits in one node let bidi reorder 354 + 447 = 801 into 801 = ...
+        html += _breakdownSentence(
+            __('Very High only + Mixed severity = Very High issues'));
+        html += _breakdownNote(total.toLocaleString('en-US') + ' + ' +
+            mixed.toLocaleString('en-US') + ' = ' +
+            combined.toLocaleString('en-US'), false, true);
+        if (veryHigh !== null && combined !== veryHigh) {
+            html += _breakdownNote(_fillSentence(
+                'Very High only + Mixed severity ({sum}) does not match Very High issues ({total}); difference {diff}. The stored counts are shown unchanged; nothing was adjusted.',
+                {sum: combined.toLocaleString('en-US'),
+                 total: veryHigh.toLocaleString('en-US'),
+                 diff: Math.abs(combined - veryHigh).toLocaleString('en-US')}), true);
+        }
+    }
+
+    html += _relationshipHtml(source.very_high_comparison_shadow,
+                              categories[0].value);
+    return html;
+}
+
+function _renderComparisonBreakdown(s) {
+    const el = document.getElementById('qaComparisonBreakdown');
+    if (!el) return;
+    el.innerHTML = _comparisonBreakdownHtml(s || {});
+}
+
 function _renderKpis(s) {
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     // Issue units: one card number per risk issue, matching the table's rows.
-    // The row-level counts (total_active, red_alerts…) count comparison
+    // The row-level counts (total_active, very_high_rows…) count comparison
     // perspectives, so they would overstate every card and the page count.
-    // Every issue listed here is red by construction, so the useful split is
-    // whether red came alone or alongside lower bands on the same issue.
-    set('qaKpiRedOnly', s.red_only_issues ?? 0);
+    // One band, one name: summary.very_high_issues is the Very High issue
+    // count the dashboard card also shows.
+    // Very-High-only vs mixed describes the Very High findings of the SCOPE
+    // (month, hospital, ownership, governorate, facility type, indicator,
+    // confidence, search, status) — never of the selected band. Choosing HIGH
+    // or MODERATE narrows the table and "Total issues" only; these cards keep
+    // describing the Very High findings they are named for. Perspectives
+    // narrow the table too, never the cards.
+    set('qaKpiVeryHighOnly', s.very_high_only_issues ?? 0);
+    // The part of that bucket two or more comparisons agreed on; a card of its
+    // own, because "no lower band" alone also covers a single comparison
+    // nothing could have disagreed with.
+    set('qaKpiCorroborated', s.very_high_only_corroborated_issues ?? 0);
     set('qaKpiMixed', s.mixed_severity_issues ?? 0);
     set('qaKpiTotal', s.total_issues ?? 0);
+    // Very High ISSUES: any issue with at least one Very High comparison,
+    // the population Very High only + Mixed severity split. A missing field
+    // renders as a dash, never as a measured zero.
+    const veryHighIssues = _countOrNull(s.very_high_issues);
+    set('qaKpiVeryHighIssues', veryHighIssues === null
+        ? '\u2014' : veryHighIssues.toLocaleString('en-US'));
     set('qaKpiHospitals', s.hospitals_affected ?? 0);
     set('qaKpiIndicators', s.indicators_affected ?? 0);
     set('qaKpiNew', s.new_issues ?? 0);
     set('qaKpiUnresolved', s.unresolved_issues ?? 0);
+    _renderComparisonBreakdown(s);
+    _renderVeryHighOnlyBreakdown(s);
+    _renderSeverityReconcile(s);
+    _renderScopeCards();
+}
+
+// The "Very High only" card is a total, so it states the two parts it is made
+// of instead of leaving a reader to guess: the issues two or more distinct
+// comparisons agreed on (corroborated) and the issues where only one
+// comparison fired, which are "Very High only" by default because nothing was
+// compared against them. Both counts come from the server's own fitted bands
+// and fired sets, so they add up exactly to the card's value; the shares come
+// from the server too, so the pair always reads 100% and an empty scope reads
+// 0 rather than a meaningless division.
+function _renderVeryHighOnlyBreakdown(s) {
+    const b = (s && s.very_high_only_breakdown) || {};
+    const num = v => Number(v || 0);
+    const n = v => num(v).toLocaleString('en-US');
+    const pct = v => num(v).toFixed(1) + '%';
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    // Counts are the server's, never re-added here: it derives both subgroups
+    // from the same fitted bands, so the pair is a partition of the card's
+    // value and the browser must not "fix" a disagreement it cannot see.
+    const total = num(b.total ?? (s && s.very_high_only_issues));
+    const corroborated = num(b.corroborated ?? (s && s.very_high_only_corroborated_issues));
+    const single = num(b.single_perspective ?? (s && s.very_high_single_perspective_issues));
+    const corroboratedPct = b.corroborated_pct !== undefined
+        ? num(b.corroborated_pct) : (total > 0 ? 100 * corroborated / total : 0);
+    const singlePct = b.single_perspective_pct !== undefined
+        ? num(b.single_perspective_pct) : (total > 0 ? 100 * single / total : 0);
+    set('qaKpiOnlyCorroborated', n(corroborated));
+    set('qaKpiOnlyCorroboratedPct', pct(corroboratedPct));
+    set('qaKpiOnlySingle', n(single));
+    set('qaKpiOnlySinglePct', pct(singlePct));
+    // The arithmetic on the card, so the partition is checked by reading it.
+    set('qaKpiOnlySum', n(corroborated) + ' + ' + n(single) + ' = ' + n(total));
+    const split = document.getElementById('qaVeryHighOnlySplit');
+    if (!split) return;
+    split.title = total > 0
+        ? __('Corroborated') + ': ' + n(corroborated) + ' (' + pct(corroboratedPct) + ') · '
+          + __('Single perspective') + ': ' + n(single) + ' (' + pct(singlePct) + ') — '
+          + __('both add up to Very High only')
+        : __('No Very High only issues in this scope');
+}
+
+// What each card means — not only that it filters. The subset relation and the
+// reminder that perspectives are not independent clinical evidence are the two
+// readings the screen used to leave to the reader's imagination.
+const _VH_SCOPE_HELP = {
+    only: 'Every perspective that fired is Very High — no lower band on any comparison',
+    mixed: 'At least one perspective is Very High and another came out lower (High, Moderate or Low)',
+    corroborated: 'Corroborated is part of Very High only: two or more distinct perspectives all graded Very High — perspectives are not independent clinical evidence',
+};
+
+// Which of the two Very High cards is the active filter, so the number and the
+// list agree visibly instead of only in the request.
+function _renderScopeCards() {
+    [['qaCardVeryHighOnly', 'only', 'Very High only'],
+     ['qaCardCorroborated', 'corroborated', 'Corroborated'],
+     ['qaCardMixed', 'mixed', 'Mixed severity']].forEach(([id, scope, label]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const active = _state.vhScope === scope;
+        el.classList.toggle('is-active', active);
+        el.setAttribute('aria-pressed', active ? 'true' : 'false');
+        // The hint is bilingual: the fragment's static title is only the
+        // pre-render fallback. It states what the card MEANS before how to use
+        // it, so a tooltip never reduces "Corroborated" to "click to filter".
+        const hint = __(_VH_SCOPE_HELP[scope] || label) + ' — '
+            + (active ? __('click the card again to clear')
+                      : __('click a card to filter'));
+        // One description, referenced once. Setting title= on top would
+        // announce the same sentence twice, and aria-label would duplicate
+        // the whole hint as the accessible name.
+        const help = el.querySelector('.qa-tip-help');
+        if (help) {
+            help.textContent = hint;
+            el.setAttribute('aria-describedby', help.id);
+        }
+    });
+}
+
+// The Very High filter and the "Very High only" / "Mixed severity" cards count
+// the same population in different ways, which read as two disagreeing numbers:
+// the filter lists an issue when AT LEAST ONE perspective is Very High, while
+// "Very High only" means NO perspective that fired came out lower. Both cards
+// together are exactly the filter's count, so the screen states that
+// arithmetic instead of leaving the operator to reconcile 667 with 1,217.
+function _renderSeverityReconcile(s) {
+    const el = document.getElementById('qaSeverityReconcile');
+    if (!el || !s) return;
+    const only = Number(s.very_high_only_issues || 0);
+    const mixed = Number(s.mixed_severity_issues || 0);
+    const total = Number(s.total_issues || 0);
+    const n = v => v.toLocaleString('en-US');
+    // The split IS the Very High population of the scope (the server computes
+    // both from the whole evidence of each issue and ignores the band filter),
+    // so the sum is the number the two cards account for — not a third figure
+    // counted a different way.
+    const veryHigh = only + mixed;
+    // The bucket's corroborated / single-perspective split is stated on the
+    // "Very High only" card itself — both counts, both shares and the sum — so
+    // the line keeps to the bucket and its total instead of quoting the same
+    // split a second time in a different shape.
+    const onlyText = n(only) + ' ' + __('no lower band');
+    // Which comparisons fired together — one hover away, so the line above
+    // stays a sentence while the whole distribution is still available.
+    const firedSets = s.very_high_only_by_perspectives || [];
+    el.title = firedSets.length
+        ? __('Perspectives that fired on the Very High only issues') + ': ' +
+          firedSets.slice(0, 10).map(f =>
+              (f.perspectives || []).join(' + ') + ' — ' + n(f.issues)).join(' · ')
+        : '';
+    const parts = [
+        __('Very High') + ' = ' + onlyText +
+        ' + ' + n(mixed) + ' ' + __('mixed') + ' = ' + n(veryHigh),
+    ];
+    // With a card active the list is that subset, so the line names the filter
+    // instead of repeating the whole scope as if nothing were narrowed.
+    if (_state.vhScope === 'only') parts.push(__('Very High only') + ': ' + n(total));
+    else if (_state.vhScope === 'corroborated') parts.push(__('Corroborated') + ': ' + n(total));
+    else if (_state.vhScope === 'mixed') parts.push(__('Mixed severity') + ': ' + n(total));
+    else parts.push(__('total in view') + ': ' + n(total));
+    // With a lower band selected the cards and the table answer different
+    // questions on purpose, so the line says so instead of leaving the two
+    // numbers to look like a contradiction.
+    if (_selectedSeverity() !== 'VERY_HIGH') {
+        parts.push(__('Very High cards ignore the severity filter'));
+    }
+    parts.push(_state.vhScope ? __('click the card again to clear')
+                              : __('click a card to filter'));
+    el.textContent = parts.join(' · ');
 }
 
 function _updateChipCounts(summary) {
     const counts = (summary && summary.by_perspective) || {};
     document.querySelectorAll('#qaPerspectiveChips [data-perspective]').forEach(btn => {
         const key = btn.getAttribute('data-perspective');
-        const base = btn.textContent.replace(/\s*\(\d+\)\s*$/, '');
+        // The canonical (English) label travels on the button, so the visible
+        // label is always rebuilt through the one vocabulary helper. Reading it
+        // back out of textContent failed here: the count lived in the SAME text
+        // node, and translateDOM only swaps a node whose ENTIRE text is a
+        // dictionary key, so an Arabic chip could never become English again.
+        const base = _perspectiveLabel(btn.getAttribute('data-label'), key);
+        const labelEl = btn.querySelector('.qa-chip-label');
+        if (labelEl) labelEl.textContent = base;
         const count = counts[key];
-        if (count !== undefined) btn.textContent = base + ' (' + count + ')';
+        // Under a perspective filter the breakdown covers only the selected
+        // comparisons, so a chip outside it has no count in this population:
+        // the stale number is dropped rather than left beside a filter it no
+        // longer describes.
+        let countEl = btn.querySelector('.qa-chip-count');
+        if (count === undefined) {
+            if (countEl) countEl.remove();
+            return;
+        }
+        if (!countEl) {
+            countEl = document.createElement('span');
+            countEl.className = 'qa-chip-count';
+            btn.appendChild(countEl);
+        }
+        countEl.textContent = ' (' + count + ')';
     });
 }
 
 // ── Table rendering ────────────────────────────────────────────────────
-function _visibleIssues() {
-    if (_state.perspectives.size <= 1) return _state.issues;
-    // Multi-chip selection: the server filtered nothing (or one chip), so
-    // narrow client-side by any perspective in the selection.
-    return _state.issues.filter(issue =>
-        (issue.perspectives || []).some(p => _state.perspectives.has(p.perspective)));
-}
+// The table lists exactly the rows the server returned: perspective (like
+// every other filter) is applied there, so a second client-side pass would
+// re-narrow one page against a total computed over the whole population.
 
 // ── Inline trend (list rows) ─────────────────────────────────────────
 // Geometry only: the engine supplies the monthly values, this draws the
@@ -344,16 +852,83 @@ function _sparkline(issue) {
     return svg + '</svg>';
 }
 
+// The table is the INTERSECTION of the severity band and the card scope (D4):
+// "High" + "Very High only" is a legitimate request that can legitimately have
+// no members. The empty area names the pair that produced it and repeats the
+// Very High KPI, so an empty table beside three non-zero cards never reads as
+// "the Very High population is zero".
+function _scopeLabel(scope) {
+    if (scope === 'only') return __('Very High only');
+    if (scope === 'corroborated') return __('Corroborated');
+    if (scope === 'mixed') return __('Mixed severity');
+    return '';
+}
+
+function _renderEmptyState() {
+    const wrap = document.getElementById('qaEmpty');
+    if (!wrap) return;
+    const generic = document.getElementById('qaEmptyGeneric');
+    const intersection = document.getElementById('qaEmptyIntersection');
+    const title = document.getElementById('qaEmptyIntersectionTitle');
+    const hint = document.getElementById('qaEmptyIntersectionHint');
+    const severity = _selectedSeverity();
+    const scope = _state.vhScope;
+    const conflict = Boolean(scope) && severity !== 'VERY_HIGH';
+    if (generic) generic.style.display = conflict ? 'none' : '';
+    if (intersection) intersection.style.display = conflict ? '' : 'none';
+    if (conflict) {
+        const vh = Number((_state.summary && _state.summary.very_high_issues) || 0);
+        if (title) {
+            title.textContent = _severityLabel(severity) + ' + ' +
+                _scopeLabel(scope) + ' — ' +
+                __('No issue satisfies both the selected severity and the card scope.');
+        }
+        if (hint) {
+            hint.textContent = __('The Very High cards still count') + ' ' +
+                vh.toLocaleString('en-US') + ' ' +
+                __('because they ignore the severity and the card scope.');
+        }
+    }
+    wrap.style.display = '';
+}
+
+// Sentences built in JS carry live numbers, so they are rebuilt on a language
+// change instead of being translated in place: the perspective chips (label +
+// count) and the table-scope line both live outside data-i18n.
+window.addEventListener('dhis:lang', function () {
+    try {
+        if (_state.meta) _renderPerspectiveChips(_state.meta.perspectives || []);
+        if (_state.summary) _updateChipCounts(_state.summary);
+        _renderTable();
+    } catch (e) { /* screen not loaded yet */ }
+});
+
 function _renderTable() {
     const body = document.getElementById('qaTableBody');
     const empty = document.getElementById('qaEmpty');
     if (!body) return;
-    const issues = _visibleIssues();
+    const issues = _state.issues;
     const count = document.getElementById('qaCount');
     if (count) count.textContent = issues.length + ' / ' + _state.issuesTotal;
+    // State the table's scope in words: the severity control filters this
+    // list, while the KPI cards describe the whole issue population. Both
+    // numbers and the selected band appear together so the difference is
+    // visible instead of inferred from '25 / 801' beside a 2,658 card.
+    const scopeEl = document.getElementById('qaTableScope');
+    if (scopeEl) {
+        const sev = _selectedSeverity();
+        const sevLabel = sev ? _severityLabel(sev) : __('All severities');
+        const shown = Number(issues.length || 0).toLocaleString('en-US');
+        const inScope = Number(_state.issuesTotal || 0).toLocaleString('en-US');
+        // summary.total_issues is narrowed by the selected band too, so it is
+        // the same population as this table — never present it as "all bands".
+        scopeEl.textContent = __('Table scope:') + ' ' + sevLabel + ' · ' +
+            shown + ' ' + __('shown of') + ' ' + inScope + ' ' +
+            __('matching issues');
+    }
     if (!issues.length) {
         body.innerHTML = '';
-        if (empty) empty.style.display = '';
+        _renderEmptyState();
         _renderPager(0);
         return;
     }
@@ -374,41 +949,89 @@ function _renderTable() {
               esc(__('Computed under a different saved severity and trend policy than the one in effect now. The stored result is unchanged — re-run the scan to apply the current policy.')) +
               '">' + __('stale policy') + (staleCount > 1 ? ' ×' + staleCount : '') + '</span>'
             : '';
-        const perspChips = (issue.perspectives || []).map(p =>
-            '<span class="badge badge-muted" style="font-size:0.62rem;padding:0 4px;" title="' +
-            esc((p.reason || '')) + '">' + esc(p.perspective_label || p.perspective) + '</span>').join(' ');
+        // Each chip carries its OWN band, so a row listed under the Very High
+        // filter shows which perspective was Very High and which stayed lower —
+        // "mixed" is then visible in the row, not only inferable from the cards.
+        const perspChips = (issue.perspectives || []).map(p => {
+            const tip = [_severityLabel(p.severity),
+                         _perspectiveLabel(p.perspective_label, p.perspective),
+                         p.reason || ''].filter(Boolean).join(' · ');
+            return '<span class="badge ' +
+                (p.severity === 'VERY_HIGH' ? 'badge-critical' : 'badge-muted') +
+                '" style="font-size:0.62rem;padding:0 4px;" title="' + esc(tip) + '">' +
+                esc(_perspectiveLabel(p.perspective_label, p.perspective)) + '</span>';
+        }).join(' ');
         // Open the STRONGEST perspective: alert_ids is id-ordered, so opening
         // [0] used to land on whichever perspective happened to be scanned
         // first — often history, whose detail has no peer group to show.
-        return '<tr onclick="openQualityAlert(' +
+        // Keyboard path: the row is focusable and Enter/Space replay this same
+        // click handler (see _bindRowKeyboard), so activation has exactly one
+        // path and no second listener can double-open the modal. No role is
+        // added: the row keeps its table semantics instead of claiming to be a
+        // button it is not.
+        return '<tr class="qa-issue-row" tabindex="0" onclick="openQualityAlert(' +
             (primary.id || issue.alert_ids[0]) + ')" ' +
             'style="border-bottom:1px solid var(--border-default);cursor:pointer;">' +
-            '<td style="padding:0.4rem;"><span class="' + sevBadge + '">' + esc(issue.primary_severity) + '</span>' + lowConf + staleBadge + '</td>' +
+            '<td style="padding:0.4rem;"><span class="' + sevBadge + '">' + esc(_severityLabel(issue.primary_severity)) + '</span>' + lowConf + staleBadge + _cappedBadge(issue.primary_severity_cap) + '</td>' +
             '<td style="padding:0.4rem;">' + esc(issue.hospital) + '</td>' +
             '<td style="padding:0.4rem;">' + esc(issue.indicator_name) +
             ' <span style="color:var(--text-muted);font-size:0.68rem;">' + esc(issue.indicator_code) + '</span></td>' +
             '<td style="padding:0.4rem;">' + _fmtValue(primary.current_value, unit) + ' ' + interpIcon + '</td>' +
             '<td style="padding:0.4rem;">' + _fmtValue(primary.baseline_value, unit) +
-            ' <span style="color:var(--text-muted);font-size:0.68rem;">' + esc(primary.perspective_label || '') + '</span></td>' +
+            (primary.zero_spread ? _zeroSpreadBadge() : '') +
+            ' <span style="color:var(--text-muted);font-size:0.68rem;">' + esc(_perspectiveLabel(primary.perspective_label, primary.perspective)) + '</span></td>' +
             '<td style="padding:0.4rem;">' + _fmtPct(primary.deviation_pct) + '</td>' +
             '<td style="padding:0.3rem 0.4rem;">' + _sparkline(issue) + '</td>' +
             '<td style="padding:0.4rem;">' + perspChips + '</td>' +
             '<td style="padding:0.4rem;">' + esc(issue.month) + '</td>' +
-            '<td style="padding:0.4rem;"><span class="badge ' + statusBadge + '">' + esc(issue.status) + '</span></td>' +
+            '<td style="padding:0.4rem;"><span class="badge ' + statusBadge + '">' + esc(_statusLabel(issue.status)) + '</span></td>' +
             '<td style="padding:0.4rem;">' + _fmtDate(issue.detected_at) + '</td>' +
             '</tr>';
     }).join('');
+    _bindRowKeyboard(body);
     _renderPager(_state.issuesTotal || issues.length);
 }
 
+// ── Keyboard access for issue rows ─────────────────────────────────────
+// One delegated listener for the whole body, bound once: rows are rebuilt on
+// every load, so a per-row listener would stack duplicates that reopen the
+// detail. Enter/Space replay the row's own click handler, so mouse, touch and
+// keyboard share a single activation path.
+let _rowKeyboardBound = false;
+function _bindRowKeyboard(body) {
+    if (_rowKeyboardBound || !body) return;
+    _rowKeyboardBound = true;
+    body.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Spacebar') return;
+        const row = e.target && e.target.closest
+            ? e.target.closest('tr.qa-issue-row') : null;
+        // Only the row itself activates: a control inside a row keeps its own
+        // keys, and key repeat (a held Enter) must not reopen the modal.
+        if (!row || row !== e.target || e.repeat) return;
+        e.preventDefault();
+        row.click();
+    });
+}
+
 function _renderPager(total) {
-    const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const size = _pageSize();
+    // With "All" there is a single page, so the pager states the whole count
+    // and both arrows are inert; otherwise it pages at the chosen size.
+    const pages = size ? Math.max(1, Math.ceil(total / size)) : 1;
     const info = document.getElementById('qaPageInfo');
-    if (info) info.textContent = __('Page') + ' ' + _state.page + ' / ' + pages;
+    if (info) {
+        info.textContent = size
+            ? __('Page') + ' ' + _state.page + ' / ' + pages
+            : __('Showing all') + ' ' + total + ' ' + __('issues');
+    }
     const prev = document.getElementById('qaPrevBtn');
     const next = document.getElementById('qaNextBtn');
-    if (prev) prev.disabled = _state.page <= 1;
-    if (next) next.disabled = _state.page >= pages;
+    if (prev) prev.disabled = !size || _state.page <= 1;
+    if (next) next.disabled = !size || _state.page >= pages;
+    const select = document.getElementById('qaPageSizeSelect');
+    // Reflect the state on the control (it also carries the last selection
+    // made through it) so the two never disagree after a reload.
+    if (select && select.value !== String(size)) select.value = String(size);
 }
 
 // ── Scan ───────────────────────────────────────────────────────────────
@@ -485,6 +1108,13 @@ export async function recomputeStaleQualityAlerts() {
 
 // ── Detail modal ───────────────────────────────────────────────────────
 export async function openQualityAlert(alertId) {
+    // Where the dialog was opened from (a row, a KPI card, a keyboard Enter),
+    // so closing it puts focus back there instead of at the top of the page.
+    var _opener = document.activeElement;
+    if (_opener && _opener !== document.body &&
+            !(document.getElementById('detailModal') || {}).contains?.(_opener)) {
+        _modalReturnFocus = _opener;
+    }
     let payload;
     try {
         payload = await apiGet('/quality-alerts/' + alertId);
@@ -574,6 +1204,110 @@ function _interpText(interpretation) {
     if (legend[interpretation]) return legend[interpretation];
     const fallback = _INTERP_FALLBACK[interpretation];
     return fallback ? __(fallback) : (interpretation || '');
+}
+
+// A band the approved policy lowered. Rows written before the cap was approved
+// keep their stored band; the screen shows the policy band and marks the
+// difference instead of quietly printing a severity the row contradicts.
+//
+// The sources are NOT interchangeable: a degenerate comparison has NO
+// measurable spread, a thin peer group is too small to measure one, and a
+// refusal by the hospital's own window measured a scale and disagreed with it.
+// Each reason is named from the provenance block that actually applied, so a
+// thin-peer cap cannot read as a zero-spread cap and neither reads as a
+// window refusal.
+function _capReason(cap) {
+    const reasons = [];
+    if (cap.dispersion) reasons.push(__('no measurable spread: every value in the comparison is identical'));
+    if (cap.thin_peer_group) reasons.push(__('too few peer hospitals to measure a spread'));
+    if (cap.very_high_eligibility) reasons.push(__('the hospital\u2019s own history window does not support the top band'));
+    return reasons.length ? reasons.join(' \u00b7 ') : __('the comparison cannot be graded');
+}
+
+function _cappedBadge(cap) {
+    if (!cap || !cap.stored_severity) return '';
+    // No badge when the policy band equals the stored one: the row was never
+    // lowered, and "HIGH → HIGH" read as a downgrade that did not happen. The
+    // provenance stays on the payload; only the no-op is hidden here.
+    if (cap.severity === cap.stored_severity) return '';
+    return ' <span class="badge badge-medium" title="' +
+        esc(__('Stored') + ' ' + _severityLabel(cap.stored_severity) + ' — ' +
+            _capReason(cap)) + '">' +
+        esc(_severityLabel(cap.stored_severity) + ' \u2192 ' + _severityLabel(cap.severity)) + '</span>';
+}
+
+
+// The engine sentence is written when the row is scanned, so on a capped row it
+// names the band that was computed then (the stored, pre-cap severity). That
+// sentence is evidence and is never rewritten; instead it is labelled for what
+// it is, and the operational band — the one the badge, the list and the KPIs
+// use — is restated beside it.
+function _capExplanationNote(a) {
+    const cap = a.severity_cap;
+    if (!cap || !cap.stored_severity || cap.stored_severity === cap.severity) return '';
+    const template = __('This explanation reports the pre-cap assessment (stored severity {stored}). The operational band is {effective}.');
+    const text = template
+        .replace('{stored}', _severityLabel(cap.stored_severity))
+        .replace('{effective}', _severityLabel(a.effective_severity || a.severity));
+    return '<div class="qa-cap-note">' + esc(text) + '</div>';
+}
+
+// ── Detail modal keyboard support ───────────────────────────────────────
+// The dialog takes focus on open, holds Tab/Shift+Tab inside itself while it is
+// open, and returns focus to its opener on close. No extra roles are invented:
+// #detailModal is a real dialog and the close button is a real button.
+let _modalReturnFocus = null;
+
+function _modalFocusables() {
+    const modal = document.getElementById('detailModal');
+    if (!modal) return [];
+    return Array.from(modal.querySelectorAll(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), ' +
+        'textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+    )).filter(el => el.offsetParent !== null);
+}
+
+function _modalTrapTab(event) {
+    const modal = document.getElementById('detailModal');
+    if (!modal || !modal.classList.contains('show')) return;
+    const items = _modalFocusables();
+    if (!items.length) { event.preventDefault(); return; }
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!modal.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+        return;
+    }
+    if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+    }
+}
+
+function _installDetailModalA11y() {
+    const modal = document.getElementById('detailModal');
+    if (!modal || window._qaModalA11yBound) return;
+    window._qaModalA11yBound = true;
+    modal.addEventListener('keydown', function (event) {
+        if (event.key === 'Tab') _modalTrapTab(event);
+    }, true);
+    // One observer covers every close path (✕, backdrop, Escape, a module
+    // calling closeModal directly), because they all remove `.show`.
+    new MutationObserver(function () {
+        if (modal.classList.contains('show')) {
+            const close = modal.querySelector('.modal-close');
+            if (close && !modal.contains(document.activeElement)) close.focus();
+            return;
+        }
+        if (_modalReturnFocus && document.contains(_modalReturnFocus)) {
+            try { _modalReturnFocus.focus(); } catch (e) { /* detached */ }
+        }
+        _modalReturnFocus = null;
+    }).observe(modal, { attributes: true, attributeFilter: ['class'] });
 }
 
 function _fmtZ(z) {
@@ -686,7 +1420,7 @@ function _renderTrendChart(trend, unit) {
     }];
     if (hasPeerBaseline) {
         datasets.push({
-            label: trend.baseline_label || __('Baseline'),
+            label: _perspectiveLabel(trend.baseline_label) || __('Baseline'),
             data: baselineValues,
             borderColor: colors.secondary || colors.neutral,
             backgroundColor: 'transparent',
@@ -701,7 +1435,7 @@ function _renderTrendChart(trend, unit) {
         });
     } else if (trend.reference_value !== null && trend.reference_value !== undefined) {
         datasets.push({
-            label: trend.baseline_label || __('Baseline'),
+            label: _perspectiveLabel(trend.baseline_label) || __('Baseline'),
             data: months.map(() => trend.reference_value),
             borderColor: colors.secondary || colors.neutral,
             backgroundColor: 'transparent',
@@ -780,6 +1514,10 @@ function _renderDetail(p) {
     const stats = ev.stats || {};
     const isHistory = a.perspective === 'history';
     const n = a.peer_count;
+    // A peer group too small to measure a spread produces no z-score at all
+    // (the engine's thin-peer policy): the dash is a deliberate outcome, and
+    // the stored provenance says so.
+    const zWithheld = !!(stats.z_provenance && stats.z_provenance.z_produced === false);
     const where = [hospital.name, hospital.governorate, hospital.type]
         .filter(Boolean).join(' · ');
     let html = '<div class="qa-detail">';
@@ -793,13 +1531,19 @@ function _renderDetail(p) {
         '<div class="qa-meta">' + esc(where) + (where ? ' · ' : '') + esc(a.month) + '</div>' +
         '</div>' +
         '<div class="qa-head-badges">' +
-        '<span class="' + sevBadge + '">' + esc(a.severity) + '</span>' +
+        // The modal's operational band is the EFFECTIVE one (cap applied) — the
+        // same value the list, the KPIs and the pager use. The cap badge below
+        // names the stored pre-cap band when the two differ; stored severity is
+        // never substituted for effective severity.
+        '<span class="' + sevBadge + '">' +
+        esc(_severityLabel(a.effective_severity || a.severity)) + '</span>' +
+        _cappedBadge(a.severity_cap) +
         (a.policy_state === 'stale'
             ? '<span class="badge badge-medium" title="' +
               esc(__('Computed under a different saved severity and trend policy than the one in effect now. The stored result is unchanged — re-run the scan to apply the current policy.')) +
               '">' + __('stale policy') + '</span>'
             : '') +
-        '<span class="badge ' + (_STATUS_TONE[a.status] || 'badge-muted') + '">' + esc(a.status) + '</span>' +
+        '<span class="badge ' + (_STATUS_TONE[a.status] || 'badge-muted') + '">' + esc(_statusLabel(a.status)) + '</span>' +
         (a.confidence === 'low'
             ? '<span class="badge badge-medium" title="' +
               esc(__('Small comparison group or ML cross-check disagreement — treat with caution')) + '">' +
@@ -813,17 +1557,20 @@ function _renderDetail(p) {
         '<div class="qa-verdict-body">' +
         '<div class="qa-verdict-title">' + esc(_interpText(a.interpretation)) + '</div>' +
         (a.reason ? '<div class="qa-verdict-text">' + esc(a.reason) + '</div>' : '') +
+        _capExplanationNote(a) +
         '<div class="qa-verdict-src">' + __('Flagged by') + ' <strong>' +
-        esc(a.perspective_label) + '</strong> · ' + esc(_methodLabel(a.method)) +
+        esc(_perspectiveLabel(a.perspective_label, a.perspective)) + '</strong> · ' + esc(_methodLabel(a.method)) +
         (n ? ' · ' + (isHistory ? __('baseline points') : __('peers')) + ': ' + esc(String(n)) : '') +
         '</div></div></div>';
 
     // 3 — The four numbers that define the finding (never duplicated below).
     html += '<div class="qa-kpis">' +
         _kpi(__('Current value'), _fmtValue(a.current_value, unit), esc(a.month)) +
-        _kpi(__('Baseline'), _fmtValue(a.baseline_value, unit),
-            esc(ev.baseline_label || a.perspective_label) +
-            (n ? ' · ' + (isHistory ? __('months') : __('hospitals')) + ': ' + esc(String(n)) : '')) +
+        _kpi(__('Baseline'), _fmtValue(a.baseline_value, unit) +
+            (a.zero_spread ? _zeroSpreadBadge() : ''),
+            esc(_perspectiveLabel(ev.baseline_label || a.perspective_label, a.perspective)) +
+            (n ? ' · ' + (isHistory ? __('months') : __('hospitals')) + ': ' + esc(String(n)) : '') +
+            (a.zero_spread ? ' · ' + esc(_spreadNote(a, stats)) : '')) +
         // A dash is explained, never left to guess: a zero baseline makes the
         // relative change undefined, and a zero-spread group makes z undefined.
         _kpi(__('Deviation'), _fmtPct(a.deviation_pct),
@@ -834,9 +1581,11 @@ function _renderDetail(p) {
         _kpi(__('Z-score'), _fmtZ(a.z_score),
             a.z_score == null && stats.std === 0
                 ? __('Comparison group has no spread')
-                : (ev.z_threshold != null
-                    ? __('Threshold') + ' |z| ≥ ' + Number(ev.z_threshold).toFixed(2)
-                    : '')) +
+                : (zWithheld
+                    ? __('Too few peer hospitals to measure a spread — no z-score is produced for this comparison')
+                    : (ev.z_threshold != null
+                        ? __('Threshold') + ' |z| ≥ ' + Number(ev.z_threshold).toFixed(2)
+                        : ''))) +
         '</div>';
 
     // 4 — Trend: the same numbers drawn month by month.
@@ -856,7 +1605,7 @@ function _renderDetail(p) {
               '<span><i class="qa-lg qa-lg-solid"></i>' + __('This hospital') + '</span>' +
               (hasBaselineLine
                   ? '<span><i class="qa-lg qa-lg-dash"></i>' +
-                    esc(trend.baseline_label || __('Baseline')) + '</span>'
+                    esc(_perspectiveLabel(trend.baseline_label) || __('Baseline')) + '</span>'
                   : '') +
               '<span><i class="qa-lg qa-lg-ring"></i>' + __('Alert month') + '</span>' +
               '</div>'
@@ -869,16 +1618,22 @@ function _renderDetail(p) {
         ? p.peer_groups
         : ((p.peers || []).length
             ? [{ perspective: a.perspective,
-                 label: ev.baseline_label || a.perspective_label,
+                 label: _perspectiveLabel(ev.baseline_label || a.perspective_label, a.perspective),
                  peers: p.peers }]
             : []);
     let compRows = _kv(__('Method'), esc(_methodLabel(a.method))) +
         _kv(__('Comparison group'),
-            esc(ev.baseline_label || a.perspective_label) +
+            esc(_perspectiveLabel(ev.baseline_label || a.perspective_label, a.perspective)) +
             (n ? ' · ' + (isHistory ? __('months') : __('hospitals')) + ': ' + esc(String(n)) : '')) +
         _kv(__('Reporting period'), esc(a.month));
     if (ev.z_threshold != null) {
         compRows += _kv(__('Alert threshold'), '|z| ≥ ' + Number(ev.z_threshold).toFixed(2));
+    }
+    if (zWithheld) {
+        compRows += _kv(__('Z-score'),
+            '<span class="qa-warn">' +
+            esc(__('Not produced — the comparison group is too small to measure a spread')) +
+            '</span>');
     }
     if (a.score != null) compRows += _kv(__('Severity score'), Number(a.score).toFixed(2));
     compRows += _kv(__('Confidence'), esc(a.confidence === 'low' ? __('low confidence') : __('high confidence')));
@@ -980,15 +1735,15 @@ function _renderDetail(p) {
             siblings.map(s => {
                 const here = s.id === a.id;
                 return '<tr' + (here ? ' class="is-current"' : '') + '>' +
-                    '<td>' + esc(s.perspective_label || s.perspective) +
+                    '<td>' + esc(_perspectiveLabel(s.perspective_label, s.perspective)) +
                     (here ? ' <span class="qa-here">' + __('viewing') + '</span>' : '') + '</td>' +
                     '<td><span class="' + (_SEVERITY_BADGES[s.severity] || 'badge badge-muted') + '">' +
-                    esc(s.severity) + '</span></td>' +
+                    esc(_severityLabel(s.severity)) + '</span></td>' +
                     '<td>' + _fmtValue(s.current_value, unit) + '</td>' +
                     '<td>' + _fmtValue(s.baseline_value, unit) + '</td>' +
                     '<td>' + _fmtPct(s.deviation_pct) + '</td>' +
                     '<td>' + esc(_methodLabel(s.method)) + '</td>' +
-                    '<td>' + esc(s.status) + '</td></tr>';
+                    '<td>' + esc(_statusLabel(s.status)) + '</td></tr>';
             }).join('') +
             '</tbody></table></div></section>';
     }
@@ -1003,12 +1758,12 @@ function _renderDetail(p) {
             '</tr></thead><tbody>' +
             p.previous_alerts.slice(0, 12).map(pa =>
                 '<tr><td>' + esc(pa.month) + '</td>' +
-                '<td>' + esc(pa.perspective_label || pa.perspective) + '</td>' +
+                '<td>' + esc(_perspectiveLabel(pa.perspective_label, pa.perspective)) + '</td>' +
                 '<td><span class="' + (_SEVERITY_BADGES[pa.severity] || 'badge badge-muted') + '">' +
-                esc(pa.severity) + '</span></td>' +
+                esc(_severityLabel(pa.severity)) + '</span></td>' +
                 '<td>' + _fmtValue(pa.current_value, unit) + '</td>' +
                 '<td>' + _fmtValue(pa.baseline_value, unit) + '</td>' +
-                '<td>' + esc(pa.status) + '</td></tr>').join('') +
+                '<td>' + esc(_statusLabel(pa.status)) + '</td></tr>').join('') +
             '</tbody></table></div></section>';
     }
 
@@ -1028,7 +1783,7 @@ function _renderDetail(p) {
         '<label class="qa-field"><span>' + __('Status') + '</span>' +
         '<select id="qaDetailStatus">' +
         statuses.map(s => '<option value="' + esc(s) + '"' +
-            (s === a.status ? ' selected' : '') + '>' + esc(s) + '</option>').join('') +
+            (s === a.status ? ' selected' : '') + '>' + esc(_statusLabel(s)) + '</option>').join('') +
         '</select></label>' +
         '<label class="qa-field"><span>' + __('Assignee') + '</span>' +
         '<input id="qaDetailAssignee" type="text" value="' + esc(a.assignee || '') + '"></label>' +
@@ -1050,8 +1805,8 @@ function _renderDetail(p) {
             '</tr></thead><tbody>' +
             p.events.map(e => {
                 const change = (e.from_status && e.to_status
-                    ? esc(e.from_status) + ' → ' + esc(e.to_status)
-                    : (e.to_status ? esc(e.to_status) : __('note')));
+                    ? esc(_statusLabel(e.from_status)) + ' → ' + esc(_statusLabel(e.to_status))
+                    : (e.to_status ? esc(_statusLabel(e.to_status)) : __('note')));
                 return '<tr><td>' + esc(_fmtDate(e.created_at)) + '</td>' +
                     '<td>' + esc(e.actor || 'system') + '</td>' +
                     '<td>' + change + (e.note ? ' — ' + esc(e.note) : '') + '</td></tr>';
@@ -1064,7 +1819,7 @@ function _renderDetail(p) {
     const audit = p.audit_link || {};
     html += '<div class="qa-links">' +
         '<button class="btn btn-sm qa-btn-ghost" onclick="window.closeModal && window.closeModal(); window.openAuditTrailInNewTab && window.openAuditTrailInNewTab(' +
-        esc(JSON.stringify({ kind: audit.kind || 'quality_score', hospitalId: audit.hospital_id, month: audit.month })) +
+        esc(JSON.stringify({ kind: audit.kind || 'quality_score', hospitalId: audit.hospital_id, month: audit.month, indicatorCode: audit.indicator_code })) +
         ')">' + __('Open in Audit screen') + '</button>' +
         '<button class="btn btn-sm qa-btn-ghost" onclick="window.closeModal && window.closeModal(); window.openScreenInNewTab && window.openScreenInNewTab(\'indicators\')">' +
         __('Open Indicators registry') + '</button>' +
@@ -1080,14 +1835,22 @@ export async function setQualityAlertStatus(alertId) {
     const noteEl = document.getElementById('qaDetailNote');
     const assigneeEl = document.getElementById('qaDetailAssignee');
     if (!statusEl) return;
+    const status = statusEl.value;
     try {
         await apiPostJSON('/quality-alerts/' + alertId + '/status', {
-            status: statusEl.value,
+            status: status,
             note: noteEl && noteEl.value.trim() ? noteEl.value.trim() : null,
             assignee: assigneeEl ? assigneeEl.value : null,
         });
         if (window.closeModal) window.closeModal();
         await loadQualityAlerts();
+        // Closing is not a data loss: say where the alert went, or the row
+        // simply vanishing from the list looks like the update failed.
+        if (status === 'Resolved' || status === 'False Positive') {
+            const msg = __('Marked ') + _statusLabel(status) +
+                __(' — it left the open alerts and stays available under Status.');
+            if (window.toastSuccess) window.toastSuccess(msg); else alert(msg);
+        }
     } catch (err) {
         alert(__('Failed to update status: ') + (err && err.message ? err.message : __('error')));
     }
@@ -1110,10 +1873,11 @@ export async function addQualityAlertNote(alertId) {
 
 // ── CSV export (client-side, same pattern as the other screens) ────────
 export function exportQualityAlertsCSV() {
-    const issues = _visibleIssues();
+    const issues = _state.issues;
     if (!issues.length) return;
     const headers = ['severity', 'hospital', 'indicator', 'indicator_code', 'current', 'baseline',
         'deviation_pct', 'perspectives', 'period', 'method', 'status', 'detected', 'confidence', 'interpretation'];
+    // Codes, not labels: the export stays machine-readable (VERY_HIGH, Resolved).
     const rows = issues.map(issue => {
         const primary = (issue.perspectives || [])[0] || {};
         return [
@@ -1137,6 +1901,7 @@ export function exportQualityAlertsCSV() {
 
 // ── Init ───────────────────────────────────────────────────────────────
 export async function initQualityAlerts() {
+    _installDetailModalA11y();
     if (_state.inited) { loadQualityAlerts(); return; }
     _state.inited = true;
     // Legend for the interpretation labels (bilingual from the server)
@@ -1148,7 +1913,7 @@ export async function initQualityAlerts() {
             _renderDetail.legend[key] = currentLang === 'ar' ? (pair.ar || pair.en) : pair.en;
         });
         _renderPerspectiveChips(meta.perspectives || []);
-        _fillSelect('qaStatusFilter', (meta.statuses || []).map(s => ({ value: s, label: s })));
+        _fillSelect('qaStatusFilter', _statusFilterOptions(meta), __('Open only'));
     } catch (e) { /* meta optional — the screen still loads */ }
     await _loadOptions();
     loadQualityAlerts();

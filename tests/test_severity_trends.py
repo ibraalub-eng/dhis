@@ -805,15 +805,20 @@ def two_indicator_alerts(db_session):
 
     Lets a test prove the recompute touches only the rows that are actually
     stale: one indicator's rows are marked current, the other's stay stale.
+
+    The two definitions use DIFFERENT denominators on purpose: identical
+    formulas are one canonical indicator (equivalent registry registrations),
+    and the scan would analyse — and rescan — only their single representative.
     """
     num = Indicator(code="TI_NUM", name="TI numerator")
     den = Indicator(code="TI_DEN", name="TI denominator")
-    db_session.add_all([num, den])
+    den_b = Indicator(code="TI_DEN_B", name="TI denominator (B)")
+    db_session.add_all([num, den, den_b])
     db_session.flush()
-    for code in ("TI_A", "TI_B"):
+    for code, denominator in (("TI_A", "TI_DEN"), ("TI_B", "TI_DEN_B")):
         db_session.add(IndicatorDefinition(
             code=code, name=f"{code} rate", formula_type="ratio",
-            numerator_codes=["TI_NUM"], denominator_codes=["TI_DEN"],
+            numerator_codes=["TI_NUM"], denominator_codes=[denominator],
             operator="/", multiplier=100.0, result_type="percentage",
             unit="%", direction="lower_is_better", is_active=True,
         ))
@@ -832,6 +837,9 @@ def two_indicator_alerts(db_session):
                                       value=value))
         db_session.add(IndicatorValue(hospital_id=hospital.id,
                                       indicator_id=den.id, month=month,
+                                      value=100.0))
+        db_session.add(IndicatorValue(hospital_id=hospital.id,
+                                      indicator_id=den_b.id, month=month,
                                       value=100.0))
     db_session.commit()
     return {"month": month}

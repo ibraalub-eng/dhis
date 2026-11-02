@@ -92,18 +92,23 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
     from app.config_utils import get_config_dict
     from app.engine.pipeline import compute_hospital_completeness as _chc
     from app.engine.quality import combine_quality_score
+    from app.engine.quality.scoring import resolve_scoring_config
+    from app.engine.quality.scoring_audit import apply_score_update
     from app.models import QualityScore
     scores = db.query(QualityScore).filter(QualityScore.hospital_id == hospital_id).all()
     if not scores:
         return
     # Weights come from the engine's single source of truth.
-    cfg_map = get_config_dict(db, "quality")
+    resolved = resolve_scoring_config(get_config_dict(db, "quality"))
     for s in scores:
         try:
             new_cp = round(_chc(db, s.hospital_id, s.month), 1)
-            s.completeness = new_cp
-            s.score = combine_quality_score(
-                s.rule_compliance, new_cp, s.consistency, s.outlier_penalty, cfg_map
+            apply_score_update(
+                db, s, resolved, "indicator_config_recalc", "system",
+                completeness=new_cp,
+                score=combine_quality_score(
+                    s.rule_compliance, new_cp, s.consistency,
+                    s.outlier_penalty, resolved),
             )
         except Exception:
             pass

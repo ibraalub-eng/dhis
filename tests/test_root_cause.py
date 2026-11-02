@@ -1144,7 +1144,15 @@ class TestIntegrationHistoricalAndComparativeRootCause:
             assert comp.peer_count >= 3
             # القيم 0 مشروعة لبعض المؤشرات (مثل الوفيات) — نتحقق من البنية لا القيمة
             assert isinstance(comp.hospital_percentile, float)
-            assert isinstance(comp.hospital_z_score, (int, float))
+            # A peer group below the top-band minimum cannot measure a spread,
+            # so it produces no z and says why (layered.PEER_Z_POLICY). The
+            # percentile, mean and gap are unaffected.
+            if comp.peer_count >= 4:
+                assert isinstance(comp.hospital_z_score, (int, float))
+                assert comp.z_provenance["z_produced"] is True
+            else:
+                assert comp.hospital_z_score is None
+                assert comp.z_provenance["z_produced"] is False
             assert isinstance(comp.gap_pct, (int, float))
         # تأكد أن المؤشرات المزروعة فعلاً حاضرة في المقارنة
         seeded_codes = {c.indicator_code for c in report.peer_comparisons.values()}

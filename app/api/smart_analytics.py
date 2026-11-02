@@ -10,6 +10,12 @@ logger = logging.getLogger(__name__)
 
 from app.cache import cache
 from app.database import get_db
+from app.eligibility import (
+    disabled_pairs,
+    exclude_disabled,
+    include_disabled_requested,
+    month_disabled,
+)
 from app.engine.smart import run_smart_analytics
 from app.engine.smart.schemas import SmartAnalyticsResult
 import threading
@@ -164,14 +170,12 @@ def _healthy_hospitals(db: Session, month: str, anomalies: list) -> list:
     """
     from app.models import QualityScore, ConfidenceScore
 
-    quality = {
-        q.hospital_id: q
-        for q in db.query(QualityScore).filter(QualityScore.month == month).all()
-    }
-    confidence = {
-        c.hospital_id: c
-        for c in db.query(ConfidenceScore).filter(ConfidenceScore.month == month).all()
-    }
+    quality_q = db.query(QualityScore).filter(QualityScore.month == month)
+    quality_q = exclude_disabled(db, quality_q, QualityScore)
+    quality = {q.hospital_id: q for q in quality_q.all()}
+    confidence_q = db.query(ConfidenceScore).filter(ConfidenceScore.month == month)
+    confidence_q = exclude_disabled(db, confidence_q, ConfidenceScore)
+    confidence = {c.hospital_id: c for c in confidence_q.all()}
     anomaly_map = {a["hospital_id"]: a for a in anomalies}
 
     # If no hospitals have quality/confidence scores for this month,
@@ -510,7 +514,11 @@ def get_forecast_signals(month: str, horizon: int = Query(3, description="أفق
     # ── 1) سلاسل الجودة لكل مستشفى (كل الأشهر المخزنة) ──
     hosp_names = {h.id: h.name for h in db.query(Hospital).filter(Hospital.is_active).all()}
     quality_series = {}
-    for q in db.query(QualityScore).order_by(QualityScore.hospital_id, QualityScore.month).all():
+    _q_series = db.query(QualityScore).order_by(
+        QualityScore.hospital_id, QualityScore.month
+    )
+    _q_series = exclude_disabled(db, _q_series, QualityScore)
+    for q in _q_series.all():
         name = hosp_names.get(q.hospital_id)
         if not name:
             continue
@@ -952,7 +960,8 @@ def get_xgboost(month: str, horizon: int = Query(1, description="أفق التن
 @router.get("/trend/{hospital_id}")
 @safe_endpoint("خطأ في تحليل الاتجاه", cache_keys=["smart_trend_{hospital_id}"])
 def get_trend(hospital_id: int, db: Session = Depends(get_db)):
-    cache_key = f"smart_trend_{hospital_id}_{SMART_CACHE_VERSION}"
+    _disabled_key = ",".join(f"{h}:{m}" for h, m in sorted(disabled_pairs(db)))
+    cache_key = f"smart_trend_{hospital_id}_{SMART_CACHE_VERSION}_{_disabled_key}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -961,7 +970,9 @@ def get_trend(hospital_id: int, db: Session = Depends(get_db)):
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital not found")
     from app.models import QualityScore
-    months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
+    months_q = db.query(QualityScore.month).distinct()
+    months_q = exclude_disabled(db, months_q, QualityScore, hospital_id=hospital_id)
+    months = [r[0] for r in months_q.order_by(QualityScore.month).all()]
     trend_data = []
     for m in months:
         try:
@@ -990,8 +1001,17 @@ def get_trend(hospital_id: int, db: Session = Depends(get_db)):
 
 @router.get("/drilldown/{hospital_id}/{month}")
 @safe_endpoint("خطأ في تحليل المستشفى", cache_keys=["smart_drilldown_{hospital_id}"])
-def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
-    cache_key = f"smart_drilldown_{hospital_id}_{month}_{SMART_CACHE_VERSION}"
+def get_drilldown(
+    hospital_id: int,
+    month: str,
+    include_disabled: bool = Query(False, description="Historical/audit view"),
+    db: Session = Depends(get_db),
+):
+    _disabled_key = ",".join(f"{h}:{m}" for h, m in sorted(disabled_pairs(db)))
+    cache_key = (
+        f"smart_drilldown_{hospital_id}_{month}_{SMART_CACHE_VERSION}_"
+        f"{int(bool(include_disabled))}_{_disabled_key}"
+    )
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -999,8 +1019,20 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital:
         raise HTTPException(status_code=404, detail="Hospital not found")
+    if month != "all" and not include_disabled_requested(include_disabled) \
+            and month_disabled(db, hospital_id, month):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Month {month} is disabled for this hospital. "
+                "Use include_disabled=true for the historical view."
+            ),
+        )
     if month == "all":
-        response = _get_drilldown_all_months(db, hospital_id, hospital)
+        response = _get_drilldown_all_months(
+            db, hospital_id, hospital,
+            include_disabled=include_disabled_requested(include_disabled),
+        )
         cache.set(cache_key, response, ttl=1800)
         return response
     smart = _get_smart_data(db, month)
@@ -1050,10 +1082,14 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
     # Get quality scores for peers in same month
     peer_quality_scores = {}
     if peer_ids:
-        for qs in db.query(QualityScore).filter(
+        peer_q = db.query(QualityScore).filter(
             QualityScore.hospital_id.in_(peer_ids),
-            QualityScore.month == month
-        ).all():
+            QualityScore.month == month,
+        )
+        # A peer whose month is disabled for that peer must not enter the
+        # benchmark of this drilldown.
+        peer_q = exclude_disabled(db, peer_q, QualityScore)
+        for qs in peer_q.all():
             peer_quality_scores[qs.hospital_id] = qs.score or 0
     peer_avg_score = None
     if peer_quality_scores:
@@ -1153,9 +1189,14 @@ def get_drilldown(hospital_id: int, month: str, db: Session = Depends(get_db)):
     return response
 
 
-def _get_drilldown_all_months(db, hospital_id, hospital):
+def _get_drilldown_all_months(db, hospital_id, hospital, include_disabled=False):
     from app.models import QualityScore
-    months = [r[0] for r in db.query(QualityScore.month).distinct().order_by(QualityScore.month).all()]
+    months_q = db.query(QualityScore.month).distinct()
+    if not include_disabled:
+        months_q = exclude_disabled(
+            db, months_q, QualityScore, hospital_id=hospital_id
+        )
+    months = [r[0] for r in months_q.order_by(QualityScore.month).all()]
 
     all_anomalies = []
     all_explanations = []

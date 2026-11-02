@@ -31,16 +31,28 @@
             <div class="label">Avg Quality Score</div>
             <canvas class="sparkline" id="sparkAvgScore" height="24"></canvas>
         </div>
-        <div class="card summary-card">
+        <!-- Open risk alerts: the Quality Alerts screen's unit (one per
+             hospital+canonical formula+month), not the stored validation-rule
+             failure count that used to sit here and read 4 beside 1,200 Very
+             High issues. Clicking opens that screen; hidden for users without
+             access to it. -->
+        <div class="card summary-card" id="dashAlertsCard" style="cursor:pointer;" onclick="switchTab('quality-alerts')">
             <div class="value" id="dashAlerts" style="color:var(--accent-red);">-</div>
-            <div class="label">Active Alerts</div>
+            <div class="label" data-i18n="Active alerts">Active alerts</div>
         </div>
-        <!-- Quality risk: Very High (Red) issues from the Quality Alerts
-             screen, counted the way that table lists them (one per
+        <!-- Validation-rule failures, in their own card: a distinct signal
+             (a stored FAIL row per hospital-month-rule) that used to be
+             mislabelled "Active Alerts" and read as an alert volume. -->
+        <div class="card summary-card" id="dashRuleFailuresCard" style="cursor:pointer;" onclick="switchTab('alerts')">
+            <div class="value" id="dashRuleFailures">-</div>
+            <div class="label" data-i18n="Rule failures">Rule failures</div>
+        </div>
+        <!-- Quality risk: Very High issues from the Quality Alerts screen,
+             counted the way that table lists them (one per
              hospital+indicator+month, not one per perspective row). Clicking
              opens that screen; hidden for users without access to it. -->
-        <div class="card summary-card" id="dashRedCard" style="cursor:pointer;border-top-color:var(--accent-red);" onclick="switchTab('quality-alerts')">
-            <div class="value" id="dashRedIssues" style="color:var(--accent-red);">-</div>
+        <div class="card summary-card" id="dashVeryHighCard" style="cursor:pointer;border-top-color:var(--accent-red);" onclick="switchTab('quality-alerts')">
+            <div class="value" id="dashVeryHighIssues" style="color:var(--accent-red);">-</div>
             <div class="label" data-i18n="Very high issues">Very high issues</div>
         </div>
     </div>

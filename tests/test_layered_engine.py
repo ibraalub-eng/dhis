@@ -7,6 +7,7 @@ import pytest
 from app.engine.anomaly.classify import (
     TYPE_CLINICAL_INVESTIGATION_REQUIRED,
     TYPE_HISTORICAL_ANOMALY,
+    TYPE_INSUFFICIENT_HISTORY,
     TYPE_NORMAL,
     TYPE_PEER_ANOMALY,
     TYPE_POSSIBLE_DATA_ENTRY_ERROR,
@@ -539,15 +540,19 @@ def _classify(**kw):
 
 
 def test_classification_rule1_insufficient_history_is_first_match():
+    """No evaluable history and no peer evidence is an assessment withheld —
+    never a confirmed NORMAL result (see the insufficient-history policy)."""
     c = _classify(history_ok=False, raw_score=0.95, hist_score=0.95)
     assert c.rule_number == 1
-    assert c.outlier_type == TYPE_NORMAL
+    assert c.outlier_type == TYPE_INSUFFICIENT_HISTORY
     assert c.outlier_level == "NONE"
     assert c.method == METHOD_INSUFFICIENT_HISTORY
     assert c.investigation_required is False
     assert c.investigation_route == "none"
     assert "Not enough history" in c.interpretation
     assert "3 prior months" in c.interpretation
+    assert "not a confirmed normal result" in c.interpretation
+    assert "peer comparison unavailable" in c.interpretation
 
 
 def test_classification_rule2_possible_data_entry_error():
@@ -823,7 +828,7 @@ def test_scenario11_missing_historical_data_insufficient_history():
     result = _entry(_count_spec(), {CURRENT: {"5": 10.0}})
     assert result.history_ok is False
     assert result.classification.rule_number == 1
-    assert result.classification.outlier_type == TYPE_NORMAL
+    assert result.classification.outlier_type == TYPE_INSUFFICIENT_HISTORY
     assert result.classification.outlier_level == "NONE"
     assert result.classification.method == METHOD_INSUFFICIENT_HISTORY
     assert result.raw.method == METHOD_INSUFFICIENT_HISTORY
@@ -836,7 +841,7 @@ def test_scenario12_first_months_below_minimum_history():
     result = _entry(_count_spec(), history)
     assert result.history_ok is False
     assert result.classification.rule_number == 1
-    assert result.classification.outlier_type == TYPE_NORMAL
+    assert result.classification.outlier_type == TYPE_INSUFFICIENT_HISTORY
     assert result.raw.score is None            # not judged, never an outlier
     assert result.raw.value == 25.0            # value still reported
 

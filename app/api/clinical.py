@@ -2,6 +2,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.eligibility import include_disabled_requested, month_disabled
 from app.models import Hospital, QualityScore, ValidationResult
 from app.engine.pipeline import get_enabled_values_for_hospital_month
 from app.engine.clinical import run_clinical_analysis
@@ -15,11 +16,29 @@ router = APIRouter(prefix="/clinical", tags=["clinical"], dependencies=[Depends(
 def get_clinical_analysis(
     hospital_id: int,
     month: str = Query(..., description="Month YYYY-MM"),
+    include_disabled: bool = Query(
+        False,
+        description=(
+            "Historical/audit view for a month switched off for this hospital. "
+            "Active clinical results always exclude disabled months."
+        ),
+    ),
     db: Session = Depends(get_db),
 ):
     hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
     if not hospital or not hospital.is_active:
         raise HTTPException(status_code=404, detail=f"Hospital id {hospital_id} not found")
+
+    if not include_disabled_requested(include_disabled) and month_disabled(
+        db, hospital_id, month
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Month {month} is disabled for this hospital. "
+                "Use include_disabled=true for the historical view."
+            ),
+        )
 
     values = get_enabled_values_for_hospital_month(db, hospital_id, month)
     if not values:
@@ -75,9 +94,10 @@ def get_clinical_analysis(
 def analyze_clinical(
     hospital_id: int = Query(...),
     month: str = Query(..., description="Month YYYY-MM"),
+    include_disabled: bool = Query(False, description="Historical/audit view"),
     db: Session = Depends(get_db),
 ):
-    return get_clinical_analysis(hospital_id, month, db)
+    return get_clinical_analysis(hospital_id, month, include_disabled, db)
 
 
 def _result_to_schema(result):

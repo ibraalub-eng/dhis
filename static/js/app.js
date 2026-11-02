@@ -68,6 +68,7 @@ window.layeredFilterChange = _stub('layeredFilterChange');
 window.layeredPage = _stub('layeredPage');
 window.exportLayeredCSV = _stub('exportLayeredCSV');
 window.layeredTrendToggle = _stub('layeredTrendToggle');
+window.recomputeStaleLayered = _stub('recomputeStaleLayered');
 window.loadAlerts = _stub('loadAlerts');
 window.updateAlertBadge = _stub('updateAlertBadge');
 window.refreshSavedFiles = _stub('refreshSavedFiles');
@@ -256,8 +257,10 @@ function _bindAll(mod, label) {
     case 'quality-alerts':
       _bind(mod, 'initQualityAlerts'); _bind(mod, 'loadQualityAlerts');
       _bind(mod, 'qualityAlertsFilterChanged'); _bind(mod, 'qualityAlertsPage');
+      _bind(mod, 'qualityAlertsPageSizeChanged');
       _bind(mod, 'qualityAlertsFilterChangedDebounced');
       _bind(mod, 'qualityAlertsTogglePerspective');
+      _bind(mod, 'qualityAlertsToggleVeryHighScope');
       _bind(mod, 'scanQualityAlerts'); _bind(mod, 'recomputeStaleQualityAlerts');
       _bind(mod, 'openQualityAlert');
       _bind(mod, 'setQualityAlertStatus'); _bind(mod, 'addQualityAlertNote');
@@ -266,7 +269,7 @@ function _bindAll(mod, label) {
     case 'layered':
       _bind(mod, 'loadLayered'); _bind(mod, 'layeredFilterChange');
       _bind(mod, 'layeredPage'); _bind(mod, 'exportLayeredCSV');
-      _bind(mod, 'layeredTrendToggle');
+      _bind(mod, 'layeredTrendToggle'); _bind(mod, 'recomputeStaleLayered');
       break;
     case 'alerts':
       _bind(mod, 'loadAlerts'); _bind(mod, 'updateAlertBadge');

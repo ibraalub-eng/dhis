@@ -1,12 +1,13 @@
 import logging
 import re
 from collections import Counter
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.orm import Session
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
-from app.models import AppConfig, SystemSetting
+from app.models import AppConfig, Hospital, HospitalMonthAudit, SystemSetting
 from app.config_utils import AI_CONFIG_KEYS, get_ai_config
 from app.core.deps import require_permission
 from app.core.error_handler import safe_endpoint
@@ -67,6 +68,10 @@ SLOW_QUERY_KEY = "slow_query_logging_enabled"
 HIDE_EXPLANATIONS_KEY = "hide_explanatory_text"
 INCREMENTAL_UPLOAD_KEY = "upload_incremental_months"
 MONTH_SETTINGS_PREFIX = "month_enabled_"
+# A month setting is only ever written for a real reporting month. Junk keys
+# (e.g. "all") cannot be read back by app/eligibility.py and would otherwise
+# produce audit rows that explain nothing.
+_MONTH_KEY_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 # Public API field name, kept for existing clients. Its STORAGE is the single
 # authoritative AppConfig thresholds.zscore_threshold (saved default 2.5).
 ANOMALY_ZSCORE_KEY = "anomaly_zscore_threshold"
@@ -460,21 +465,117 @@ def get_month_settings(
     return {"enabled_months": enabled_months}
 
 
-@router.put("/month-settings", dependencies=[Depends(require_permission("settings.write"))])
-def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db)):
-    """Enable or disable a specific month for a specific hospital."""
+def _parse_enabled(value) -> bool:
+    """Only an explicit false disables — the same rule app/eligibility.py reads.
+
+    JSON clients send a boolean, but a quoted "false" used to be truthy and
+    silently ENABLED the month while returning the opposite. Normalizing here
+    keeps the stored value, the audit trail and the reader in agreement.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in {"false", "0", "no", "off", ""}
+    return bool(value)
+
+
+def _record_month_change(db: Session, hospital: Hospital, month: str,
+                         enabled: bool, previous_state: str,
+                         actor) -> None:
+    """Append one audit row for a REAL hospital-month state change.
+
+    Re-saving the value a month already has records nothing: the trail must
+    answer "who changed this and when", not "who pressed Save".
+    """
+    db.add(HospitalMonthAudit(
+        hospital_id=hospital.id,
+        hospital_name=hospital.name,
+        month=month,
+        action="enabled" if enabled else "disabled",
+        previous_state=previous_state,
+        actor_id=getattr(actor, "id", None),
+        actor=getattr(actor, "username", None),
+    ))
+
+
+@router.get("/month-settings/audit")
+def get_month_settings_audit(
+    hospital_id: Optional[int] = Query(None, description="Filter by hospital ID"),
+    month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),
+    limit: int = Query(50, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Who enabled or disabled a hospital month, and when (newest first).
+
+    Append-only: rows come from ``PUT /config/month-settings`` and are never
+    updated or deleted. ``previous_state`` is ``unset`` when no setting row
+    existed, i.e. the month was enabled by default — so the first disable is
+    still explainable.
+    """
+    query = db.query(HospitalMonthAudit)
+    if hospital_id is not None:
+        query = query.filter(HospitalMonthAudit.hospital_id == hospital_id)
+    if month:
+        query = query.filter(HospitalMonthAudit.month == month)
+    rows = (query
+            .order_by(HospitalMonthAudit.created_at.desc(),
+                      HospitalMonthAudit.id.desc())
+            .limit(limit).all())
+    return [
+        {
+            "id": row.id,
+            "hospital_id": row.hospital_id,
+            "hospital": row.hospital_name,
+            "month": row.month,
+            "action": row.action,
+            "previous_state": row.previous_state,
+            "actor_id": row.actor_id,
+            "actor": row.actor,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in rows
+    ]
+
+
+@router.put("/month-settings")
+def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db),
+                         user=Depends(require_permission("settings.write"))):
+    """Enable or disable a specific month for a specific hospital.
+
+    Every real state change is appended to ``hospital_month_audit`` with the
+    acting user and the time; a no-op save is not recorded.
+    """
     month = updates.get("month")
     hospital_id = updates.get("hospital_id")
-    enabled = updates.get("enabled", True)
     if not month or hospital_id is None:
         raise HTTPException(status_code=400, detail="month and hospital_id are required")
+    month = str(month).strip()
+    if not _MONTH_KEY_RE.match(month):
+        raise HTTPException(status_code=400, detail="month must be YYYY-MM")
+    try:
+        hospital_id = int(hospital_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400,
+                            detail="hospital_id must be an integer") from None
+    enabled = _parse_enabled(updates.get("enabled", True))
+    hospital = db.query(Hospital).filter(Hospital.id == hospital_id).first()
+    if hospital is None:
+        raise HTTPException(status_code=404,
+                            detail=f"Hospital id {hospital_id} not found")
+
     key = MONTH_SETTINGS_PREFIX + str(hospital_id) + "_" + month
     val = "true" if enabled else "false"
     row = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    previous_state = (
+        "disabled" if (row is not None
+                       and str(row.value).strip().lower() == "false")
+        else ("enabled" if row is not None else "unset")
+    )
+    changed = (previous_state != "disabled") != enabled
     if row:
         row.value = val
     else:
         db.add(SystemSetting(key=key, value=val))
+    if changed:
+        _record_month_change(db, hospital, month, enabled, previous_state, user)
     db.commit()
     # is_enabled on /reports (and everything derived from enabled_months)
     # is computed per request but served from a 24h file cache — without this
@@ -485,9 +586,14 @@ def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db
         # must include it or the file cache entries never match.
         _cache.invalidate("v2|reports:")
         _cache.invalidate("v2|analysis:")
+        # Smart Analytics envelopes embed quality/confidence rows in some
+        # sections (e.g. healthy hospitals); a month toggle must reach them too.
+        _cache.invalidate("smart_")
     except Exception:
         logger.exception("Failed to invalidate caches after month toggle")
-    return {"status": "ok", "month": month, "hospital_id": hospital_id, "enabled": enabled}
+    return {"status": "ok", "month": month, "hospital_id": hospital_id,
+            "enabled": enabled, "changed": changed,
+            "previous_state": previous_state}
 
 
 @router.get("/{category}")

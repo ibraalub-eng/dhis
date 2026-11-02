@@ -649,11 +649,14 @@ def run_hospital_forecast(session, hospital_id: int, month: str,
     probability = 0.25 + 0.15 * score + (0.15 if outcome_rising else 0.0)
     probability = round(min(0.95, probability), 2)
 
+    from app.eligibility import exclude_disabled
     from app.models import QualityScore
     comp = None
-    q = (session.query(QualityScore)
-         .filter(QualityScore.hospital_id == hospital_id,
-                 QualityScore.month == month).first())
+    _q = (session.query(QualityScore)
+          .filter(QualityScore.hospital_id == hospital_id,
+                  QualityScore.month == month))
+    _q = exclude_disabled(session, _q, QualityScore, hospital_id=hospital_id)
+    q = _q.first()
     if q is not None:
         comp = q.completeness
     if comp is None:
@@ -707,6 +710,7 @@ def run_early_warnings(session, month: str,
     الشدة من مجموع أوزان المؤشرات الصاعدة، الاحتمال تقدير تحفظي من قوة
     الإشارة، والثقة من اكتمال بيانات المستشفى.
     """
+    from app.eligibility import exclude_disabled
     from app.models import QualityScore
 
     series, meta, window = _load_series(session, month, months_back=3)
@@ -726,9 +730,11 @@ def run_early_warnings(session, month: str,
     else:
         leading = {m: 1.0 for m in LEADING_INDICATORS}
 
+    completeness_q = session.query(QualityScore).filter(QualityScore.month == month)
+    completeness_q = exclude_disabled(session, completeness_q, QualityScore)
     completeness = {
         q.hospital_id: float(q.completeness)
-        for q in session.query(QualityScore).filter(QualityScore.month == month).all()
+        for q in completeness_q.all()
         if q.completeness is not None
     }
 

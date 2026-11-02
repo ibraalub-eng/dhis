@@ -7,10 +7,11 @@ those definitions zeroed the penalty while the Outlier Diagnostics screen kept
 flagging data-tree elements.
 
 Contract now: when the pipeline supplies the layered rows for the
-hospital+month (every non-synthetic Data Tree element + the active rate specs),
-the penalty is the share of those rows flagged HIGH/VERY_HIGH. The classic
-registry-based penalty remains the fallback when layered results are
-unavailable.
+hospital+month, the numerator is every row flagged HIGH/VERY_HIGH and the
+denominator is the APPROVED ELIGIBLE assessment set (Required elements whether
+reported or missing, Optional/rate units only when assessed, minus manually
+disabled and covered units). The classic registry-based penalty remains the
+fallback when layered results are unavailable.
 """
 from types import SimpleNamespace
 
@@ -139,8 +140,12 @@ def test_pipeline_penalty_matches_its_layered_rows(db_session, sample_values):
 
     multiplier = float(get_config_dict(db_session, "quality").get(
         "outlier_multiplier", 1.5))
+    from app.engine.pipeline import get_outlier_eligible_codes
+    eligible = get_outlier_eligible_codes(
+        db_session, hospital.id, month,
+        evaluated_codes=[r.analysis_code for r in rows])
     flagged = sum(1 for r in rows if r.outlier_level in FLAGGED_LEVELS)
-    expected = min(1.0, flagged / len(rows) * multiplier) * 100
+    expected = min(1.0, flagged / len(eligible) * multiplier) * 100
 
     qs = (
         db_session.query(QualityScore)

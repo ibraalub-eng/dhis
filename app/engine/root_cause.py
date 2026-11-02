@@ -10,6 +10,11 @@ import math
 
 logger = logging.getLogger(__name__)
 
+from app.engine.anomaly.layered import (  # noqa: E402
+    MIN_PEERS_FOR_TOP_BAND,
+    peer_z_measurable,
+    peer_z_provenance,
+)
 from app.engine.smart.anomaly import FEATURE_KEYS  # noqa: E402
 
 # الأسماء العربية للمؤشرات المشتقة (نفس مفاتيح FEATURE_KEYS في محرك الشذوذ الذكي)
@@ -135,7 +140,9 @@ class PeerComparison:
     mean_value: float
     std_value: float
     hospital_percentile: float
-    hospital_z_score: float
+    # None when the group is too small to measure a spread (layered
+    # .PEER_Z_POLICY): the comparison is kept, the z is not produced.
+    hospital_z_score: Optional[float]
     benchmark_hospital: str
     benchmark_value: float
     gap_to_benchmark: float
@@ -152,11 +159,14 @@ class PeerIndicatorComparison:
     peer_mean: float
     peer_std: float
     hospital_percentile: float
-    hospital_z_score: float
+    # None when the group is too small to measure a spread (layered
+    # .PEER_Z_POLICY); ``z_provenance`` then says why.
+    hospital_z_score: Optional[float]
     gap_pct: float
     peer_governorates: List[str] = field(default_factory=list)
     peer_governorate_counts: Dict[str, int] = field(default_factory=dict)
     peer_types: List[str] = field(default_factory=list)
+    z_provenance: Optional[dict] = None
 
 
 @dataclass
@@ -632,7 +642,13 @@ def calculate_peer_comparison(
     std_val = float(np.std(peer_values)) if len(peer_values) > 1 else 0
 
     percentile = float(sp_stats.percentileofscore(peer_values, hospital_value))
+    # A peer z divides by the group's own spread: fewer than
+    # layered.MIN_PEERS_FOR_TOP_BAND other hospitals cannot measure one
+    # (layered.PEER_Z_POLICY), so no z is quoted for such a group while the
+    # percentile, the gap and the comparison itself are kept.
     z_score = (hospital_value - mean_val) / std_val if std_val > 0 else 0
+    if not peer_z_measurable(len(peer_values)):
+        z_score = None
 
     best_value = max(peer_values)
 
@@ -642,7 +658,7 @@ def calculate_peer_comparison(
         mean_value=round(mean_val, 2),
         std_value=round(std_val, 2),
         hospital_percentile=round(percentile, 1),
-        hospital_z_score=round(z_score, 2),
+        hospital_z_score=(None if z_score is None else round(z_score, 2)),
         benchmark_hospital=hospital_name,
         benchmark_value=round(best_value, 2),
         gap_to_benchmark=round(best_value - hospital_value, 2),
@@ -1527,8 +1543,17 @@ def _build_local_recommendations(
             "Peer Comparison", "مقارنة النظير", "medium",
             f"{top.indicator_name} is {top.gap_pct:.0f}% above peer mean",
             f"{top.indicator_name} أعلى من متوسط النظير بـ {top.gap_pct:.0f}%",
-            f"Hospital value {top.hospital_value} vs peer mean {top.peer_mean} (z={top.hospital_z_score}).",
-            f"قيمة المستشفى {top.hospital_value} مقابل {top.peer_mean} للنظير (z={top.hospital_z_score}).",
+            # A thin peer group produced no z (layered.PEER_Z_POLICY): the
+            # comparison is still described, the unmeasurable magnitude is not
+            # quoted as if it were one.
+            f"Hospital value {top.hospital_value} vs peer mean {top.peer_mean} "
+            + (f"(z={top.hospital_z_score})." if top.hospital_z_score is not None
+               else f"(no z: fewer than {MIN_PEERS_FOR_TOP_BAND} peer hospitals "
+                    "cannot measure a spread)."),
+            f"قيمة المستشفى {top.hospital_value} مقابل {top.peer_mean} للنظير "
+            + (f"(z={top.hospital_z_score})." if top.hospital_z_score is not None
+               else f"(بلا z: أقل من {MIN_PEERS_FOR_TOP_BAND} مستشفيات نظيرة لا "
+                    "يمكنها قياس التشتت)."),
             "Deviation from peers may signal a reporting issue or a genuine care difference.",
             "الانحراف عن النظير قد يشير إلى مشكلة إبلاغ أو اختلاف رعاية حقيقي.",
             ["Compare data entry practices with peers", "Review clinical practice differences"],
@@ -1743,7 +1768,13 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_
             continue
         std = (sum((v - mean) ** 2 for v in pvals) / len(pvals)) ** 0.5
         percentile = float(sum(1 for v in pvals if v <= hv) / len(pvals) * 100)
+        # Same rule as the benchmark and the audit screens: a peer group of 2-3
+        # hospitals cannot measure a spread, so the z is withheld (None) and
+        # explained, while the mean, the percentile and the gap are kept.
         z = (hv - mean) / std if std > 0 else 0.0
+        z_provenance = peer_z_provenance(len(pvals))
+        if not z_provenance["z_produced"]:
+            z = None
         gap_pct = ((hv - mean) / mean * 100) if mean != 0 else 0.0
         peer_comparisons[code] = PeerIndicatorComparison(
             indicator_code=code,
@@ -1754,8 +1785,9 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_
             peer_mean=round(mean, 2),
             peer_std=round(std, 2),
             hospital_percentile=round(percentile, 1),
-            hospital_z_score=round(z, 2),
+            hospital_z_score=(None if z is None else round(z, 2)),
             gap_pct=round(gap_pct, 2),
+            z_provenance=z_provenance,
             peer_governorates=list(peer_governorates),
             peer_governorate_counts=dict(peer_governorate_counts),
             peer_types=list(peer_types),
@@ -2012,9 +2044,10 @@ def generate_root_cause_analysis(
                             "hospital_value": v.hospital_value,
                             "peer_group": v.peer_group,
                             "peer_mean": v.peer_mean,
-                            "hospital_percentile": v.hospital_percentile,
-                            "hospital_z_score": v.hospital_z_score,
-                            "gap_pct": v.gap_pct,
+                "hospital_percentile": v.hospital_percentile,
+                "hospital_z_score": v.hospital_z_score,
+                "z_provenance": v.z_provenance,
+                "gap_pct": v.gap_pct,
                         }
                         for k, v in peer_comparisons.items()
                     },

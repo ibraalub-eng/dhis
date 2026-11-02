@@ -649,6 +649,15 @@ def explain_anomaly(
     z_thresh = _zscore_threshold(db)
     z = row.z_score
     is_peer_row = row.peer_count is not None
+    # A peer comparison too small to measure a spread carries no z-score at all
+    # (layered.PEER_Z_POLICY), so a NULL z here is a policy outcome, not a
+    # missing measurement.
+    from app.engine.anomaly.layered import (
+        MIN_PEERS_FOR_TOP_BAND,
+        peer_z_measurable,
+        peer_z_provenance,
+    )
+
     # RATE_DEFINITIONS pairs the rate name with (numerator, denominator).
     from app.engine.anomaly.zscore import RATE_DEFINITIONS
     base_name = row.rate_name.replace(" (trend)", "")
@@ -815,10 +824,22 @@ def explain_anomaly(
                             if p.get("hospital")}
             missing = sorted(set(rebuilt["peer_hospitals"]) - stored_peers)
             extra = sorted(stored_peers - set(rebuilt["peer_hospitals"]))
+            # A comparison group below MIN_PEERS_FOR_TOP_BAND produces no
+            # z-score (layered.PEER_Z_POLICY), so rows written under that
+            # policy store a NULL z: the check must compare populations, not
+            # invent a missing measurement.
+            z_graded = peer_z_measurable(row.peer_count)
+            # The recomputed z is quoted whenever there is one to compare:
+            # either the group is large enough to produce one, or the row was
+            # written before the policy and stored one. A NULL z on a thin
+            # group is the policy's output, not a missing measurement.
+            peer_expected_z = (round(rebuilt["z"], 2)
+                               if (z_graded or z is not None) else None)
             benchmark_verified = (
                 not missing and not extra
                 and rebuilt["peer_count"] == row.peer_count
-                and abs(round(rebuilt["z"], 2) - float(z)) <= 0.01
+                and (z is None
+                     or abs(round(rebuilt["z"], 2) - float(z)) <= 0.01)
             )
             peer_check = {
                 "verified": benchmark_verified,
@@ -826,11 +847,19 @@ def explain_anomaly(
                 "stored_peer_count": row.peer_count,
                 "expected_benchmark": round(rebuilt["mean"], 2),
                 "expected_peer_std": round(rebuilt["std"], 2),
-                "expected_z": round(rebuilt["z"], 2),
+                "expected_z": peer_expected_z,
+                "z_produced": z_graded,
+                "z_provenance": peer_z_provenance(row.peer_count),
                 "peer_set_matches": not missing and not extra,
                 "peers_missing_from_row": missing,
                 "peers_not_in_data": extra,
                 "note": (
+                    "Benchmark recomputed from the current data with the same "
+                    "hospital set the engine uses. Fewer than "
+                    f"{MIN_PEERS_FOR_TOP_BAND} peer hospitals cannot measure a "
+                    "spread, so this comparison produces no z-score; the peer "
+                    "values, their mean and the score are kept."
+                    if peer_expected_z is None else
                     "Benchmark recomputed from the current data with the same hospital "
                     "set the engine uses."
                 ),
@@ -911,8 +940,14 @@ def explain_anomaly(
             # engine computes from today's data. A stale benchmark is reported
             # as not reproduced rather than silently verified.
             "benchmark_verified": benchmark_verified,
-            "verified": (z_verified if benchmark_verified is None
-                         else bool(z_verified) and benchmark_verified),
+            # A peer comparison whose group is too small to measure a spread
+            # carries no z on purpose (layered.PEER_Z_POLICY): there is nothing
+            # to verify about the z, so the population the benchmark came from
+            # decides the verdict instead of a NULL being read as a failure.
+            "verified": (benchmark_verified
+                         if (z is None and benchmark_verified is not None)
+                         else (z_verified if benchmark_verified is None
+                               else bool(z_verified) and benchmark_verified)),
             "note": (
                 "Raw numerator/denominator missing — rate cannot be reproduced from stored values"
                 if expected_rate is None else
@@ -1850,6 +1885,825 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
     }
 
 
+def _layered_identity_key(spec) -> str:
+    """Canonical formula identity of a layered analysis unit (same key Quality
+    Alerts stores in ``evidence["canonical"]["key"]``)."""
+    from app.engine import canonical_identity
+
+    if spec.is_rate:
+        identity = canonical_identity.ratio_identity(
+            spec.numerator_codes, spec.denominator_codes, "/",
+            spec.rate_multiplier, spec.unit)
+    else:
+        identity = canonical_identity.stored_identity(
+            None, None, spec.analysis_code)
+    return canonical_identity.identity_key(identity)
+
+
+_ALERT_SEVERITY_RANK = {"NONE": 0, "LOW": 1, "MODERATE": 2,
+                        "HIGH": 3, "VERY_HIGH": 4}
+
+# Display order required for the same-identity peer perspectives. A
+# perspective this map does not know keeps a deterministic place after these.
+_PEER_PERSPECTIVE_ORDER = {"type": 0, "ownership": 1, "governorate": 2,
+                           "facility_type": 3, "all": 4}
+
+
+def _peer_scale_evidence(verdict: Optional[dict], value_key: str,
+                         band_key: str, usable_key: str) -> dict:
+    """One robust scale exactly as the existing Rule B verdict holds it.
+
+    ``None`` means the scale was not available (no stored peer group, or the
+    gate did not judge this row). A stored ``0`` value and a stored ``False``
+    usability flag are valid evidence and are preserved as such; nothing is
+    recomputed here.
+    """
+    if not verdict or verdict.get(value_key) is None:
+        return {"value": None, "band": None, "usable": None}
+    return {"value": verdict.get(value_key),
+            "band": verdict.get(band_key),
+            "usable": verdict.get(usable_key)}
+
+
+def _peer_perspective_view(alert, assessment: dict,
+                           threshold: Optional[float]) -> dict:
+    """One stored peer perspective of the SAME identity, for display.
+
+    The verdict, reason code, robust-scale evidence, comparability status and
+    zero-share are read from the Rule B assessment the existing cross-check
+    already produced from ``evidence["comparison_policy"]``. When that stored
+    group is absent, every one of them stays ``None`` (unavailable): a missing
+    group is not an unverified comparison, and no verdict is inferred from the
+    alert's band, its peer count or another perspective.
+    """
+    from app.engine import comparison_identity as identity_logic
+    from app.engine.quality_alerts import PERSPECTIVE_LABELS
+
+    identity = identity_logic.comparison_identity(alert)
+    verdict = (assessment or {}).get("peer_eligibility")
+    if not isinstance(verdict, dict):
+        verdict = None
+    return {
+        "source": "quality_alerts",
+        "alert_id": alert.id,
+        "perspective": alert.perspective,
+        "label": PERSPECTIVE_LABELS.get(alert.perspective, alert.perspective),
+        # WHICH hospitals the label compared (Step 10D-5). Empty when the
+        # stored evidence cannot prove a complete group: a label names why
+        # the group was chosen, never the sample itself.
+        "comparison_identity": identity.hash[:12] if identity.hash else None,
+        "identity_hash": identity.hash,
+        "peer_ids": list(identity.peer_ids),
+        "evidence_state": identity.state,
+        "evidence_reason": identity.reason,
+        # Stored on the alert row itself.
+        "peer_count": alert.peer_count,
+        "current": alert.current_value,
+        "threshold": threshold,
+        # Rule B: both fields together carry the meaning; neither is inferred
+        # from the stored band.
+        "verdict": verdict.get("decision") if verdict else None,
+        "reason_code": verdict.get("reason") if verdict else None,
+        "mad": _peer_scale_evidence(verdict, "mad", "mad_level", "mad_usable"),
+        "iqr": _peer_scale_evidence(verdict, "iqr", "iqr_level", "iqr_usable"),
+        # The stored evidence does not record which scales supported the top
+        # band, so it is reported unavailable rather than derived from the
+        # reason code or the verdict.
+        "scales_supporting": None,
+        "group_comparability_status": (
+            verdict.get("group_comparability_status") if verdict else None),
+        "zero_share": verdict.get("zero_share") if verdict else None,
+        "zero_share_warning": (
+            verdict.get("zero_share_warning") if verdict else None),
+    }
+
+
+# Fields two rows on ONE peer identity must agree on. Identity is the peer set
+# alone, so a disagreement here is one comparison with conflicting statistics,
+# never a second comparison.
+_IDENTITY_STAT_FIELDS = ("severity", "stored_severity", "z_score",
+                         "current_value", "baseline_value", "method",
+                         "peer_count", "direction")
+
+# Helper reasons that mean "the stored list is shorter than the group", as
+# opposed to evidence that was never written. Kept apart so a reader is not
+# told a group is malformed when it is merely truncated.
+_TRUNCATION_REASONS = ("truncated_nested_peer_ids",
+                       "top_level_truncation_possible",
+                       "incomplete_top_level_peer_ids")
+
+
+def _identity_statistics(alert, band: str) -> dict:
+    """Stored outcomes of one alert, as the identity conflict test reads them."""
+    return {
+        "severity": band,
+        "stored_severity": alert.severity,
+        "z_score": alert.z_score,
+        "current_value": alert.current_value,
+        "baseline_value": alert.baseline_value,
+        "method": alert.method,
+        "peer_count": alert.peer_count,
+        "direction": alert.direction,
+    }
+
+
+def _join_labels(labels) -> str:
+    """Join labels as prose ("a, b and c") without inventing a term."""
+    items = [str(label) for label in labels if label]
+    if not items:
+        return "the stored rows"
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _human_field(name: str) -> str:
+    return name.replace("_", " ")
+
+
+def _comparison_evidence(matched, shown: dict) -> dict:
+    """Group one formula/month's stored perspectives by comparison IDENTITY.
+
+    A perspective label says WHY a peer group was chosen (``all``,
+    ``facility_type``, ``governorate``...); the peer set says WHICH hospitals
+    were compared. Two labels over one peer set are one statistical sample, so
+    they are reported once here — the grouping itself is the Step 10D-5
+    correction, and no stored row, band or verdict is changed by it.
+
+    Temporal (history) rows are a different evidence class: they are listed in
+    their own ``temporal`` section and never enter a peer count. Rows whose
+    stored evidence cannot prove a group are kept in ``unreadable`` with the
+    helper's own reason — ``invalid`` when the evidence contradicts itself,
+    ``unknown`` when it is absent or truncated — and no group is inferred from
+    the label, the band or another perspective.
+    """
+    from app.engine import comparison_identity as identity_logic
+    from app.engine.quality_alerts import PERSPECTIVE_LABELS, stored_series
+
+    def label_of(alert) -> str:
+        return PERSPECTIVE_LABELS.get(alert.perspective, alert.perspective)
+
+    def version_of(alert):
+        policy = (alert.evidence or {}).get("comparison_policy")
+        block = policy.get("peer") if isinstance(policy, dict) else None
+        version = block.get("policy_version") if isinstance(block, dict) else None
+        return version if isinstance(version, str) and version else None
+
+    groups: dict = {}
+    temporal: list = []
+    unreadable: list = []
+    versions: set = set()
+    for alert in matched:
+        version = version_of(alert)
+        if version:
+            versions.add(version)
+        identity = identity_logic.comparison_identity(alert)
+        band = shown.get(alert.id, alert.severity)
+        if identity.type == identity_logic.COMPARISON_TEMPORAL:
+            series = stored_series(alert.evidence)
+            temporal.append({
+                "alert_id": alert.id,
+                "perspective": alert.perspective,
+                "label": label_of(alert),
+                "state": "valid" if series else "unknown",
+                "reason": None if series else "no_readable_history_window",
+                "observations": len(series),
+                "band": band,
+                "stored_severity": alert.severity,
+            })
+            continue
+        if identity.type == identity_logic.COMPARISON_PEER:
+            entry = groups.get(identity.hash)
+            if entry is None:
+                entry = groups[identity.hash] = {
+                    "identity": identity,
+                    "perspectives": [],
+                    "alert_ids": [],
+                    "versions": set(),
+                    "statistics": [],
+                    "bands": [],
+                }
+            entry["perspectives"].append(alert.perspective)
+            entry["alert_ids"].append(alert.id)
+            if version:
+                entry["versions"].add(version)
+            statistics = _identity_statistics(alert, band)
+            if statistics not in entry["statistics"]:
+                entry["statistics"].append(statistics)
+            entry["bands"].append(band)
+            continue
+        unreadable.append({
+            "alert_id": alert.id,
+            "perspective": alert.perspective,
+            "label": label_of(alert),
+            "state": identity.state,
+            "reason": identity.reason,
+        })
+
+    keys = list(groups)
+    relations: dict = {key: [] for key in keys}
+    pairwise_kinds: set = set()
+    for index, left in enumerate(keys):
+        for right in keys[index + 1:]:
+            first = groups[left]["identity"]
+            second = groups[right]["identity"]
+            kind = identity_logic.pairwise_relationship(first, second)
+            shared = len(set(first.peer_ids) & set(second.peer_ids))
+            pairwise_kinds.add(kind)
+            relations[left].append({"identity": second.hash[:12],
+                                    "relationship": kind,
+                                    "shared_peers": shared})
+            relations[right].append({"identity": first.hash[:12],
+                                     "relationship": kind,
+                                     "shared_peers": shared})
+
+    def order_of(entry) -> int:
+        unknown = len(_PEER_PERSPECTIVE_ORDER)
+        return min(_PEER_PERSPECTIVE_ORDER.get(perspective, unknown)
+                   for perspective in entry["perspectives"])
+
+    comparisons: list = []
+    for key in sorted(keys, key=lambda k: (order_of(groups[k]),
+                                           sorted(groups[k]["perspectives"]))):
+        entry = groups[key]
+        identity = entry["identity"]
+        statistics = entry["statistics"]
+        conflicting: list = []
+        if len(statistics) > 1:
+            conflicting = sorted(
+                name for name in _IDENTITY_STAT_FIELDS
+                if len({row[name] for row in statistics}) > 1)
+        perspectives = sorted(entry["perspectives"],
+                              key=lambda p: (_PEER_PERSPECTIVE_ORDER.get(
+                                  p, len(_PEER_PERSPECTIVE_ORDER)), p))
+        bands = [band for band in entry["bands"] if band]
+        comparisons.append({
+            "identity": key[:12],
+            "identity_hash": key,
+            "source": identity.source,
+            "peer_count": len(identity.peer_ids),
+            "peer_ids": list(identity.peer_ids),
+            "perspectives": perspectives,
+            "perspective_labels": [PERSPECTIVE_LABELS.get(p, p)
+                                   for p in perspectives],
+            "perspective_rows": len(entry["alert_ids"]),
+            "alert_ids": sorted(entry["alert_ids"]),
+            "policy_versions": sorted(entry["versions"]),
+            "effective_severity": (max(bands, key=lambda band:
+                                       _ALERT_SEVERITY_RANK.get(band, 0))
+                                   if bands else None),
+            "stored_severities": sorted({row["stored_severity"]
+                                         for row in statistics},
+                                        key=lambda name: name or ""),
+            "relationships": relations[key],
+            "evidence_conflict": bool(conflicting),
+            "conflict_fields": conflicting,
+        })
+
+    peer_rows = sum(item["perspective_rows"] for item in comparisons)
+    unknown = [item for item in unreadable if item["state"] != "invalid"]
+    invalid = [item for item in unreadable if item["state"] == "invalid"]
+    evidence = {
+        "perspective_rows": len(matched),
+        "peer_rows": peer_rows,
+        "distinct_peer_comparisons": len(comparisons),
+        # Labels that point at a peer set already counted. Published so a
+        # reader can reconcile "8 cards" with "7 comparisons" without guessing.
+        "duplicate_perspective_rows": peer_rows - len(comparisons),
+        "comparisons": comparisons,
+        "temporal_rows": len(temporal),
+        "temporal": temporal,
+        "temporal_present": bool(temporal),
+        "temporal_state": (("valid" if any(item["state"] == "valid"
+                                           for item in temporal) else "unknown")
+                           if temporal else None),
+        "unknown_rows": len(unknown),
+        "unknown_evidence_present": bool(unknown),
+        "invalid_rows": len(invalid),
+        "invalid_evidence_present": bool(invalid),
+        "truncated_evidence_present": any(
+            item["reason"] in _TRUNCATION_REASONS for item in unreadable),
+        "evidence_conflict": any(item["evidence_conflict"]
+                                 for item in comparisons),
+        "policy_mixed": len(versions) > 1,
+        "policy_versions": sorted(versions),
+        "relationships": sorted(pairwise_kinds),
+        "unreadable": unreadable,
+    }
+    evidence["narrative"] = _comparison_narrative(evidence)
+    return evidence
+
+
+def _comparison_narrative(evidence: dict) -> dict:
+    """Plain sentences describing the comparison structure (no markup).
+
+    Each sentence states which labels pointed at which sample, whether the
+    samples nest, overlap or share nothing, and what could not be read. Peer-set
+    membership is described only with ``nested`` / ``overlapping`` /
+    ``disjoint``; statistical agreement is never called clinical confirmation,
+    and disjoint groups are never called independent comparisons.
+    """
+    comparisons = evidence["comparisons"]
+    perspective_rows = evidence["perspective_rows"]
+    duplicates = evidence["duplicate_perspective_rows"]
+    if not comparisons:
+        summary = ("No stored label on this formula holds a complete peer "
+                   "group, so no peer comparison is described here.")
+    elif len(comparisons) == 1:
+        labels = _join_labels(comparisons[0]["perspective_labels"])
+        if duplicates:
+            summary = (f"{perspective_rows} stored perspective labels describe "
+                       f"one peer comparison: {labels} name the same peer set, "
+                       "so they are counted once.")
+        else:
+            summary = (f"One stored perspective label ({labels}) describes one "
+                       "peer comparison.")
+    else:
+        summary = (f"{perspective_rows} stored perspective labels describe "
+                   f"{len(comparisons)} distinct peer comparisons.")
+        if duplicates:
+            summary += (f" {duplicates} of those labels name a peer set that is "
+                        "already counted, so they add no second comparison.")
+
+    described: list = []
+    for comparison in comparisons:
+        described.append(
+            f"{_join_labels(comparison['perspective_labels'])}: "
+            f"{comparison['peer_count']} peer hospitals, "
+            f"{comparison['perspective_rows']} label(s), effective severity "
+            f"{comparison['effective_severity'] or 'NONE'}.")
+
+    by_identity = {item["identity"]: item for item in comparisons}
+    relationships: list = []
+    seen: set = set()
+    for comparison in comparisons:
+        for relation in comparison["relationships"]:
+            pair = frozenset((comparison["identity"], relation["identity"]))
+            if pair in seen:
+                continue
+            seen.add(pair)
+            other = by_identity.get(relation["identity"])
+            if other is None:
+                continue
+            left = _join_labels(comparison["perspective_labels"])
+            right = _join_labels(other["perspective_labels"])
+            kind = relation["relationship"]
+            if kind == "nested":
+                text = (f"{left} peers and {right} peers are nested: one group "
+                        f"is contained in the other ({relation['shared_peers']} "
+                        "shared hospitals), so the smaller row compares part of "
+                        "the same sample.")
+            elif kind == "overlapping":
+                text = (f"{left} peers and {right} peers overlap: they share "
+                        f"{relation['shared_peers']} hospitals but neither group "
+                        "contains the other.")
+            elif kind == "disjoint":
+                text = (f"{left} peers and {right} peers are disjoint: they "
+                        "share no hospital, so neither row repeats the other's "
+                        "evidence.")
+            else:
+                text = (f"The relationship between {left} and {right} cannot be "
+                        "determined from the stored peer groups.")
+            relationships.append(text)
+
+    if evidence["temporal"]:
+        if any(item["state"] == "valid" for item in evidence["temporal"]):
+            temporal_text = ("The history perspective is temporal evidence, not "
+                             "a peer comparison: it compared the hospital with "
+                             "its own earlier months and is counted on its own, "
+                             "never in the peer counts above.")
+        else:
+            temporal_text = ("The history perspective stores no readable "
+                             "window, so its temporal comparison is unknown; it "
+                             "is not turned into a peer comparison.")
+    else:
+        temporal_text = None
+
+    caveats: list = []
+    for item in evidence["unreadable"]:
+        if item["state"] == "invalid":
+            caveats.append(
+                f"{item['label']}: the stored peer evidence contradicts itself "
+                f"({_human_field(item['reason'] or 'unspecified')}), so it is "
+                "not counted as a comparison.")
+        elif item["reason"] in _TRUNCATION_REASONS:
+            caveats.append(
+                f"{item['label']}: the stored peer list is incomplete, so the "
+                "comparison cannot be established and is reported as unknown.")
+        else:
+            caveats.append(
+                f"{item['label']}: the stored evidence does not name which "
+                "hospitals were compared "
+                f"({_human_field(item['reason'] or 'no reason recorded')}), so "
+                "the comparison is unknown.")
+    for comparison in comparisons:
+        if comparison["evidence_conflict"]:
+            fields = ", ".join(_human_field(name)
+                               for name in comparison["conflict_fields"])
+            caveats.append(
+                f"{_join_labels(comparison['perspective_labels'])}: rows on this "
+                f"one peer set disagree on {fields}; that is conflicting "
+                "statistics on one comparison, not a second comparison.")
+    if evidence["policy_mixed"]:
+        caveats.append(
+            "More than one comparison-policy version is stored for this formula "
+            f"({', '.join(evidence['policy_versions'])}); the difference is "
+            "provenance, not another sample.")
+
+    return {
+        "labels_vs_comparisons": summary,
+        "comparisons": described,
+        "relationships": relationships,
+        "temporal": temporal_text,
+        "caveats": caveats,
+    }
+
+
+def _quality_alert_cross_check(db: Session, row, spec, hospital_id: int,
+                               month: str, recomputed=None,
+                               level_assessment=None) -> dict:
+    """How the stored Quality Alerts for this formula/month compare with the
+    diagnostic row, and why any difference exists.
+
+    Quality Alerts scores several peer perspectives as separate labels; Outlier
+    Diagnostics classifies against ONE detection baseline (all active reporting
+    hospitals). A stratified perspective (governorate, ownership, ...) may
+    legitimately be more severe, and this block states that instead of leaving
+    two screens to look contradictory.
+
+    ``level_assessment`` is the caller's ``(displayed band, cap provenance)``
+    for this row. The popup assesses the row once and passes the result here,
+    so the headline and this block quote the same band by construction.
+
+    Matching is by formula, not by whichever code happens to hold it: the
+    stored (or current) code, the canonical evidence block, and the canonical
+    identity of the alert's OWN stored formula are all accepted, so alerts
+    written before the canonical evidence block existed still match.
+    """
+    from app.engine import canonical_identity
+    from app.engine.anomaly.layered import (
+        LEVEL_NONE,
+        LEVEL_RANK,
+        MIN_PEERS_FOR_TOP_BAND,
+        ROUTE_PEER,
+        cap_thin_peer,
+        cap_zero_spread,
+        level_for_score,
+        peer_z_provenance,
+        row_level_assessment,
+        row_very_high_eligibility,
+        thin_peer_group,
+    )
+    from app.engine.quality_alerts import (
+        PERSPECTIVE_LABELS,
+        alert_route,
+        effective_severity,
+        eligibility_assessment,
+        is_open_status,
+        peer_definition_codes,
+        peer_gate_inputs,
+        severity_cap,
+        stored_series,
+        stored_threshold,
+    )
+    from app.models import QualityAlert
+
+    alerts = (
+        db.query(QualityAlert)
+        .filter(QualityAlert.hospital_id == hospital_id,
+                QualityAlert.month == month,
+                QualityAlert.active.is_(True))
+        .all()
+    )
+    identity = _layered_identity_key(spec)
+    matched = []
+    for alert in alerts:
+        canonical = (alert.evidence or {}).get("canonical") or {}
+        stored_identity = canonical_identity.identity_key(
+            canonical_identity.alert_identity(alert))
+        if (alert.indicator_code == row.analysis_code
+                or row.analysis_code in (canonical.get("registered_codes") or [])
+                or canonical.get("key") == identity
+                or stored_identity == identity):
+            matched.append(alert)
+
+    stratified_perspectives = {"type", "ownership", "facility_type",
+                              "governorate"}
+    # The definition gate's catalog, resolved ONCE for this row's alerts and
+    # only when one of them is a peer comparison: the history path never asks
+    # for it. The band above is unaffected either way (Rule B cannot move one).
+    peer_catalog = (peer_definition_codes(db)
+                   if any(alert_route(a.perspective, a.method) == ROUTE_PEER
+                           for a in matched) else None)
+    perspectives = []
+    peer_perspectives = []
+    shown_by_id = {}
+    for alert in matched:
+        scope = (((alert.evidence or {}).get("comparison_policy") or {})
+                 .get("perspective_scope"))
+        if not scope:
+            # Alerts written before the provenance block existed: the
+            # perspective itself states the scope unambiguously.
+            scope = ("detection_baseline" if alert.perspective == "all"
+                     else "history" if alert.perspective == "history"
+                     else "stratified" if alert.perspective in stratified_perspectives
+                     else "unknown")
+        stats = (alert.evidence or {}).get("stats")
+        series = stored_series(alert.evidence)
+        # The gate's inputs, exactly as the Quality Alerts screen reads them:
+        # the stored window, the compared value, the row's own threshold and the
+        # perspective that produced the band.
+        threshold = stored_threshold(alert.evidence)
+        gate_inputs = {"current": alert.current_value,
+                       "perspective": alert.perspective,
+                       "threshold": threshold}
+        cap = severity_cap(alert.severity, stats=stats, method=alert.method,
+                           peer_count=alert.peer_count, series=series,
+                           **gate_inputs)
+        shown = effective_severity(alert.severity, stats=stats,
+                                   method=alert.method,
+                                   peer_count=alert.peer_count,
+                                   series=series,
+                                   **gate_inputs) or alert.severity
+        shown_by_id[alert.id] = shown
+        eligibility = eligibility_assessment(
+            alert.severity, stats=stats, method=alert.method,
+            peer_count=alert.peer_count, series=series, **gate_inputs,
+            **peer_gate_inputs(alert, peer_catalog))
+        # The level the policy refuses to this row, before the cap that
+        # lowered it (zero-spread, then the thin peer group, then the top-band
+        # eligibility gate for the history perspective).
+        capped_from = None
+        for reason in ("dispersion", "thin_peer_group",
+                       "very_high_eligibility"):
+            entry = (cap or {}).get(reason) or {}
+            if entry.get("capped"):
+                capped_from = entry.get("resolved_level")
+                break
+        entry = {
+            "perspective": alert.perspective,
+            "label": PERSPECTIVE_LABELS.get(alert.perspective,
+                                            alert.perspective),
+            "scope": scope or "unknown",
+            # The band the QUALITY ALERTS SCREEN shows: the same approved cap
+            # policy, recomputed from this row's own evidence by the shared
+            # rule. Quoting the stored band here made the two screens name
+            # different severities for one stored row.
+            "severity": shown,
+            "stored_severity": alert.severity,
+            "severity_cap": cap,
+            # The routed verdict stated even when nothing was capped, so this
+            # popup can say "the window could not judge it" instead of leaving
+            # an undecided row reading as an ordinary top-band finding.
+            "top_band_eligibility": eligibility,
+            "score": alert.score,
+            "peer_count": alert.peer_count,
+            "baseline_value": alert.baseline_value,
+            # The band is lower than the score implies because the comparison
+            # could not be graded (no dispersion, or too few peers to measure
+            # a spread) — see the comparison policy doc.
+            "level_capped": capped_from is not None,
+            "capped_from": capped_from,
+            # Investigation state (Quality Alerts spec §10). A closed alert
+            # (Resolved / False Positive) no longer raises on the Quality
+            # Alerts screen, so it must not be presented here as a live second
+            # verdict — but it is still stored evidence and is named as such.
+            "status": alert.status,
+            "closed": not is_open_status(alert.status),
+        }
+        perspectives.append(entry)
+        if (alert_route(alert.perspective, alert.method) == ROUTE_PEER
+                and shown == "VERY_HIGH"):
+            # The same identity's separate peer perspectives, in their own
+            # collection. Only a perspective the Quality Alerts screen still
+            # shows at the top band is a peer-claim counterpart to this
+            # Diagnostics divergence; lower bands raise no contradiction.
+            # Nothing is re-queried or re-matched here: they come from the loop
+            # above, and the Rule B verdict is the one the existing cross-check
+            # already computed from the stored
+            # ``evidence["comparison_policy"]`` group.
+            peer_perspectives.append(
+                _peer_perspective_view(alert, eligibility, threshold))
+    perspectives.sort(
+        key=lambda p: (_ALERT_SEVERITY_RANK.get(p["severity"], 0),
+                       p["score"] or 0.0),
+        reverse=True)
+    peer_perspectives.sort(
+        key=lambda p: (_PEER_PERSPECTIVE_ORDER.get(p["perspective"], 99),
+                       p["alert_id"] or 0))
+
+    # Which peer SET each label compared (Step 10D-5). Labels name why a
+    # group was chosen; they do not name the sample. Grouping by comparison
+    # identity lets the popup say "two labels, one comparison" instead of
+    # reporting one stored sample twice, and keeps temporal and unreadable
+    # evidence in their own sections.
+    comparison_evidence = _comparison_evidence(matched, shown_by_id)
+
+    # The peer band the DIAGNOSTIC row can claim. A comparison group whose
+    # members all reported the same value has no spread, so the peer layer's
+    # 1.0 cannot grade a magnitude: the same cap the classifier applies is
+    # re-applied here instead of quoting the uncapped band next to a capped
+    # alert.
+    prov = row.classification_provenance or {}
+    peer_degenerate = "peer" in (prov.get("zero_spread_layers") or ())
+    # Too few peers to measure a spread: the classifier capped the peer band at
+    # HIGH, so this popup must quote the same band rather than the uncapped one.
+    peer_thin = "peer" in (prov.get("thin_peer_layers") or ())
+    if not prov:
+        # Legacy row: the stored peer group's values are the ground truth.
+        stored_values = list(((row.peer_provenance or {}).get("values") or {})
+                             .values())
+        peer_degenerate = (len(stored_values) >= 2
+                           and len(set(stored_values)) == 1)
+        peer_thin = thin_peer_group(row.peer_count, "peer_zscore")
+    detection_peer_level = level_for_score(row.peer_outlier_score)
+    if peer_degenerate:
+        detection_peer_level, _ = cap_zero_spread(
+            detection_peer_level, 0.0, "peer_zscore")
+    if peer_thin:
+        detection_peer_level, _ = cap_thin_peer(
+            detection_peer_level, row.peer_count, "peer_zscore")
+    # The STORED row may predate the current classification policy. Compare the
+    # alerts with what the row recomputes to now, and say so: otherwise a stale
+    # NORMAL row next to a HIGH alert reads as a contradiction the popup cannot
+    # explain.
+    current_type = recomputed.outlier_type if recomputed is not None else row.outlier_type
+    current_level = (recomputed.outlier_level if recomputed is not None
+                     else row.outlier_level)
+    stale = (recomputed is not None
+             and (current_type != row.outlier_type
+                  or current_level != row.outlier_level))
+    stale_note = (
+        f" Under the current classification policy this row recomputes to "
+        f"{current_type} {current_level} (stored: {row.outlier_type or 'NORMAL'} "
+        f"{row.outlier_level or 'NONE'}) — recalculate this month."
+        if stale else "")
+    # The band the DIAGNOSTICS SCREEN shows is the one the approved policy
+    # allows for this stored row (``row_level_assessment``, which the table,
+    # the filters and the badge all read), not the band left on disk. Comparing
+    # against the stored band made this block answer at a severity no screen
+    # displays — a gated row was compared at VERY_HIGH while the table beside
+    # the popup printed HIGH.
+    stored_level = row.outlier_level or LEVEL_NONE
+    if level_assessment is not None:
+        displayed_level, level_cap = level_assessment
+    else:
+        displayed_level, level_cap = row_level_assessment(row)
+    stored_level_refused = (LEVEL_RANK.get(stored_level, 0)
+                            > LEVEL_RANK.get(displayed_level, 0))
+    diagnostic = {
+        "type": row.outlier_type,
+        # ``level`` keeps its historical meaning: the band stored on the row.
+        # The popup's sentences compare against ``displayed_level`` — the band
+        # the Diagnostics screen renders (``effective_level`` is its alias) —
+        # so a reader can see the stored band and the screen band side by side.
+        "level": stored_level,
+        "stored_level": stored_level,
+        "displayed_level": displayed_level,
+        "effective_level": displayed_level,
+        "stored_level_refused": stored_level_refused,
+        # Which rule refused the stored band, for the popup's own band line.
+        "severity_cap": level_cap,
+        "recomputed_type": current_type,
+        "recomputed_level": current_level,
+        "recomputed_differs": bool(stale),
+        "peer_score": row.peer_outlier_score,
+        "peer_level": detection_peer_level,
+        "peer_count": row.peer_count,
+        "history_ok": row.historical_outlier_score is not None,
+        "zero_spread_layers": list(prov.get("zero_spread_layers") or ()),
+        "peer_zero_spread": peer_degenerate,
+        "thin_peer_layers": list(prov.get("thin_peer_layers") or ()),
+        "peer_thin_group": peer_thin,
+        "min_peers_for_top_band": MIN_PEERS_FOR_TOP_BAND,
+        # Whether the peer comparison could produce a z-score at all (too few
+        # peers to measure a spread -> no z, score and peer list kept).
+        "peer_z": peer_z_provenance(row.peer_count),
+        # The routed top-band verdict for THIS row: history claims are judged by
+        # the window, peer/volume claims are deliberately left undecided, and a
+        # refusal only ever moves the band to HIGH. Stated apart from ``level``
+        # so a reader can tell "not judged" from "judged and refused".
+        "top_band_eligibility": row_very_high_eligibility(row),
+    }
+    policy = ("Quality Alerts scores each labelled perspective (history, type, "
+              "ownership, facility type, governorate, all hospitals); Outlier "
+              "Diagnostics classifies against the single all-hospital detection "
+              "baseline and its own-history baseline.")
+    peer_score_text = (f"{row.peer_outlier_score:.2f}"
+                       if row.peer_outlier_score is not None else "n/a")
+    history_text = (
+        "the hospital's own history is not assessable."
+        if current_type == "INSUFFICIENT_HISTORY"
+        else "the hospital's own history could not be assessed either."
+        if current_type == "PEER_ANOMALY" and row.historical_outlier_score is None
+        else "its own history stayed within its band.")
+
+    # Compare with the strongest alert the QUALITY ALERTS SCREEN STILL RAISES:
+    # a closed row is kept as evidence, but it cannot be the verdict the other
+    # screen is showing. With every matched alert closed, the closed one is
+    # used and the explanation says why it no longer alerts.
+    open_perspectives = [p for p in perspectives if not p["closed"]]
+    strongest = ((open_perspectives or perspectives or [None])[0])
+    closed_note = (
+        " The matching Quality Alert was closed by a reviewer (Resolved / "
+        "skipped as False Positive), so it no longer raises on the Quality "
+        "Alerts screen; closing records the investigation decision and changes "
+        "neither detection result."
+        if perspectives and not open_perspectives else ""
+    )
+    if strongest is None:
+        agreement = "no_stored_alert"
+        explanation = ("No active Quality Alert is stored for this formula and "
+                       "month, so there is no second verdict to compare with. "
+                       "Re-scan the month if an alert was expected." + stale_note)
+    elif (strongest["scope"] == "stratified"
+          and (_ALERT_SEVERITY_RANK.get(displayed_level, 0)
+               < _ALERT_SEVERITY_RANK.get(strongest["severity"], 0))):
+        agreement = "differs_by_perspective"
+        explanation = (
+            f"Quality Alerts reports {strongest['severity']} under "
+            f"\"{strongest['label']}\" (n={strongest['peer_count']}), a narrower "
+            "stratified comparison. Outlier Diagnostics classifies this row "
+            f"{current_type or 'NORMAL'} at {displayed_level or 'NONE'} against the "
+            "single all-hospital detection baseline "
+            f"(peer score {peer_score_text} / {detection_peer_level or 'not available'}), "
+            f"and {history_text}" + stale_note)
+    elif (strongest["scope"] == "history"
+          and (_ALERT_SEVERITY_RANK.get(displayed_level, 0)
+               < _ALERT_SEVERITY_RANK.get(strongest["severity"], 0))):
+        agreement = "differs"
+        explanation = (
+            "The stored history-perspective alert is more severe than this "
+            "diagnostic row although both use the same history baseline; "
+            "recalculate the month before relying on either." + stale_note)
+    elif (_ALERT_SEVERITY_RANK.get(strongest["severity"], 0)
+          > _ALERT_SEVERITY_RANK.get(displayed_level, 0)):
+        agreement = "differs"
+        explanation = (
+            f"The stored alert ({strongest['severity']}, \"{strongest['label']}\") "
+            f"is more severe than this diagnostic row ({displayed_level or 'NONE'}) "
+            "under the same detection baseline, so the two stored results "
+            "disagree." + (stale_note or " Recalculate this month to reconcile them."))
+    elif (strongest.get("level_capped")
+          and _ALERT_SEVERITY_RANK.get(displayed_level, 0)
+          > _ALERT_SEVERITY_RANK.get(strongest["severity"], 0)):
+        # The two screens disagree because the alert's band was capped, not
+        # because either computed something different: the comparison could not
+        # be graded, so it cannot claim the top band. Which cap applied is
+        # named, so the reader is not told "no dispersion" about a record whose
+        # comparison group was simply too small.
+        cap = strongest.get("severity_cap") or {}
+        reasons = []
+        if (cap.get("dispersion") or {}).get("capped"):
+            reasons.append(
+                "every hospital in that comparison reported the same value, so "
+                "the deviation has no measurable scale")
+        if (cap.get("thin_peer_group") or {}).get("capped"):
+            reasons.append(
+                f"the comparison group holds {strongest['peer_count']} other "
+                f"hospital(s) and measuring a spread needs at least "
+                f"{MIN_PEERS_FOR_TOP_BAND}, so its z-score is not a measurement")
+        gate = cap.get("very_high_eligibility") or {}
+        if gate.get("capped") and gate.get("eligible") is False:
+            reasons.append(
+                "the hospital's own history window does not support the top "
+                "band (the same window's dispersion-aware band is "
+                f"{gate.get('dispersion_band') or 'below VERY_HIGH'})")
+        if not reasons:
+            # The cap is recorded but names no clause this popup knows: say what
+            # the cap does instead of printing an empty reason list.
+            reasons.append(
+                "the approved cap policy refuses the top band for this "
+                "comparison")
+        agreement = "differs"
+        explanation = (
+            f"The stored alert was written {strongest['stored_severity']}, but "
+            f"the approved cap policy assigns it {strongest['severity']} "
+            f"(\"{strongest['label']}\"): " + "; ".join(reasons)
+            + ". Quality Alerts shows that policy band while Outlier Diagnostics "
+            "classifies the peer layer without the cap "
+            f"({current_type or 'NORMAL'} at {displayed_level or 'NONE'}). The "
+            f"stored row keeps {strongest['stored_severity']} until the month is "
+            "re-scanned." + stale_note)
+    else:
+        agreement = "agree"
+        explanation = (
+            "Quality Alerts and Outlier Diagnostics agree: the most severe stored "
+            f"alert ({strongest['severity']}, \"{strongest['label']}\") is "
+            f"consistent with this diagnostic level ({displayed_level or 'NONE'}).")
+
+    return {
+        "agreement": agreement,
+        "explanation": explanation + closed_note,
+        "policy": policy,
+        "diagnostic": diagnostic,
+        "strongest_alert": strongest,
+        "perspectives": perspectives,
+        "peer_perspectives": peer_perspectives,
+        "comparison_evidence": comparison_evidence,
+    }
+
+
 def explain_layered_outlier(db: Session, hospital_id: int, month: str,
                             analysis_code: str) -> dict:
     """Layered-outlier row explanation (design spec §9).
@@ -1861,7 +2715,22 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
     the row (history changed since the analysis ran) the payload says so
     instead of inventing a rule."""
     from app.engine.anomaly.classify import RULE2_MIN_CHANGE_PERCENT, classify_layered
-    from app.engine.anomaly.layered import LEVEL_NONE, build_analysis_specs, level_for_score, prior_months
+    from app.engine.anomaly.layered import (
+        LEVEL_NONE,
+        LEVEL_RANK,
+        MIN_PEERS_FOR_TOP_BAND,
+        THIN_PEER_LEVEL_CAP,
+        ZERO_SPREAD_LEVEL_CAP,
+        build_analysis_specs,
+        level_for_score,
+        peer_z_measurable,
+        peer_z_provenance,
+        prior_months,
+        rate_analysis_value,
+        raw_analysis_value,
+        thin_peer_group,
+    )
+    from app.engine.comparison_policy import load_comparison_policy
     from app.engine.pipeline import get_historical_months
 
     row = (
@@ -1884,12 +2753,32 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
     hosp = _hospital(db, hospital_id)
 
     # Same pair, same threshold the engine used (prior_months splits off the
-    # current month; get_historical_months excludes it — plan Task 12).
+    # current month; get_historical_months excludes it — plan Task 12). The
+    # sufficiency test is the ENGINE's: the shared policy window and a minimum
+    # of VALID observations (the per-indicator floor included). Counting
+    # calendar months here made the popup claim a history was sufficient when
+    # the analysed value was missing for part of it, and then report the row
+    # as unreproducible for a reason that did not exist.
     history = get_historical_months(db, hospital_id, month)
-    prior = prior_months(history, month)
-    history_ok = len(prior) >= spec.minimum_history_period
+    history_policy = load_comparison_policy(db).history.with_item_minimum(
+        spec.minimum_history_period)
+    prior = prior_months(history, month, history_policy.window)
+    valid_prior = []
+    for prior_month in prior:
+        value = (rate_analysis_value(spec, history[prior_month])
+                 if spec.is_rate
+                 else raw_analysis_value(spec, history[prior_month]))
+        if value is not None:
+            valid_prior.append(value)
+    history_ok = len(valid_prior) >= history_policy.min_observations
     den_ok = (row.denominator is not None and row.denominator > 0) if spec.is_rate else True
 
+    # The stored row records WHICH layers could not grade a magnitude (spread
+    # 0). The re-run must apply the same cap, or a row that is correct under
+    # the policy would look unreproducible. Rows written before the policy
+    # carry NULL: the re-run then derives the cap from the stored scores and
+    # the popup reports the row as needing recalculation.
+    stored_provenance = row.classification_provenance or {}
     recomputed = classify_layered(
         spec,
         raw_score=row.raw_value_outlier_score,
@@ -1901,6 +2790,11 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
         history_ok=history_ok,
         change_percent=row.historical_change_percent,
         denominator=row.denominator,
+        degenerate_layers=tuple(stored_provenance.get("zero_spread_layers")
+                                or ()),
+        # A row written before this policy carries no list; the recompute then
+        # reports it as stale rather than silently re-deriving the cap.
+        thin_peer_layers=tuple(stored_provenance.get("thin_peer_layers") or ()),
     )
     verified = (recomputed.outlier_type == row.outlier_type
                 and recomputed.outlier_level == row.outlier_level)
@@ -1955,14 +2849,38 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
         formula = f"count({analysis_code})"
         formula_readable = f"{spec.name} = count of indicator {analysis_code}"
 
+    degenerate_layers = tuple(recomputed.zero_spread_layers)
+    thin_peer_layers = tuple(recomputed.thin_peer_layers)
+
     def _layer(key, name, value, score, detail):
+        level = LEVEL_NONE if score is None else level_for_score(score)
+        capped = (key in degenerate_layers
+                  and LEVEL_RANK.get(level, 0)
+                  > LEVEL_RANK[ZERO_SPREAD_LEVEL_CAP])
+        if capped:
+            level = ZERO_SPREAD_LEVEL_CAP
+        peer_capped = (key in thin_peer_layers
+                       and LEVEL_RANK.get(level, 0)
+                       > LEVEL_RANK[THIN_PEER_LEVEL_CAP])
+        if peer_capped:
+            level = THIN_PEER_LEVEL_CAP
         return {
             "key": key,
             "name": name,
             "value": value,
             "score": score,
-            "level": LEVEL_NONE if score is None else level_for_score(score),
+            # The strip must show the band the row actually carries, not the
+            # band a zero-dispersion or thin-peer score would imply on its own.
+            "level": level,
             "detail": detail,
+            "zero_spread": key in degenerate_layers,
+            "thin_peer_group": key in thin_peer_layers,
+            # A comparison group too small to measure a spread produces no
+            # z-score even when another layer carries the band, so the strip
+            # says so on the peer layer itself (layered.PEER_Z_POLICY).
+            "peer_z_withheld": (key == "peer" and score is not None
+                                and not peer_z_measurable(row.peer_count)),
+            "min_peers_for_top_band": MIN_PEERS_FOR_TOP_BAND,
         }
 
     if row.raw_value is None:
@@ -2000,6 +2918,16 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
     else:
         peer_value_text = "not computable (fewer than 2 hospitals reported it)"
 
+    # The peer layer's z is only produced when the group can measure a spread
+    # (layered.PEER_Z_POLICY): a group of 2-3 hospitals cannot, and the row
+    # keeps its score and its peer list without a z.
+    peer_detail = ("every hospital reporting the indicator this month "
+                   "(≥ 2 others), self excluded")
+    if thin_peer_group(row.peer_count, "peer_zscore"):
+        peer_detail += (
+            f". Fewer than {MIN_PEERS_FOR_TOP_BAND} peer hospitals cannot "
+            "measure a spread, so no z-score is produced for this comparison")
+
     layers = [
         _layer("raw", "Raw value", raw_value_text, row.raw_value_outlier_score,
                "this month's analysis value vs its own recent distribution"),
@@ -2008,13 +2936,25 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
                else "count indicators have no separate rate layer"),
         _layer("historical", "Historical baseline", historical_value_text,
                row.historical_outlier_score,
-               f"{len(prior)} prior months against a {spec.minimum_history_period}-month minimum"),
+               f"{len(valid_prior)} valid prior months against a "
+               f"{history_policy.min_observations}-observation minimum"),
         _layer("volume", "Patient volume", volume_value_text, row.volume_anomaly_score,
                "denominator change guards against volume-driven spikes" if spec.is_rate
                else "count indicators have no denominator layer"),
         _layer("peer", "Peer comparison", peer_value_text, row.peer_outlier_score,
-               "every hospital reporting the indicator this month (≥ 2 others), self excluded"),
+               peer_detail),
     ]
+
+    # The band every screen shows for a STORED row: the Diagnostics table, its
+    # level filters, its badge and this popup's cross-check all read
+    # ``row_level_assessment`` (the approved caps + the history top-band gate).
+    # The headline below quotes THAT band, never the band left on disk, so the
+    # popup and the table beside it cannot print different severities for one
+    # row. The stored band stays available as ``outlier_level``; it is never
+    # rewritten here.
+    from app.engine.anomaly.layered import row_level_assessment
+
+    displayed_level, level_cap = row_level_assessment(row)
 
     # The hospital's own month-by-month series for the flagged indicator. A
     # layered verdict is a statement about THIS hospital's history ("+150% vs
@@ -2036,7 +2976,12 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
             "value": r.raw_value,
             "rate": r.rate,
             "type": r.outlier_type,
+            # ``level`` keeps its historical meaning: the band STORED on that
+            # month's row. ``displayed_level`` is the band the Diagnostics
+            # screen renders for it, so the legend can label the two apart
+            # instead of presenting a stored band as the effective one.
             "level": r.outlier_level,
+            "displayed_level": row_level_assessment(r)[0],
             "current": r.month == month,
         }
         for r in series_rows
@@ -2051,9 +2996,9 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
     if row.raw_value is not None and raw_change_percent is not None:
         what = (f"{spec.name} {row.raw_value:g} vs {row.previous_value:g} previous "
                 f"({raw_change_percent:+.0f}%) — {row.outlier_type} "
-                f"({row.outlier_level} level)")
+                f"({displayed_level} level)")
     else:
-        what = f"{spec.name} — {row.outlier_type} ({row.outlier_level} level)"
+        what = f"{spec.name} — {row.outlier_type} ({displayed_level} level)"
 
     if verified and rule_number is not None:
         why = (f"Rule {rule_number} of the layered rule table fired → "
@@ -2063,10 +3008,31 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
                f"(recomputed: {recomputed.outlier_type}) — recalculate this month. "
                f"Stored interpretation: {row.interpretation}")
 
+    # The assessment travels to the cross-check instead of being recomputed:
+    # one stored row, one verdict, so the headline and the block below it are
+    # structurally unable to disagree.
+    cross_check = _quality_alert_cross_check(
+        db, row, spec, hospital_id, month, recomputed,
+        level_assessment=(displayed_level, level_cap),
+    )
+    if cross_check["agreement"] in ("differs", "differs_by_perspective"):
+        # Two screens must not appear to contradict each other without the
+        # popup naming the reason.
+        why = f"{why} {cross_check['explanation']}"
     reproduce = {
         "inputs": inputs,
         "history_ok": history_ok,
         "history_months": len(prior),
+        "valid_history_observations": len(valid_prior),
+        "history_policy": history_policy.as_dict(),
+        "zero_spread_layers": list(recomputed.zero_spread_layers),
+        "thin_peer_layers": list(recomputed.thin_peer_layers),
+        "peer_z": peer_z_provenance(row.peer_count),
+        "level_from_layers": recomputed.level_capped_from,
+        "classification_policy": (
+            "rule 1 -> INSUFFICIENT_HISTORY (level NONE) when the own-history "
+            "baseline is not evaluable and the peer band is below HIGH; "
+            "rule 11 -> PEER_ANOMALY at the peer band when peer >= HIGH."),
         "rule_number": rule_number,
         "recomputed_type": recomputed.outlier_type,
         "recomputed_level": recomputed.outlier_level,
@@ -2109,8 +3075,15 @@ def explain_layered_outlier(db: Session, hospital_id: int, month: str,
             "inputs": inputs,
         },
         "reproduce": reproduce,
+        "cross_check": cross_check,
+        # What was stored when this row was written (NULL on legacy rows): which
+        # layers had no dispersion and the band their scores alone implied.
+        "classification_provenance": row.classification_provenance,
         "classification": row.outlier_type,
+        # ``outlier_level`` stays the STORED band; ``displayed_outlier_level``
+        # is the band every screen renders (and the one the headline quotes).
         "outlier_level": row.outlier_level,
+        "displayed_outlier_level": displayed_level,
         "investigation_required": bool(row.investigation_required),
         "investigation_route": row.investigation_route,
         "rule_number": rule_number,

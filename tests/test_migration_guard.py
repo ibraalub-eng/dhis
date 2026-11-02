@@ -122,3 +122,78 @@ def test_sync_guard_detects_drift(monkeypatch):
 
     _check_migration_sync()
     assert main_mod.schema_in_sync is False
+
+
+# A stamped revision with no migration file behind it: the database gets stuck
+# and 'alembic upgrade head' aborts before running anything.
+_PHANTOM_REVISION = "a7b8c9d0e1f2"
+
+
+def test_sync_guard_flags_a_recorded_revision_with_no_migration_file(monkeypatch, capsys):
+    """A DB stamped at a revision the code chain does not contain must say so.
+
+    This is not the same failure as being behind head: alembic cannot resolve
+    the applied revision, so the operator has to restamp before upgrading. The
+    real October 2026 restart hit exactly this (the hospital-month-audit
+    migration had been renumbered, leaving 'a7b8c9d0e1f2' on the DB).
+    """
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "engine", _FakeEngine(_PHANTOM_REVISION))
+
+    _check_migration_sync()
+
+    out = capsys.readouterr().out
+    assert main_mod.schema_in_sync is False
+    assert _PHANTOM_REVISION in out
+    assert "no migration file" in out
+    # The generic "just upgrade" advice would be wrong for this state.
+    assert "Run 'alembic upgrade head' on this database." not in out
+
+
+def test_sync_guard_keeps_upgrade_advice_for_a_known_older_revision(monkeypatch, capsys):
+    """A revision that exists but is behind head still gets the upgrade advice."""
+    import app.main as main_mod
+
+    monkeypatch.setattr(main_mod, "engine", _FakeEngine("f25afbb94bc7"))
+
+    _check_migration_sync()
+
+    out = capsys.readouterr().out
+    assert main_mod.schema_in_sync is False
+    assert "Run 'alembic upgrade head' on this database." in out
+    assert "no migration file" not in out
+
+
+def test_migration_chain_references_only_revisions_it_contains():
+    """Every down_revision must name a migration file that exists.
+
+    A renamed or deleted revision file leaves stamped databases with a revision
+    id nothing can resolve. Catching it here fails the suite instead of the
+    next app restart.
+    """
+    import os
+
+    from alembic.config import Config as AlembicConfig
+    from alembic.script import ScriptDirectory
+
+    from app.config import BASE_DIR
+
+    script = ScriptDirectory.from_config(
+        AlembicConfig(os.path.join(BASE_DIR, "alembic.ini")))
+    revisions = {rev.revision: rev for rev in script.walk_revisions()}
+
+    heads = script.get_heads()
+    assert len(heads) == 1, f"the chain must have exactly one head, got {heads}"
+
+    for revision, rev in revisions.items():
+        parents = rev.down_revision
+        if parents is None:
+            continue
+        if isinstance(parents, str):
+            parents = (parents,)
+        for parent in parents:
+            assert parent in revisions, (
+                f"revision {revision} revises {parent}, which has no migration file "
+                "- a renamed or removed revision makes stamped databases un-upgradable"
+            )

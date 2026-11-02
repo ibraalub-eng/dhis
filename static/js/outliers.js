@@ -143,6 +143,7 @@
                 : type === 'RAW_VALUE_ANOMALY' ? 'badge-c-raw'
                 : type === 'RATE_ANOMALY' ? 'badge-c-rate'
                 : type === 'HISTORICAL_ANOMALY' ? 'badge-c-historical'
+                : type === 'INSUFFICIENT_HISTORY' ? 'badge-c-insufficient'
                 : 'badge-muted';
             const label = type || '--';
             return '<span class="badge ' + cls + '" title="' + esc(interpretation || '') + '">' + esc(label) + '</span>';
@@ -222,6 +223,12 @@
                 const z = d.z_score !== null && d.z_score !== undefined;
                 const zClass = Math.abs(d.z_score) >= 3 ? 'badge-critical' : Math.abs(d.z_score) >= 2 ? 'badge-high' : 'badge-medium';
                 const hasPeers = d.peer_count !== null && d.peer_count !== undefined;
+                // A peer group too small to measure a spread stores no z
+                // (layered.PEER_Z_POLICY): the dash says why on hover instead
+                // of reading as a missing measurement.
+                const zNote = (!z && hasPeers && d.peer_count > 0 && d.peer_count < 4)
+                    ? __('not produced: too few peers to measure a spread')
+                    : '';
                 const peerRange = (d.peer_min != null && d.peer_max != null)
                     ? Number(d.peer_min).toFixed(2) + ' – ' + Number(d.peer_max).toFixed(2)
                     : '--';
@@ -264,7 +271,7 @@
                     '<td title="' + esc(formulaTitle) + '">' + indicatorLabel + '</td>' +
                     '<td>' + (d.value !== null ? Number(d.value).toFixed(2) : '--') + '</td>' +
                     '<td>' + (d.benchmark !== null ? Number(d.benchmark).toFixed(2) : '--') + '</td>' +
-                    '<td><span class="badge ' + zClass + '">' + (z ? Number(d.z_score).toFixed(2) : '--') + '</span></td>' +
+                    '<td' + (zNote ? ' title="' + esc(zNote) + '"' : '') + '><span class="badge ' + zClass + '">' + (z ? Number(d.z_score).toFixed(2) : '--') + '</span></td>' +
                     '<td>' + peerCell + '</td>' +
                     '<td>' + peerRange + '</td>' +
                     '<td>' + classificationBadge(d.layered_type, d.layered_interpretation) + '</td>' +

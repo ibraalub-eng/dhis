@@ -83,6 +83,25 @@
         var _tabTrailGuard = false; // suppress push during popstate-driven switches
         var _tabTrailCurrent = null;
 
+        // The screen belongs in the URL. Pushing bare entries ('') made every
+        // history entry look identical to a fresh /dashboard load, so Back could
+        // only consult the in-page trail — which is lost on reload — and a
+        // refresh always fell back to the dashboard. `?screen=` is the key the
+        // deep-link boot handler already understands, so existing links work.
+        function _screenUrl(name) {
+            return name ? '?screen=' + encodeURIComponent(name) : '';
+        }
+        function _screenFromUrl() {
+            try {
+                var s = new URLSearchParams(window.location.search).get('screen');
+                return s && document.querySelector('.tab[data-tab="' + s + '"]') ? s : '';
+            } catch (e) { return ''; }
+        }
+        function _pushTrail(name) {
+            try { history.pushState({ __tabtrail: true, tab: name }, '', _screenUrl(name)); }
+            catch (e) { /* storage poisoned */ }
+        }
+
         function _closeAnyOverlay() {
             try {
                 // Why popup (highest overlay) first — it sits above everything.
@@ -106,17 +125,33 @@
         }
         window._closeAnyOverlay = _closeAnyOverlay;
 
-        window.addEventListener('popstate', function () {
+        window.addEventListener('popstate', function (event) {
             // An overlay is open → Back closes it first and does NOT switch tabs.
             if (_closeAnyOverlay()) {
                 // Re-push WITH the trail marker so the next Back keeps walking
                 // the tab trail instead of hitting the foreign-entry re-mark.
-                history.pushState({ __tabtrail: true, tab: _tabTrailCurrent }, '');
+                _pushTrail(_tabTrailCurrent);
                 return;
             }
             if (_tabTrailGuard) { _tabTrailGuard = false; return; }
-            // popstate can fire for a foreign entry (login reload, old hash):
-            // if our marker is gone, push it back so Back keeps working.
+            // The URL is the durable record of a screen: unlike the in-page
+            // trail it survives a reload, and it is what the address bar shows
+            // for this entry. Fall back to the entry's own marker only for
+            // entries written before screens were in the URL.
+            var screen = _screenFromUrl() ||
+                (event && event.state && event.state.__tabtrail ? (event.state.tab || '') : '');
+            if (screen && screen !== _tabTrailCurrent) {
+                if (_tabTrailCurrent) {
+                    _tabTrail.push(_tabTrailCurrent);
+                    _tabFuture.push(_tabTrailCurrent);
+                }
+                _tabTrailCurrent = screen;
+                _tabTrailGuard = true;
+                switchTab(screen);
+                return;
+            }
+            // Same screen, or an entry with no screen: keep our marker on it so
+            // the next Back still walks the trail instead of leaving the app.
             if (history.state && history.state.__tabtrail) {
                 if (_tabTrail.length) {
                     _tabFuture.push(_tabTrailCurrent);
@@ -125,10 +160,10 @@
                     _tabTrailGuard = true;
                     switchTab(prev);
                 } else {
-                    history.pushState({ __tabtrail: true, tab: _tabTrailCurrent }, '');
+                    _pushTrail(_tabTrailCurrent);
                 }
             } else {
-                history.pushState({ __tabtrail: true, tab: _tabTrailCurrent }, '');
+                _pushTrail(_tabTrailCurrent);
             }
         });
 
@@ -140,7 +175,7 @@
             _tabTrail.push(_tabTrailCurrent);
             _tabTrailCurrent = next;
             _tabTrailGuard = true;
-            history.pushState({ __tabtrail: true, tab: next }, '');
+            _pushTrail(next);
             switchTab(next);
         };
 
@@ -171,7 +206,10 @@
                 if (_tabTrailCurrent && _tabTrailCurrent !== name) _tabTrail.push(_tabTrailCurrent);
                 _tabTrailCurrent = name;
                 _tabFuture = []; // new navigation invalidates the forward stack
-                try { history.pushState({ __tabtrail: true, tab: name }, ''); } catch (e) { /* storage poisoned */ }
+                // Re-opening the screen already in the address bar must not
+                // add a second identical history entry (double Back to leave).
+                var _sameEntry = history.state && history.state.__tabtrail && history.state.tab === name;
+                if (!_sameEntry) _pushTrail(name);
             }
             // Rules Manager: start from an empty search every time the screen
             // is opened (skip when re-clicking the already-active tab).
@@ -237,17 +275,20 @@
             var hid = params.get('hospital_id');
             var month = params.get('month');
             var mode = params.get('mode');
-            // The query string was a hand-off from the modal that opened this
-            // tab, not a permanent route: drop it (even for an unknown screen)
-            // so a later refresh — or a sidebar switch followed by F5 — behaves
-            // like a normal app tab.
-            try { window.history.replaceState(window.history.state, '', window.location.pathname); }
-            catch (e) { /* replaceState unavailable — harmless */ }
-            if (!screen || !document.querySelector('.tab[data-tab="' + screen + '"]')) {
-                switchTab('dashboard');
-                return;
-            }
-            switchTab(screen);
+            // The hand-off context (hospital_id, month, mode) was for the
+            // modal that opened this tab, not a permanent route: drop it. The
+            // SCREEN stays in the URL, so a refresh restores the same screen
+            // and this history entry describes what it shows.
+            var resolved = screen && document.querySelector('.tab[data-tab="' + screen + '"]')
+                ? screen : 'dashboard';
+            try {
+                window.history.replaceState({ __tabtrail: true, tab: resolved }, '', _screenUrl(resolved));
+            } catch (e) { /* replaceState unavailable — harmless */ }
+            _tabTrailCurrent = resolved;
+            // Boot never adds a duplicate entry for the URL already in the bar.
+            _tabTrailGuard = true;
+            switchTab(resolved);
+            if (resolved !== screen) return;
             if (screen === 'audit' && mode === 'trail') {
                 _whenBound('openAuditTrail', function (openTrail) {
                     openTrail({
@@ -339,7 +380,7 @@
         window.updateBreadcrumb = updateBreadcrumb;
 
         // -- Global Search (Ctrl+K) --
-        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'quality-alerts',kw:'quality alerts risk outliers red alert peer comparison ownership governance region'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
+        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'quality-alerts',kw:'quality alerts risk outliers very high peer comparison ownership governance region'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
         var _searchIdx = 0;
         function openSearch() { var ov=document.getElementById('searchOverlay'); var inp=document.getElementById('searchInput'); if(!ov||!inp)return; ov.classList.add('active'); inp.value=''; inp.focus(); _showSearchResults(''); }
         function closeSearch() { var ov=document.getElementById('searchOverlay'); if(ov)ov.classList.remove('active'); }

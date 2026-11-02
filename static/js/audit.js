@@ -398,11 +398,19 @@ function renderAudit() {
         Object.keys(bench.comparisons).sort().forEach(rname => {
             const c = bench.comparisons[rname];
             const barColor = riskColor(c.status);
+            // A peer group too small to measure a spread produced no z
+            // (layered.PEER_Z_POLICY): the comparison is shown, but neither the
+            // z nor a z-graded status is quoted — and it is not a green "pass".
+            const zWithheld = c.z_score === null || c.z_score === undefined;
+            const minPeers = (c.z_provenance && c.z_provenance.min_peers_for_z) || 4;
             const arrow = (c.percent_deviation || 0) > 0 ? '↑' : '↓';
             html += '<div style="margin:0.4rem 0;padding:0.3rem 0.5rem;background:var(--bg-elevated);border-left:3px solid ' + barColor + ';border-radius:3px;font-size:0.78rem;">';
             html += '<div style="display:flex;justify-content:space-between;align-items:center;">';
             html += '<strong>' + esc(rname) + '</strong>';
-            html += '<span>' + sevClass(c.status) + ' <span style="font-weight:600;">' + arrow + ' ' + Math.abs(c.percent_deviation || 0).toFixed(1) + '% ' + __('vs avg') + '</span></span>';
+            const statusBadge = zWithheld
+                ? '<span class="badge badge-muted">' + __('Not graded') + '</span>'
+                : sevClass(c.status);
+            html += '<span>' + statusBadge + ' <span style="font-weight:600;">' + arrow + ' ' + Math.abs(c.percent_deviation || 0).toFixed(1) + '% ' + __('vs avg') + '</span></span>';
             html += '</div>';
             if (c.formula || c.formula_version) {
                 html += '<div style="font-size:0.7rem;color:var(--text-muted);">'
@@ -428,11 +436,17 @@ function renderAudit() {
                 html += '</div>';
                 html += '<div class="range-scale"><span>' + __('Min') + ' ' + nv(lo) + '</span><span>' + __('Avg') + ' ' + nv(c.peer_average) + ' · ' + __('Med') + ' ' + nv(c.peer_median) + '</span><span>' + __('Max') + ' ' + nv(hi) + '</span></div>';
             }
-            html += '<div style="font-size:0.72rem;color:var(--text-secondary);">' + __('Z-score: ') + nv(c.z_score) + ' | ' + __('Percentile: ') + nv(c.percentile) + 'th | ' + (c.peers_below || 0) + ' ' + __('of') + ' ' + (c.peer_count || 0) + ' ' + __('peers below') + '</div>';
+            html += '<div style="font-size:0.72rem;color:var(--text-secondary);">' + __('Z-score: ') + nv(c.z_score)
+                + (zWithheld
+                    ? ' \u2014 ' + esc(__('not produced: too few peers to measure a spread')) + ' (' + (c.peer_count || 0) + '/' + minPeers + ')'
+                    : '')
+                + ' | ' + __('Percentile: ') + nv(c.percentile) + 'th | ' + (c.peers_below || 0) + ' ' + __('of') + ' ' + (c.peer_count || 0) + ' ' + __('peers below') + '</div>';
             const _std = (c.peer_std || 0);
-            const zcalc = _std > 0
-                ? 'z = (' + Number(c.hospital_value || 0).toFixed(2) + ' - ' + Number(c.peer_average || 0).toFixed(2) + ') / ' + _std.toFixed(2) + ' = ' + Number(c.z_score || 0).toFixed(2)
-                : __('z = 0.00 - std dev undefined (fewer than 2 peers)');
+            const zcalc = zWithheld
+                ? esc(__('z not produced: the comparison group is too small to measure a spread'))
+                : (_std > 0
+                    ? 'z = (' + Number(c.hospital_value || 0).toFixed(2) + ' - ' + Number(c.peer_average || 0).toFixed(2) + ') / ' + _std.toFixed(2) + ' = ' + Number(c.z_score || 0).toFixed(2)
+                    : __('z = 0.00 - std dev undefined (fewer than 2 peers)'));
             html += '<div style="font-size:0.7rem;color:var(--text-muted);font-family:monospace;" dir="ltr">' + zcalc + '</div>';
             const pb = c.peer_breakdown;
             if (pb) {

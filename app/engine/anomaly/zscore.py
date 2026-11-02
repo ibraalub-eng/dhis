@@ -5,6 +5,7 @@ import numpy as np
 from scipy import stats as scipy_stats
 
 from app.engine import indicator_service
+from app.engine.anomaly.layered import peer_z_provenance
 from app.engine.rate_config import compute_rate as _registry_compute_rate
 from app.engine.rate_config import zscore_spec_for, zscore_specs
 
@@ -32,6 +33,10 @@ class AnomalyResultData:
     indicator_id: Optional[str] = None
     formula: Optional[str] = None
     formula_version: Optional[str] = None
+    # Whether this peer comparison produced a z, and why not — a NULL z on a
+    # group too small to measure a spread is the policy's OUTPUT, not a missing
+    # measurement (layered.PEER_Z_POLICY). None on trend rows.
+    z_provenance: Optional[Dict[str, Any]] = None
 
 
 def compute_rate(values: Dict[str, float], numerator_code: str, denominator_code: str) -> Optional[float]:
@@ -101,16 +106,24 @@ def detect_anomalies(
             z_score = 0.0
         else:
             z_score = (current_rate - mean_rate) / std_rate
+        # The threshold decision and its p-value use the statistic this group
+        # produced; the QUOTED z is withheld when the group is too small to
+        # measure a spread (layered.PEER_Z_POLICY), so no screen reads a
+        # top-band magnitude out of two peers. The finding, its benchmark and
+        # its peer list are unchanged.
+        z_provenance = peer_z_provenance(len(peers))
         _p_value = float(scipy_stats.norm.sf(abs(z_score)) * 2)
         is_outlier = abs(z_score) > z_thresh
+        quoted_z = round(z_score, 2) if z_provenance["z_produced"] else None
         results.append(
             AnomalyResultData(
                 indicator_code=indicator_code,
                 rate_name=rate_name,
                 value=round(current_rate, 2),
                 benchmark=round(mean_rate, 2),
-                z_score=round(z_score, 2),
+                z_score=quoted_z,
                 is_outlier=is_outlier,
+                z_provenance=z_provenance,
                 peer_count=len(peers),
                 peer_std=round(float(std_rate), 2) if std_rate else 0.0,
                 peer_min=round(float(min(peers)), 2),

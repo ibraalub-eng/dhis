@@ -28,6 +28,20 @@ def _r2(value: Optional[float]) -> Optional[float]:
         return None
 
 
+def row_z_score(peer, historical) -> Optional[float]:
+    """The z a legacy row may carry for one analysis entry.
+
+    A peer comparison that EXISTS but produced no z — no dispersion, or too few
+    peers to measure a spread (layered.PEER_Z_POLICY) — is never replaced by
+    the hospital's own-history z: the row's ``benchmark`` is the PEER mean, so
+    a history z beside it would describe a different comparison. The history z
+    is used only when there was no peer comparison at all.
+    """
+    if peer is not None and getattr(peer, "score", None) is not None:
+        return getattr(peer, "z", None)
+    return getattr(historical, "z_score", None)
+
+
 def _indicator_code(result: LayerResult, resolved: Any) -> str:
     """The code the legacy table keyed the row by: the registry definition's
     code when there is one, else the (first) numerator code, else the analysis
@@ -76,7 +90,7 @@ def project_rate_rows(
         historical = result.historical
         benchmark = (peer.peer_mean if peer.peer_mean is not None
                      else historical.mean)
-        z_score = peer.z if peer.z is not None else historical.z_score
+        z_score = row_z_score(peer, historical)
 
         peers_detail = None
         if peer.peer_values:

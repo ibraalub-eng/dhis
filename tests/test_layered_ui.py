@@ -39,6 +39,8 @@ def test_classification_badge_colors_follow_spec():
         ("RAW_VALUE_ANOMALY", "badge-c-raw"),
         ("RATE_ANOMALY", "badge-c-rate"),
         ("HISTORICAL_ANOMALY", "badge-c-historical"),
+        # Assessment withheld is its own neutral tag, never the green NORMAL.
+        ("INSUFFICIENT_HISTORY", "badge-c-insufficient"),
     ):
         assert type_name in js, type_name
         assert css_class in js, css_class
@@ -78,13 +80,13 @@ def test_classification_badge_styles_exist():
     # One themed pair per classification type (both themes carry overrides).
     for cls in ("badge-c-normal", "badge-c-raw", "badge-c-rate",
                 "badge-c-historical", "badge-c-clinical", "badge-c-volume",
-                "badge-c-peer", "badge-c-entry"):
+                "badge-c-peer", "badge-c-entry", "badge-c-insufficient"):
         assert "." + cls in css, cls
         assert ("[data-theme=dark] ." + cls) in css, cls
     # One themed pair per classification type (both themes carry overrides).
     for cls in ("badge-c-normal", "badge-c-raw", "badge-c-rate",
                 "badge-c-historical", "badge-c-clinical", "badge-c-volume",
-                "badge-c-peer", "badge-c-entry"):
+                "badge-c-peer", "badge-c-entry", "badge-c-insufficient"):
         assert "." + cls in css, cls
         assert ('[data-theme=dark] .' + cls) in css, cls
 
@@ -98,7 +100,8 @@ def test_layered_legend_merged_into_faq_page():
     assert "@page" in html and "A4" in html          # print-safe page setup
     for t in ("POSSIBLE_DATA_ENTRY_ERROR", "CLINICAL_INVESTIGATION_REQUIRED",
               "VOLUME_DRIVEN_ANOMALY", "PEER_ANOMALY", "HISTORICAL_ANOMALY",
-              "RATE_ANOMALY", "RAW_VALUE_ANOMALY", "NORMAL"):
+              "RATE_ANOMALY", "RAW_VALUE_ANOMALY", "NORMAL",
+              "INSUFFICIENT_HISTORY"):
         assert t in html, t
     # Badge colors + action emphasis carried over from the former legend page.
     assert ".b-critical" in html and ".b-medium" in html and ".b-amber" in html
@@ -128,7 +131,8 @@ def test_layered_faq_page_exists_and_is_self_contained():
     assert "@page" in html
     assert "<script src=" not in html and '<link rel="stylesheet"' not in html
     for topic in ("Raw value", "Rate", "HISTORICAL_ANOMALY", "RAW_VALUE_ANOMALY",
-                  "VOLUME_DRIVEN_ANOMALY", "PEER_ANOMALY", "NORMAL"):
+                  "VOLUME_DRIVEN_ANOMALY", "PEER_ANOMALY", "NORMAL",
+                  "INSUFFICIENT_HISTORY"):
         assert topic in html, topic
     # The merged legend lives INSIDE this page — no dead cross-reference to
     # the removed standalone file.
@@ -239,7 +243,8 @@ def test_layered_sortable_headers_use_endpoint_sort_keys():
 
 def test_layered_static_filter_options_cover_the_enums():
     html = _read("tabs", "layered.html")
-    for type_name in ("NORMAL", "RAW_VALUE_ANOMALY", "RATE_ANOMALY", "HISTORICAL_ANOMALY",
+    for type_name in ("NORMAL", "INSUFFICIENT_HISTORY", "RAW_VALUE_ANOMALY",
+                      "RATE_ANOMALY", "HISTORICAL_ANOMALY",
                       "VOLUME_DRIVEN_ANOMALY", "PEER_ANOMALY",
                       "POSSIBLE_DATA_ENTRY_ERROR", "CLINICAL_INVESTIGATION_REQUIRED"):
         assert f'value="{type_name}"' in html, type_name
@@ -443,4 +448,35 @@ def test_layered_js_trend_i18n_keys_exist():
     for key in ("'Raw value trend across months'",
                 "'Select an indicator to view the trend.'",
                 "'Hide'", "'Show'"):
+        assert f"{key}:" in i18n, key
+
+
+# ── Recompute only the months the cap policy refuses ─────────────────────
+
+def test_layered_rescan_stale_control_exists():
+    html = _read("tabs", "layered.html")
+    assert 'id="layeredRescanStaleBtn"' in html
+    assert 'onclick="recomputeStaleLayered()"' in html
+    assert 'data-i18n="Recompute stale months"' in html
+
+
+def test_layered_js_rescan_is_preview_first():
+    """Preview → confirmation → a scoped write; no other row is touched."""
+    js = _read("js", "layered.js")
+    assert "export async function recomputeStaleLayered" in js
+    assert "'/analysis/layered/rescan-stale'" in js
+    assert js.index("confirm: false") < js.index("confirm: true")
+    assert "months: months.map" in js, "the confirmed months are named"
+    assert "fetch(" not in js, "authenticated api helper only"
+    assert "layeredRescanStaleBtn" in js and "disabled = false" in js
+
+    app = _read("js", "app.js")
+    assert "_bind(mod, 'recomputeStaleLayered')" in app
+
+
+def test_layered_rescan_i18n_keys_exist():
+    i18n = _read("js", "i18n.js")
+    for key in ("'Recompute stale months'",
+                "'No stored diagnostics results are older than the saved cap policy.'",
+                "'Only the outliers marked stale — those months and hospitals — are re-analysed under the current saved cap policy. Every other stored result is left untouched.'"):
         assert f"{key}:" in i18n, key

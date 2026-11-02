@@ -78,6 +78,29 @@ def test_admin_i18n_coverage():
         assert f"'{key}': " in i18n, f"i18n missing admin key: {key}"
 
 
+def test_admin_month_toggle_history_shows_who_and_when():
+    """The Analysis Months card must expose the month-change audit trail."""
+    js = _read("admin.js")
+    assert 'id="monthAuditList"' in js
+    assert "adminLoadMonthAudit" in js
+    assert "/config/month-settings/audit" in js
+    # A row states the change, the previous state, the time and the actor.
+    for field in ("r.action", "r.previous_state", "r.created_at", "r.actor"):
+        assert field in js, f"history row must render {field}"
+    # Loaded with the hospital's toggles and refreshed after a save.
+    loader = js.split("function adminLoadMonthTogglesForHospital", 1)[1]
+    assert "adminLoadMonthAudit(hospitalId)" in loader.split("window.onMonthHospitalChange", 1)[0]
+    save = js.split("adminSaveAllMonthSettings = function", 1)[1]
+    assert "adminLoadMonthAudit(hospitalId)" in save.split("Promise.all", 1)[1]
+
+    i18n = _read_i18n()
+    for key, arabic in (("Month change history", "سجل تغييرات الأشهر"),
+                        ("No month changes recorded yet.", "لا توجد تغييرات مسجّلة على الأشهر بعد."),
+                        ("Not set", "غير محدد"),
+                        ("Unknown user", "مستخدم غير معروف")):
+        assert f"'{key}': '{arabic}'" in i18n, f"missing Arabic for {key}"
+
+
 def test_admin_users_table_permissions_column():
     """Users table must render direct per-user permissions separately from roles."""
     js = _read("admin.js")
