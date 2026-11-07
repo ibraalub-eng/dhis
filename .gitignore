@@ -63,3 +63,7 @@ outbox/
 screenshots/
 data/verify-run/
 data/*.err
+
+# Local-only runtime output and cloud attachments
+.logs/
+.cloud-attachments/
