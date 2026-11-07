@@ -81,12 +81,12 @@ class TestGetDisabledIndicatorIds:
         db_session.add(HospitalIndicatorConfig(hospital_id=hospital.id, indicator_id=ind3.id, is_enabled=False))
         db_session.commit()
 
-        disabled = get_disabled_indicator_ids(db_session, hospital.id, "2026-04")
+        disabled = get_disabled_indicator_ids(db_session, hospital.id, "2026-04", auto_disable_null=False)
         assert ind3.id in disabled
 
     def test_returns_empty_when_nothing_disabled(self, db_session):
         hospital = db_session.query(Hospital).first()
-        disabled = get_disabled_indicator_ids(db_session, hospital.id, "2026-04")
+        disabled = get_disabled_indicator_ids(db_session, hospital.id, "2026-04", auto_disable_null=False)
         assert disabled == []
 
     def test_auto_disable_null_when_enabled(self, db_session):
@@ -98,7 +98,7 @@ class TestGetDisabledIndicatorIds:
         db_session.add(SystemSetting(key="auto_disable_null_indicators", value="true"))
         db_session.commit()
 
-        disabled = get_disabled_indicator_ids(db_session, hospital.id, "2026-04")
+        disabled = get_disabled_indicator_ids(db_session, hospital.id, "2026-04", auto_disable_null=True)
         assert ind3.id in disabled
 
 
@@ -312,7 +312,7 @@ class TestAnalysisFailureRecovery:
 
         state = {"attempted": [], "session_ok_second_month": False}
 
-        def fake_analysis(session, hospital_id, month, force=False):
+        def fake_analysis(session, hospital_id, month, force=False, policy=None):
             state["attempted"].append(month)
             if month == "2026-01":
                 try:

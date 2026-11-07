@@ -409,13 +409,13 @@ class TestRequirementType:
         db_session.query(Indicator).filter(Indicator.id == missing).update(
             {"requirement_type": "Optional"}, synchronize_session=False)
         db_session.commit()
-        required = get_required_indicator_ids(db_session, hospital_id=1, month="2027-11")
+        required = get_required_indicator_ids(db_session, hospital_id=1, month="2027-11", auto_disable_null=False)
         assert missing not in required
         # All defaults are Required → everything enabled counts.
         db_session.query(Indicator).filter(Indicator.id == missing).update(
             {"requirement_type": "Required"}, synchronize_session=False)
         db_session.commit()
-        required = get_required_indicator_ids(db_session, hospital_id=1, month="2027-11")
+        required = get_required_indicator_ids(db_session, hospital_id=1, month="2027-11", auto_disable_null=False)
         assert missing in required
 
 
@@ -432,9 +432,10 @@ class TestImpactPreviewDenominatorMath:
             url += f"&hospital_id={hospital_id}"
         return client.get(url).json()["completeness"]
 
-    def _real_denominator(self, db, hospital_id, month):
+    def _real_denominator(self, db, hospital_id, month, *, enabled=False):
         from app.engine.pipeline import get_required_indicator_ids
-        return len(get_required_indicator_ids(db, hospital_id, month))
+        return len(get_required_indicator_ids(
+            db, hospital_id, month, auto_disable_null=enabled))
 
     def test_disable_prediction_matches_real_toggle(self, client, db_session):
         """Plain Required members, auto-disable OFF: before/after predicted == real."""
@@ -499,7 +500,7 @@ class TestImpactPreviewDenominatorMath:
             "indicator_ids": ids,
         }).json()["id"]
 
-        real_before = self._real_denominator(db_session, 1, "2027-02")
+        real_before = self._real_denominator(db_session, 1, "2027-02", enabled=True)
         comp = self._preview_completeness(client, gid, False, hospital_id=1)
         assert comp["per_hospital"][0]["before"] == real_before
         assert comp["per_hospital"][0]["after"] == real_before  # zero predicted change

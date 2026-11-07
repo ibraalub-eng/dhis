@@ -4,7 +4,8 @@ When a parent/child sum rule (parent == sum of children or parent >= sum of chil
 is already satisfied by the reported children, any missing sibling must NOT be reported
 as missing nor penalize completeness.
 """
-from app.engine.quality import ValidationContext, get_covered_child_codes, set_rules_config
+from app.engine.quality import ValidationContext, get_covered_child_codes
+from app.engine.quality.definitions import RulesPolicy
 
 
 def _ctx(data: dict, disabled=None) -> ValidationContext:
@@ -75,14 +76,9 @@ def test_db_rules_path(db_session):
 
 
 def test_tolerance_respected():
-    original = {"eq_tolerance": 0.01}
-    set_rules_config({"eq_tolerance": 10.0})
-    try:
-        ctx = _ctx({"2": 100.0, "2.a": 95.0})
-        covered = get_covered_child_codes(ctx)
-        assert "2.b" in covered
-    finally:
-        set_rules_config(original)
+    ctx = _ctx({"2": 100.0, "2.a": 95.0})
+    ctx.rules = RulesPolicy(eq_tolerance=10.0)
+    assert "2.b" in get_covered_child_codes(ctx)
 
 def test_parent_le_sibling_covered_when_children_reach_parent(monkeypatch):
     """Parent-accounting doctrine (new): parent_le rules describe children that

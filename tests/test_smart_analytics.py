@@ -192,7 +192,7 @@ def test_cache_invalidates_on_upload(db_session):
     
     # Run analysis first
     from app.engine.smart import run_smart_analytics
-    run_smart_analytics(db_session, "2026-06")
+    run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     
     # Clear cache
     cache.invalidate("smart_overview_")
@@ -393,7 +393,7 @@ def _fake_result(month):
     )
 
 
-@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
+@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month, **kwargs: _fake_result(month))
 def test_overview_memoized_single_run(mock_run, client):
     """نفس الشهر يُعاد من المذكّرة دون إعادة تشغيل الأنابيب."""
     from app.cache import cache
@@ -407,7 +407,7 @@ def test_overview_memoized_single_run(mock_run, client):
     assert mock_run.call_count == 0
 
 
-@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
+@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month, **kwargs: _fake_result(month))
 def test_slices_share_memoized_overview(mock_run, client):
     """نقاط النهاية الشريحة تعيد استخدام نتيجة الشهر المخزّنة بدل إعادة التشغيل."""
     from app.cache import cache
@@ -419,7 +419,7 @@ def test_slices_share_memoized_overview(mock_run, client):
     assert mock_run.call_count == 1
 
 
-@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
+@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month, **kwargs: _fake_result(month))
 def test_trend_memoizes_each_month_once(mock_run, client, db_session):
     """trend يشغّل الأنابيب مرة لكل شهر مميز لا لكل تكرار في الحلقة."""
     from app.cache import cache
@@ -461,7 +461,7 @@ def test_cache_keys_include_version(client):
     # Mock the heavy computation so the background thread completes quickly
     # and deterministically caches the envelope under its versioned key.
     with _patch("app.api.smart_analytics.run_smart_analytics",
-                side_effect=lambda db, month: _fake_result(month)):
+                side_effect=lambda db, month, **kwargs: _fake_result(month)):
         client.get("/smart/overview/2026-06")
         # The computation runs in a daemon thread after the response returns;
         # poll briefly for it to finish and populate the versioned key.
@@ -476,7 +476,7 @@ def test_cache_keys_include_version(client):
     assert any(k[1] == expected_key for k in cache._cache)
 
 
-@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
+@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month, **kwargs: _fake_result(month))
 def test_trend_response_cached(mock_run, client, db_session):
     from app.cache import cache
     from app.models import Hospital, QualityScore
@@ -491,7 +491,7 @@ def test_trend_response_cached(mock_run, client, db_session):
     assert any(k[1].startswith("smart_trend_") for k in cache._cache)
 
 
-@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
+@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month, **kwargs: _fake_result(month))
 def test_drilldown_response_cached(mock_run, client, db_session):
     from app.cache import cache
     from app.models import Hospital
@@ -504,7 +504,7 @@ def test_drilldown_response_cached(mock_run, client, db_session):
     assert any(k[1].startswith("smart_drilldown_") for k in cache._cache)
 
 
-@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month: _fake_result(month))
+@patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, month, **kwargs: _fake_result(month))
 def test_timeline_reuses_per_month_memo(mock_run, client, db_session):
     """timeline يعيد استخدام نتائج الشهور المخزّنة من استدعاءات سابقة."""
     from app.cache import cache
@@ -516,11 +516,28 @@ def test_timeline_reuses_per_month_memo(mock_run, client, db_session):
     db_session.add(QualityScore(hospital_id=h.id, month="2027-02", score=75))
     db_session.commit()
 
-    # حُلّل شهر 2027-01 مسبقاً عبر overview => لا يُعاد تشغيله داخل timeline
+    # حُلّل شهر 2027-01 مسبقاً عبر overview => لا يُعاد تشغيله داخل timeline.
+    # الحساب يجري في خيط خلفي، فلا بدّ من انتظار وصوله إلى الكاش قبل أخذ
+    # العيّنة؛ وإلا قرأنا call_count قبل بدء الخيط وبدا الشهر «جديداً».
     client.get("/smart/overview/2027-01")
+    deadline = time.time() + 10
+    while time.time() < deadline and cache.get("smart_overview_2027-01_v3") is None:
+        time.sleep(0.05)
+    assert cache.get("smart_overview_2027-01_v3") is not None, "overview never cached 2027-01"
     before = mock_run.call_count
+    assert before == 1  # الشهر المطلوب حُسب مرة واحدة فقط
+
     client.get("/smart/anomaly-timeline")
+    # timeline يطلق حساب الشهر المتبقّي في خيط خلفي أيضاً
+    deadline = time.time() + 10
+    while time.time() < deadline and cache.get("smart_overview_2027-02_v3") is None:
+        time.sleep(0.05)
+    assert cache.get("smart_overview_2027-02_v3") is not None, "timeline never computed 2027-02"
+
+    months_run = [call.args[1] for call in mock_run.call_args_list]
     assert mock_run.call_count == before + 1  # شهر واحد جديد فقط (2027-02)
+    assert months_run.count("2027-01") == 1  # المخزّن لم يُعَد تشغيله
+    assert months_run.count("2027-02") == 1
 
 
 def test_envelope_reports_uncomputable_numbers_as_null_not_zero():

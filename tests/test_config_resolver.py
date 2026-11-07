@@ -18,15 +18,14 @@ from app.engine import severity as sev
 from app.engine.anomaly import trends
 from app.engine.comparison_policy import load_comparison_policy
 from app.engine.config_resolver import (
-    PolicyUnavailable,
     PolicySnapshot,
+    PolicyUnavailable,
     load_policy_snapshot,
     resolve_policy,
 )
 from app.engine.quality.scoring import resolve_scoring_config
 from app.engine.quality_alerts import _alerts_config
 from app.models import AppConfig, SystemSetting
-
 
 # ── helpers ─────────────────────────────────────────────────────────────
 
@@ -317,20 +316,29 @@ def test_unreadable_configuration_raises_when_strict_and_is_labelled_otherwise(
 # must still reach the legacy loaders.
 
 
-def test_migration_is_limited_to_the_two_run_entry_points():
+def test_approved_snapshot_consumers_and_legacy_loaders_remain():
+    import app.api.analysis as analysis_api
+    import app.engine.audit.explain as explain
     import app.engine.pipeline as pipeline
     import app.engine.quality_alerts as quality_alerts
-    import app.engine.audit.explain as explain
-    import app.api.analysis as analysis_api
 
     assert "config_resolver" in inspect.getsource(pipeline)
     assert "config_resolver" in inspect.getsource(quality_alerts)
-    # Display / explain paths are NOT migrated in A2.
-    assert "config_resolver" not in inspect.getsource(analysis_api)
-    assert "config_resolver" not in inspect.getsource(explain)
+    # A3.3 migrated the analysis API's bulk loops; A3.5 migrated the rules and
+    # trends planes, including the Explain read. P3's confidence plane must
+    # stay on its own loader until that phase is approved.
+    assert "load_policy_snapshot" in inspect.getsource(analysis_api)
+    assert "trends_policy_from_snapshot" in inspect.getsource(explain)
+    # A3.5 P1's rules plane stays wired through the same snapshot.
+    assert "rules_policy_from_snapshot" in inspect.getsource(pipeline)
+    assert "rules_policy_from_snapshot" in inspect.getsource(explain)
+    import app.engine.confidence as confidence
+    assert "policy_view" not in inspect.getsource(confidence)
     # The legacy loaders and the compatibility setter are still present.
     assert callable(trends.set_trends_config)
     assert hasattr(trends, "_TRENDS_CONFIG")
     assert callable(sev.load_analysis_config)
     assert callable(load_comparison_policy)
-    assert cr.RESOLVER_VERSION == "1.0.0"
+    # A3.1 extended coverage (rules, ml, trend gates, rules digest); A3.1b
+    # made the digest a policy-identity digest and froze the rules defaults.
+    assert cr.RESOLVER_VERSION == "1.4.0"

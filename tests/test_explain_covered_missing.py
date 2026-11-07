@@ -22,8 +22,6 @@ from app.cache import cache
 def covered_month(db_session):
     """h1 2027-01: parent 2 == 2.a + 2.b with 2.a reported equal to the total,
     so 2.b is covered; 2.n also None but NOT covered (no rule explains it)."""
-    from app.engine.quality import set_rules_config
-
     h = db_session.query(Hospital).order_by(Hospital.id).first()
     ids = {}
     for code in ("2", "2.a", "2.b", "2.n"):
@@ -43,8 +41,6 @@ def covered_month(db_session):
     db_session.add(QualityScore(hospital_id=h.id, month="2027-01", score=90.0))
     db_session.commit()
     cache.invalidate("analysis:months")
-    # make the eq(2 == 2.a + 2.b) rule resolvable even without DB rules
-    set_rules_config({"eq_tolerance": 0.01})
     return h
 
 

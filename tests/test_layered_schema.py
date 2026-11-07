@@ -252,9 +252,11 @@ def test_migration_revision_is_new_head():
     from app.config import BASE_DIR
     script = ScriptDirectory.from_config(AlembicConfig(os.path.join(BASE_DIR, "alembic.ini")))
     # Head moves with every new migration; the classification-provenance
-    # revision sits directly on top of the hospital-month audit table, and the
-    # quality-score revision repair closes the chain.
-    assert script.get_current_head() == "a1c2e3f4b5d6"
+    # revision sits on top of the hospital-month audit table, the quality-score
+    # revision repair follows it, and the D5 policy-identity revision (a single
+    # head) closes the chain.
+    assert script.get_current_head() == "d8e9f0a1b2c3"
+    assert script.get_revision("d8e9f0a1b2c3").down_revision == "a1c2e3f4b5d6"
     assert script.get_revision("a1c2e3f4b5d6").down_revision == "f5a6b7c8d9e0"
     assert script.get_revision("f5a6b7c8d9e0").down_revision == "c3d4e5f6a7b8"
     assert script.get_revision("c3d4e5f6a7b8").down_revision == "e1f2a3b4c5d6"

@@ -12,7 +12,7 @@ def test_build_comprehensive_prompt_returns_string(db_session):
     from app.engine.comparative.report_generator import build_comprehensive_prompt
     from app.engine.smart import run_smart_analytics
     
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     prompt = build_comprehensive_prompt(analytics)
     assert isinstance(prompt, str)
     assert "أنت خبير" in prompt
@@ -73,7 +73,7 @@ def test_local_report_includes_regional_section(db_session):
     from app.engine.comparative.report_generator import _build_local_report
     from app.engine.smart import run_smart_analytics
 
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     report_ar = _build_local_report(analytics, lang="ar")
     assert "الاستخبارات الإقليمية" in report_ar
     report_en = _build_local_report(analytics, lang="en")
@@ -104,7 +104,7 @@ def test_decision_brief_structure(db_session):
     from app.engine.smart import run_smart_analytics
     from app.engine.comparative.report_generator import _build_decision_brief
 
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     brief = _build_decision_brief(analytics, lang="ar")
     assert brief["verdict"] in ("critical", "attention", "normal")
     assert 0 <= brief["risk_score"] <= 100
@@ -123,7 +123,7 @@ def test_decision_brief_english(db_session):
     from app.engine.smart import run_smart_analytics
     from app.engine.comparative.report_generator import _build_decision_brief, _decision_brief_lines
 
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     brief = _build_decision_brief(analytics, lang="en")
     lines = _decision_brief_lines(brief, "en")
     text = "\n".join(lines)
@@ -200,7 +200,7 @@ def test_decision_brief_priorities_are_derived(db_session):
     from app.engine.smart import run_smart_analytics
     from app.engine.comparative.report_generator import _build_decision_brief
 
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     brief = _build_decision_brief(analytics, lang="ar")
     # عند وجود شذوذات يجب ألا تكون قائمة الأولويات فارغة
     if analytics.kpi and analytics.kpi.total_anomalies > 0:
@@ -1127,7 +1127,7 @@ def test_build_english_prompt_returns_string(db_session):
     from app.engine.comparative.report_generator import build_comprehensive_prompt
     from app.engine.smart import run_smart_analytics
 
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     prompt = build_comprehensive_prompt(analytics, "en")
     assert isinstance(prompt, str)
     assert len(prompt) > 100
@@ -1158,7 +1158,7 @@ from app.engine.comparative.report_generator import _build_local_report
 def test_local_fallback_report_arabic_has_sections(db_session):
     """اختبار أن التقرير المحلي يحتوي على الأقسام الرئيسية"""
     from app.engine.smart import run_smart_analytics
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     report = _build_local_report(analytics, "ar")
     assert "الملخص التنفيذي" in report
     assert "تحليل الشذوذ" in report
@@ -1170,7 +1170,7 @@ def test_local_fallback_report_arabic_has_sections(db_session):
 def test_local_fallback_report_english_has_sections(db_session):
     """اختبار أن التقرير المحلي بالإنجليزية يحتوي على الأقسام الرئيسية"""
     from app.engine.smart import run_smart_analytics
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     report = _build_local_report(analytics, "en")
     assert "Executive Summary" in report
     assert "Anomaly Analysis" in report
@@ -1182,7 +1182,7 @@ def test_local_fallback_report_english_has_sections(db_session):
 def test_local_fallback_report_contains_kpi_data(db_session):
     """اختبار أن التقرير المحلي يتضمن بيانات KPI الفعلية"""
     from app.engine.smart import run_smart_analytics
-    analytics = run_smart_analytics(db_session, "2026-06")
+    analytics = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     report = _build_local_report(analytics, "ar")
     assert str(analytics.kpi.total_anomalies) in report
     assert str(analytics.kpi.month_status) in report

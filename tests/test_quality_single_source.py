@@ -101,7 +101,7 @@ def client(db_session):
 def _expected_from_engine(db, hospital_id, month, rc, co, op):
     from app.config_utils import get_config_dict
     from app.engine.pipeline import compute_hospital_completeness
-    cp = round(compute_hospital_completeness(db, hospital_id, month), 1)
+    cp = round(compute_hospital_completeness(db, hospital_id, month, auto_disable_null=False), 1)
     cfg = get_config_dict(db, "quality")
     return cp, combine_quality_score(rc, cp, co, op, cfg)
 

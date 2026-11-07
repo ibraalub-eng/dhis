@@ -1,3 +1,5 @@
+from app.engine.quality.definitions import RulesPolicy
+
 """Tests for validation rules engine (engine.quality)."""
 from app.engine.quality import (
     ValidationContext,
@@ -110,13 +112,10 @@ def test_all_rules_return_rule_result():
 
 
 def test_rules_config_override():
-    original_tolerance = 0.01
-    set_rules_config({"eq_tolerance": 10.0})
-    try:
-        results = run_all_rules(_make_ctx({"2": 100, "2.a": 105, "2.b": 0}))
-        assert _find(results, "R002").status == RuleStatus.PASS
-    finally:
-        set_rules_config({"eq_tolerance": original_tolerance})
+    """A3.5: the tolerance travels on the context, not a process global."""
+    ctx = _make_ctx({"2": 100, "2.a": 105, "2.b": 0})
+    ctx.rules = RulesPolicy(eq_tolerance=10.0)
+    assert _find(run_all_rules(ctx), "R002").status == RuleStatus.PASS
 
 
 def test_smm_eq_sum_of_sub_indicators():

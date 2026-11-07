@@ -19,8 +19,11 @@ def _read_main_js():
 
 def test_switchtab_pushes_tabtrail_history_state():
     js = _read_main_js()
-    # every user-driven tab activation records a history entry
-    assert "history.pushState({ __tabtrail: true, tab: name }, '')" in js
+    # Every user-driven tab activation records a history entry. The entry
+    # carries the screen in the URL (?screen=) so Back survives a reload; the
+    # push itself lives in the _pushTrail helper.
+    assert "history.pushState({ __tabtrail: true, tab: name }, '', _screenUrl(name))" in js
+    assert "_pushTrail(name)" in js
     # trail bookkeeping lives in switchTab, guarded against popstate-driven switches
     assert "_tabTrailGuard" in js
     assert "_tabTrail.push(_tabTrailCurrent)" in js
@@ -47,8 +50,8 @@ def test_back_closes_open_overlay_before_switching_tabs():
     for overlay in ("explainModalOverlay", "ruleTestModal", "detailModal", "ruleEditModal", "searchOverlay"):
         assert overlay in overlay_closer, f"overlay closer must handle {overlay}"
     # after closing an overlay the history entry is restored WITH the trail
-    # marker so the next Back keeps walking the tab trail
-    assert "history.pushState({ __tabtrail: true, tab: _tabTrailCurrent }, '')" in js
+    # marker (and its screen URL) so the next Back keeps walking the tab trail
+    assert "_pushTrail(_tabTrailCurrent)" in js
 
 
 def test_back_with_why_popup_open_closes_popup_not_tab():

@@ -83,7 +83,7 @@ def test_coverage_covers_every_feature_key(db_session):
     from app.engine.smart import FEATURE_SOURCE_CODES
 
     _seed_coverage_month(db_session)
-    result = analysis_indicator_coverage(db_session, "2026-06")
+    result = analysis_indicator_coverage(db_session, "2026-06", auto_disable_null=False)
 
     assert result["month"] == "2026-06"
     # 3 مستشفيات البذرة في conftest + 3 المستشفيات المزروعة هنا
@@ -104,7 +104,7 @@ def test_coverage_counts_partial_and_missing(db_session):
     from app.engine.smart import analysis_indicator_coverage
 
     _seed_coverage_month(db_session)
-    result = analysis_indicator_coverage(db_session, "2026-06")
+    result = analysis_indicator_coverage(db_session, "2026-06", auto_disable_null=False)
     by_key = {r["key"]: r for r in result["indicators"]}
 
     # المضاعفات (10): الكامل فقط له قيمة؛ والجزئي (null) والفارغ ومستشفيات
@@ -129,7 +129,7 @@ def test_coverage_available_and_unavailable_statuses(db_session):
     from app.engine.smart import analysis_indicator_coverage
 
     _seed_coverage_month(db_session)
-    result = analysis_indicator_coverage(db_session, "2026-06")
+    result = analysis_indicator_coverage(db_session, "2026-06", auto_disable_null=False)
     by_key = {r["key"]: r for r in result["indicators"]}
 
     # لميزة كل مصادرها مكتملة لدى الكامل وجزئي (عدا 10/17): ليست متاحة بالكامل
@@ -144,7 +144,7 @@ def test_coverage_note_explains_derived_only_scope(db_session):
     from app.engine.smart import analysis_indicator_coverage
 
     _seed_coverage_month(db_session)
-    note = analysis_indicator_coverage(db_session, "2026-06")["note"]
+    note = analysis_indicator_coverage(db_session, "2026-06", auto_disable_null=False)["note"]
     assert "المشتقة" in note
     assert "لا يدخل نماذج" in note
 
@@ -153,7 +153,7 @@ def test_coverage_empty_month_no_hospitals(db_session):
     """شهر بلا أي قيم: كل الميزات «غير متاح» بلا انهيار وبلا تغطية مصطنعة."""
     from app.engine.smart import analysis_indicator_coverage
 
-    result = analysis_indicator_coverage(db_session, "2099-01")
+    result = analysis_indicator_coverage(db_session, "2099-01", auto_disable_null=False)
     assert len(result["indicators"]) == 10
     assert all(r["hospitals_total"] == result["hospitals_total"]
                for r in result["indicators"])
@@ -173,7 +173,7 @@ def test_disabled_maps_shared_helper_matches_loader(db_session):
     all_values = db_session.query(IndicatorValue).filter(
         IndicatorValue.month == "2026-06").all()
 
-    combined, auto = _disabled_maps(db_session, "2026-06", hospitals, indicators, all_values)
+    combined, auto = _disabled_maps(db_session, "2026-06", hospitals, indicators, all_values, auto_disable_null=False)
     ind_map = {i.id: i.code for i in indicators}
 
     # مستشفى الفارغ: «2» معطّل يدوياً
@@ -181,7 +181,7 @@ def test_disabled_maps_shared_helper_matches_loader(db_session):
     assert "2" in empty_disabled
 
     # حمولة التحليل نفسها تستبعد «2» لهذا المستشفى => بلا cs_rate
-    data = _load_hospital_data(db_session, "2026-06")
+    data = _load_hospital_data(db_session, "2026-06", auto_disable_null=False)
     assert "Coverage Full" in data
     assert data["Coverage Full"]["values"]["cs_rate"] == 30.0
     assert "cs_rate" not in data.get("Coverage Empty", {}).get("values", {})

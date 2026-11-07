@@ -131,7 +131,7 @@ def test_gov_metrics_missing_denominator(db_session):
 
 def _load_for(db_session, month):
     from app.engine.smart import _load_hospital_data
-    return _load_hospital_data(db_session, month)
+    return _load_hospital_data(db_session, month, auto_disable_null=False)
 
 
 # ── المعايير والمئويات ──

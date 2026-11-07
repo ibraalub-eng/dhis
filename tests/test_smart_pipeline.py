@@ -41,7 +41,7 @@ def test_orchestrator_returns_result():
     mock_session = MagicMock()
     mock_session.query.return_value.filter.return_value.all.return_value = []
 
-    result = run_smart_analytics(mock_session, "2026-06")
+    result = run_smart_analytics(mock_session, "2026-06", auto_disable_null=False)
     assert isinstance(result, SmartAnalyticsResult)
     assert result.month == "2026-06"
 
@@ -73,7 +73,7 @@ def test_residuals_wired_into_anomaly_ensemble(monkeypatch):
     mock_session = MagicMock()
     mock_session.query.return_value.filter.return_value.all.return_value = []
 
-    run_smart_analytics(mock_session, "2026-06")
+    run_smart_analytics(mock_session, "2026-06", auto_disable_null=False)
     # z=3.0 normalized as 3.0/4.0 = 0.75, passed for the cs_rate residual
     assert captured["residual_scores"] == {"General Hospital": 0.75}
 
@@ -119,7 +119,7 @@ def test_load_hospital_data_excludes_disabled_indicators(db_session):
     from app.engine.smart import _load_hospital_data
 
     hosp, inds = _seed_smart_data(db_session)
-    data = _load_hospital_data(db_session, "2026-06")
+    data = _load_hospital_data(db_session, "2026-06", auto_disable_null=True)
     assert hosp.name in data
     vals = data[hosp.name]["values"]
     # المؤشر المعطّل يدوياً (52) مستبعد رغم وجود قيمته
@@ -152,7 +152,7 @@ def test_load_hospital_data_null_derived_stays_none(db_session):
     ).delete()
     db_session.commit()
 
-    data = _load_hospital_data(db_session, "2026-06")
+    data = _load_hospital_data(db_session, "2026-06", auto_disable_null=True)
     vals = data[hosp.name]["values"]
     # smm_total بلا بيانات => لا تُضاف (أو None) بدل 0
     assert "smm_total" not in vals or vals.get("smm_total") is None
@@ -181,5 +181,5 @@ def test_load_hospital_data_excludes_hospital_without_any_data(db_session):
     db_session.add(IndicatorValue(hospital_id=empty_hosp.id, indicator_id=ind.id, month="2026-06", value=None))
     db_session.commit()
 
-    data = _load_hospital_data(db_session, "2026-06")
+    data = _load_hospital_data(db_session, "2026-06", auto_disable_null=True)
     assert "Empty Hospital" not in data

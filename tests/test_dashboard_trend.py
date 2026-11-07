@@ -75,4 +75,6 @@ def test_trend_empty_database_returns_empty_list(app, db_session):
     """No quality scores yet must yield an empty series, not a 500."""
     client = TestClient(app)
     r = client.get("/dashboard/trend").json()
-    assert r == {"quality_trend": []}
+    assert r["quality_trend"] == []
+    # Additive field: the excluded failed-analysis count is always present.
+    assert r["excluded_failed_analysis"] == 0

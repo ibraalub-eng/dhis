@@ -1,24 +1,32 @@
 """Tests for confidence scoring (engine.confidence)."""
+import ast
+import inspect
+from dataclasses import replace
+from pathlib import Path
+
 import pytest
 
 from app.engine.confidence import (
-    calculate_confidence,
-    build_indicator_rule_map,
-    _signal_rule_compliance,
-    _signal_historical,
-    _signal_cross_hospital,
-    _signal_trend,
-    _signal_completeness,
-    _compute_level,
+    ConfidenceSignal,
+    HospitalConfidenceResult,
+    IndicatorConfidence,
     _build_recommendations,
     _build_summary,
+    _compute_level,
     _extract_codes_from_params,
-    ConfidenceSignal,
-    IndicatorConfidence,
-    HospitalConfidenceResult,
+    _signal_completeness,
+    _signal_cross_hospital,
+    _signal_historical,
+    _signal_rule_compliance,
+    _signal_trend,
+    build_indicator_rule_map,
+    calculate_confidence,
 )
-from app.engine.quality import RuleResult, RuleStatus, Severity, RuleType
+from app.engine.confidence_policy import ConfidencePolicy
+from app.engine.quality import RuleResult, RuleStatus, RuleType, Severity
 from app.models import Rule
+
+DEFAULT_POLICY = ConfidencePolicy.defaults()
 
 
 class TestExtractCodesFromParams:
@@ -205,25 +213,25 @@ class TestSignalCompleteness:
 
 class TestComputeLevel:
     def test_high(self):
-        assert _compute_level(85) == "HIGH"
+        assert _compute_level(85, DEFAULT_POLICY) == "HIGH"
 
     def test_medium(self):
-        assert _compute_level(65) == "MEDIUM"
+        assert _compute_level(65, DEFAULT_POLICY) == "MEDIUM"
 
     def test_low(self):
-        assert _compute_level(35) == "LOW"
+        assert _compute_level(35, DEFAULT_POLICY) == "LOW"
 
     def test_critical(self):
-        assert _compute_level(10) == "CRITICAL"
+        assert _compute_level(10, DEFAULT_POLICY) == "CRITICAL"
 
     def test_boundary_high(self):
-        assert _compute_level(80) == "HIGH"
+        assert _compute_level(80, DEFAULT_POLICY) == "HIGH"
 
     def test_boundary_medium(self):
-        assert _compute_level(50) == "MEDIUM"
+        assert _compute_level(50, DEFAULT_POLICY) == "MEDIUM"
 
     def test_custom_config(self):
-        assert _compute_level(90, {"confidence_high": 95}) == "MEDIUM"
+        assert _compute_level(90, replace(DEFAULT_POLICY, high=95)) == "MEDIUM"
 
 
 class TestBuildRecommendations:
@@ -316,8 +324,7 @@ class TestCalculateConfidence:
             all_hospital_data={},
             indicator_map={"2": "Total Deliveries", "3": "NVD", "5": "C-sections"},
             indicator_children={},
-            indicator_rule_map={},
-        )
+            indicator_rule_map={}, confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
         assert result.overall_confidence >= 0
         assert result.overall_confidence <= 100
         assert result.level in ("HIGH", "MEDIUM", "LOW", "CRITICAL")
@@ -339,8 +346,7 @@ class TestCalculateConfidence:
             all_hospital_data={},
             indicator_map={"2": "Total Deliveries"},
             indicator_children={},
-            indicator_rule_map={},
-        )
+            indicator_rule_map={}, confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
         assert result.indicator_count >= 1
 
     def test_with_cross_hospital_data(self):
@@ -359,8 +365,7 @@ class TestCalculateConfidence:
             all_hospital_data=all_data,
             indicator_map={"2": "Total Deliveries"},
             indicator_children={},
-            indicator_rule_map={},
-        )
+            indicator_rule_map={}, confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
         assert result.indicator_count >= 1
 
     def test_priority_verify_sorted_by_confidence(self):
@@ -374,8 +379,7 @@ class TestCalculateConfidence:
             all_hospital_data={},
             indicator_map={"2": "Total", "3": "NVD"},
             indicator_children={},
-            indicator_rule_map={},
-        )
+            indicator_rule_map={}, confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
         confidences = [i.confidence for i in result.priority_verify]
         assert confidences == sorted(confidences)
 
@@ -390,8 +394,7 @@ class TestCalculateConfidence:
             all_hospital_data={},
             indicator_map={"2": "Total", "3": "NVD", "5": "CS"},
             indicator_children={},
-            indicator_rule_map={},
-        )
+            indicator_rule_map={}, confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
         total = sum(result.by_level.values())
         assert total == result.indicator_count
 
@@ -406,8 +409,7 @@ class TestCalculateConfidence:
             all_hospital_data={},
             indicator_map={"2": "Total", "3": "NVD", "4": "Facility", "5": "CS"},
             indicator_children={},
-            indicator_rule_map={},
-        )
+            indicator_rule_map={}, confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
         assert "Deliveries" in result.by_group
 
     def test_to_dict_roundtrip(self):
@@ -421,8 +423,7 @@ class TestCalculateConfidence:
             all_hospital_data={},
             indicator_map={"2": "Total"},
             indicator_children={},
-            indicator_rule_map={},
-        )
+            indicator_rule_map={}, confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
         d = result.to_dict()
         assert d["overall_confidence"] == round(result.overall_confidence, 1)
         assert d["level"] == result.level
@@ -442,8 +443,7 @@ class TestCalculateConfidence:
             all_hospital_data={},
             indicator_map={"2": "Total", "5": "CS"},
             indicator_children={},
-            indicator_rule_map={"5": ["R001"]},
-        )
+            indicator_rule_map={"5": ["R001"]}, confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
         assert result.indicator_count >= 2
         ind5 = [i for i in result.indicators if i.indicator_code == "5"]
         if ind5:
@@ -472,8 +472,7 @@ class TestNotApplicableSignals:
             indicator_map={"2": "Deliveries", "16": "NICU admissions"},
             indicator_children={},
             indicator_rule_map={},
-            key_indicator_codes=["2", "16"],
-        )
+            key_indicator_codes=["2", "16"], confidence_policy=DEFAULT_POLICY, auto_disable_null=False)
 
     def test_missing_value_signals_are_marked_not_applicable(self):
         result = self._result()
@@ -503,3 +502,68 @@ class TestNotApplicableSignals:
         present = next(i for i in result.indicators if i.indicator_code == "2")
         assert present.value == 300
         assert all(s.applicable is True for s in present.signals)
+
+
+def test_calculate_confidence_requires_an_explicit_policy():
+    parameters = inspect.signature(calculate_confidence).parameters
+    assert "session" not in parameters
+    assert parameters["confidence_policy"].default is inspect.Parameter.empty
+
+
+def test_calculate_confidence_has_no_live_configuration_reads():
+    source = Path(__file__).resolve().parents[1] / "app" / "engine" / "confidence.py"
+    tree = ast.parse(source.read_text(encoding="utf-8"))
+    function = next(
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "calculate_confidence"
+    )
+    names = {node.id for node in ast.walk(function) if isinstance(node, ast.Name)}
+    attributes = {node.attr for node in ast.walk(function) if isinstance(node, ast.Attribute)}
+    assert "session" not in names
+    assert "SIGNAL_WEIGHTS" not in names
+    assert "ConfidenceWeights" not in names
+    assert "get_config_dict" not in names
+    assert "get_config_dict" not in attributes
+
+
+def test_production_confidence_callers_pass_the_policy_and_no_session():
+    root = Path(__file__).resolve().parents[1]
+    for relative in ("app/engine/pipeline.py", "app/api/confidence.py"):
+        tree = ast.parse((root / relative).read_text(encoding="utf-8"))
+        calls = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "calculate_confidence"
+        ]
+        assert calls, relative
+        for call in calls:
+            keywords = {keyword.arg for keyword in call.keywords}
+            assert "confidence_policy" in keywords, relative
+            assert "session" not in keywords, relative
+
+
+def test_configured_confidence_zscore_is_not_replaced_by_analysis_zscore():
+    history = {f"2025-{month:02d}": {"2": 100.0} for month in range(1, 10)}
+    common = dict(
+        hospital_name="H",
+        month="2026-04",
+        values={"2": 1000.0},
+        rule_results=[],
+        historical_data=history,
+        all_hospital_data={"H": {"2": 1000.0}},
+        indicator_map={"2": "Total Deliveries"},
+        indicator_children={},
+        indicator_rule_map={},
+        key_indicator_codes=["2"],
+        auto_disable_null=False,
+    )
+    normal = calculate_confidence(confidence_policy=DEFAULT_POLICY, **common)
+    configured = calculate_confidence(
+        confidence_policy=replace(DEFAULT_POLICY, zscore_threshold=99.0),
+        **common,
+    )
+    normal_signal = next(s for s in normal.indicators[0].signals if s.factor == "historical")
+    configured_signal = next(s for s in configured.indicators[0].signals if s.factor == "historical")
+    assert normal_signal.passed is False
+    assert configured_signal.passed is True

@@ -1,0 +1,2174 @@
+{
+  "default": {
+    "hospitals": {
+      "Central Medical": {
+        "alert_rows": 0,
+        "completeness": 13.265306,
+        "confidence": {
+          "counts": [
+            20,
+            7,
+            11,
+            2,
+            0
+          ],
+          "level": "MEDIUM",
+          "overall": 72.6
+        },
+        "coverage": [],
+        "quality": {
+          "completeness": 13.3,
+          "consistency": 97.0,
+          "issues": "[\"R002: Primigravida + Multigravida \\u2248 Total Deliveries\", \"R061: Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity\", \"Anomaly: Fetal Deaths >24 weeks (HIGH)\"]",
+          "outlier_penalty": 1.8,
+          "rule_compliance": 97.0,
+          "score": 76.2
+        },
+        "rules": {
+          "R001": [
+            "PASS",
+            "Total Deliveries=105.0 >= children sum=105.0"
+          ],
+          "R002": [
+            "FAIL",
+            "Total Deliveries=105.0 but children sum=100.0, diff=5.00"
+          ],
+          "R003": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R004": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R005": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R006": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R007": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R008": [
+            "PASS",
+            "Missing data"
+          ],
+          "R009": [
+            "PASS",
+            "Missing data"
+          ],
+          "R010": [
+            "PASS",
+            "Missing data"
+          ],
+          "R011": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R012": [
+            "PASS",
+            "Missing data"
+          ],
+          "R013": [
+            "PASS",
+            "Missing data"
+          ],
+          "R014": [
+            "PASS",
+            "Missing data"
+          ],
+          "R015": [
+            "PASS",
+            "Missing data"
+          ],
+          "R016": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R017": [
+            "PASS",
+            "No data available"
+          ],
+          "R018": [
+            "PASS",
+            "Fetal Deaths >24 weeks=4.0 <= Total Deliveries=105.0"
+          ],
+          "R019": [
+            "PASS",
+            "Missing data"
+          ],
+          "R020": [
+            "PASS",
+            "Missing data"
+          ],
+          "R021": [
+            "PASS",
+            "Missing data"
+          ],
+          "R022": [
+            "PASS",
+            "Missing data"
+          ],
+          "R023": [
+            "PASS",
+            "Missing data"
+          ],
+          "R024": [
+            "PASS",
+            "No data available"
+          ],
+          "R025": [
+            "PASS",
+            "No data available"
+          ],
+          "R026": [
+            "PASS",
+            "No data available"
+          ],
+          "R027": [
+            "PASS",
+            "Missing data"
+          ],
+          "R028": [
+            "PASS",
+            "Missing data"
+          ],
+          "R029": [
+            "PASS",
+            "Missing data"
+          ],
+          "R030": [
+            "PASS",
+            "No data available"
+          ],
+          "R031": [
+            "PASS",
+            "Hemorrhage=2.0 <= Severe Maternal Morbidity (SMM)=5.0"
+          ],
+          "R032": [
+            "PASS",
+            "Missing data"
+          ],
+          "R033": [
+            "PASS",
+            "Missing data"
+          ],
+          "R034": [
+            "PASS",
+            "Missing data"
+          ],
+          "R035": [
+            "PASS",
+            "Missing data"
+          ],
+          "R036": [
+            "PASS",
+            "Missing data"
+          ],
+          "R037": [
+            "PASS",
+            "Missing data"
+          ],
+          "R038": [
+            "PASS",
+            "Missing data"
+          ],
+          "R039": [
+            "PASS",
+            "Missing data"
+          ],
+          "R040": [
+            "PASS",
+            "Missing data"
+          ],
+          "R051": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R052": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R053": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R054": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R055": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R056": [
+            "PASS",
+            "All values non-negative"
+          ],
+          "R057": [
+            "PASS",
+            "All values are integers"
+          ],
+          "R058": [
+            "PASS",
+            "Total Deliveries=105.0"
+          ],
+          "R059": [
+            "PASS",
+            "Live Births=99.0"
+          ],
+          "R060": [
+            "PASS",
+            "Facility has non-zero indicator data"
+          ],
+          "R061": [
+            "FAIL",
+            "Severe Maternal Morbidity (SMM)=5.0 but children sum=2.0, diff=3.00"
+          ],
+          "R062": [
+            "PASS",
+            "Missing data"
+          ],
+          "R063": [
+            "PASS",
+            "Missing data"
+          ],
+          "R064": [
+            "PASS",
+            "Missing data"
+          ],
+          "R065": [
+            "PASS",
+            "Missing data"
+          ],
+          "R066": [
+            "PASS",
+            "Missing data"
+          ],
+          "R067": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R068": [
+            "PASS",
+            "No data available"
+          ],
+          "R069": [
+            "PASS",
+            "Total Deliveriesx1.05=110.25 >= children sum=99.0"
+          ],
+          "R070": [
+            "PASS",
+            "Total Deliveries=105.0 > children sum=4.0"
+          ],
+          "R071": [
+            "PASS",
+            "Neonatal deaths=1.0 < Live Births=99.0"
+          ],
+          "R072": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R073": [
+            "PASS",
+            "Formula=4.0 <= Live Births=99.0"
+          ],
+          "R074": [
+            "PASS",
+            "Formula=0.0 < Total Deliveries=105.0"
+          ],
+          "R075": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R076": [
+            "PASS",
+            "Formula=20.0 < Total Deliveries=105.0"
+          ]
+        },
+        "run": {
+          "issues": [
+            "Anomaly: Fetal Deaths >24 weeks (HIGH)",
+            "R002: Primigravida + Multigravida ≈ Total Deliveries",
+            "R061: Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity"
+          ],
+          "score": 76.2
+        },
+        "trends": [
+          [
+            "10",
+            "stable",
+            "negligible",
+            true,
+            1,
+            1
+          ],
+          [
+            "11",
+            "stable",
+            "negligible",
+            false,
+            0,
+            0
+          ],
+          [
+            "16",
+            "stable",
+            "negligible",
+            true,
+            1,
+            0
+          ],
+          [
+            "17",
+            "stable",
+            "negligible",
+            true,
+            1,
+            0
+          ],
+          [
+            "5",
+            "stable",
+            "negligible",
+            true,
+            1,
+            1
+          ],
+          [
+            "7",
+            "increasing",
+            "moderate",
+            true,
+            2,
+            1
+          ]
+        ]
+      },
+      "General Hospital": {
+        "alert_rows": 0,
+        "completeness": 13.265306,
+        "confidence": {
+          "counts": [
+            20,
+            5,
+            15,
+            0,
+            0
+          ],
+          "level": "MEDIUM",
+          "overall": 70.0
+        },
+        "coverage": [],
+        "quality": {
+          "completeness": 13.3,
+          "consistency": 98.2,
+          "issues": "[\"R061: Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity\", \"Anomaly: Total Deliveries (VERY_HIGH)\", \"Anomaly: Primigravida (VERY_HIGH)\", \"Anomaly: Multigravida (VERY_HIGH)\", \"Anomaly: Normal Vaginal Deliveries (VERY_HIGH)\", \"Anomaly: Caesarean Sections (VERY_HIGH)\", \"Anomaly: Live Births (VERY_HIGH)\", \"Anomaly: Fetal Deaths >24 weeks (HIGH)\", \"Anomaly: Severe Maternal Morbidity (SMM) (HIGH)\", \"Anomaly: Hemorrhage (HIGH)\", \"Anomaly: NICU admissions (HIGH)\", \"... and 12 more flagged indicator(s)\"]",
+          "outlier_penalty": 40.0,
+          "rule_compliance": 98.5,
+          "score": 71.3
+        },
+        "rules": {
+          "R001": [
+            "PASS",
+            "Total Deliveries=430.0 >= children sum=430.0"
+          ],
+          "R002": [
+            "PASS",
+            "Total Deliveries=430.0 == children sum=430.0"
+          ],
+          "R003": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R004": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R005": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R006": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R007": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R008": [
+            "PASS",
+            "Missing data"
+          ],
+          "R009": [
+            "PASS",
+            "Missing data"
+          ],
+          "R010": [
+            "PASS",
+            "Missing data"
+          ],
+          "R011": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R012": [
+            "PASS",
+            "Missing data"
+          ],
+          "R013": [
+            "PASS",
+            "Missing data"
+          ],
+          "R014": [
+            "PASS",
+            "Missing data"
+          ],
+          "R015": [
+            "PASS",
+            "Missing data"
+          ],
+          "R016": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R017": [
+            "PASS",
+            "No data available"
+          ],
+          "R018": [
+            "PASS",
+            "Fetal Deaths >24 weeks=8.0 <= Total Deliveries=430.0"
+          ],
+          "R019": [
+            "PASS",
+            "Missing data"
+          ],
+          "R020": [
+            "PASS",
+            "Missing data"
+          ],
+          "R021": [
+            "PASS",
+            "Missing data"
+          ],
+          "R022": [
+            "PASS",
+            "Missing data"
+          ],
+          "R023": [
+            "PASS",
+            "Missing data"
+          ],
+          "R024": [
+            "PASS",
+            "No data available"
+          ],
+          "R025": [
+            "PASS",
+            "No data available"
+          ],
+          "R026": [
+            "PASS",
+            "No data available"
+          ],
+          "R027": [
+            "PASS",
+            "Missing data"
+          ],
+          "R028": [
+            "PASS",
+            "Missing data"
+          ],
+          "R029": [
+            "PASS",
+            "Missing data"
+          ],
+          "R030": [
+            "PASS",
+            "No data available"
+          ],
+          "R031": [
+            "PASS",
+            "Hemorrhage=6.0 <= Severe Maternal Morbidity (SMM)=12.0"
+          ],
+          "R032": [
+            "PASS",
+            "Missing data"
+          ],
+          "R033": [
+            "PASS",
+            "Missing data"
+          ],
+          "R034": [
+            "PASS",
+            "Missing data"
+          ],
+          "R035": [
+            "PASS",
+            "Missing data"
+          ],
+          "R036": [
+            "PASS",
+            "Missing data"
+          ],
+          "R037": [
+            "PASS",
+            "Missing data"
+          ],
+          "R038": [
+            "PASS",
+            "Missing data"
+          ],
+          "R039": [
+            "PASS",
+            "Missing data"
+          ],
+          "R040": [
+            "PASS",
+            "Missing data"
+          ],
+          "R051": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R052": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R053": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R054": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R055": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R056": [
+            "PASS",
+            "All values non-negative"
+          ],
+          "R057": [
+            "PASS",
+            "All values are integers"
+          ],
+          "R058": [
+            "PASS",
+            "Total Deliveries=430.0"
+          ],
+          "R059": [
+            "PASS",
+            "Live Births=400.0"
+          ],
+          "R060": [
+            "PASS",
+            "Facility has non-zero indicator data"
+          ],
+          "R061": [
+            "FAIL",
+            "Severe Maternal Morbidity (SMM)=12.0 but children sum=6.0, diff=6.00"
+          ],
+          "R062": [
+            "PASS",
+            "Missing data"
+          ],
+          "R063": [
+            "PASS",
+            "Missing data"
+          ],
+          "R064": [
+            "PASS",
+            "Missing data"
+          ],
+          "R065": [
+            "PASS",
+            "Missing data"
+          ],
+          "R066": [
+            "PASS",
+            "Missing data"
+          ],
+          "R067": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R068": [
+            "PASS",
+            "No data available"
+          ],
+          "R069": [
+            "PASS",
+            "Total Deliveriesx1.05=451.50 >= children sum=400.0"
+          ],
+          "R070": [
+            "PASS",
+            "Total Deliveries=430.0 > children sum=8.0"
+          ],
+          "R071": [
+            "PASS",
+            "Neonatal deaths=3.0 < Live Births=400.0"
+          ],
+          "R072": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R073": [
+            "PASS",
+            "Formula=8.0 <= Live Births=400.0"
+          ],
+          "R074": [
+            "PASS",
+            "Formula=1.0 < Total Deliveries=430.0"
+          ],
+          "R075": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R076": [
+            "PASS",
+            "Formula=48.0 < Total Deliveries=430.0"
+          ]
+        },
+        "run": {
+          "issues": [
+            "... and 12 more flagged indicator(s)",
+            "Anomaly: Caesarean Sections (VERY_HIGH)",
+            "Anomaly: Fetal Deaths >24 weeks (HIGH)",
+            "Anomaly: Hemorrhage (HIGH)",
+            "Anomaly: Live Births (VERY_HIGH)",
+            "Anomaly: Multigravida (VERY_HIGH)",
+            "Anomaly: NICU admissions (HIGH)",
+            "Anomaly: Normal Vaginal Deliveries (VERY_HIGH)",
+            "Anomaly: Primigravida (VERY_HIGH)",
+            "Anomaly: Severe Maternal Morbidity (SMM) (HIGH)",
+            "Anomaly: Total Deliveries (VERY_HIGH)",
+            "R061: Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity"
+          ],
+          "score": 71.3
+        },
+        "trends": [
+          [
+            "10",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ],
+          [
+            "11",
+            "decreasing",
+            "moderate",
+            true,
+            1,
+            3
+          ],
+          [
+            "16",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ],
+          [
+            "17",
+            "decreasing",
+            "moderate",
+            true,
+            1,
+            2
+          ],
+          [
+            "5",
+            "increasing",
+            "moderate",
+            true,
+            1,
+            1
+          ],
+          [
+            "7",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "confidence.high": 80.0,
+      "confidence.low": 25.0,
+      "confidence.medium": 50.0,
+      "confidence.weight.completeness": 0.15,
+      "confidence.weight.cross_hospital": 0.1,
+      "confidence.weight.historical": 0.1,
+      "confidence.weight.rule_compliance": 0.55,
+      "confidence.weight.trend": 0.1,
+      "rules.eq_tolerance": 0.01,
+      "rules.maternal_over_factor": 4.0,
+      "rules.month_over_factor": 2.0,
+      "rules.month_under_factor": 0.5,
+      "rules.neonatal_over_factor": 4.0,
+      "severity.zscore_threshold": 2.5,
+      "trend_finding_deviation": 20.0
+    }
+  },
+  "partial": {
+    "hospitals": {
+      "Central Medical": {
+        "alert_rows": 0,
+        "completeness": 13.265306,
+        "confidence": {
+          "counts": [
+            20,
+            10,
+            10,
+            0,
+            0
+          ],
+          "level": "MEDIUM",
+          "overall": 76.4
+        },
+        "coverage": [],
+        "quality": {
+          "completeness": 16.9,
+          "consistency": 100.0,
+          "issues": "[\"Anomaly: Fetal Deaths >24 weeks (HIGH)\"]",
+          "outlier_penalty": 1.8,
+          "rule_compliance": 100.0,
+          "score": 78.9
+        },
+        "rules": {
+          "R001": [
+            "PASS",
+            "Total Deliveries=105.0 >= children sum=105.0"
+          ],
+          "R002": [
+            "PASS",
+            "Total Deliveries=105.0 == children sum=100.0"
+          ],
+          "R003": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R004": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R005": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R006": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R007": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R008": [
+            "PASS",
+            "Missing data"
+          ],
+          "R009": [
+            "PASS",
+            "Missing data"
+          ],
+          "R010": [
+            "PASS",
+            "Missing data"
+          ],
+          "R011": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R012": [
+            "PASS",
+            "Missing data"
+          ],
+          "R013": [
+            "PASS",
+            "Missing data"
+          ],
+          "R014": [
+            "PASS",
+            "Missing data"
+          ],
+          "R015": [
+            "PASS",
+            "Missing data"
+          ],
+          "R016": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R017": [
+            "PASS",
+            "No data available"
+          ],
+          "R018": [
+            "PASS",
+            "Fetal Deaths >24 weeks=4.0 <= Total Deliveries=105.0"
+          ],
+          "R019": [
+            "PASS",
+            "Missing data"
+          ],
+          "R020": [
+            "PASS",
+            "Missing data"
+          ],
+          "R021": [
+            "PASS",
+            "Missing data"
+          ],
+          "R022": [
+            "PASS",
+            "Missing data"
+          ],
+          "R023": [
+            "PASS",
+            "Missing data"
+          ],
+          "R024": [
+            "PASS",
+            "No data available"
+          ],
+          "R025": [
+            "PASS",
+            "No data available"
+          ],
+          "R026": [
+            "PASS",
+            "No data available"
+          ],
+          "R027": [
+            "PASS",
+            "Missing data"
+          ],
+          "R028": [
+            "PASS",
+            "Missing data"
+          ],
+          "R029": [
+            "PASS",
+            "Missing data"
+          ],
+          "R030": [
+            "PASS",
+            "No data available"
+          ],
+          "R031": [
+            "PASS",
+            "Hemorrhage=2.0 <= Severe Maternal Morbidity (SMM)=5.0"
+          ],
+          "R032": [
+            "PASS",
+            "Missing data"
+          ],
+          "R033": [
+            "PASS",
+            "Missing data"
+          ],
+          "R034": [
+            "PASS",
+            "Missing data"
+          ],
+          "R035": [
+            "PASS",
+            "Missing data"
+          ],
+          "R036": [
+            "PASS",
+            "Missing data"
+          ],
+          "R037": [
+            "PASS",
+            "Missing data"
+          ],
+          "R038": [
+            "PASS",
+            "Missing data"
+          ],
+          "R039": [
+            "PASS",
+            "Missing data"
+          ],
+          "R040": [
+            "PASS",
+            "Missing data"
+          ],
+          "R051": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R052": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R053": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R054": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R055": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R056": [
+            "PASS",
+            "All values non-negative"
+          ],
+          "R057": [
+            "PASS",
+            "All values are integers"
+          ],
+          "R058": [
+            "PASS",
+            "Total Deliveries=105.0"
+          ],
+          "R059": [
+            "PASS",
+            "Live Births=99.0"
+          ],
+          "R060": [
+            "PASS",
+            "Facility has non-zero indicator data"
+          ],
+          "R061": [
+            "PASS",
+            "Severe Maternal Morbidity (SMM)=5.0 == children sum=2.0"
+          ],
+          "R062": [
+            "PASS",
+            "Missing data"
+          ],
+          "R063": [
+            "PASS",
+            "Missing data"
+          ],
+          "R064": [
+            "PASS",
+            "Missing data"
+          ],
+          "R065": [
+            "PASS",
+            "Missing data"
+          ],
+          "R066": [
+            "PASS",
+            "Missing data"
+          ],
+          "R067": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R068": [
+            "PASS",
+            "No data available"
+          ],
+          "R069": [
+            "PASS",
+            "Total Deliveriesx1.05=110.25 >= children sum=99.0"
+          ],
+          "R070": [
+            "PASS",
+            "Total Deliveries=105.0 > children sum=4.0"
+          ],
+          "R071": [
+            "PASS",
+            "Neonatal deaths=1.0 < Live Births=99.0"
+          ],
+          "R072": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R073": [
+            "PASS",
+            "Formula=4.0 <= Live Births=99.0"
+          ],
+          "R074": [
+            "PASS",
+            "Formula=0.0 < Total Deliveries=105.0"
+          ],
+          "R075": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R076": [
+            "PASS",
+            "Formula=20.0 < Total Deliveries=105.0"
+          ]
+        },
+        "run": {
+          "issues": [
+            "Anomaly: Fetal Deaths >24 weeks (HIGH)"
+          ],
+          "score": 78.9
+        },
+        "trends": [
+          [
+            "10",
+            "stable",
+            "negligible",
+            true,
+            1,
+            1
+          ],
+          [
+            "11",
+            "stable",
+            "negligible",
+            false,
+            0,
+            0
+          ],
+          [
+            "16",
+            "stable",
+            "negligible",
+            true,
+            1,
+            0
+          ],
+          [
+            "17",
+            "stable",
+            "negligible",
+            true,
+            1,
+            0
+          ],
+          [
+            "5",
+            "stable",
+            "negligible",
+            true,
+            1,
+            1
+          ],
+          [
+            "7",
+            "increasing",
+            "moderate",
+            true,
+            2,
+            1
+          ]
+        ]
+      },
+      "General Hospital": {
+        "alert_rows": 0,
+        "completeness": 13.265306,
+        "confidence": {
+          "counts": [
+            20,
+            5,
+            15,
+            0,
+            0
+          ],
+          "level": "MEDIUM",
+          "overall": 70.4
+        },
+        "coverage": [],
+        "quality": {
+          "completeness": 16.9,
+          "consistency": 100.0,
+          "issues": "[\"Anomaly: Total Deliveries (VERY_HIGH)\", \"Anomaly: Primigravida (VERY_HIGH)\", \"Anomaly: Multigravida (VERY_HIGH)\", \"Anomaly: Normal Vaginal Deliveries (VERY_HIGH)\", \"Anomaly: Caesarean Sections (VERY_HIGH)\", \"Anomaly: Live Births (VERY_HIGH)\", \"Anomaly: Fetal Deaths >24 weeks (HIGH)\", \"Anomaly: Severe Maternal Morbidity (SMM) (HIGH)\", \"Anomaly: Hemorrhage (HIGH)\", \"Anomaly: NICU admissions (HIGH)\", \"... and 12 more flagged indicator(s)\"]",
+          "outlier_penalty": 40.0,
+          "rule_compliance": 100.0,
+          "score": 73.2
+        },
+        "rules": {
+          "R001": [
+            "PASS",
+            "Total Deliveries=430.0 >= children sum=430.0"
+          ],
+          "R002": [
+            "PASS",
+            "Total Deliveries=430.0 == children sum=430.0"
+          ],
+          "R003": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R004": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R005": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R006": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R007": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R008": [
+            "PASS",
+            "Missing data"
+          ],
+          "R009": [
+            "PASS",
+            "Missing data"
+          ],
+          "R010": [
+            "PASS",
+            "Missing data"
+          ],
+          "R011": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R012": [
+            "PASS",
+            "Missing data"
+          ],
+          "R013": [
+            "PASS",
+            "Missing data"
+          ],
+          "R014": [
+            "PASS",
+            "Missing data"
+          ],
+          "R015": [
+            "PASS",
+            "Missing data"
+          ],
+          "R016": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R017": [
+            "PASS",
+            "No data available"
+          ],
+          "R018": [
+            "PASS",
+            "Fetal Deaths >24 weeks=8.0 <= Total Deliveries=430.0"
+          ],
+          "R019": [
+            "PASS",
+            "Missing data"
+          ],
+          "R020": [
+            "PASS",
+            "Missing data"
+          ],
+          "R021": [
+            "PASS",
+            "Missing data"
+          ],
+          "R022": [
+            "PASS",
+            "Missing data"
+          ],
+          "R023": [
+            "PASS",
+            "Missing data"
+          ],
+          "R024": [
+            "PASS",
+            "No data available"
+          ],
+          "R025": [
+            "PASS",
+            "No data available"
+          ],
+          "R026": [
+            "PASS",
+            "No data available"
+          ],
+          "R027": [
+            "PASS",
+            "Missing data"
+          ],
+          "R028": [
+            "PASS",
+            "Missing data"
+          ],
+          "R029": [
+            "PASS",
+            "Missing data"
+          ],
+          "R030": [
+            "PASS",
+            "No data available"
+          ],
+          "R031": [
+            "PASS",
+            "Hemorrhage=6.0 <= Severe Maternal Morbidity (SMM)=12.0"
+          ],
+          "R032": [
+            "PASS",
+            "Missing data"
+          ],
+          "R033": [
+            "PASS",
+            "Missing data"
+          ],
+          "R034": [
+            "PASS",
+            "Missing data"
+          ],
+          "R035": [
+            "PASS",
+            "Missing data"
+          ],
+          "R036": [
+            "PASS",
+            "Missing data"
+          ],
+          "R037": [
+            "PASS",
+            "Missing data"
+          ],
+          "R038": [
+            "PASS",
+            "Missing data"
+          ],
+          "R039": [
+            "PASS",
+            "Missing data"
+          ],
+          "R040": [
+            "PASS",
+            "Missing data"
+          ],
+          "R051": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R052": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R053": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R054": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R055": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R056": [
+            "PASS",
+            "All values non-negative"
+          ],
+          "R057": [
+            "PASS",
+            "All values are integers"
+          ],
+          "R058": [
+            "PASS",
+            "Total Deliveries=430.0"
+          ],
+          "R059": [
+            "PASS",
+            "Live Births=400.0"
+          ],
+          "R060": [
+            "PASS",
+            "Facility has non-zero indicator data"
+          ],
+          "R061": [
+            "PASS",
+            "Severe Maternal Morbidity (SMM)=12.0 == children sum=6.0"
+          ],
+          "R062": [
+            "PASS",
+            "Missing data"
+          ],
+          "R063": [
+            "PASS",
+            "Missing data"
+          ],
+          "R064": [
+            "PASS",
+            "Missing data"
+          ],
+          "R065": [
+            "PASS",
+            "Missing data"
+          ],
+          "R066": [
+            "PASS",
+            "Missing data"
+          ],
+          "R067": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R068": [
+            "PASS",
+            "No data available"
+          ],
+          "R069": [
+            "PASS",
+            "Total Deliveriesx1.05=451.50 >= children sum=400.0"
+          ],
+          "R070": [
+            "PASS",
+            "Total Deliveries=430.0 > children sum=8.0"
+          ],
+          "R071": [
+            "PASS",
+            "Neonatal deaths=3.0 < Live Births=400.0"
+          ],
+          "R072": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R073": [
+            "PASS",
+            "Formula=8.0 <= Live Births=400.0"
+          ],
+          "R074": [
+            "PASS",
+            "Formula=1.0 < Total Deliveries=430.0"
+          ],
+          "R075": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R076": [
+            "PASS",
+            "Formula=48.0 < Total Deliveries=430.0"
+          ]
+        },
+        "run": {
+          "issues": [
+            "... and 12 more flagged indicator(s)",
+            "Anomaly: Caesarean Sections (VERY_HIGH)",
+            "Anomaly: Fetal Deaths >24 weeks (HIGH)",
+            "Anomaly: Hemorrhage (HIGH)",
+            "Anomaly: Live Births (VERY_HIGH)",
+            "Anomaly: Multigravida (VERY_HIGH)",
+            "Anomaly: NICU admissions (HIGH)",
+            "Anomaly: Normal Vaginal Deliveries (VERY_HIGH)",
+            "Anomaly: Primigravida (VERY_HIGH)",
+            "Anomaly: Severe Maternal Morbidity (SMM) (HIGH)",
+            "Anomaly: Total Deliveries (VERY_HIGH)"
+          ],
+          "score": 73.2
+        },
+        "trends": [
+          [
+            "10",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ],
+          [
+            "11",
+            "decreasing",
+            "moderate",
+            true,
+            1,
+            3
+          ],
+          [
+            "16",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ],
+          [
+            "17",
+            "decreasing",
+            "moderate",
+            true,
+            1,
+            2
+          ],
+          [
+            "5",
+            "increasing",
+            "moderate",
+            true,
+            1,
+            1
+          ],
+          [
+            "7",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "confidence.high": 80.0,
+      "confidence.low": 25.0,
+      "confidence.medium": 50.0,
+      "confidence.weight.completeness": 0.15,
+      "confidence.weight.cross_hospital": 0.1,
+      "confidence.weight.historical": 0.1,
+      "confidence.weight.rule_compliance": 0.55,
+      "confidence.weight.trend": 0.1,
+      "rules.eq_tolerance": 10.0,
+      "rules.maternal_over_factor": 4.0,
+      "rules.month_over_factor": 2.0,
+      "rules.month_under_factor": 0.5,
+      "rules.neonatal_over_factor": 4.0,
+      "severity.zscore_threshold": 2.5,
+      "trend_finding_deviation": 20.0
+    }
+  },
+  "stored": {
+    "hospitals": {
+      "Central Medical": {
+        "alert_rows": 0,
+        "completeness": 13.265306,
+        "confidence": {
+          "counts": [
+            20,
+            10,
+            10,
+            0,
+            0
+          ],
+          "level": "MEDIUM",
+          "overall": 76.4
+        },
+        "coverage": [],
+        "quality": {
+          "completeness": 16.9,
+          "consistency": 100.0,
+          "issues": "[\"Anomaly: Fetal Deaths >24 weeks (HIGH)\"]",
+          "outlier_penalty": 1.8,
+          "rule_compliance": 100.0,
+          "score": 78.9
+        },
+        "rules": {
+          "R001": [
+            "PASS",
+            "Total Deliveries=105.0 >= children sum=105.0"
+          ],
+          "R002": [
+            "PASS",
+            "Total Deliveries=105.0 == children sum=100.0"
+          ],
+          "R003": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R004": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R005": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R006": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R007": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R008": [
+            "PASS",
+            "Missing data"
+          ],
+          "R009": [
+            "PASS",
+            "Missing data"
+          ],
+          "R010": [
+            "PASS",
+            "Missing data"
+          ],
+          "R011": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R012": [
+            "PASS",
+            "Missing data"
+          ],
+          "R013": [
+            "PASS",
+            "Missing data"
+          ],
+          "R014": [
+            "PASS",
+            "Missing data"
+          ],
+          "R015": [
+            "PASS",
+            "Missing data"
+          ],
+          "R016": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R017": [
+            "PASS",
+            "No data available"
+          ],
+          "R018": [
+            "PASS",
+            "Fetal Deaths >24 weeks=4.0 <= Total Deliveries=105.0"
+          ],
+          "R019": [
+            "PASS",
+            "Missing data"
+          ],
+          "R020": [
+            "PASS",
+            "Missing data"
+          ],
+          "R021": [
+            "PASS",
+            "Missing data"
+          ],
+          "R022": [
+            "PASS",
+            "Missing data"
+          ],
+          "R023": [
+            "PASS",
+            "Missing data"
+          ],
+          "R024": [
+            "PASS",
+            "No data available"
+          ],
+          "R025": [
+            "PASS",
+            "No data available"
+          ],
+          "R026": [
+            "PASS",
+            "No data available"
+          ],
+          "R027": [
+            "PASS",
+            "Missing data"
+          ],
+          "R028": [
+            "PASS",
+            "Missing data"
+          ],
+          "R029": [
+            "PASS",
+            "Missing data"
+          ],
+          "R030": [
+            "PASS",
+            "No data available"
+          ],
+          "R031": [
+            "PASS",
+            "Hemorrhage=2.0 <= Severe Maternal Morbidity (SMM)=5.0"
+          ],
+          "R032": [
+            "PASS",
+            "Missing data"
+          ],
+          "R033": [
+            "PASS",
+            "Missing data"
+          ],
+          "R034": [
+            "PASS",
+            "Missing data"
+          ],
+          "R035": [
+            "PASS",
+            "Missing data"
+          ],
+          "R036": [
+            "PASS",
+            "Missing data"
+          ],
+          "R037": [
+            "PASS",
+            "Missing data"
+          ],
+          "R038": [
+            "PASS",
+            "Missing data"
+          ],
+          "R039": [
+            "PASS",
+            "Missing data"
+          ],
+          "R040": [
+            "PASS",
+            "Missing data"
+          ],
+          "R051": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R052": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R053": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R054": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R055": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R056": [
+            "PASS",
+            "All values non-negative"
+          ],
+          "R057": [
+            "PASS",
+            "All values are integers"
+          ],
+          "R058": [
+            "PASS",
+            "Total Deliveries=105.0"
+          ],
+          "R059": [
+            "PASS",
+            "Live Births=99.0"
+          ],
+          "R060": [
+            "PASS",
+            "Facility has non-zero indicator data"
+          ],
+          "R061": [
+            "PASS",
+            "Severe Maternal Morbidity (SMM)=5.0 == children sum=2.0"
+          ],
+          "R062": [
+            "PASS",
+            "Missing data"
+          ],
+          "R063": [
+            "PASS",
+            "Missing data"
+          ],
+          "R064": [
+            "PASS",
+            "Missing data"
+          ],
+          "R065": [
+            "PASS",
+            "Missing data"
+          ],
+          "R066": [
+            "PASS",
+            "Missing data"
+          ],
+          "R067": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R068": [
+            "PASS",
+            "No data available"
+          ],
+          "R069": [
+            "PASS",
+            "Total Deliveriesx1.05=110.25 >= children sum=99.0"
+          ],
+          "R070": [
+            "PASS",
+            "Total Deliveries=105.0 > children sum=4.0"
+          ],
+          "R071": [
+            "PASS",
+            "Neonatal deaths=1.0 < Live Births=99.0"
+          ],
+          "R072": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R073": [
+            "PASS",
+            "Formula=4.0 <= Live Births=99.0"
+          ],
+          "R074": [
+            "PASS",
+            "Formula=0.0 < Total Deliveries=105.0"
+          ],
+          "R075": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R076": [
+            "PASS",
+            "Formula=20.0 < Total Deliveries=105.0"
+          ]
+        },
+        "run": {
+          "issues": [
+            "Anomaly: Fetal Deaths >24 weeks (HIGH)"
+          ],
+          "score": 78.9
+        },
+        "trends": [
+          [
+            "10",
+            "stable",
+            "negligible",
+            true,
+            1,
+            1
+          ],
+          [
+            "11",
+            "stable",
+            "negligible",
+            false,
+            0,
+            0
+          ],
+          [
+            "16",
+            "stable",
+            "negligible",
+            true,
+            1,
+            0
+          ],
+          [
+            "17",
+            "stable",
+            "negligible",
+            true,
+            1,
+            0
+          ],
+          [
+            "5",
+            "stable",
+            "negligible",
+            true,
+            1,
+            1
+          ],
+          [
+            "7",
+            "increasing",
+            "moderate",
+            true,
+            2,
+            1
+          ]
+        ]
+      },
+      "General Hospital": {
+        "alert_rows": 0,
+        "completeness": 13.265306,
+        "confidence": {
+          "counts": [
+            20,
+            5,
+            15,
+            0,
+            0
+          ],
+          "level": "MEDIUM",
+          "overall": 70.4
+        },
+        "coverage": [],
+        "quality": {
+          "completeness": 16.9,
+          "consistency": 100.0,
+          "issues": "[\"Anomaly: Total Deliveries (VERY_HIGH)\", \"Anomaly: Primigravida (VERY_HIGH)\", \"Anomaly: Multigravida (VERY_HIGH)\", \"Anomaly: Normal Vaginal Deliveries (VERY_HIGH)\", \"Anomaly: Caesarean Sections (VERY_HIGH)\", \"Anomaly: Live Births (VERY_HIGH)\", \"Anomaly: Fetal Deaths >24 weeks (HIGH)\", \"Anomaly: Severe Maternal Morbidity (SMM) (HIGH)\", \"Anomaly: Hemorrhage (HIGH)\", \"Anomaly: NICU admissions (HIGH)\", \"... and 12 more flagged indicator(s)\"]",
+          "outlier_penalty": 40.0,
+          "rule_compliance": 100.0,
+          "score": 73.2
+        },
+        "rules": {
+          "R001": [
+            "PASS",
+            "Total Deliveries=430.0 >= children sum=430.0"
+          ],
+          "R002": [
+            "PASS",
+            "Total Deliveries=430.0 == children sum=430.0"
+          ],
+          "R003": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R004": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R005": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R006": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R007": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R008": [
+            "PASS",
+            "Missing data"
+          ],
+          "R009": [
+            "PASS",
+            "Missing data"
+          ],
+          "R010": [
+            "PASS",
+            "Missing data"
+          ],
+          "R011": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R012": [
+            "PASS",
+            "Missing data"
+          ],
+          "R013": [
+            "PASS",
+            "Missing data"
+          ],
+          "R014": [
+            "PASS",
+            "Missing data"
+          ],
+          "R015": [
+            "PASS",
+            "Missing data"
+          ],
+          "R016": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R017": [
+            "PASS",
+            "No data available"
+          ],
+          "R018": [
+            "PASS",
+            "Fetal Deaths >24 weeks=8.0 <= Total Deliveries=430.0"
+          ],
+          "R019": [
+            "PASS",
+            "Missing data"
+          ],
+          "R020": [
+            "PASS",
+            "Missing data"
+          ],
+          "R021": [
+            "PASS",
+            "Missing data"
+          ],
+          "R022": [
+            "PASS",
+            "Missing data"
+          ],
+          "R023": [
+            "PASS",
+            "Missing data"
+          ],
+          "R024": [
+            "PASS",
+            "No data available"
+          ],
+          "R025": [
+            "PASS",
+            "No data available"
+          ],
+          "R026": [
+            "PASS",
+            "No data available"
+          ],
+          "R027": [
+            "PASS",
+            "Missing data"
+          ],
+          "R028": [
+            "PASS",
+            "Missing data"
+          ],
+          "R029": [
+            "PASS",
+            "Missing data"
+          ],
+          "R030": [
+            "PASS",
+            "No data available"
+          ],
+          "R031": [
+            "PASS",
+            "Hemorrhage=6.0 <= Severe Maternal Morbidity (SMM)=12.0"
+          ],
+          "R032": [
+            "PASS",
+            "Missing data"
+          ],
+          "R033": [
+            "PASS",
+            "Missing data"
+          ],
+          "R034": [
+            "PASS",
+            "Missing data"
+          ],
+          "R035": [
+            "PASS",
+            "Missing data"
+          ],
+          "R036": [
+            "PASS",
+            "Missing data"
+          ],
+          "R037": [
+            "PASS",
+            "Missing data"
+          ],
+          "R038": [
+            "PASS",
+            "Missing data"
+          ],
+          "R039": [
+            "PASS",
+            "Missing data"
+          ],
+          "R040": [
+            "PASS",
+            "Missing data"
+          ],
+          "R051": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R052": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R053": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R054": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R055": [
+            "PASS",
+            "Previous value missing or zero"
+          ],
+          "R056": [
+            "PASS",
+            "All values non-negative"
+          ],
+          "R057": [
+            "PASS",
+            "All values are integers"
+          ],
+          "R058": [
+            "PASS",
+            "Total Deliveries=430.0"
+          ],
+          "R059": [
+            "PASS",
+            "Live Births=400.0"
+          ],
+          "R060": [
+            "PASS",
+            "Facility has non-zero indicator data"
+          ],
+          "R061": [
+            "PASS",
+            "Severe Maternal Morbidity (SMM)=12.0 == children sum=6.0"
+          ],
+          "R062": [
+            "PASS",
+            "Missing data"
+          ],
+          "R063": [
+            "PASS",
+            "Missing data"
+          ],
+          "R064": [
+            "PASS",
+            "Missing data"
+          ],
+          "R065": [
+            "PASS",
+            "Missing data"
+          ],
+          "R066": [
+            "PASS",
+            "Missing data"
+          ],
+          "R067": [
+            "PASS",
+            "No child data to compare"
+          ],
+          "R068": [
+            "PASS",
+            "No data available"
+          ],
+          "R069": [
+            "PASS",
+            "Total Deliveriesx1.05=451.50 >= children sum=400.0"
+          ],
+          "R070": [
+            "PASS",
+            "Total Deliveries=430.0 > children sum=8.0"
+          ],
+          "R071": [
+            "PASS",
+            "Neonatal deaths=3.0 < Live Births=400.0"
+          ],
+          "R072": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R073": [
+            "PASS",
+            "Formula=8.0 <= Live Births=400.0"
+          ],
+          "R074": [
+            "PASS",
+            "Formula=1.0 < Total Deliveries=430.0"
+          ],
+          "R075": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
+          ],
+          "R076": [
+            "PASS",
+            "Formula=48.0 < Total Deliveries=430.0"
+          ]
+        },
+        "run": {
+          "issues": [
+            "... and 12 more flagged indicator(s)",
+            "Anomaly: Caesarean Sections (VERY_HIGH)",
+            "Anomaly: Fetal Deaths >24 weeks (HIGH)",
+            "Anomaly: Hemorrhage (HIGH)",
+            "Anomaly: Live Births (VERY_HIGH)",
+            "Anomaly: Multigravida (VERY_HIGH)",
+            "Anomaly: NICU admissions (HIGH)",
+            "Anomaly: Normal Vaginal Deliveries (VERY_HIGH)",
+            "Anomaly: Primigravida (VERY_HIGH)",
+            "Anomaly: Severe Maternal Morbidity (SMM) (HIGH)",
+            "Anomaly: Total Deliveries (VERY_HIGH)"
+          ],
+          "score": 73.2
+        },
+        "trends": [
+          [
+            "10",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ],
+          [
+            "11",
+            "decreasing",
+            "moderate",
+            true,
+            1,
+            3
+          ],
+          [
+            "16",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ],
+          [
+            "17",
+            "decreasing",
+            "moderate",
+            true,
+            1,
+            2
+          ],
+          [
+            "5",
+            "increasing",
+            "moderate",
+            true,
+            1,
+            1
+          ],
+          [
+            "7",
+            "stable",
+            "negligible",
+            false,
+            1,
+            0
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "confidence.high": 80.0,
+      "confidence.low": 25.0,
+      "confidence.medium": 50.0,
+      "confidence.weight.completeness": 0.15,
+      "confidence.weight.cross_hospital": 0.1,
+      "confidence.weight.historical": 0.1,
+      "confidence.weight.rule_compliance": 0.55,
+      "confidence.weight.trend": 0.1,
+      "rules.eq_tolerance": 10.0,
+      "rules.maternal_over_factor": 5.0,
+      "rules.month_over_factor": 3.0,
+      "rules.month_under_factor": 0.4,
+      "rules.neonatal_over_factor": 3.5,
+      "severity.zscore_threshold": 2.5,
+      "trend_finding_deviation": 20.0
+    }
+  }
+}

@@ -229,7 +229,7 @@ def test_auto_disable_on_null_does_not_shrink_the_denominator(db_session):
     _put(db_session, hospital.id, "2031-09", {"9": 1})
 
     auto_required = get_required_indicator_codes(
-        db_session, hospital.id, "2031-09")
+        db_session, hospital.id, "2031-09", auto_disable_null=True)
     eligible = get_outlier_eligible_codes(
         db_session, hospital.id, "2031-09", evaluated_codes=["9"])
     assert "12" not in auto_required

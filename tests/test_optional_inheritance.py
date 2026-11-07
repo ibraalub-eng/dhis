@@ -104,12 +104,12 @@ def test_seeded_neonatal_tree_reports_the_reported_case(db_session):
 
 def test_required_codes_exclude_the_inherited_optional(db_session, optional_tree):
     hosp = db_session.query(Hospital).order_by(Hospital.id).first()
-    required = get_required_indicator_codes(db_session, hosp.id, MONTH)
+    required = get_required_indicator_codes(db_session, hosp.id, MONTH, auto_disable_null=False)
     assert "T_p" not in required
     assert "T_mixed" in required
     assert "T_leaf" in required
 
-    required_ids = set(get_required_indicator_ids(db_session, hosp.id, MONTH))
+    required_ids = set(get_required_indicator_ids(db_session, hosp.id, MONTH, auto_disable_null=False))
     assert optional_tree.id not in required_ids
 
 
@@ -125,19 +125,19 @@ def test_completeness_denominator_ignores_the_inherited_optional(
                                   indicator_id=by_code["T_p"].id, value=None))
     db_session.commit()
 
-    codes = get_required_indicator_codes(db_session, hosp.id, MONTH)
+    codes = get_required_indicator_codes(db_session, hosp.id, MONTH, auto_disable_null=False)
     assert "T_p" not in codes and "T_leaf" in codes
-    gated = set(get_required_indicator_ids(db_session, hosp.id, MONTH))
+    gated = set(get_required_indicator_ids(db_session, hosp.id, MONTH, auto_disable_null=False))
 
     monkeypatch.setattr(pipeline, "get_optional_source_indicator_ids",
                         lambda session: set())
-    ungated = set(pipeline.get_required_indicator_ids(db_session, hosp.id, MONTH))
+    ungated = set(pipeline.get_required_indicator_ids(db_session, hosp.id, MONTH, auto_disable_null=False))
 
     assert ungated - gated == {optional_tree.id}, (
         "only the inherited-optional parent may re-enter the denominator"
     )
     # The score composes through the same helper, so the two cannot drift.
-    assert compute_hospital_completeness(db_session, hosp.id, MONTH) >= 0.0
+    assert compute_hospital_completeness(db_session, hosp.id, MONTH, auto_disable_null=False) >= 0.0
 
 
 def test_why_popup_does_not_flag_the_inherited_optional(db_session, optional_tree):

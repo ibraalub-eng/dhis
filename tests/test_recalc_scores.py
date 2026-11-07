@@ -789,7 +789,7 @@ def test_smart_analytics_drilldown_excludes_disabled(client, db_session):
             xgboost_predictions=None,
         )
 
-    with patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, m: _fake(m)):
+    with patch("app.api.smart_analytics.run_smart_analytics", side_effect=lambda db, m, **k: _fake(m)):
         resp = client.get(f"/smart/drilldown/{hosp.id}/2027-01")
     assert resp.status_code == 200
     data = resp.json()
@@ -993,13 +993,13 @@ def _engine_style_completeness(db, hospital_id, month):
     )
     from app.engine.quality import compute_completeness, compute_covered_codes
     values = get_enabled_values_for_hospital_month(db, hospital_id, month)
-    disabled_ids = get_disabled_indicator_ids(db, hospital_id, month)
+    disabled_ids = get_disabled_indicator_ids(db, hospital_id, month, auto_disable_null=False)
     disabled_codes = {
         c for (c,) in db.query(Indicator.code)
         .filter(Indicator.id.in_(disabled_ids)).all()
     } if disabled_ids else set()
     covered = compute_covered_codes(values, disabled_codes, db)
-    required_codes = get_required_indicator_codes(db, hospital_id, month)
+    required_codes = get_required_indicator_codes(db, hospital_id, month, auto_disable_null=False)
     return compute_completeness(values, required_codes, covered) * 100.0
 
 
@@ -1031,7 +1031,7 @@ def test_card_helper_matches_engine_formula(db_session):
         assert card == pytest.approx(engine), (
             f"card completeness for hosp {s.hospital_id} ({card}) != engine formula ({engine})"
         )
-        assert compute_hospital_completeness(db_session, s.hospital_id, month) == pytest.approx(engine)
+        assert compute_hospital_completeness(db_session, s.hospital_id, month, auto_disable_null=False) == pytest.approx(engine)
 
 
 def test_group_toggle_recalc_matches_engine_formula(db_session):
@@ -1164,7 +1164,7 @@ def test_component_diagnostics_completeness_excludes_optional(client, db_session
     )
     assert resp.status_code == 200
     comp = resp.json()["components"][0]
-    engine = round(compute_hospital_completeness(db_session, 1, month), 1)
+    engine = round(compute_hospital_completeness(db_session, 1, month, auto_disable_null=False), 1)
     assert comp["avg"] == pytest.approx(engine, abs=0.05), (
         f"drilldown {comp['avg']} != engine {engine}"
     )

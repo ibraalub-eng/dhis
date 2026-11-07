@@ -18,6 +18,7 @@ from app.models import (
     Indicator,
     IndicatorValue,
     QualityScore,
+    Rule,
     ValidationResult,
 )
 
@@ -57,6 +58,100 @@ def ux_data(db_session):
     from app.cache import cache
     cache.invalidate("analysis:months")
     return {"good": h1.id, "bad": h2.id}
+
+
+def test_kpi_never_displays_100_when_a_failure_exists(app, db_session):
+    """The reported bug, exactly: the card averaged 172 perfect hospital-months
+    with 4 at 98.5 → 99.97, which round(x, 1) rendered as "100%" beside the 4
+    failures the Validation Alerts screen listed.
+
+    A value below 100 must floor to 99.9 so the card cannot claim perfection.
+    """
+    h = db_session.query(Hospital).first()
+    ind = db_session.query(Indicator).first()
+    months = [f"{2000 + i // 12}-{i % 12 + 1:02d}" for i in range(59)]
+    failing_month = "2004-12"
+
+    for m in months + [failing_month]:
+        db_session.add(IndicatorValue(hospital_id=h.id, month=m,
+                                      indicator_id=ind.id, value=10))
+        db_session.add(QualityScore(hospital_id=h.id, month=m, score=95.0,
+                                    rule_compliance=100.0, consistency=100.0,
+                                    completeness=100.0, outlier_penalty=0.0))
+    for m in months:
+        db_session.add(ValidationResult(
+            hospital_id=h.id, month=m, rule_code="RX1", rule_description="ok",
+            status="PASS", severity="LOW", rule_type="LOGIC"))
+    # 65 passes + 1 failure = 98.5 for that month.
+    db_session.add(ValidationResult(
+        hospital_id=h.id, month=failing_month, rule_code="RX9",
+        rule_description="broken", status="FAIL", severity="HIGH",
+        rule_type="LOGIC"))
+    for i in range(65):
+        db_session.add(ValidationResult(
+            hospital_id=h.id, month=failing_month, rule_code=f"RY{i}",
+            rule_description="ok", status="PASS", severity="LOW",
+            rule_type="LOGIC"))
+    db_session.commit()
+    from app.cache import cache
+    cache.invalidate("analysis:months")
+
+    client = TestClient(app)
+    kpi = client.get(f"/dashboard/kpi?hospital_id={h.id}").json()
+    rc = {k["id"]: k for k in kpi["kpis"]}["rule_compliance"]["value"]
+    # (59 x 100 + 98.5) / 60 = 99.975: the old rounding rendered that as 100.0.
+    assert round((59 * 100.0 + 98.5) / 60, 1) == 100.0
+    assert rc == 99.9, rc
+    radar = client.get(f"/dashboard/overview?hospital_id={h.id}").json()
+    assert radar["radar_components"]["Validation rule"] == 99.9
+
+
+def test_kpi_rule_compliance_never_reads_100_beside_listed_failures(app, db_session):
+    """Reported bug: Validation Alerts listed 4 failures while the dashboard KPI
+    showed 100% "Validation rule".
+
+    The card must be the pass share of the SAME stored rule outcomes the alerts
+    screen lists, so a stale QualityScore snapshot cannot report perfection
+    next to real failures.
+    """
+    h = db_session.query(Hospital).first()
+    ind = db_session.query(Indicator).first()
+    month = "2026-05"
+    db_session.add(IndicatorValue(hospital_id=h.id, month=month,
+                                  indicator_id=ind.id, value=10))
+    # A stored snapshot that still claims perfection.
+    db_session.add(QualityScore(hospital_id=h.id, month=month, score=90.0,
+                                rule_compliance=100.0, consistency=100.0,
+                                completeness=100.0, outlier_penalty=0.0))
+    rules = (db_session.query(Rule)
+             .filter(Rule.rule_type != "BENCHMARK")
+             .order_by(Rule.code).limit(10).all())
+    assert len(rules) == 10, "fixture needs ten real rules"
+    for rule in rules[:4]:
+        db_session.add(ValidationResult(
+            hospital_id=h.id, month=month, rule_code=rule.code,
+            rule_description=rule.description, status="FAIL",
+            severity=rule.severity, rule_type=rule.rule_type))
+    for rule in rules[4:]:
+        db_session.add(ValidationResult(
+            hospital_id=h.id, month=month, rule_code=rule.code,
+            rule_description=rule.description, status="PASS",
+            severity=rule.severity, rule_type=rule.rule_type))
+    db_session.commit()
+    from app.cache import cache
+    cache.invalidate("analysis:months")
+
+    client = TestClient(app)
+    alerts = client.get(f"/alerts/overview?month={month}&hospital_id={h.id}").json()
+    assert alerts["total_alerts"] == 4
+
+    kpi = client.get(f"/dashboard/kpi?month={month}&hospital_id={h.id}").json()
+    rc = {k["id"]: k for k in kpi["kpis"]}["rule_compliance"]["value"]
+    # 4 failures out of the 10 outcomes the alerts screen lists.
+    assert rc == 60.0, rc
+
+    radar = client.get(f"/dashboard/overview?month={month}&hospital_id={h.id}").json()
+    assert radar["radar_components"]["Validation rule"] == 60.0
 
 
 def test_kpi_carries_period_over_period_delta(app, db_session, ux_data):

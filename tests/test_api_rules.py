@@ -730,6 +730,44 @@ class TestStoredScoreRefresh:
         # are seeded); what matters is that R061's FAIL was persisted.
         assert rule.code in [v.rule_code for v in fails]
 
+    def test_failed_score_write_keeps_the_old_alert_rows(self, db_session, monkeypatch):
+        """Alert rows and the score are ONE snapshot.
+
+        They used to be committed by two separate saves, so a failure in the
+        second one left refreshed FAIL rows stored beside the old (often
+        perfect) rule_compliance the dashboard KPI reads — 4 alerts on the
+        Validation Alerts screen and 100% on the dashboard. A half-applied
+        refresh must roll back.
+        """
+        from app.engine import pipeline
+
+        month = _seed_impact_data(db_session)
+        hosp = db_session.query(Hospital).filter(Hospital.is_active.is_(True)).first()
+        # Recorded before the edit: it must survive a pass that fails midway.
+        db_session.add(ValidationResult(
+            hospital_id=hosp.id, month=month, rule_code="R_OLD",
+            rule_description="recorded before the edit", status="FAIL",
+            severity="HIGH", rule_type="LOGIC"))
+        rule = db_session.query(Rule).filter(Rule.code == "R061").first()
+        rule.enabled = True
+        rule.expression_type = "ge"
+        rule.params = json.dumps({"parent": _PROBE_PARENT, "children": [_PROBE_CHILD]})
+        db_session.commit()
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("score write failed")
+
+        monkeypatch.setattr(pipeline, "_save_quality_score", _boom)
+        with pytest.raises(RuntimeError):
+            pipeline.revalidate_hospital_months(db_session, hosp.id, [month])
+
+        db_session.expire_all()
+        rows = db_session.query(ValidationResult).filter(
+            ValidationResult.hospital_id == hosp.id,
+            ValidationResult.month == month).all()
+        assert [(v.rule_code, v.status) for v in rows] == [("R_OLD", "FAIL")], (
+            "a failed score write must not leave refreshed alert rows behind")
+
     def test_rule_change_reapplies_to_every_recorded_month(self, db_session):
         """The Validation Alerts screen lists ALL periods, so a rule edit must
         refresh older months too — a latest-only pass left them showing alerts

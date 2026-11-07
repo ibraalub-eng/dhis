@@ -56,7 +56,7 @@ def test_completeness_parity_across_all_sites(client, db_session):
     engine = stored.completeness
 
     # 2. Shared DB wrapper.
-    wrapper = round(compute_hospital_completeness(db_session, 1, month), 1)
+    wrapper = round(compute_hospital_completeness(db_session, 1, month, auto_disable_null=False), 1)
 
     # 3. KPI card.
     kpi = {x["id"]: x["value"] for x in client.get(

@@ -13,10 +13,9 @@ A1 proves the resolver reproduces every loader. These tests prove the
 * every value handed to the engines is identical to what the legacy loaders
   would have produced — same Z, same bands, same severity fingerprint.
 """
+import ast
 import inspect
 import pathlib
-
-import pytest
 
 from app.engine import pipeline, quality_alerts
 from app.engine import severity as severity_policy
@@ -143,22 +142,22 @@ def test_interleaved_runs_cannot_contaminate_trend_settings():
                                "trend_min_history_months": 2})
     narrow = resolve_policy({}, {"trend_analysis_window": 4,
                                  "trend_min_history_months": 2})
-    save_settings = dict(trends._TRENDS_CONFIG)
+    before = dict(trends._TRENDS_CONFIG)
     try:
-        # A stale run's configuration left in the process global.
+        # A stale caller still using the compatibility setter.
         trends.set_trends_config({"trend_analysis_window": 3,
                                   "trend_slope_stable": 99.0})
         for snapshot, expected_window in ((wide, 12), (narrow, 4), (wide, 12)):
-            config = analysis_config_from_snapshot(snapshot).trend_engine_config()
-            settings = trends._resolved_settings(config)
-            bands = trends._resolved_bands(config)
-            assert settings.window == expected_window
-            assert bands["stable"] == 2.0, "the global leak reached the bands"
-        # The global itself is untouched by any of those reads.
-        assert trends._TRENDS_CONFIG["trend_analysis_window"] == 3
+            config = analysis_config_from_snapshot(snapshot)
+            assert config.trend.window == expected_window
+            assert dict(config.trend_bands)["stable"] == 2.0, \
+                "the global leak reached the bands"
+        # The shim is inert: it cannot configure a later evaluation.
+        assert trends._TRENDS_CONFIG == before
+        assert trends._TRENDS_CONFIG["trend_slope_stable"] != 99.0
     finally:
         trends._TRENDS_CONFIG.clear()
-        trends._TRENDS_CONFIG.update(save_settings)
+        trends._TRENDS_CONFIG.update(before)
 
 
 # ── 4: the alerts two-stage window survives integration ─────────────────────
@@ -250,29 +249,47 @@ def test_scan_reports_an_unreadable_configuration(db_session, monkeypatch):
 
 def test_analysis_reports_an_unreadable_configuration(db_session, monkeypatch):
     hospital = _seed_month(db_session)
+    attempts = []
 
     def boom(_db, **_kwargs):
+        attempts.append(True)
         raise PolicyUnavailable("configuration store unavailable")
 
     monkeypatch.setattr(pipeline, "load_policy_snapshot", boom)
 
     result = pipeline.run_full_analysis(db_session, hospital.id, MONTH, force=True)
 
+    assert len(attempts) == 1, "the pipeline retried the failed snapshot read"
     assert result["data_quality_score"] == 0
     assert any("Analysis failed" in issue for issue in result["issues"])
+    assert "confidence" not in result
 
 
-# ── 4: the trend global is a labelled shim, not a silent second source ──────
-def test_trend_global_setter_warns_but_still_works(caplog):
+def test_analysis_reports_an_invalid_confidence_policy(db_session):
+    hospital = _seed_month(db_session)
+    invalid = resolve_policy({"confidence_high": -5.0}, {})
+    assert invalid.confidence_policy is None
+
+    result = pipeline.run_full_analysis(
+        db_session, hospital.id, MONTH, force=True, policy=invalid)
+
+    assert result["data_quality_score"] == 0
+    assert any("Analysis failed" in issue for issue in result["issues"])
+    assert "confidence" not in result
+
+
+# ── 4: the trend global is an inert shim, not a silent second source ────────
+def test_trend_global_setter_warns_but_moves_nothing(caplog):
     save_settings = dict(trends._TRENDS_CONFIG)
     save_calls = trends._SET_TRENDS_CONFIG_CALLS
     try:
         trends._SET_TRENDS_CONFIG_CALLS = 0
         with caplog.at_level("WARNING", logger=trends.__name__):
             trends.set_trends_config({"trend_analysis_window": 9})
-        assert "deprecated" in caplog.text
+        assert "inert" in caplog.text
         assert trends._SET_TRENDS_CONFIG_CALLS == 1
-        assert trends._TRENDS_CONFIG["trend_analysis_window"] == 9
+        assert trends._TRENDS_CONFIG == save_settings
+        assert trends._TRENDS_CONFIG["trend_slope_stable"] != 99.0
     finally:
         trends._TRENDS_CONFIG.clear()
         trends._TRENDS_CONFIG.update(save_settings)
@@ -280,15 +297,38 @@ def test_trend_global_setter_warns_but_still_works(caplog):
 
 
 # ── 11: nobody else was migrated, and the public API still fits ─────────────
-def test_only_the_two_run_entry_points_consume_the_snapshot():
-    root = pathlib.Path(__file__).resolve().parents[1] / "app"
-    consumers = {path.name for path in root.rglob("*.py")
-                 if "policy_view" in path.read_text(encoding="utf-8")}
-    assert consumers == {"pipeline.py", "quality_alerts.py"}
+def test_policy_snapshot_consumers_match_the_approved_inventory():
+    """Exact equality is intentional.
 
-    # Display/explain paths stay on the legacy loaders in A2.
+    Every module that imports ``policy_view`` is a policy-plane consumer, so a
+    new one is an architectural change that must be reviewed and added here.
+    A superset assertion would silently approve an unapproved consumer; the
+    equality makes the omission fail.
+    """
+    root = pathlib.Path(__file__).resolve().parents[1] / "app"
+    consumers = set()
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.ImportFrom) and node.module
+                    and "policy_view" in node.module):
+                consumers.add(path.relative_to(root).as_posix())
+    assert consumers == {
+        "api/analysis.py",
+        "api/confidence.py",
+        "api/dashboard.py",
+        "api/file_ops.py",
+        "api/rules.py",
+        "engine/audit/data_auditor.py",
+        "engine/audit/explain.py",
+        "engine/pipeline.py",
+        "engine/quality/outlier_eligibility.py",
+        "engine/quality_alerts.py",
+    }
+
+    # A3.5 P2 moved the analysis and explain paths to the snapshot.
     analysis_api = (root / "api" / "analysis.py").read_text(encoding="utf-8")
-    assert "load_analysis_config" in analysis_api
+    assert "load_policy_snapshot" in analysis_api
     assert callable(severity_policy.load_analysis_config)
     assert callable(quality_alerts._alerts_config)
 

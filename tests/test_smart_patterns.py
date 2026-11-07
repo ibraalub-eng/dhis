@@ -122,7 +122,7 @@ def test_pipeline_includes_patterns(db_session):
             ))
     db_session.commit()
 
-    result = run_smart_analytics(db_session, "2026-06")
+    result = run_smart_analytics(db_session, "2026-06", auto_disable_null=False)
     assert result is not None
     assert isinstance(result.patterns, list)
     assert len(result.patterns) >= 1

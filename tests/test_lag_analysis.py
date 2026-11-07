@@ -207,7 +207,7 @@ def _cache_smart_overview(db_session, month):
     from app.engine.smart import run_smart_analytics
     from app.engine.smart.lag_analysis import run_lag_analysis, run_early_warnings
     from app.api.smart_analytics import _envelope, _healthy_hospitals, _sanitize
-    result = run_smart_analytics(db_session, month)
+    result = run_smart_analytics(db_session, month, auto_disable_null=False)
     response = _envelope(result)
     anomalies = response["data"]["anomalies"]
     try:

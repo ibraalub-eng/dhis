@@ -432,3 +432,112 @@ def test_malformed_evidence_never_becomes_an_identity(bad):
     assert detail["distinct_peer_comparisons"] == 0
     assert detail["comparison_category"] in ("invalid_evidence",
                                              "unknown_identity")
+
+
+# ── API: the breakdown cells are filters ──────────────────────────────────
+# The five cells partition Very High only, so clicking one must list exactly
+# the issues that cell counted — read from each issue's WHOLE evidence, never
+# from the rows the band filter let through.
+
+def _category_fixture(db_session):
+    hospital = db_session.query(Hospital).first()
+
+    def row(perspective, *, code, severity="VERY_HIGH", peer_ids=None,
+            history=None):
+        payload = {"stats": {"z": 3.2}}
+        if peer_ids is not None:
+            payload["comparison_policy"] = {"peer": {
+                "peer_ids": list(peer_ids),
+                "group": "stratified:" + perspective,
+                "policy_version": "2026-10-24.1"}}
+        if history is not None:
+            payload["history"] = [[f"2025-{i:02d}", value]
+                                  for i, value in enumerate(history, start=1)]
+        return QualityAlert(
+            hospital_id=hospital.id, month="2027-05", indicator_code=code,
+            indicator_name=code, unit="%", formula=code, perspective=perspective,
+            severity=severity,
+            method=("zscore" if perspective == "history" else "peer_zscore"),
+            current_value=80.0, baseline_value=10.0, z_score=3.2,
+            peer_count=len(peer_ids) if peer_ids else None,
+            direction="lower_is_better", status="New", active=True,
+            evidence=payload)
+
+    db_session.add_all([
+        # multiple_peer: two distinct peer groups on one issue.
+        row("governorate", code="QA_CAT_MULTI", peer_ids=[1, 2, 3, 4, 5]),
+        row("ownership", code="QA_CAT_MULTI", peer_ids=[1, 2, 3, 4, 5, 6, 7]),
+        # temporal_only: no peer group was compared at all. Twelve observed
+        # months clear the history minimum, so the band is not capped.
+        row("history", code="QA_CAT_TEMPORAL",
+            history=[9.0 + i / 10.0 for i in range(12)]),
+        # mixed: a Very High row beside a lower band.
+        row("governorate", code="QA_CAT_MIXED", peer_ids=[1, 2, 3, 4, 5]),
+        row("ownership", code="QA_CAT_MIXED", severity="HIGH",
+            peer_ids=[1, 2, 3, 4, 5]),
+    ])
+    db_session.commit()
+
+
+def _summary(db_session, **overrides):
+    params = dict(
+        month=None, hospital_id=None, indicator=None, severity=None,
+        perspective=None, status=None, ownership_id=None, governorate_id=None,
+        hospital_type_id=None, confidence=None, indicator_type=None,
+        very_high_scope=None, comparison_category=None, q="QA_CAT",
+        include_closed=False, db=db_session)
+    params.update(overrides)
+    return qa.get_summary(**params)
+
+
+def _issues(db_session, **overrides):
+    params = dict(
+        month=None, hospital_id=None, indicator=None, severity=None,
+        perspective=None, status=None, ownership_id=None, governorate_id=None,
+        hospital_type_id=None, confidence=None, indicator_type=None,
+        very_high_scope=None, comparison_category=None, q="QA_CAT",
+        include_closed=False, sort="severity", order="desc", page=1,
+        page_size=0, db=db_session)
+    params.update(overrides)
+    return qa.list_issues(**params)
+
+
+def test_comparison_category_lists_exactly_the_cell_it_counts(db_session):
+    _category_fixture(db_session)
+    summary = _summary(db_session)
+    assert summary["very_high_only_issues"] == 2
+    assert summary["very_high_multiple_peer_issues"] == 1
+
+    filtered = _summary(db_session, comparison_category="multiple_peer")
+    assert filtered["total_issues"] == 1
+    # The cells keep describing the whole Very High population, so the cell
+    # that was clicked still shows the number it was clicked for.
+    assert filtered["very_high_only_issues"] == 2
+    assert filtered["very_high_multiple_peer_issues"] == 1
+
+    issues = _issues(db_session, comparison_category="multiple_peer")
+    assert issues["total"] == 1
+    assert issues["items"][0]["canonical_code"] == "QA_CAT_MULTI"
+
+
+def test_comparison_category_excludes_issues_outside_very_high_only(
+        db_session):
+    _category_fixture(db_session)
+    # The mixed issue does carry a peer group, but a lower band keeps it out of
+    # Very High only — so no cell counted it and no cell may list it.
+    issues = _issues(db_session, comparison_category="multiple_peer")
+    assert {item["canonical_code"] for item in issues["items"]} == {
+        "QA_CAT_MULTI"}
+
+    filtered = _summary(db_session, comparison_category="temporal_only")
+    assert filtered["total_issues"] == 1
+    assert filtered["very_high_temporal_only_issues"] == 1
+
+
+def test_comparison_category_rejects_an_unknown_value(db_session):
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        _summary(db_session, comparison_category="mostly")
+    assert exc.value.status_code == 422
+    assert "comparison_category" in exc.value.detail

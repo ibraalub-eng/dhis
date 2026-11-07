@@ -48,7 +48,8 @@ def test_doc_links_from_main_documentation():
 
 def test_compute_covered_codes_signature_supports_db():
     src = RULES.read_text(encoding="utf-8")
-    assert "def compute_covered_codes(values: Dict[str, float], disabled_codes: set, session: Session = None)" in src
+    assert "def compute_covered_codes(values: Dict[str, float], disabled_codes: set," in src
+    assert "rules: Optional[RulesPolicy] = None" in src
 
 
 def test_iter_sum_rules_includes_containment_types():

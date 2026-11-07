@@ -68,6 +68,22 @@ def _downgrade(db_url, revision=DOWN_REV):
                                                            revision))
 
 
+def test_in_process_upgrade_keeps_application_logging_enabled(tmp_path):
+    """An in-process upgrade must not silence already-imported app loggers.
+
+    ``alembic/env.py`` calls ``fileConfig``; its default
+    ``disable_existing_loggers=True`` used to disable every logger imported
+    before the migration. The process then kept running with application
+    logging dead (a later ``caplog`` test captured nothing).
+    """
+    from app.engine.anomaly.trends import logger as trends_logger
+
+    db_url = f"sqlite:///{(tmp_path / 'logging.db').as_posix()}"
+    assert trends_logger.disabled is False
+    _upgrade(db_url)
+    assert trends_logger.disabled is False
+
+
 # ── fresh DB: the full chain creates the three tables ───────────────────────
 
 def test_upgrade_head_creates_all_three_tables(tmp_path):
