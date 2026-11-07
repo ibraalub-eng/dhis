@@ -5,11 +5,23 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from .definitions import _RULES_CONFIG, RULE_REF_CODES
+from .definitions import DEFAULT_RULES_POLICY, RULE_REF_CODES, RulesPolicy
+
+
+_SET_RULES_CONFIG_CALLS = 0
 
 
 def set_rules_config(config: dict):
-    _RULES_CONFIG.update(config)
+    """Deprecated compatibility shim (A3.5) — moves no evaluation state.
+
+    Rule evaluation reads an explicit :class:`RulesPolicy` (``ctx.rules`` and
+    ``compute_covered_codes(..., rules=...)``) resolved from the operation's
+    ``PolicySnapshot``. This function is kept only so an out-of-tree caller
+    does not crash; it records the call and leaves the documented defaults
+    untouched, so process history can no longer rewrite them.
+    """
+    global _SET_RULES_CONFIG_CALLS
+    _SET_RULES_CONFIG_CALLS += 1
 
 
 class Severity(str, Enum):
@@ -48,6 +60,7 @@ class ValidationContext:
     all_hospital_data: Optional[Dict[str, Dict[str, float]]] = None
     historical_data: Optional[Dict[str, Dict[str, float]]] = None
     disabled_codes: set = field(default_factory=set)
+    rules: RulesPolicy = field(default_factory=lambda: DEFAULT_RULES_POLICY)
 
 
 def _v(ctx: ValidationContext, code: str) -> Optional[float]:
@@ -91,7 +104,7 @@ def _gt(parent: str, children: List[str], code: str, desc: str, sev: Severity, r
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
     if pv == 0 and cs == 0:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both parent and children sum are zero (no activity)")
-    tol = _RULES_CONFIG["eq_tolerance"]
+    tol = ctx.rules.eq_tolerance
     if cs >= pv - tol:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs} (parent must be strictly greater)")
     return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} > children sum={cs}")
@@ -107,7 +120,7 @@ def _ge_factor(parent: str, children: List[str], factor: float, code: str, desc:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
     if not _has_any(ctx, children):
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    tol = _RULES_CONFIG["eq_tolerance"]
+    tol = ctx.rules.eq_tolerance
     allowed = pv * factor
     if cs > allowed + tol:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}x{factor}={allowed:.2f} but children sum={cs}")
@@ -128,7 +141,7 @@ def _parent_le(parent: str, children: List[str], code: str, desc: str, sev: Seve
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
     if not _has_any(ctx, children):
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    tol = _RULES_CONFIG["eq_tolerance"]
+    tol = ctx.rules.eq_tolerance
     if pv > cs + tol:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs} (parent must not exceed)")
     return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} <= children sum={cs}")
@@ -148,7 +161,7 @@ def _parent_lt(parent: str, children: List[str], code: str, desc: str, sev: Seve
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
     if not _has_any(ctx, children):
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    tol = _RULES_CONFIG["eq_tolerance"]
+    tol = ctx.rules.eq_tolerance
     if pv >= cs - tol:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} >= children sum={cs} (parent must be strictly less)")
     return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} < children sum={cs}")
@@ -176,7 +189,7 @@ def _eq(parent: str, children: List[str], code: str, desc: str, sev: Severity, r
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
     if not _has_any(ctx, children):
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    if abs(pv - cs) > _RULES_CONFIG["eq_tolerance"]:
+    if abs(pv - cs) > ctx.rules.eq_tolerance:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs}, diff={abs(pv - cs):.2f}")
     return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} == children sum={cs}")
 
@@ -479,11 +492,11 @@ def _build_rules():
     ALL_RULES.append(lambda ctx: _le("10.n", "10", "R065", "Self-Harm/Suicide Attempt <= SMM", Severity.HIGH, RuleType.CLINICAL, ctx))
     ALL_RULES.append(lambda ctx: _le("10.o", "10", "R066", "Other Morbidity <= SMM", Severity.MEDIUM, RuleType.CLINICAL, ctx))
 
-    ALL_RULES.append(lambda ctx: _month_over("2", ctx.historical_data, _RULES_CONFIG["month_over_factor"], "R051", "Deliveries > 2x previous month", Severity.HIGH, ctx))
-    ALL_RULES.append(lambda ctx: _month_under("2", ctx.historical_data, _RULES_CONFIG["month_under_factor"], "R052", "Deliveries < 50% of previous month", Severity.HIGH, ctx))
-    ALL_RULES.append(lambda ctx: _month_over("6", ctx.historical_data, _RULES_CONFIG["month_over_factor"], "R053", "Live Births > 2x previous month", Severity.HIGH, ctx))
-    ALL_RULES.append(lambda ctx: _month_over("11", ctx.historical_data, _RULES_CONFIG["maternal_over_factor"], "R054", "Maternal Deaths increased by >300%", Severity.CRITICAL, ctx))
-    ALL_RULES.append(lambda ctx: _month_over("17", ctx.historical_data, _RULES_CONFIG["neonatal_over_factor"], "R055", "Neonatal Deaths increased by >300%", Severity.CRITICAL, ctx))
+    ALL_RULES.append(lambda ctx: _month_over("2", ctx.historical_data, ctx.rules.month_over_factor, "R051", "Deliveries > 2x previous month", Severity.HIGH, ctx))
+    ALL_RULES.append(lambda ctx: _month_under("2", ctx.historical_data, ctx.rules.month_under_factor, "R052", "Deliveries < 50% of previous month", Severity.HIGH, ctx))
+    ALL_RULES.append(lambda ctx: _month_over("6", ctx.historical_data, ctx.rules.month_over_factor, "R053", "Live Births > 2x previous month", Severity.HIGH, ctx))
+    ALL_RULES.append(lambda ctx: _month_over("11", ctx.historical_data, ctx.rules.maternal_over_factor, "R054", "Maternal Deaths increased by >300%", Severity.CRITICAL, ctx))
+    ALL_RULES.append(lambda ctx: _month_over("17", ctx.historical_data, ctx.rules.neonatal_over_factor, "R055", "Neonatal Deaths increased by >300%", Severity.CRITICAL, ctx))
 
     KEY_INDICATORS = ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]
     ALL_RULES.append(lambda ctx: _neg_check(KEY_INDICATORS, "R056", "Negative indicator value found", Severity.HIGH, ctx))
@@ -569,7 +582,9 @@ def _iter_sum_rules(session: Session = None):
         yield (expr, parent, children)
 
 
-def compute_covered_codes(values: Dict[str, float], disabled_codes: set, session: Session = None) -> set:
+def compute_covered_codes(values: Dict[str, float], disabled_codes: set,
+                          session: Session = None,
+                          rules: Optional[RulesPolicy] = None) -> set:
     """Return sibling child *codes* whose absence is already explained by a total.
 
     Two doctrines, matching how the validation rules themselves treat totals:
@@ -599,7 +614,9 @@ def compute_covered_codes(values: Dict[str, float], disabled_codes: set, session
     reported ones do not overflow the parent — otherwise the missing siblings
     may be exactly the reason the rule cannot reconcile, and stay flagged.
     """
-    tolerance = _RULES_CONFIG.get("eq_tolerance", 0.01)
+    # Explicit policy only: no process-global table, so two concurrent
+    # operations cannot cover different children with each other's tolerance.
+    tolerance = (rules or DEFAULT_RULES_POLICY).eq_tolerance
     covered = set()
     disabled_codes = disabled_codes or set()
     for op, parent, children in _iter_sum_rules(session):
@@ -630,13 +647,15 @@ def compute_covered_codes(values: Dict[str, float], disabled_codes: set, session
     return covered
 
 
-def get_covered_child_codes(ctx: ValidationContext, session: Session = None) -> set:
+def get_covered_child_codes(ctx: ValidationContext, session: Session = None,
+                            rules: Optional[RulesPolicy] = None) -> set:
     """Return sibling child codes whose absence is already explained by a total.
 
     Thin wrapper over :func:`compute_covered_codes` using the context's values and
     disabled codes.
     """
-    return compute_covered_codes(ctx.values, ctx.disabled_codes, session)
+    return compute_covered_codes(ctx.values, ctx.disabled_codes, session,
+                                 rules=rules or ctx.rules)
 
 
 def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:

@@ -30,3 +30,11 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "scripts"]
+
+[tool.pytest.ini_options]
+# A bare ``pytest`` collects the project's real suite only. ``backups/`` holds
+# stale pre-reset copies of tests that must stay on disk untouched but must not
+# join a normal run (they assert against old assets and fail against current
+# ones). Passing an explicit path -- ``pytest backups/.../test_x.py`` -- still
+# collects and runs them on request, because explicit args override testpaths.
+testpaths = ["tests"]

@@ -569,6 +569,12 @@ class QualityScore(Base):
     # The fully resolved configuration behind that fingerprint, kept verbatim
     # so an old digest can be explained after the AppConfig values change.
     scoring_config = Column(JSON, nullable=True)
+    # D5: identity (PolicySnapshot.digest) of the policy whose run produced
+    # these numbers, so a cached row can be attributed without re-resolving a
+    # policy. NULL means "not recorded" (legacy row or a failed-analysis
+    # fallback, which no policy produced) — never "a different policy". Only
+    # the digest is stored: no raw policy values and no config row ids.
+    policy_digest = Column(String(64), nullable=True, index=True)
 
     hospital = relationship("Hospital", back_populates="quality_scores")
 
@@ -600,6 +606,10 @@ class QualityScoreRevision(Base):
     previous_values = Column(JSON, nullable=True)
     new_values = Column(JSON, nullable=True)
     config = Column(JSON, nullable=True)
+    # D5: the policy identity moved between, when the writer recorded one.
+    # Both NULL is the legacy/no-identity case, not a policy change.
+    previous_policy_digest = Column(String(64), nullable=True)
+    new_policy_digest = Column(String(64), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 

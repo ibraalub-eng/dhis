@@ -13,7 +13,8 @@ from app.engine.smart.xgboost_predictor import run_xgboost_predictions
 from app.engine.smart.patterns import detect_composite_patterns
 
 
-def _disabled_maps(session: Session, month: str, hospitals, indicators, all_values):
+def _disabled_maps(session: Session, month: str, hospitals, indicators, all_values,
+                   *, auto_disable_null: bool):
     """خرائط المؤشرات المعطّلة لكل مستشفى لهذا الشهر.
 
     يعيد (combined_disabled_map, auto_disabled_map) بنفس منطق التحميل الرئيسي:
@@ -22,7 +23,6 @@ def _disabled_maps(session: Session, month: str, hospitals, indicators, all_valu
     استُخرجت من _load_hospital_data لتعيدها لوحة تغطية المؤشرات بلا تكرار.
     """
     from app.models import HospitalIndicatorConfig, IndicatorDefaultConfig
-    from app.engine.pipeline import _is_auto_disable_null
 
     all_indicator_ids = {ind.id for ind in indicators}
 
@@ -57,7 +57,7 @@ def _disabled_maps(session: Session, month: str, hospitals, indicators, all_valu
 
     # ── Auto-disable: null values + missing indicators (bulk) ──
     auto_disabled_map = {}
-    if _is_auto_disable_null(session):
+    if auto_disable_null:
         iv_ids_by_hosp = {}
         null_ids_by_hosp = {}
         for iv in all_values:
@@ -97,7 +97,8 @@ FEATURE_SOURCE_CODES = {
 FEATURE_KINDS = {k: ("rate" if k == "cs_rate" else "count") for k in FEATURE_SOURCE_CODES}
 
 
-def analysis_indicator_coverage(session: Session, month: str) -> Dict[str, Any]:
+def analysis_indicator_coverage(session: Session, month: str, *,
+                                auto_disable_null: bool) -> Dict[str, Any]:
     """تغطية كل ميزة مشتقة يعتمد عليها التحليل الذكي في شهر معيّن.
 
     تجيب عن سؤال «ما المؤشرات التي يمكن العمل عليها؟»: لكل ميزة من
@@ -120,7 +121,8 @@ def analysis_indicator_coverage(session: Session, month: str) -> Dict[str, Any]:
         .all()
     )
     combined_disabled_map, auto_disabled_map = _disabled_maps(
-        session, month, hospitals, indicators, all_values
+        session, month, hospitals, indicators, all_values,
+        auto_disable_null=auto_disable_null,
     )
 
     values_by_hosp: Dict[int, Dict[str, float]] = {}
@@ -207,6 +209,7 @@ def _registry_inactive_codes(session: Session) -> set:
 
 def _load_hospital_data(
     session: Session, month: str, hospital_ids: list[int] | None = None,
+    *, auto_disable_null: bool,
 ) -> Dict[str, Any]:
     """Bulk-load hospital data for a month — 4 queries total instead of N*2."""
     from app.models import Hospital, IndicatorValue, Indicator
@@ -234,7 +237,8 @@ def _load_hospital_data(
 
     # ── Disabled maps (manual + default + auto-null), shared helper ──
     combined_disabled_map, auto_disabled_map = _disabled_maps(
-        session, month, hospitals, indicators, all_values
+        session, month, hospitals, indicators, all_values,
+        auto_disable_null=auto_disable_null,
     )
 
     all_data = {}
@@ -311,8 +315,10 @@ def _load_config(session: Session) -> Dict[str, Any]:
     return config
 
 
-def run_smart_analytics(session: Session, month: str) -> SmartAnalyticsResult:
-    all_data = _load_hospital_data(session, month)
+def run_smart_analytics(session: Session, month: str, *,
+                        auto_disable_null: bool) -> SmartAnalyticsResult:
+    all_data = _load_hospital_data(session, month,
+                                   auto_disable_null=auto_disable_null)
     config = _load_config(session)
 
     enabled = config.get("enabled", 1.0) > 0.5

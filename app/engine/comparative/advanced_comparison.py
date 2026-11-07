@@ -54,7 +54,10 @@ def get_historical_data(session: Session, current_month: str, hospital_id: Optio
     historical_data = {}
     for month in months:
         try:
-            analytics = run_smart_analytics(session, month)
+            from app.engine.config_resolver import load_policy_snapshot
+            analytics = run_smart_analytics(
+                session, month,
+                auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
             historical_data[month] = {
                 "kpi": analytics.kpi.__dict__ if analytics.kpi else {},
                 "anomalies": [a.__dict__ for a in analytics.anomalies] if analytics.anomalies else [],
@@ -79,7 +82,10 @@ def perform_advanced_comparison(
 
     trends = analyze_trends(historical_data, hospital_id)
 
-    current_analytics = run_smart_analytics(session, month)
+    from app.engine.config_resolver import load_policy_snapshot
+    current_analytics = run_smart_analytics(
+        session, month,
+        auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
     predictions = current_analytics.xgboost_predictions.__dict__ if current_analytics.xgboost_predictions else {}
 
     peer_comparisons = compare_peers(

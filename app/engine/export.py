@@ -127,7 +127,10 @@ SCHEMA_VERSION = 1
 
 def _get_smart_analysis(session: Session, month: str) -> Dict[str, Any]:
     """Full smart analytics output for a month, serialized to JSON-safe dicts."""
-    result = run_smart_analytics(session, month)
+    from app.engine.config_resolver import load_policy_snapshot
+    result = run_smart_analytics(
+        session, month,
+        auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
     data = {
         "kpi": result.kpi.__dict__ if result.kpi else {},
         "anomalies": [a.__dict__ for a in result.anomalies],

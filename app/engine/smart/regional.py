@@ -232,8 +232,11 @@ def _monthly_gov_metrics(
     months = [r[0] for r in months_query.order_by(QualityScore.month).all()]
     window = [m for m in months if m <= month][-months_back:]
     per_month = {}
+    from app.engine.config_resolver import load_policy_snapshot
+    _gate = load_policy_snapshot(session).require_auto_disable_null()
     for m in window:
-        data = _load_hospital_data(session, m, hospital_ids=hospital_ids)
+        data = _load_hospital_data(session, m, hospital_ids=hospital_ids,
+                                   auto_disable_null=_gate)
         if not data:
             continue
         govs = _gov_aggregates(data)
@@ -949,7 +952,10 @@ def run_regional_analysis(
     session, month: str, months_back: int = 6, hospital_ids: list[int] | None = None,
 ) -> Dict[str, Any]:
     """التحليل الإقليمي الكامل لشهر واحد (يُخزَّن مؤقتاً لكل شهر)."""
-    all_data = _load_hospital_data(session, month, hospital_ids=hospital_ids)
+    from app.engine.config_resolver import load_policy_snapshot
+    all_data = _load_hospital_data(
+        session, month, hospital_ids=hospital_ids,
+        auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
     # مؤشرات مُلغى تفعيلها على شاشة المؤشرات مستبعدة من كل الحسابات الجارية
     _skip = _inactive_rate_metrics(session)
     if not all_data:

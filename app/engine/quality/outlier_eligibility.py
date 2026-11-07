@@ -58,6 +58,8 @@ def _covered_codes(session: Session, hospital_id: int, month: str,
         from app.engine.pipeline import get_enabled_values_for_hospital_month
         values = get_enabled_values_for_hospital_month(session, hospital_id, month)
     from app.engine.quality.rules import compute_covered_codes
+    from app.engine.config_resolver import load_display_policy
+    from app.engine.policy_view import rules_policy_from_snapshot
     from app.models import Indicator
 
     disabled_ids = _manual_disabled_ids(session, hospital_id, month)
@@ -66,7 +68,9 @@ def _covered_codes(session: Session, hospital_id: int, month: str,
          .filter(Indicator.id.in_(disabled_ids)).all()}
         if disabled_ids else set()
     )
-    return compute_covered_codes(values or {}, disabled_codes, session)
+    return compute_covered_codes(
+        values or {}, disabled_codes, session,
+        rules=rules_policy_from_snapshot(load_display_policy(session)))
 
 
 def eligible_indicator_codes(

@@ -40,11 +40,41 @@ inconsistencies that a later phase may unify:
 * ``scoring`` — weights, outlier multiplier and severity weights through
   ``resolve_scoring_config``.
 * ``confidence`` — the raw ``thresholds`` values as ``confidence.py`` reads
-  them (no clamping, no rounding).
+  them (no clamping, no rounding), plus the five **effective** Confidence
+  signal weights resolved from the single ``confidence_weights`` row through
+  ``confidence_policy.ConfidencePolicy`` (P3.3.2).
 * ``frozen`` — the approved algorithm constants, recorded as metadata with
   ``configurable=False`` so a result can name the frozen policy that judged it.
   They are **not** returned in ``values`` and must never become operator
   settings.
+
+Policy identity vs provenance
+-----------------------------
+``digest`` is a *policy identity* digest: it answers "would this run resolve a
+different analytical policy?". Two consequences follow, and both are enforced
+in code:
+
+* only analytically relevant content participates — ``rules`` contributes a
+  content hash of the rule set plus its size and field list, never each rule's
+  body and never a write timestamp;
+* entries that record provenance (``PROVENANCE_METADATA_KEYS``, currently the
+  newest ``rules.updated_at``) stay on the snapshot for display but are
+  excluded from ``canonical_json()``, so touching a row without changing a
+  value leaves the digest intact.
+
+``rules.hash`` is byte-stable across processes and repeated resolutions: rows
+are ordered by the UNIQUE ``code``, values are normalised, ``params`` JSON is
+canonicalised, and the storage primary key and ``*_at`` columns are excluded.
+
+The Confidence weights follow the same split. The five
+``confidence.weight.*`` entries hold the **effective** (normalized) values the
+engine would consume, so they participate in ``digest``: a weight change moves
+policy identity. Everything that describes *how* the values were stored stays
+out of it — the row ids, the duplicate/conflict marker, the row's
+``updated_at`` column, the submitted-only view and the two-decimal display
+format. Two configurations with identical effective weights therefore share a
+digest whether those weights came from a row or from the defaults, and whether
+the submitted numbers were scaled or not.
 
 Two documented deviations, both on paths where the current code would raise
 rather than return a value: an unreadable ``confidence`` cutoff or a
@@ -64,6 +94,16 @@ from app.engine.comparison_policy import (
     COMPARISON_POLICY_VERSION,
     resolve_comparison_policy,
 )
+from app.engine.confidence_policy import (
+    CONFIDENCE_POLICY_VERSION,
+    DEFAULT_HIGH,
+    DEFAULT_LOW,
+    DEFAULT_MEDIUM,
+    DEFAULT_WEIGHTS,
+    DEFAULT_ZSCORE_THRESHOLD,
+    WEIGHT_KEYS,
+    ConfidencePolicy,
+)
 from app.engine.quality.scoring import (
     OUTLIER_MULTIPLIER_KEY,
     QUALITY_WEIGHT_KEYS,
@@ -71,7 +111,7 @@ from app.engine.quality.scoring import (
     resolve_scoring_config,
 )
 
-RESOLVER_VERSION = "1.0.0"
+RESOLVER_VERSION = "1.4.0"   # P3.3.2: effective Confidence weights join identity
 
 #: Planes that carry a policy but no version constant yet. Recorded explicitly
 #: as ``unversioned`` rather than invented: D15 §5 identified exactly one
@@ -81,19 +121,59 @@ UNVERSIONED = "unversioned"
 #: Storage plane of each resolved key, for the UI and for provenance readers.
 STORAGE_APP_CONFIG = "app_config"
 STORAGE_SYSTEM_SETTING = "system_settings"
+STORAGE_CONFIDENCE_WEIGHTS = "confidence_weights"
 STORAGE_CODE = "code"
 
 #: Confidence cutoffs are read by ``confidence._compute_level`` with these
 #: literals; they are the seeded ``thresholds`` defaults.
-_CONFIDENCE_DEFAULTS = (("confidence_high", 80.0),
-                        ("confidence_medium", 50.0),
-                        ("confidence_low", 25.0))
+_CONFIDENCE_DEFAULTS = (("confidence_high", DEFAULT_HIGH),
+                        ("confidence_medium", DEFAULT_MEDIUM),
+                        ("confidence_low", DEFAULT_LOW))
+
+#: The row-level error key used for both an unusable weights row and duplicate
+#: rows. The five individual ``confidence.weight.*`` entries carry the fallback
+#: or conflict validation metadata; this key explains why.
+CONFIDENCE_WEIGHTS_ERROR_KEY = "confidence.weights"
+
+#: Entry-key prefix of the five effective Confidence signal weights.
+CONFIDENCE_WEIGHT_PREFIX = "confidence.weight."
+
+#: Row-level error key used when a stored cutoff or Z cannot be represented by
+#: ``ConfidencePolicy`` at all. The cutoffs keep their own resolved entries;
+#: this key explains why no policy object accompanies them.
+CONFIDENCE_POLICY_ERROR_KEY = "confidence.policy"
+
+_AUTO_SCAN_OFF = frozenset({"0", "0.0", "false", "False", "off"})
+
+#: Snapshot metadata that records *provenance* rather than analytical identity.
+#:
+#: Such an entry says when something was written, not what policy was resolved,
+#: so it stays visible on ``metadata`` / ``as_dict()`` but is excluded from
+#: ``canonical_json()`` and therefore from ``digest``. Without this split a
+#: timestamp-only rule touch would rewrite the digest of an unchanged policy.
+PROVENANCE_METADATA_KEYS = frozenset({"rules.updated_at"})
 
 _ALERTS_KEYS = ("alerts_min_score", "alerts_min_peers", "alerts_min_history",
                 "alerts_history_window", "alerts_ml_enabled",
-                "alerts_ml_min_samples")
+                "alerts_ml_min_samples", "alerts_auto_scan")
 _COMPARISON_KEYS = ("alerts_history_window", "alerts_min_history",
                     "alerts_min_peers")
+
+#: Analysis gates (A3.3). A gate is not a policy scalar: it decides *whether* a
+#: Step runs, so it belongs in the same immutable snapshot as the thresholds it
+#: guards. ``auto_disable_null_indicators`` is the first one migrated.
+FLAG_AUTO_DISABLE_KEY = "auto_disable_null_indicators"
+FLAG_AUTO_DISABLE_NULL = "flags.auto_disable_null"
+
+
+def parse_auto_disable_null(raw: Any) -> bool:
+    """The single parser for ``auto_disable_null_indicators`` (approved).
+
+    Only the literal text ``"true"`` enables it. ``"TRUE"``, ``"True"``,
+    ``"yes"``, ``"1"``, ``""`` and ``None`` all mean OFF — no case folding and
+    no truthiness, exactly as the pre-A3.3 reader behaved.
+    """
+    return raw == "true"
 
 
 class PolicyUnavailable(RuntimeError):
@@ -110,7 +190,8 @@ class PolicyEntry:
     component: str              # severity | alerts | comparison | scoring | ...
     configurable: bool = True
     fallback_applied: bool = False
-    validation: str = "ok"      # ok | clamped | monotonic_floor | fallback
+    validation: str = "ok"      # ok | normalized | conflict | clamped |
+                                # monotonic_floor | fallback
     storage: str = STORAGE_APP_CONFIG
 
     def as_dict(self) -> Dict[str, Any]:
@@ -168,6 +249,19 @@ class PolicySnapshot:
     digest: str
     errors: Tuple[PolicyError, ...] = ()
     read_error: Optional[str] = None
+    #: Non-configurable provenance resolved with the policy (D16-A3.1): the
+    #: content digest/size of the rules table. Kept OUT of ``values`` so it
+    #: can never be mistaken for a setting an operator may edit.
+    metadata: Mapping[str, Any] = field(
+        default_factory=lambda: MappingProxyType({}))
+    #: The immutable Confidence policy resolved for this snapshot. It retains
+    #: the submitted/effective split and ``normalization_applied``, which the
+    #: five effective ``confidence.weight.*`` entries intentionally do not
+    #: duplicate. It is not serialised into ``canonical_json`` or the digest:
+    #: the digest identifies effective analytical behavior, while submitted
+    #: values and row provenance remain available without claiming identity.
+    confidence_policy: Optional[ConfidencePolicy] = field(
+        default=None, compare=False, repr=False)
 
     # -- read-only views -------------------------------------------------
     @property
@@ -177,6 +271,48 @@ class PolicySnapshot:
     @property
     def sources(self) -> Dict[str, str]:
         return {key: entry.source for key, entry in self.entries.items()}
+
+    @property
+    def flags(self) -> Dict[str, Any]:
+        """The analysis gates this run resolved (A3.3)."""
+        return {key: entry.value for key, entry in self.entries.items()
+                if entry.component == "flags"}
+
+    @property
+    def auto_disable_null(self) -> Optional[bool]:
+        """The auto-disable gate, or ``None`` when it could not be resolved.
+
+        Display paths use this tri-state so they can distinguish "configuration
+        unavailable" from a legitimate ``False``. Analysis paths must call
+        :meth:`require_auto_disable_null` instead.
+        """
+        entry = self.entries.get(FLAG_AUTO_DISABLE_NULL)
+        if entry is None or entry.source == "unavailable":
+            return None
+        return bool(entry.value)
+
+    def require_auto_disable_null(self) -> bool:
+        """The gate for an analysis run — never substitutes a value."""
+        value = self.auto_disable_null
+        if value is None:
+            raise PolicyUnavailable(
+                "auto_disable_null_indicators could not be resolved; refusing "
+                "to analyse with an assumed value")
+        return value
+
+    @property
+    def alerts_auto_scan(self) -> bool:
+        """Whether a fresh analysis triggers the Quality Alerts scan.
+
+        Resolved once per snapshot from ``alerts.auto_scan`` (default ON when
+        System Control has no row). A snapshot that does not carry the entry is
+        an error, never a silent default (A3.4).
+        """
+        try:
+            return bool(self.entries["alerts.auto_scan"].value)
+        except KeyError as exc:
+            raise PolicyUnavailable(
+                "policy snapshot has no 'alerts.auto_scan' entry") from exc
 
     @property
     def unavailable_keys(self) -> Tuple[str, ...]:
@@ -200,11 +336,37 @@ class PolicySnapshot:
         entry = self.entries.get(key)
         return default if entry is None else entry.value
 
-    def canonical_json(self) -> str:
+    @property
+    def identity_metadata(self) -> Dict[str, Any]:
+        """Metadata that defines policy identity.
+
+        Provenance-only entries (``PROVENANCE_METADATA_KEYS``) are excluded: a
+        write timestamp records *when*, not *what*, so it must not move the
+        digest. The full record stays available on ``metadata``.
+        """
+        return {key: value for key, value in self.metadata.items()
+                if key not in PROVENANCE_METADATA_KEYS}
+
+    def canonical_json(self, *, include_provenance: bool = False) -> str:
+        """Canonical JSON of the snapshot — the exact bytes ``digest`` hashes.
+
+        Sorted keys and compact separators make the form independent of input
+        and insertion order. The five Confidence entries are the **effective**
+        weights, so this identity describes analytical behavior, not the
+        submitted row or its normalization history. Provenance metadata is
+        excluded by default (see :attr:`identity_metadata`); pass
+        ``include_provenance=True`` to render the complete record for display
+        or audit. Only policy scalars, a hash/count/field-list and approved
+        algorithm constants appear here — never credentials, keys, or session
+        material.
+        """
+        metadata = (dict(self.metadata) if include_provenance
+                    else self.identity_metadata)
         payload = {
             "resolver": self.resolver_version,
             "components": dict(self.component_versions),
             "values": _normalise(self.values),
+            "metadata": _normalise(metadata),
             "frozen": _normalise({key: entry.value
                                   for key, entry in self.frozen_constants.items()}),
         }
@@ -216,6 +378,7 @@ class PolicySnapshot:
             "resolver_version": self.resolver_version,
             "digest": self.digest,
             "component_versions": dict(self.component_versions),
+            "metadata": dict(self.metadata),
             "values": self.values,
             "entries": {key: entry.as_dict()
                         for key, entry in self.entries.items()},
@@ -236,14 +399,15 @@ class _Collector:
 
     def add(self, key: str, value: Any, source: str, component: str, *,
             storage: str = STORAGE_APP_CONFIG, raw: Any = None,
-            reason: str = "", validation: str = "ok") -> None:
+            reason: str = "", validation: str = "ok",
+            record_error: bool = True) -> None:
         fallback = source in ("default", "invalid", "unavailable")
         self.entries[key] = PolicyEntry(
             key=key, value=value, source=source, component=component,
             configurable=True, fallback_applied=fallback,
             validation=validation, storage=storage,
         )
-        if source == "invalid":
+        if source == "invalid" and record_error:
             self.errors.append(PolicyError(key=key, raw=raw,
                                            reason=reason or "invalid value",
                                            fallback=value))
@@ -252,6 +416,12 @@ class _Collector:
                 storage: str = STORAGE_APP_CONFIG) -> None:
         self.add(key, value, "default", component, storage=storage,
                  validation="fallback")
+
+    def add_error(self, key: str, *, raw: Any, reason: str,
+                  fallback: Any) -> None:
+        """Record a row/state error without pretending a value was replaced."""
+        self.errors.append(PolicyError(key=key, raw=raw, reason=reason,
+                                       fallback=fallback))
 
 
 def _float_or(raw: Any, default: float) -> Tuple[float, str]:
@@ -262,6 +432,27 @@ def _float_or(raw: Any, default: float) -> Tuple[float, str]:
         return float(raw), "database"
     except (TypeError, ValueError):
         return default, "invalid"
+
+
+def _resolve_flags(system_settings: Mapping[str, Any],
+                   collector: _Collector) -> Dict[str, Any]:
+    """Analysis gates, resolved as explicit Booleans from the text store.
+
+    A missing row is the documented fallback ``False`` (source ``default``).
+    A present row is ``database`` even when its text is not ``"true"``: the
+    value then really is OFF, which is different from never having configured
+    it.
+    """
+    if FLAG_AUTO_DISABLE_KEY in system_settings:
+        raw = system_settings[FLAG_AUTO_DISABLE_KEY]
+        value = parse_auto_disable_null(raw)
+        collector.add(FLAG_AUTO_DISABLE_NULL, value, "database", "flags",
+                      storage=STORAGE_SYSTEM_SETTING, raw=raw)
+    else:
+        value = False
+        collector.missing(FLAG_AUTO_DISABLE_NULL, value, "flags",
+                          storage=STORAGE_SYSTEM_SETTING)
+    return {FLAG_AUTO_DISABLE_NULL: value}
 
 
 def _resolve_severity(app_config: Mapping[str, Any],
@@ -456,21 +647,19 @@ def _resolve_alerts(app_config: Mapping[str, Any],
     z_raw = app_config.get(severity_policy.ZSCORE_KEY)
     default_z = severity_policy.DEFAULT_ZSCORE_THRESHOLD
     if z_raw is None:
-        z_value, z_source = default_z, "default"
+        z_value = default_z
         collector.missing("alerts.z_threshold", z_value, "alerts")
     else:
         try:
             z_value = float(z_raw)
         except (TypeError, ValueError):
-            z_value, z_source = default_z, "invalid"
+            z_value = default_z
             collector.add("alerts.z_threshold", z_value, "invalid", "alerts",
                           raw=z_raw,
                           reason=f"expected a number; using default {default_z}")
         else:
-            z_source = "database"
             if z_value <= 0:
                 z_value = default_z
-                z_source = "invalid"
                 collector.add("alerts.z_threshold", z_value, "invalid",
                               "alerts", raw=z_raw,
                               reason="non-positive threshold; using default "
@@ -479,9 +668,25 @@ def _resolve_alerts(app_config: Mapping[str, Any],
                 collector.add("alerts.z_threshold", z_value, "database",
                               "alerts", raw=z_raw)
 
+    # Auto-scan flag: ``pipeline._maybe_auto_scan_quality_alerts`` treats the
+    # stored text form of 0/false/off as OFF and anything else as ON.
+    auto_raw = cfg.get("alerts_auto_scan")
+    if auto_raw is None:
+        auto_scan = True
+        collector.missing("alerts.auto_scan", auto_scan, "alerts")
+    elif str(auto_raw).strip() in _AUTO_SCAN_OFF:
+        auto_scan = False
+        collector.add("alerts.auto_scan", False, "database", "alerts",
+                      raw=auto_raw)
+    else:
+        auto_scan = True
+        collector.add("alerts.auto_scan", True, "database", "alerts",
+                      raw=auto_raw)
+
     return {"min_score": min_score, "min_peers": min_peers,
             "min_history": min_history, "history_window": history_window,
             "ml_enabled": ml_enabled, "ml_min_samples": ml_min_samples,
+            "auto_scan": auto_scan,
             "z_threshold": z_value}
 
 
@@ -528,31 +733,84 @@ def _resolve_scoring(app_config: Mapping[str, Any],
     return resolved
 
 
-def _resolve_confidence(app_config: Mapping[str, Any],
-                        collector: _Collector) -> Dict[str, Any]:
-    """The raw ``thresholds`` values ``confidence.py`` reads, unclamped."""
+def _confidence_policy(
+    weights: Mapping[str, Any],
+    high: Any,
+    medium: Any,
+    low: Any,
+    zscore_threshold: Any,
+) -> ConfidencePolicy:
+    """Build one policy without adding another defaulting layer here."""
+    return ConfidencePolicy(
+        **{key: weights[key] for key in WEIGHT_KEYS},
+        high=high,
+        medium=medium,
+        low=low,
+        zscore_threshold=zscore_threshold,
+    )
+
+
+def _add_confidence_weight_entries(
+    collector: _Collector,
+    values: Mapping[str, Any],
+    *,
+    source: str,
+    validation: str,
+    raw: Any,
+    reason: str = "",
+    record_error: bool = True,
+) -> None:
+    for key in WEIGHT_KEYS:
+        name = f"{CONFIDENCE_WEIGHT_PREFIX}{key}"
+        value = values[key]
+        if source == "default":
+            collector.missing(name, value, "confidence",
+                              storage=STORAGE_CONFIDENCE_WEIGHTS)
+        else:
+            collector.add(name, value, source, "confidence",
+                          storage=STORAGE_CONFIDENCE_WEIGHTS, raw=raw,
+                          reason=reason, validation=validation,
+                          record_error=record_error)
+
+
+def _resolve_confidence(
+    app_config: Mapping[str, Any],
+    collector: _Collector,
+    *,
+    confidence_weights: Optional[Mapping[str, Any]] = None,
+    confidence_weights_row_id: Optional[int] = None,
+    confidence_weights_row_ids: Optional[tuple[int, ...]] = None,
+    confidence_weights_conflict: bool = False,
+) -> Optional[ConfidencePolicy]:
+    """Resolve cutoffs, raw Z, and the five effective Confidence weights.
+
+    The weights row is an input to this pure resolver. A missing row means the
+    documented defaults; a present row is validated and normalized by the one
+    owner, :class:`ConfidencePolicy`. An unusable row falls back to the complete
+    default weight set and records a row-level error. Duplicate rows retain the
+    selected (lowest-id) values and are marked ``conflict`` on every weight
+    entry; their observed ids live only in the error, never in the digest.
+    """
     resolved: Dict[str, Any] = {}
     for key, default in _CONFIDENCE_DEFAULTS:
         raw = app_config.get(key)
+        name = f"confidence.{key.replace('confidence_', '')}"
         if raw is None:
             resolved[key] = default
-            collector.missing(f"confidence.{key.replace('confidence_', '')}",
-                              default, "confidence")
+            collector.missing(name, default, "confidence")
             continue
         try:
             value = float(raw)
         except (TypeError, ValueError):
             value = default
-            collector.add(f"confidence.{key.replace('confidence_', '')}", value,
-                          "invalid", "confidence", raw=raw,
+            collector.add(name, value, "invalid", "confidence", raw=raw,
                           reason=f"expected a number; using default {default}")
         else:
-            collector.add(f"confidence.{key.replace('confidence_', '')}", value,
-                          "database", "confidence", raw=raw)
+            collector.add(name, value, "database", "confidence", raw=raw)
         resolved[key] = value
 
     z_raw = app_config.get(severity_policy.ZSCORE_KEY)
-    default_z = severity_policy.DEFAULT_ZSCORE_THRESHOLD
+    default_z = DEFAULT_ZSCORE_THRESHOLD
     if z_raw is None:
         resolved["zscore_threshold"] = default_z
         collector.missing("confidence.zscore_threshold", default_z, "confidence")
@@ -568,7 +826,264 @@ def _resolve_confidence(app_config: Mapping[str, Any],
             collector.add("confidence.zscore_threshold",
                           resolved["zscore_threshold"], "database",
                           "confidence", raw=z_raw)
+
+    cutoffs = (resolved["confidence_high"], resolved["confidence_medium"],
+               resolved["confidence_low"], resolved["zscore_threshold"])
+
+    # Weights are judged and normalized by the policy itself, and that division
+    # does not involve the cutoffs. A weights-only policy therefore resolves the
+    # entries below, and the snapshot's policy is rebuilt from the same
+    # submitted values plus the resolved cutoffs and Z.
+    weights_only = (DEFAULT_HIGH, DEFAULT_MEDIUM, DEFAULT_LOW,
+                    DEFAULT_ZSCORE_THRESHOLD)
+    if confidence_weights is None:
+        weights_policy = _confidence_policy(DEFAULT_WEIGHTS, *weights_only)
+        _add_confidence_weight_entries(
+            collector, weights_policy.effective_weights, source="default",
+            validation="fallback", raw=None)
+    else:
+        raw_weights = (dict(confidence_weights)
+                       if isinstance(confidence_weights, Mapping)
+                       else None)
+        try:
+            if raw_weights is None:
+                raise ValueError("weights row must be a mapping")
+            weights_policy = _confidence_policy(raw_weights, *weights_only)
+        except (KeyError, TypeError, ValueError) as exc:
+            raw = raw_weights if raw_weights is not None else repr(
+                confidence_weights)
+            reason = f"invalid confidence weights: {exc}"
+            weights_policy = _confidence_policy(DEFAULT_WEIGHTS, *weights_only)
+            _add_confidence_weight_entries(
+                collector, weights_policy.effective_weights, source="invalid",
+                validation=("conflict" if confidence_weights_conflict
+                             else "fallback"),
+                raw=raw, reason=reason, record_error=False)
+            collector.add_error(
+                CONFIDENCE_WEIGHTS_ERROR_KEY, raw=raw, reason=reason,
+                fallback=dict(weights_policy.effective_weights))
+        else:
+            validation = ("conflict" if confidence_weights_conflict else "ok")
+            _add_confidence_weight_entries(
+                collector, weights_policy.effective_weights, source="database",
+                validation=validation, raw=raw_weights)
+
+    try:
+        policy: Optional[ConfidencePolicy] = _confidence_policy(
+            dict(weights_policy.submitted_weights), *cutoffs)
+    except (KeyError, TypeError, ValueError) as exc:
+        # Only a stored cutoff or Z can fail here. They keep their own resolved
+        # entries, unclamped, exactly as before; what is refused is inventing a
+        # policy object whose scalars would disagree with those entries.
+        collector.add_error(
+            CONFIDENCE_POLICY_ERROR_KEY,
+            raw=dict(zip(("high", "medium", "low", "zscore_threshold"),
+                         cutoffs, strict=False)),
+            reason=f"resolved Confidence cutoffs are not a usable policy: {exc}",
+            fallback=None,
+        )
+        policy = None
+
+    if confidence_weights_conflict:
+        row_ids = list(confidence_weights_row_ids or ())
+        if not row_ids and confidence_weights_row_id is not None:
+            row_ids = [confidence_weights_row_id]
+        collector.add_error(
+            CONFIDENCE_WEIGHTS_ERROR_KEY,
+            raw={"row_ids": row_ids, "count": len(row_ids)},
+            reason="multiple confidence_weights rows; using lowest id",
+            fallback=dict(weights_policy.effective_weights),
+        )
+    return policy
+
+
+def _resolve_rules_config(app_config: Mapping[str, Any],
+                          collector: _Collector) -> Dict[str, Any]:
+    """Category ``rules`` — the compiled-rule factors.
+
+    Defaults come from ``quality.definitions.RULE_DEFAULTS``, the immutable
+    baseline captured at import. They must **not** come from the legacy
+    ``_RULES_CONFIG`` table: reading it would make a stored value look like the
+    documented default (wrong ``source``). A3.5 passes the resolved
+    ``RulesPolicy`` to the rule engine, so this plane is the only authority.
+    """
+    from app.engine.quality.definitions import RULE_DEFAULTS
+
+    resolved: Dict[str, Any] = {}
+    for key, default in RULE_DEFAULTS.items():
+        name = f"rules.{key}"
+        raw = app_config.get(key)
+        if raw is None:
+            resolved[key] = default
+            collector.missing(name, default, "rules")
+            continue
+        try:
+            resolved[key] = float(raw)
+        except (TypeError, ValueError):
+            resolved[key] = default
+            collector.add(name, default, "invalid", "rules", raw=raw,
+                          reason=f"expected a number; using default {default}")
+        else:
+            collector.add(name, resolved[key], "database", "rules", raw=raw)
     return resolved
+
+
+#: ``ml`` keys and coercions, mirroring ``pipeline._build_ml_config``. The
+#: parity test compares this plane against that function, so a change there
+#: cannot leave the resolver silently behind.
+_ML_SPECS = (
+    ("ml.enabled", "ml_enabled", "bool", 0),
+    ("ml.clustering_enabled", "ml_clustering_enabled", "bool", 1),
+    ("ml.clustering_min_k", "ml_clustering_min_k", "int", 2),
+    ("ml.clustering_max_k", "ml_clustering_max_k", "int", 6),
+    ("ml.anomaly_enabled", "ml_anomaly_enabled", "bool", 1),
+    ("ml.anomaly_contamination", "ml_anomaly_contamination", "float", 0.05),
+    ("ml.pca_enabled", "ml_pca_enabled", "bool", 1),
+    ("ml.pca_variance_threshold", "ml_pca_variance_threshold", "float", 0.95),
+)
+
+
+def _resolve_ml(app_config: Mapping[str, Any],
+                collector: _Collector) -> Dict[str, Any]:
+    """Category ``ml`` — the Isolation-Forest / clustering switches."""
+    resolved: Dict[str, Any] = {}
+    for name, key, kind, default in _ML_SPECS:
+        raw = app_config.get(key)
+        if raw is None:
+            value = bool(default) if kind == "bool" else default
+            collector.missing(name, value, "ml")
+            resolved[name] = value
+            continue
+        try:
+            # ``_build_ml_config`` uses plain truthiness for booleans.
+            value = (bool(raw) if kind == "bool"
+                     else int(raw) if kind == "int" else float(raw))
+        except (TypeError, ValueError):
+            value = bool(default) if kind == "bool" else default
+            collector.add(name, value, "invalid", "ml", raw=raw,
+                          reason=f"expected {kind}; using default {default}")
+        else:
+            collector.add(name, value, "database", "ml", raw=raw)
+        resolved[name] = value
+    return resolved
+
+
+def _resolve_trend_engine_gates(app_config: Mapping[str, Any],
+                                collector: _Collector) -> Dict[str, Any]:
+    """The leftover ``trends`` gates the trend engine reads directly.
+
+    ``trend_r_squared`` and the four ``trend_finding_*`` gates are read by
+    ``analyze_historical_trends`` as raw config, not through the setting
+    specs. Defaults come from ``trends.TREND_ENGINE_DEFAULTS`` (the module's
+    own documented table), so nothing is restated here.
+    """
+    from app.engine.anomaly.trends import TREND_ENGINE_DEFAULTS
+
+    band_keys = {key for _name, key, _default in severity_policy.BAND_KEYS}
+    resolved: Dict[str, Any] = {}
+    for key, default in TREND_ENGINE_DEFAULTS.items():
+        if (key == severity_policy.ZSCORE_KEY
+                or key in severity_policy.TREND_SETTING_SPECS
+                or key in band_keys):
+            continue  # already resolved by the severity / trend planes
+        raw = app_config.get(key)
+        if raw is None:
+            resolved[key] = float(default)
+            collector.missing(key, resolved[key], "trend")
+            continue
+        try:
+            resolved[key] = float(raw)
+        except (TypeError, ValueError):
+            resolved[key] = float(default)
+            collector.add(key, float(default), "invalid", "trend", raw=raw,
+                          reason=f"expected a number; using default {default}")
+        else:
+            collector.add(key, resolved[key], "database", "trend", raw=raw)
+    return resolved
+
+
+#: Rule columns that never participate in the identity hash.
+#:
+#: ``*_at`` are bookkeeping timestamps; ``id`` is a storage-assigned surrogate
+#: key, so re-seeding or restoring byte-identical rule content under a new
+#: primary key must not look like a policy change. Every other column is
+#: derived from the mapper and therefore participates by default, so a future
+#: analytical column cannot silently escape the hash.
+_RULES_HASH_EXCLUDED_FIELDS = frozenset({"id"})
+
+
+def rules_hash_fields() -> Tuple[str, ...]:
+    """Rule columns hashed by :func:`rules_version`, in declaration order."""
+    from app.models import Rule
+
+    return tuple(attr.key for attr in Rule.__mapper__.column_attrs
+                 if not attr.key.endswith("_at")
+                 and attr.key not in _RULES_HASH_EXCLUDED_FIELDS)
+
+
+def _rule_payload_value(name: str, value: Any) -> Any:
+    """Canonical form of one rule field for the identity hash.
+
+    ``params`` is stored as text. Parsing and re-serialising it through
+    ``_normalise`` makes the hash sensitive to the *meaning* of the parameters
+    and insensitive to JSON formatting (whitespace, key order). Text that is
+    not valid JSON is tagged, so malformed text can never collide with the
+    parsed value that happens to render the same string.
+    """
+    if name == "params" and isinstance(value, str):
+        try:
+            return {"json": _normalise(json.loads(value))}
+        except (TypeError, ValueError):
+            return {"text": value}
+    return _normalise(value)
+
+
+def rules_version(db) -> Dict[str, Any]:
+    """Content digest + size of the ``rules`` table (D5: hash + stamp).
+
+    Contract — what ``rules.hash`` identifies
+    -----------------------------------------
+    The hash identifies the **analytical rule set**: which validations run, at
+    what severity, against what parameters. It is built from
+
+    * every column returned by :func:`rules_hash_fields` — ``code``, ``name``,
+      ``rule_type``, ``severity``, ``category``, ``expression_type``,
+      ``params``, ``description``, ``enabled`` and ``sort_order``;
+    * never a ``*_at`` timestamp, and never ``id`` (a surrogate key, see
+      ``_RULES_HASH_EXCLUDED_FIELDS``);
+    * rows ordered by ``code``, which is UNIQUE, so the order is total —
+      independent of insertion order, of the query plan, and of process
+      history;
+    * canonical JSON (sorted keys, compact separators) of normalised values,
+      with ``params`` parsed and re-serialised so formatting is inert.
+
+    Therefore a timestamp-only touch, a ``params`` reformat, a primary-key
+    reassignment and a re-seed of identical content all keep the hash, while
+    any change to a field above moves it. No credential or secret can enter:
+    ``Rule`` holds none, and ``RuleHistory`` — which stores old/new payloads —
+    is never read.
+
+    ``rules.updated_at`` is returned alongside the hash for display. It is
+    provenance, not identity: it is excluded from the snapshot digest via
+    ``PROVENANCE_METADATA_KEYS``.
+    """
+    from app.models import Rule
+
+    rows = db.query(Rule).order_by(Rule.code).all()
+    fields = rules_hash_fields()
+    payload = [[_rule_payload_value(key, getattr(row, key)) for key in fields]
+               for row in rows]
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                         default=str).encode("utf-8")
+    stamps = [getattr(row, "updated_at", None) for row in rows]
+    stamps = [stamp for stamp in stamps if stamp is not None]
+    return {
+        "rules.hash": hashlib.sha256(encoded).hexdigest(),
+        "rules.count": len(rows),
+        "rules.fields": len(fields),
+        "rules.hash_fields": list(fields),
+        "rules.updated_at": max(stamps).isoformat() if stamps else None,
+    }
 
 
 def frozen_constants() -> Dict[str, PolicyEntry]:
@@ -618,16 +1133,21 @@ def frozen_constants() -> Dict[str, PolicyEntry]:
 def component_versions() -> Dict[str, str]:
     """Version metadata for every plane in the snapshot.
 
-    Only the comparison policy has a version constant today; the rest are
-    recorded as ``unversioned`` rather than given invented semver (D15 §5).
+    Only the comparison and Confidence policies have version constants today;
+    the rest are recorded as ``unversioned`` rather than given invented semver
+    (D15 §5). ``confidence`` is the policy version that owns weight validation
+    and normalization, so a digest can name the rules that produced it.
     """
     return {
         "comparison": COMPARISON_POLICY_VERSION,
+        "flags": UNVERSIONED,
         "severity": UNVERSIONED,
         "alerts": UNVERSIONED,
         "trend": UNVERSIONED,
         "scoring": UNVERSIONED,
-        "confidence": UNVERSIONED,
+        "confidence": CONFIDENCE_POLICY_VERSION,
+        "rules": UNVERSIONED,
+        "ml": UNVERSIONED,
         "layered": UNVERSIONED,
         "config": RESOLVER_VERSION,
     }
@@ -638,24 +1158,42 @@ def _digest(snapshot: PolicySnapshot) -> str:
 
 
 def _build(app_config: Mapping[str, Any],
-           system_settings: Mapping[str, str]) -> PolicySnapshot:
+           system_settings: Mapping[str, str],
+           metadata: Optional[Mapping[str, Any]] = None,
+           *,
+           confidence_weights: Optional[Mapping[str, Any]] = None,
+           confidence_weights_row_id: Optional[int] = None,
+           confidence_weights_row_ids: Optional[tuple[int, ...]] = None,
+           confidence_weights_conflict: bool = False) -> PolicySnapshot:
     collector = _Collector()
+    _resolve_flags(system_settings, collector)
     _resolve_severity(app_config, collector)
     trend_values = _resolve_trend(app_config, system_settings, collector)
     _resolve_alerts(app_config, collector)
     _resolve_comparison(app_config, trend_values, collector)
     _resolve_scoring(app_config, collector)
-    _resolve_confidence(app_config, collector)
+    confidence_policy = _resolve_confidence(
+        app_config, collector,
+        confidence_weights=confidence_weights,
+        confidence_weights_row_id=confidence_weights_row_id,
+        confidence_weights_row_ids=confidence_weights_row_ids,
+        confidence_weights_conflict=confidence_weights_conflict,
+    )
+    _resolve_rules_config(app_config, collector)
+    _resolve_ml(app_config, collector)
+    _resolve_trend_engine_gates(app_config, collector)
 
     entries = MappingProxyType(dict(collector.entries))
     frozen = MappingProxyType(frozen_constants())
     snapshot = PolicySnapshot(
         entries=entries,
+        metadata=MappingProxyType(dict(metadata or {})),
         frozen_constants=frozen,
         component_versions=MappingProxyType(component_versions()),
         resolver_version=RESOLVER_VERSION,
         digest="",
         errors=tuple(collector.errors),
+        confidence_policy=confidence_policy,
     )
     # Digest is computed over the canonical form (values + versions + frozen),
     # then attached via replace so the dataclass stays frozen.
@@ -665,7 +1203,13 @@ def _build(app_config: Mapping[str, Any],
 def resolve_policy(app_config: Optional[Mapping[str, Any]] = None,
                    system_settings: Optional[Mapping[str, str]] = None,
                    *, strict: bool = True,
-                   read_error: Optional[str] = None) -> PolicySnapshot:
+                   read_error: Optional[str] = None,
+                   metadata: Optional[Mapping[str, Any]] = None,
+                   confidence_weights: Optional[Mapping[str, Any]] = None,
+                   confidence_weights_row_id: Optional[int] = None,
+                   confidence_weights_row_ids: Optional[tuple[int, ...]] = None,
+                   confidence_weights_conflict: bool = False,
+                   ) -> PolicySnapshot:
     """Resolve one immutable snapshot from raw System Control rows.
 
     Pure: no database, no I/O, no module state. ``app_config`` is the flat
@@ -684,7 +1228,13 @@ def resolve_policy(app_config: Optional[Mapping[str, Any]] = None,
     if read_error is not None and strict:
         raise PolicyUnavailable(read_error)
 
-    snapshot = _build(app_config or {}, system_settings or {})
+    snapshot = _build(
+        app_config or {}, system_settings or {}, metadata,
+        confidence_weights=confidence_weights,
+        confidence_weights_row_id=confidence_weights_row_id,
+        confidence_weights_row_ids=confidence_weights_row_ids,
+        confidence_weights_conflict=confidence_weights_conflict,
+    )
     if read_error is None:
         return snapshot
 
@@ -698,25 +1248,41 @@ def resolve_policy(app_config: Optional[Mapping[str, Any]] = None,
         entries=MappingProxyType(unavailable),
         read_error=read_error,
         errors=snapshot.errors,
+        confidence_policy=None,
     )
     return replace(downgraded, digest=_digest(downgraded))
 
 
 def load_policy_snapshot(db, *, strict: bool = True) -> PolicySnapshot:
-    """Database-backed snapshot: one read of each System Control store.
+    """Database-backed snapshot: one read of each policy store.
 
     This is the only function in the module that touches the session. It reads
     the two stores once and delegates all resolution to :func:`resolve_policy`,
     so the values a caller sees are identical to the pure path over the same
     rows. No consumer is switched to it in A1.
     """
-    from app.models import AppConfig, SystemSetting
+    from app.models import AppConfig, ConfidenceWeights, SystemSetting
 
     try:
         app_rows = db.query(AppConfig).all()
         app_config = {row.key: row.value for row in app_rows}
         setting_rows = db.query(SystemSetting).all()
         system_settings = {row.key: row.value for row in setting_rows}
+        # ConfidenceWeights is a singleton in intent, but the table has no
+        # uniqueness constraint. Read every row, use the lowest id as the
+        # deterministic policy, and report all observed ids as a conflict.
+        weight_rows = (db.query(ConfidenceWeights)
+                       .order_by(ConfidenceWeights.id.asc())
+                       .all())
+        selected_weights = weight_rows[0] if weight_rows else None
+        weight_values = ({
+            key: getattr(selected_weights, key) for key in WEIGHT_KEYS
+        } if selected_weights is not None else None)
+        weight_row_ids = tuple(row.id for row in weight_rows)
+        # The rules table is policy too, but as rows rather than settings:
+        # it is recorded as immutable metadata (hash + size), never as a
+        # configurable value (D16-A3.1 / D5).
+        rules_metadata = rules_version(db)
     except Exception as exc:  # noqa: BLE001 - re-raised or recorded as required
         message = ("Analysis configuration could not be read from the "
                    f"database: {exc}")
@@ -724,4 +1290,33 @@ def load_policy_snapshot(db, *, strict: bool = True) -> PolicySnapshot:
             raise PolicyUnavailable(message) from exc
         return resolve_policy({}, {}, strict=False, read_error=message)
 
-    return resolve_policy(app_config, system_settings, strict=strict)
+    return resolve_policy(
+        app_config, system_settings, strict=strict, metadata=rules_metadata,
+        confidence_weights=weight_values,
+        confidence_weights_row_id=(selected_weights.id
+                                   if selected_weights is not None else None),
+        confidence_weights_row_ids=weight_row_ids,
+        confidence_weights_conflict=len(weight_rows) > 1,
+    )
+
+
+def load_display_policy(db) -> PolicySnapshot:
+    """Display-path snapshot: never raises, memoized per session.
+
+    Dashboard, tree and preview paths call this instead of resolving once per
+    widget. A gate whose entry is ``unavailable`` reads as ``None`` through
+    :attr:`PolicySnapshot.auto_disable_null`, and the caller must surface that
+    as "configuration unavailable" rather than render a confident ``False``.
+    """
+    info = getattr(db, "info", None)
+    if info is not None:
+        cached = info.get("display_policy_snapshot")
+        if cached is not None:
+            return cached
+    snapshot = load_policy_snapshot(db, strict=False)
+    if info is not None:
+        try:
+            info["display_policy_snapshot"] = snapshot
+        except Exception:
+            pass
+    return snapshot

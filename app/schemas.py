@@ -639,6 +639,12 @@ class ReportOut(BaseModel):
     outliers: List[dict]
     confidence: Optional[ConfidenceSummaryOut] = None
     is_enabled: bool = True
+    # P3.3.3b: present on live runs from ``run_full_analysis``. Stored/report-list
+    # rows have no run snapshot, so these stay None there.
+    analysis_status: Optional[str] = None
+    failure_kind: Optional[str] = None
+    policy_provenance: Optional[dict] = None
+    policy_provenance_status: Optional[str] = None
 
 
 class PeerHospitalOut(BaseModel):
@@ -691,6 +697,12 @@ class ReportSummaryOut(BaseModel):
     anomaly_results: List[AnomalyOut]
     layered_results: List[DataElementOutlierOut] = []
     confidence: Optional[ConfidenceSummaryOut] = None
+    # P3.3.3b completion: the stored/live outcome travels with the detail so a
+    # failed-analysis placeholder can never be read as a genuine zero score.
+    # Optional + additive: existing consumers keep working unchanged.
+    analysis_status: Optional[str] = None
+    failure_kind: Optional[str] = None
+    policy_provenance_status: Optional[str] = None
 
 
 class TrendPointOut(BaseModel):

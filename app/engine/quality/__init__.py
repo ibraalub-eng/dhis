@@ -36,6 +36,7 @@ from .scoring import (
     FLAGGED_LEVELS,
 )
 from .definitions import _RULES_CONFIG as _RULES_CONFIG, RULE_CATALOG
+from .definitions import DEFAULT_RULES_POLICY, RulesPolicy
 
 
 def run_quality_analysis(
@@ -50,6 +51,7 @@ def run_quality_analysis(
     score_config: Optional[Dict[str, float]] = None,
     session: Optional["Session"] = None,
     layered_results: Optional[list] = None,
+    rules: Optional[RulesPolicy] = None,
 ) -> Dict:
     ctx = ValidationContext(
         values=values,
@@ -58,12 +60,14 @@ def run_quality_analysis(
         all_hospital_data=all_hospital_data,
         historical_data=historical_data,
         disabled_codes=disabled_codes or set(),
+        rules=rules or DEFAULT_RULES_POLICY,
     )
 
     rule_results = run_all_rules(ctx)
 
     # doctrine §2: always pass db so user rules (e.g. parent_le R061) drive coverage
-    covered_codes = compute_covered_codes(values, disabled_codes or set(), session)
+    covered_codes = compute_covered_codes(values, disabled_codes or set(), session,
+                                          rules=ctx.rules)
 
     score = calculate_quality_score(
         rule_results=rule_results,

@@ -51,17 +51,34 @@ def _fk_targets_present(bind, table):
     """False when a referenced table is absent (a partial/synthetic database).
 
     ``batch_alter_table`` reflects the table together with its foreign keys,
-    which needs every referenced table to exist. A real database has them; a
-    partial one cannot be rebuilt safely, so the repair is skipped there
-    instead of guessing at a schema it does not describe.
+    and reflection resolves the referenced tables *transitively*: rebuilding
+    ``quality_score_revisions`` reflects ``hospitals``, whose own foreign key
+    points at ``governorates``. Checking only the direct targets therefore
+    still raised ``NoSuchTableError: governorates`` on a partial schema. Walk
+    the whole reachable FK closure (cycle-safe) so any missing table in it
+    skips the repair, exactly as intended, instead of failing the upgrade.
+
+    A real database has the full closure, so the repair runs unchanged there;
+    a partial one cannot be rebuilt safely and is skipped rather than guessed
+    at.
     """
     from sqlalchemy import inspect
     inspector = inspect(bind)
     tables = set(inspector.get_table_names())
-    for fk in inspector.get_foreign_keys(table):
-        target = fk.get("referred_table")
-        if target and target not in tables:
-            return False
+    seen = set()
+    pending = [table]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        for fk in inspector.get_foreign_keys(current):
+            target = fk.get("referred_table")
+            if not target:
+                continue
+            if target not in tables:
+                return False
+            pending.append(target)
     return True
 
 

@@ -34,7 +34,10 @@ def get_data_audit(db: Session, hospital_id: int, month: str) -> dict:
         code = code_by_id.get(v.indicator_id)
         if code is not None and v.value is not None:
             values_map[code] = float(v.value)
-    ctx = ValidationContext(values=values_map, hospital_name=hospital.name, month=month)
+    from app.engine.config_resolver import load_display_policy
+    from app.engine.policy_view import rules_policy_from_snapshot
+    ctx = ValidationContext(values=values_map, hospital_name=hospital.name, month=month,
+                            rules=rules_policy_from_snapshot(load_display_policy(db)))
     covered_codes = get_covered_child_codes(ctx, db)
     # Optional by inheritance: every source data element of the subtree is
     # Optional, so the node's absence is legitimate even when its own flag

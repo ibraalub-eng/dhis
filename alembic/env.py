@@ -29,7 +29,10 @@ if DATABASE_URL:
     config.set_main_option("sqlalchemy.url", DATABASE_URL)
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # ``fileConfig`` defaults to ``disable_existing_loggers=True``, which silences
+    # every logger already imported in this process. Migrations also run
+    # in-process (startup, tests), so app logging must survive the upgrade.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 
 def run_migrations_offline() -> None:

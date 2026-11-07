@@ -74,8 +74,11 @@ def _get_previous_month(session: Session, month: str) -> Optional[str]:
 
 def _load_indicator_stats(session: Session, month: str, prev_month: Optional[str] = None) -> Dict[str, Dict[str, float]]:
     """إحصاءات فعلية لكل مؤشر (متوسط/أدنى/أعلى/انحراف معياري) مع مقارنة بمتوسط الشهر السابق."""
-    current = _load_hospital_data(session, month)
-    prev = _load_hospital_data(session, prev_month) if prev_month else {}
+    from app.engine.config_resolver import load_policy_snapshot
+    _gate = load_policy_snapshot(session).require_auto_disable_null()
+    current = _load_hospital_data(session, month, auto_disable_null=_gate)
+    prev = (_load_hospital_data(session, prev_month, auto_disable_null=_gate)
+            if prev_month else {})
     stats: Dict[str, Dict[str, float]] = {}
     for code in FEATURE_KEYS:
         vals = [h["values"].get(code) for h in current.values()]
@@ -1127,7 +1130,10 @@ def generate_comprehensive_report(session: Session, month: str, lang: str = "ar"
         if cached:
             return _with_explanations(cached, include_explanations)
 
-    analytics = run_smart_analytics(session, month)
+    from app.engine.config_resolver import load_policy_snapshot
+    analytics = run_smart_analytics(
+        session, month,
+        auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
 
     prev_month = _get_previous_month(session, month)
     indicator_stats = _load_indicator_stats(session, month, prev_month)
@@ -1466,7 +1472,10 @@ def _build_forecast_brief(session: Session, month: str, lang: str = "ar") -> Dic
         )
 
         lag_results = run_lag_analysis(session, month)
-        series, meta, window = _load_series(session, month, months_back=3)
+        from app.engine.config_resolver import load_policy_snapshot
+        series, meta, window = _load_series(
+            session, month, months_back=3,
+            auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
         if len(window) < 2:
             return {"month": month, "discovered": False, "total_hospitals": 0,
                     "hospitals": []}

@@ -5,15 +5,20 @@ from typing import Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.engine.anomaly import detect_anomalies, detect_monthly_trend, set_trends_config
+from app.engine.anomaly import detect_anomalies, detect_monthly_trend
 from app.engine.confidence import build_indicator_rule_map, calculate_confidence
 from app.engine.config_resolver import (
     PolicySnapshot,
     PolicyUnavailable,
     load_policy_snapshot,
 )
-from app.engine.policy_view import analysis_config_from_snapshot
 from app.engine.ml import run_ml_analysis
+from app.engine.policy_view import (
+    ConfidencePolicyInvalid,
+    analysis_config_from_snapshot,
+    confidence_policy_from_snapshot,
+    snapshot_provenance,
+)
 from app.engine.quality import (
     RuleResult,
     ValidationContext,
@@ -21,7 +26,7 @@ from app.engine.quality import (
     get_covered_child_codes,
     run_all_rules,
     run_rules_from_db,
-    set_rules_config,
+    # A3.5: rule settings travel as a resolved RulesPolicy, not a global.
 )
 from app.engine.quality.outlier_eligibility import eligible_outlier_units
 from app.indicators import INDICATOR_CODE_TO_NAME, PARENT_CHILD_MAP, SYNTHETIC_INDICATOR_CODES
@@ -40,6 +45,43 @@ from app.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# P3.3.3b: stable, machine-readable analysis outcome. ``failure_kind`` is only
+# populated on a failed result; the human-readable ``issues`` list remains for
+# backwards compatibility and is never the machine contract.
+ANALYSIS_STATUS_OK = "ok"
+ANALYSIS_STATUS_FAILED = "failed"
+FAILURE_POLICY_UNAVAILABLE = "policy_unavailable"
+FAILURE_CONFIDENCE_POLICY_INVALID = "confidence_policy_invalid"
+FAILURE_ANALYSIS_ERROR = "analysis_error"
+# D4: the Confidence result was CALCULATED but could not be PERSISTED. Kept
+# distinct from an analysis error (the calculation itself failed) so callers
+# and operators can tell "computed, not stored" apart from "could not compute".
+FAILURE_CONFIDENCE_PERSISTENCE = "confidence_persistence_failed"
+# D4: a batch month raised while purging or persisting. Distinct from the
+# analysis-level kinds, which say why a completed run ended as a fallback.
+FAILURE_RECOMPUTE_ERROR = "recompute_error"
+POLICY_PROVENANCE_AVAILABLE = "available"
+POLICY_PROVENANCE_CACHED = "cached_unavailable"
+POLICY_PROVENANCE_UNAVAILABLE = "unavailable"
+# D5: identity of the policy behind a returned result. A cached row can now
+# carry the digest of the policy its run used (``recorded``); rows written
+# before that was stored, and fallback rows no policy produced, are
+# ``unknown``; a run with no policy at all is ``unavailable``. Only the digest
+# is ever exposed — never raw policy values, config row ids or read errors.
+POLICY_IDENTITY_RECORDED = "recorded"
+POLICY_IDENTITY_UNKNOWN = "unknown"
+POLICY_IDENTITY_UNAVAILABLE = "unavailable"
+# P3.3.3b-Fix: a failed analysis still persists a score-0 QualityScore row (the
+# existing rollback/persistence contract), so the row itself must carry a
+# durable sign that it is a FAILURE and not a completed zero-score analysis.
+# This single constant is the one source of that sign: written only by
+# ``_analysis_failure_result`` and read only by ``is_fallback_quality_row``.
+FALLBACK_ANALYSIS_ISSUE = "Analysis failed during report generation"
+# ``failure_kind`` reported when a STORED fallback is served: the row records
+# the original cause nowhere, so the honest answer is "this is a stored
+# fallback", never an invented cause and never a success.
+FAILURE_STORED_FALLBACK = "stored_fallback"
 
 USE_DB_RULES = True
 
@@ -98,12 +140,6 @@ def get_values_for_hospital_month(session: Session, hospital_id: int, month: str
         .all()
     )
     return {row[1].code: row[0].value for row in rows if row[0].value is not None}
-
-
-def _is_auto_disable_null(session):
-    from app.models import SystemSetting
-    row = session.query(SystemSetting).filter(SystemSetting.key == "auto_disable_null_indicators").first()
-    return bool(row and row.value == "true")
 
 
 def get_default_disabled_indicator_ids(session, month):
@@ -261,7 +297,8 @@ def get_optional_by_inheritance_ids(session) -> set:
     }
 
 
-def get_required_indicator_ids(session, hospital_id, month):
+def get_required_indicator_ids(session, hospital_id, month, *,
+                               auto_disable_null: bool):
     """Completeness denominator (indicator-groups design rev 2).
 
     An indicator counts toward the denominator iff:
@@ -286,7 +323,8 @@ def get_required_indicator_ids(session, hospital_id, month):
     Returns a sorted list of indicator IDs.
     """
     from app.indicators import SYNTHETIC_INDICATOR_CODES
-    disabled_ids = set(get_disabled_indicator_ids(session, hospital_id, month))
+    disabled_ids = set(get_disabled_indicator_ids(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null))
     # Optional by inheritance is resolved once for the whole catalog: every
     # consumer (completeness, diagnostics, Why popups, audit screen) must agree.
     optional_ids = get_optional_source_indicator_ids(session)
@@ -311,9 +349,11 @@ def get_required_indicator_ids(session, hospital_id, month):
     return sorted(required_ids)
 
 
-def get_required_indicator_codes(session, hospital_id, month):
+def get_required_indicator_codes(session, hospital_id, month, *,
+                                 auto_disable_null: bool):
     """Required indicators as CODES, for the DB-free compute_completeness core."""
-    required_ids = get_required_indicator_ids(session, hospital_id, month)
+    required_ids = get_required_indicator_ids(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null)
     if not required_ids:
         return set()
     return {
@@ -322,7 +362,8 @@ def get_required_indicator_codes(session, hospital_id, month):
     }
 
 
-def compute_hospital_completeness(session, hospital_id, month):
+def compute_hospital_completeness(session, hospital_id, month, *,
+                                  auto_disable_null: bool, rules=None):
     """Rev-2 completeness for one hospital/month (0-100), via the single
     DB-free compute_completeness core — so the stored QualityScore rows, the
     dashboard KPI-card recalc and the indicator-config recalc cannot drift:
@@ -332,20 +373,29 @@ def compute_hospital_completeness(session, hospital_id, month):
     """
     from app.engine.quality import compute_completeness, compute_covered_codes
     values = get_enabled_values_for_hospital_month(session, hospital_id, month)
-    disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
+    disabled_ids = get_disabled_indicator_ids(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null)
     disabled_codes = {
         code for (code,) in session.query(Indicator.code)
         .filter(Indicator.id.in_(disabled_ids)).all()
     } if disabled_ids else set()
-    covered_codes = compute_covered_codes(values, disabled_codes, session)
-    required_codes = get_required_indicator_codes(session, hospital_id, month)
+    covered_codes = compute_covered_codes(values, disabled_codes, session,
+                                          rules=rules)
+    required_codes = get_required_indicator_codes(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null)
     return compute_completeness(values, required_codes, covered_codes) * 100.0
 
 
-def get_disabled_indicator_ids(session, hospital_id, month):
-    """Return all indicator IDs that should be considered disabled — manual + auto (null values + missing rows)."""
+def get_disabled_indicator_ids(session, hospital_id, month, *,
+                               auto_disable_null: bool):
+    """Indicator IDs that are disabled — manual plus, when the gate is ON, auto.
+
+    ``auto_disable_null`` is required and keyword-only: it comes from the run's
+    ``PolicySnapshot``. A missing argument raises ``TypeError`` instead of
+    silently re-reading System Control (A3.3).
+    """
     manually_disabled = get_effective_manual_disabled_ids(session, hospital_id, month)
-    if _is_auto_disable_null(session):
+    if auto_disable_null:
         null_rows = (
             session.query(IndicatorValue.indicator_id)
             .filter(
@@ -408,6 +458,175 @@ def check_analysis_exists(session: Session, hospital_id: int, month: str) -> boo
     ).first() is not None
 
 
+def _stored_issues(row) -> list:
+    """The issues list stored on a QualityScore row, defensively parsed."""
+    raw = getattr(row, "issues", None)
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [str(item) for item in parsed]
+
+
+def is_fallback_quality_row(row) -> bool:
+    """True when a stored QualityScore row is a failed-analysis placeholder.
+
+    Why this representation is safe (P3.3.3b-Fix):
+
+    * **Stable** — the marker is ``FALLBACK_ANALYSIS_ISSUE``, a single module
+      constant written by exactly one code path (``_analysis_failure_result``).
+      No other writer can introduce it without changing this file.
+    * **Unambiguous** — a real analysis fills ``issues`` from rule results and
+      anomalies (``"<CODE>: <description>"`` / ``"Anomaly: ..."``); it never
+      emits that sentence, and the match is exact list membership, so a
+      longer message that merely quotes it is not a fallback.
+    * **Score-independent** — the score is deliberately NOT part of identity.
+      The scoring repair path (``recompute_quality_scores(apply=True)``) can
+      rewrite the numeric score from stored evidence while leaving ``issues``
+      untouched; gating on ``score == 0`` made such a repaired fallback stop
+      being recognised and be served as a successful cached result.
+    * **Backward-compatible** — historical fallback rows were written with this
+      exact literal by the same path, so rows created before this fix are
+      recognised without touching them (no rewrite, no migration).
+
+    A genuine analysis keeps its own issues (real rule/anomaly text), so a
+    legitimate zero-score result — or any successful score — is NOT a fallback
+    and stays cacheable.
+    """
+    if row is None:
+        return False
+    return FALLBACK_ANALYSIS_ISSUE in _stored_issues(row)
+
+
+def _policy_validation_status(policy: Optional[PolicySnapshot]) -> Optional[str]:
+    """Safe validation state of the policy actually carried by a run."""
+    if policy is None:
+        return None
+    if policy.read_error is not None:
+        return "unavailable"
+    if getattr(policy, "confidence_policy", None) is None:
+        return "invalid"
+    entries = [entry for entry in policy.entries.values()
+               if entry.component == "confidence"]
+    if not entries:
+        return "unavailable"
+    sources = {entry.source for entry in entries}
+    if sources == {"default"}:
+        return "default"
+    if any(entry.validation == "conflict" for entry in entries):
+        return "conflict"
+    if "invalid" in sources:
+        return "fallback"
+    return "valid"
+
+
+def _policy_provenance(policy: Optional[PolicySnapshot]) -> Optional[Dict]:
+    """Provenance for the exact snapshot used by this run.
+
+    ``snapshot_provenance`` already omits raw values and row ids. The raw
+    ``read_error`` is omitted here as well: it can contain database details and
+    is not needed to identify the policy; the stable validation state and
+    error keys carry the machine-readable meaning.
+    """
+    if policy is None:
+        return None
+    provenance = dict(snapshot_provenance(policy))
+    provenance.pop("read_error", None)
+    versions = dict(provenance.get("component_versions") or {})
+    provenance["confidence_policy_version"] = versions.get("confidence")
+    provenance["validation_status"] = _policy_validation_status(policy)
+    confidence = dict(provenance.get("confidence") or {})
+    entries = [entry for entry in policy.entries.values()
+               if entry.component == "confidence"]
+    confidence["sources"] = sorted({entry.source for entry in entries})
+    confidence["defaults_applied"] = bool(entries) and all(
+        entry.source == "default" for entry in entries)
+    provenance["confidence"] = confidence
+    return provenance
+
+
+def _with_analysis_metadata(result: Dict, *, policy: Optional[PolicySnapshot],
+                            analysis_status: str,
+                            provenance_status: str,
+                            failure_kind: Optional[str] = None,
+                            policy_digest: Optional[str] = None,
+                            policy_identity_status: Optional[str] = None) -> Dict:
+    """Attach the outcome and the snapshot actually used to a result copy.
+
+    ``policy_digest``/``policy_identity_status`` describe the identity of the
+    returned numbers. A fresh run derives them from its snapshot; a cached
+    read passes the stored row's values (``recorded`` or ``unknown``).
+    """
+    enriched = dict(result)
+    enriched["analysis_status"] = analysis_status
+    enriched["failure_kind"] = failure_kind
+    enriched["policy_provenance"] = _policy_provenance(policy)
+    enriched["policy_provenance_status"] = provenance_status
+    if policy_identity_status is None:
+        policy_identity_status = (
+            POLICY_IDENTITY_RECORDED
+            if policy is not None and policy.digest
+            else POLICY_IDENTITY_UNAVAILABLE)
+    if policy_digest is None and policy is not None:
+        policy_digest = policy.digest
+    enriched["policy_digest"] = policy_digest
+    enriched["policy_identity_status"] = policy_identity_status
+    return enriched
+
+
+def _analysis_failure_result(session: Session, hospital_id: int, month: str,
+                             *, failure_kind: str,
+                             policy: Optional[PolicySnapshot]) -> Dict:
+    """Preserve the existing rollback/persistence contract, then label it.
+
+    The persisted row carries the fallback marker and NO scoring provenance:
+    no scoring configuration produced those zeroes, so the row must look like
+    a fallback however it was written (first insert or overwrite).
+    """
+    # Reset the session after the failed step (PostgreSQL aborts the transaction
+    # until ROLLBACK; SQLAlchemy raises PendingRollbackError otherwise).
+    try:
+        session.rollback()
+    except Exception:
+        logger.exception("Rollback after analysis failure failed for %s/%s",
+                         hospital_id, month)
+    try:
+        _save_quality_score(session, hospital_id, month, {
+            "score": 0,
+            "rule_compliance": 0,
+            "completeness": 0,
+            "consistency": 0,
+            "outlier_penalty": 0,
+            "issues": [FALLBACK_ANALYSIS_ISSUE],
+        }, policy_digest=None, set_policy_identity=True)
+    except Exception:
+        logger.exception("Could not save fallback quality report for %s/%s",
+                         hospital_id, month)
+        session.rollback()
+    hospital = session.query(Hospital).filter(Hospital.id == hospital_id).first()
+    result = {
+        "hospital": hospital.name if hospital else None,
+        "month": month,
+        "data_quality_score": 0,
+        "rule_compliance": 0,
+        "completeness": 0,
+        "consistency": 0,
+        "outlier_penalty": 0,
+        "issues": [FALLBACK_ANALYSIS_ISSUE],
+        "outliers": [],
+        "cached": False,
+    }
+    provenance_status = (POLICY_PROVENANCE_AVAILABLE if policy is not None
+                         else POLICY_PROVENANCE_UNAVAILABLE)
+    return _with_analysis_metadata(
+        result, policy=policy, analysis_status=ANALYSIS_STATUS_FAILED,
+        provenance_status=provenance_status, failure_kind=failure_kind)
+
+
 def _compute_full_analysis(session: Session, hospital_id: int, month: str,
                            force: bool = False,
                            policy: Optional[PolicySnapshot] = None) -> Dict:
@@ -433,6 +652,20 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
             "issues": json.loads(existing_qs.issues) if existing_qs.issues else [],
             "outliers": [],
             "cached": True,
+            # D5: a cached row is attributed to the policy its run recorded,
+            # never to the policy resolved for this read.
+            "policy_digest": existing_qs.policy_digest,
+            "policy_identity_status": (
+                POLICY_IDENTITY_RECORDED if existing_qs.policy_digest
+                else POLICY_IDENTITY_UNKNOWN),
+            **({
+                # P3.3.3b-Fix: a failure placeholder is not a completed
+                # analysis. Serving it back must stay a FAILURE — the stored
+                # row records no original kind, so report the honest "stored
+                # fallback" kind instead of inventing a cause.
+                "analysis_status": ANALYSIS_STATUS_FAILED,
+                "failure_kind": FAILURE_STORED_FALLBACK,
+            } if is_fallback_quality_row(existing_qs) else {}),
         }
 
     values = get_enabled_values_for_hospital_month(session, hospital_id, month)
@@ -466,10 +699,25 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
             "outliers": [],
         }
 
+    # A3.3: the gate is resolved once, here, from this run's snapshot — before
+    # the first eligibility read — and every call below receives it explicitly.
+    if policy is None:
+        policy = load_policy_snapshot(session)
+    auto_disable_null = policy.require_auto_disable_null()
+
+    # A3.5: the rules plane travels with the same snapshot. Every rule and
+    # coverage consumer below receives this policy explicitly; the pipeline
+    # never writes a process-global rules table again.
+    from app.engine.policy_view import rules_policy_from_snapshot
+    rules_policy = rules_policy_from_snapshot(policy)
+    # P3.3.3a: resolve the Confidence policy once from this run's snapshot.
+    confidence_policy = confidence_policy_from_snapshot(policy)
+
     all_hospital_data = get_all_hospital_data_for_month(session, month)
     historical = get_historical_months(session, hospital_id, month)
 
-    disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
+    disabled_ids = get_disabled_indicator_ids(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null)
     disabled_codes = set()
     if disabled_ids:
         ind_rows = session.query(Indicator).filter(Indicator.id.in_(disabled_ids)).all()
@@ -482,38 +730,22 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
         all_hospital_data=all_hospital_data,
         historical_data=historical if historical else {},
         disabled_codes=disabled_codes,
+        rules=rules_policy,
     )
 
     from app.config_utils import get_config_dict
 
-    # D16-A2: every analysis policy is resolved ONCE, here at the entry
-    # point, into `policy`; nothing below re-reads System Control. A caller
-    # that already holds the run's snapshot (bulk re-analysis, the alerts
-    # auto-scan) passes it in, so one run shares one configuration.
-    if policy is None:
-        policy = load_policy_snapshot(session)
+    # A3.3/A3.4: `policy` was resolved above (or supplied by the caller)
+    # before the first eligibility read; nothing below re-resolves it.
     if policy.invalid_keys:
         logger.warning(
             "Analysis %s/%s is using %d fallback value(s) from invalid "
             "stored settings: %s", hospital.name, month,
             len(policy.invalid_keys), ", ".join(policy.invalid_keys))
 
-    rules_config = get_config_dict(session, "rules")
-    set_rules_config(rules_config)
-
     analysis_config = analysis_config_from_snapshot(policy)
-    # The legacy trend-engine gates (trend_finding_slope/-deviation/-cv/
-    # -r_squared, trend_r_squared) are not the resolver's authority yet, so
-    # that ONE category is still read here — at the entry point, never
-    # downstream. Every setting the snapshot owns is applied last, so the
-    # two sources cannot disagree inside the run.
-    trends_config = get_config_dict(session, "trends")
-    rates_config = get_config_dict(session, "rates")
-    trends_config.update(rates_config)
-    trends_config.update(analysis_config.trend_engine_config())
-    # Compatibility shim (removal is A3): keep the process-global populated
-    # for callers that still read it. This run's own decisions never do.
-    set_trends_config(trends_config)
+    # A3.5 P2: trend consumers receive the snapshot-derived policy explicitly;
+    # this run no longer rewrites the process-global trend table.
     anomaly_config = {"zscore_threshold": analysis_config.zscore_threshold}
 
     ml_config = get_config_dict(session, "ml")
@@ -551,7 +783,11 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
 
     from app.engine import indicator_service
     from app.engine.anomaly.layered import is_detection_outlier
-    from app.engine.anomaly.projection import project_rate_rows, row_z_score
+    from app.engine.anomaly.projection import (
+        project_rate_rows,
+        resolved_indicator_map,
+        row_z_score,
+    )
 
     # ── ONE detection engine ─────────────────────────────────────────────────
     # The layered engine analyses every data-tree element and every active rate
@@ -580,36 +816,11 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
         # Provenance for the projected rows: the live registry definition when
         # one exists (indicator_id "derived:<id>", the Quality report's
         # stale-formula check), otherwise the builtin rate spec.
-        candidates = indicator_service.resolve_outlier_candidates(session)
-        resolved_by_code = {resolved.code: resolved for resolved in candidates}
-        # A rate_config code ("rate_cs") has no registry record of its own; the
-        # same rate lives in the registry under its definition code. Match them
-        # by formula + scale so the projected row keeps the definition's id
-        # (the Quality report's stale-formula check reads it).
-        by_formula = {}
-        for resolved in candidates:
-            definition = getattr(resolved, "definition", None)
-            if definition is None or not definition.denominator_codes:
-                continue
-            by_formula.setdefault(
-                (tuple(definition.numerator_codes or ()),
-                 tuple(definition.denominator_codes or ()),
-                 round(float(definition.multiplier or 1.0), 6)),
-                resolved)
-        try:
-            from app.engine.rate_config import load_rate_specs
-            for code, rate_spec in load_rate_specs(session).items():
-                key = (tuple(rate_spec.numerator_codes),
-                       tuple(rate_spec.denominator_codes),
-                       round(float(rate_spec.rate_multiplier or 1.0), 6))
-                resolved_by_code.setdefault(
-                    code, by_formula.get(key)
-                    or indicator_service.resolve_spec(rate_spec))
-        except Exception:
-            logger.exception(
-                "Rate specs unreadable for %s/%s; projecting without their provenance",
-                hospital.name, month,
-            )
+        # Provenance for the projected rows — the ONE builder the Outliers
+        # reader also uses to map a stored analysis_code back to the code the
+        # projection writes, so that join never depends on a display name.
+        resolved_by_code = resolved_indicator_map(
+            session, context=f"{hospital.name}/{month}")
         hospital_names = {
             hid: name for hid, name in
             session.query(Hospital.id, Hospital.name)
@@ -639,9 +850,11 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
     # the shared helper. Falls back to all non-synthetic, non-disabled codes if
     # the helper fails (e.g. requirement_type column not yet migrated).
     try:
-        required_codes = get_required_indicator_codes(session, hospital_id, month)
+        required_codes = get_required_indicator_codes(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null)
     except Exception:
-        disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
+        disabled_ids = get_disabled_indicator_ids(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null)
         required_codes = {
             code for (iid, code) in session.query(Indicator.id, Indicator.code).all()
             if iid not in disabled_ids and code not in SYNTHETIC_INDICATOR_CODES
@@ -673,6 +886,7 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
     indicator_map.update(INDICATOR_CODE_TO_NAME)
 
     confidence_data = {}
+    confidence_persistence_failed = False
     try:
         confidence_result = calculate_confidence(
             hospital_name=hospital.name,
@@ -686,20 +900,39 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
             indicator_rule_map=indicator_rule_map,
             key_indicator_codes=KEY_INDICATOR_CODES,
             disabled_codes=disabled_codes,
-            session=session,
+            confidence_policy=confidence_policy,
+            auto_disable_null=auto_disable_null,
         )
         confidence_data = confidence_result.to_dict()
+    except PolicyUnavailable:
+        # A configuration failure must not be converted into an ordinary
+        # Confidence result; let the run-level fallback expose the failure.
+        raise
     except Exception:
         logger.exception("Confidence analysis failed for %s/%s; continuing with core results", hospital.name, month)
 
     _save_validation_results(session, hospital_id, month, rule_results)
     _save_anomaly_results(session, hospital_id, month, anomaly_results)
-    _save_quality_score(session, hospital_id, month, quality)
+    _save_quality_score(session, hospital_id, month, quality,
+                        policy_digest=policy.digest,
+                        set_policy_identity=True)
     if confidence_data:
         try:
             _save_confidence_score(session, hospital_id, month, confidence_data)
         except Exception:
-            logger.exception("Saving confidence score failed for %s/%s", hospital.name, month)
+            # D4: the calculation succeeded but its result was NOT stored. This
+            # run is not a success: mark it failed with its own kind and drop
+            # the payload so no consumer can read a confidence that the
+            # database never accepted. The QualityScore written above stays a
+            # genuine result (it is not rewritten as a fallback placeholder).
+            confidence_persistence_failed = True
+            try:
+                session.rollback()
+            except Exception:
+                pass
+            logger.exception(
+                "Confidence persistence failed for %s/%s; the run is marked failed",
+                hospital.name, month)
 
     if layered_ok:
         try:
@@ -749,7 +982,7 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
                     "z_score": float(a.z_score) if a.z_score is not None else None,
                 })
 
-    return {
+    result = {
         "hospital": hospital.name,
         "month": month,
         "data_quality_score": quality["score"],
@@ -760,7 +993,9 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
         "issues": quality["issues"],
         "outliers": outliers,
         "cached": False,
-        "confidence": {
+        # D4: no confidence payload when persistence failed — the run must not
+        # expose a "confidence computed" success for data that was not stored.
+        "confidence": None if confidence_persistence_failed else {
             "overall_confidence": confidence_data.get("overall_confidence", 0),
             "level": confidence_data.get("level", "UNKNOWN"),
             "by_level": confidence_data.get("by_level", {}),
@@ -780,26 +1015,30 @@ def _compute_full_analysis(session: Session, hospital_id: int, month: str,
         },
         **ml_results,
     }
+    if confidence_persistence_failed:
+        result["analysis_status"] = ANALYSIS_STATUS_FAILED
+        result["failure_kind"] = FAILURE_CONFIDENCE_PERSISTENCE
+    return result
 
 
-def _maybe_auto_scan_quality_alerts(session: Session, month: str,
+def _maybe_auto_scan_quality_alerts(session: Session, month: str, *,
+                                   auto_scan: bool,
                                    policy: Optional[PolicySnapshot] = None) -> None:
     """Run the Quality Alerts scan for ``month`` after a fresh analysis.
 
-    Default ON (AppConfig ``alerts_auto_scan`` = 1, category ``alerts``):
-    uploaded / re-analysed data raises its alerts without anyone pressing
-    Run Scan. The scan is month-scoped and covers ALL hospitals, so it is
-    memoized per session+month — a bulk upload of N hospitals triggers one
-    scan per month, not N. Any failure is rolled back and logged: alerting
-    must never lose or block the analysis already persisted above.
+    ``auto_scan`` is the run's RESOLVED gate (``alerts.auto_scan``, default ON
+    when System Control has no row). It is passed in by the caller instead of
+    being read here, so the analysis, the scan decision and the scan itself
+    cannot disagree about the configuration version (A3.4).
+
+    The scan is month-scoped and covers ALL hospitals, so it is memoized per
+    session+month — a bulk upload of N hospitals triggers one scan per month,
+    not N. Any failure is rolled back and logged: alerting must never lose or
+    block the analysis already persisted above. A configuration read failure
+    never reaches this helper: the run entry point fails first.
     """
-    try:
-        from app.config_utils import get_config_dict
-        flag = str(get_config_dict(session, "alerts").get("alerts_auto_scan", 1)).strip()
-        if flag in ("0", "0.0", "false", "False", "off"):
-            return
-    except Exception:
-        logger.exception("Quality Alerts auto-scan config check failed; scanning anyway")
+    if not auto_scan:
+        return
     scanned = session.info.setdefault("qa_auto_scanned_months", set())
     if month in scanned:
         return
@@ -843,15 +1082,15 @@ def run_full_analysis(session: Session, hospital_id: int, month: str,
         )
     try:
         # One snapshot for the whole run — the analysis AND the alerts
-        # auto-scan that follows it. A cached report is returned without any
-        # configuration work, exactly as before, so a configuration outage
-        # cannot hide a result that was already computed: if the snapshot is
-        # unreadable here, the analysis path resolves (and reports) it.
+        # auto-scan that follows it. The snapshot is resolved BEFORE the
+        # cached-report check. That ordering is deliberately unchanged: the
+        # current cache row stores no policy identity, so a cached result is
+        # labelled ``cached_unavailable`` rather than pretending a newly
+        # resolved policy produced it. A read failure here propagates to the
+        # established fallback contract below; it is never retried and never
+        # becomes a successful analysis result.
         if policy is None:
-            try:
-                policy = load_policy_snapshot(session)
-            except PolicyUnavailable:
-                policy = None
+            policy = load_policy_snapshot(session)
         result = _compute_full_analysis(session, hospital_id, month,
                                         force=force, policy=policy)
         # Empty/missing-data path returns early without persisting — persist it
@@ -864,51 +1103,63 @@ def run_full_analysis(session: Session, hospital_id: int, month: str,
                 "consistency": result.get("consistency", 0),
                 "outlier_penalty": result.get("outlier_penalty", 0),
                 "issues": result.get("issues") or [],
-            })
+            }, policy_digest=policy.digest, set_policy_identity=True)
         # Fresh analysis -> refresh this month's Quality Alerts for all
         # hospitals (default on; see _maybe_auto_scan_quality_alerts).
         if not result.get("cached"):
-            _maybe_auto_scan_quality_alerts(session, month, policy=policy)
-        return result
+            if policy is None:  # pragma: no cover - _compute_full_analysis resolved it
+                raise PolicyUnavailable(
+                    "alerts auto-scan reached without the run's policy snapshot")
+            _maybe_auto_scan_quality_alerts(
+                session, month, auto_scan=policy.alerts_auto_scan,
+                policy=policy)
+        if result.get("cached"):
+            # The row was computed earlier; no snapshot can be attributed to
+            # it. Keep the cached result usable, but make the missing identity
+            # explicit instead of attaching the policy just resolved here.
+            if result.get("analysis_status") == ANALYSIS_STATUS_FAILED:
+                # P3.3.3b-Fix: cache recovery must never convert a previous
+                # failure into a success. The failure kind found on the stored
+                # row is carried through verbatim.
+                return _with_analysis_metadata(
+                    result, policy=None,
+                    analysis_status=ANALYSIS_STATUS_FAILED,
+                    provenance_status=POLICY_PROVENANCE_CACHED,
+                    failure_kind=(result.get("failure_kind")
+                                  or FAILURE_STORED_FALLBACK),
+                    policy_digest=result.get("policy_digest"),
+                    policy_identity_status=result.get("policy_identity_status"))
+            return _with_analysis_metadata(
+                result, policy=None, analysis_status=ANALYSIS_STATUS_OK,
+                provenance_status=POLICY_PROVENANCE_CACHED,
+                policy_digest=result.get("policy_digest"),
+                policy_identity_status=result.get("policy_identity_status"))
+        # D4: a run that computed its scores but failed to persist a derived
+        # artifact (Confidence) is NOT successful. Its failure kind travels
+        # with the result; the stored QualityScore stays a genuine row.
+        _failed = result.get("analysis_status") == ANALYSIS_STATUS_FAILED
+        return _with_analysis_metadata(
+            result, policy=policy,
+            analysis_status=(ANALYSIS_STATUS_FAILED if _failed
+                             else ANALYSIS_STATUS_OK),
+            provenance_status=POLICY_PROVENANCE_AVAILABLE,
+            failure_kind=(result.get("failure_kind") if _failed else None))
     except ValueError:
         raise
+    except PolicyUnavailable as exc:
+        logger.exception(
+            "Policy configuration failure for %s/%s; saving fallback quality report",
+            hospital_id, month)
+        failure_kind = (FAILURE_CONFIDENCE_POLICY_INVALID
+                        if isinstance(exc, ConfidencePolicyInvalid)
+                        else FAILURE_POLICY_UNAVAILABLE)
+        return _analysis_failure_result(
+            session, hospital_id, month, failure_kind=failure_kind, policy=policy)
     except Exception:
         logger.exception("Full analysis failed for %s/%s; saving fallback quality report", hospital_id, month)
-        # The failed step (e.g. _save_anomaly_results) aborts the DB transaction
-        # (PostgreSQL: "current transaction is aborted"). Any further use of the
-        # session without rollback raises InFailedSqlTransaction — "This
-        # Session's transaction has been rolled back due to a previous
-        # exception" — which then cascades to every later hospital/month of a
-        # bulk re-analysis. Reset the session before the fallback save.
-        try:
-            session.rollback()
-        except Exception:
-            logger.exception("Rollback after analysis failure failed for %s/%s", hospital_id, month)
-        try:
-            _save_quality_score(session, hospital_id, month, {
-                "score": 0,
-                "rule_compliance": 0,
-                "completeness": 0,
-                "consistency": 0,
-                "outlier_penalty": 0,
-                "issues": ["Analysis failed during report generation"],
-            })
-        except Exception:
-            logger.exception("Could not save fallback quality report for %s/%s", hospital_id, month)
-            session.rollback()
-        hospital = session.query(Hospital).filter(Hospital.id == hospital_id).first()
-        return {
-            "hospital": hospital.name if hospital else None,
-            "month": month,
-            "data_quality_score": 0,
-            "rule_compliance": 0,
-            "completeness": 0,
-            "consistency": 0,
-            "outlier_penalty": 0,
-            "issues": ["Analysis failed during report generation"],
-            "outliers": [],
-            "cached": False,
-        }
+        return _analysis_failure_result(
+            session, hospital_id, month, failure_kind=FAILURE_ANALYSIS_ERROR,
+            policy=policy)
 
 
 def purge_derived_results(session: Session, hospital_id: int, month: str = None) -> Dict[str, int]:
@@ -934,17 +1185,74 @@ def purge_derived_results(session: Session, hospital_id: int, month: str = None)
     return counts
 
 
+class RecomputeResult(int):
+    """Successful recompute count plus the batch's structured failure report.
+
+    ``recompute_hospital_months`` has always returned an int, and its callers
+    rely on that: Remove Data asserts ``done == 1``, the deep-repair worker
+    does ``recomputed += n`` / ``len(months) - n``, the restore scripts print
+    ``f"{done}/{len(months)}"``. Subclassing ``int`` keeps every one of those
+    unchanged while letting a caller that cares read ``requested``,
+    ``succeeded``, ``failed`` and ``failures``. Arithmetic yields a plain int.
+    """
+
+    def __new__(cls, succeeded: int, *, requested: int, failures: list):
+        obj = super().__new__(cls, succeeded)
+        obj.requested = int(requested)
+        obj.succeeded = int(succeeded)
+        obj.failures = list(failures)
+        obj.failed = len(obj.failures)
+        return obj
+
+    def as_dict(self) -> Dict:
+        return {
+            "requested": self.requested,
+            "succeeded": self.succeeded,
+            "failed": self.failed,
+            "failures": [dict(record) for record in self.failures],
+        }
+
+    # Rendering is deliberately NOT overridden: an int subclass prints and
+    # formats as its plain value (scripts do f"{done}/{len(months)}"). The
+    # structured report is read through the attributes or as_dict().
+
+
+def _recompute_failure(hospital_id: int, month: str, *, failure_kind: str,
+                       reason: str, error_type: Optional[str] = None) -> Dict:
+    """One failed hospital/month, safe to log or return.
+
+    The reason is flattened and truncated: it identifies the failure without
+    carrying multi-line tracebacks or unbounded driver text, and the
+    machine-readable kind is never derived from the message.
+    """
+    return {
+        "hospital_id": hospital_id,
+        "month": month,
+        "failure_kind": failure_kind,
+        "error_type": error_type,
+        "reason": " ".join(str(reason).split())[:300],
+    }
+
+
 def recompute_hospital_months(
     session: Session,
     hospital_id: int,
     months=None,
     force: bool = True,
     progress_cb=None,
+    policy: Optional[PolicySnapshot] = None,
 ) -> int:
     """Purge derived rows and re-run analysis for a hospital's months.
 
     months=None means every month that still has indicator values for the
-    hospital. Returns the number of months successfully recomputed.
+    hospital.
+
+    Returns a :class:`RecomputeResult`: an ``int`` equal to the number of
+    months whose analysis SUCCEEDED (the long-standing contract), carrying
+    ``requested``, ``succeeded``, ``failed`` and ``failures`` so a partial
+    batch can never look like a clean one. A run that ends as a failed-analysis
+    placeholder counts as failed, not recomputed. One failing month never
+    stops the remaining months.
     """
     if months is None:
         months = sorted({
@@ -952,26 +1260,52 @@ def recompute_hospital_months(
                 IndicatorValue.hospital_id == hospital_id,
             ).distinct().all()
         })
+    months = list(months)
+    # One snapshot for every month of this batch (A3.3).
+    if policy is None:
+        policy = load_policy_snapshot(session)
+
     done = 0
+    failures: list = []
     for month in months:
-        purge_derived_results(session, hospital_id, month)
-        session.commit()
         try:
-            run_full_analysis(session, hospital_id, month, force=force)
-            done += 1
-        except Exception:
-            session.rollback()
+            # Purge and analysis are one unit: a purge/commit failure belongs
+            # to this month and must not abort the rest of the batch.
+            purge_derived_results(session, hospital_id, month)
+            session.commit()
+            result = run_full_analysis(session, hospital_id, month,
+                                       force=force, policy=policy)
+            if (isinstance(result, dict)
+                    and result.get("analysis_status") == ANALYSIS_STATUS_FAILED):
+                # A fallback row is a failed analysis, not a recompute: never
+                # count it as success (the P3.3.3b identity, applied to batches).
+                failures.append(_recompute_failure(
+                    hospital_id, month,
+                    failure_kind=(result.get("failure_kind")
+                                  or FAILURE_STORED_FALLBACK),
+                    reason="analysis returned a failed-analysis status"))
+            else:
+                done += 1
+        except Exception as exc:
+            try:
+                session.rollback()
+            except Exception:
+                pass
             logger.exception("Recompute failed for hospital %s / %s", hospital_id, month)
+            failures.append(_recompute_failure(
+                hospital_id, month, failure_kind=FAILURE_RECOMPUTE_ERROR,
+                error_type=type(exc).__name__, reason=str(exc)))
         if progress_cb:
             try:
                 progress_cb(done)
             except Exception:
                 pass
-    return done
+    return RecomputeResult(done, requested=len(months), failures=failures)
 
 
 def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
-                               progress_cb=None) -> int:
+                               progress_cb=None,
+                               policy: Optional[PolicySnapshot] = None) -> int:
     """Re-run the validation rules and refresh the rule-dependent scores.
 
     A rule edit changes ONLY the rule outcomes. A full analysis would also
@@ -990,6 +1324,11 @@ def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
     """
     from app.config_utils import get_config_dict
 
+    # One snapshot for this batch: every month below shares the same gate.
+    if policy is None:
+        policy = load_policy_snapshot(session)
+    auto_disable_null = policy.require_auto_disable_null()
+
     hospital = session.query(Hospital).filter(Hospital.id == hospital_id).first()
     if hospital is None:
         return 0
@@ -1000,7 +1339,8 @@ def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
         })
 
     quality_config = get_config_dict(session, "quality")
-    set_rules_config(get_config_dict(session, "rules"))
+    from app.engine.policy_view import rules_policy_from_snapshot
+    rules_policy = rules_policy_from_snapshot(policy)
     code_to_name = {
         code: name for code, name in session.query(Indicator.code, Indicator.name).all()
         if code not in SYNTHETIC_INDICATOR_CODES
@@ -1014,7 +1354,8 @@ def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
             continue
         all_hospital_data = get_all_hospital_data_for_month(session, month)
         historical = get_historical_months(session, hospital_id, month)
-        disabled_ids = get_disabled_indicator_ids(session, hospital_id, month)
+        disabled_ids = get_disabled_indicator_ids(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null)
         disabled_codes = set()
         if disabled_ids:
             disabled_codes = {
@@ -1029,6 +1370,7 @@ def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
             all_hospital_data=all_hospital_data,
             historical_data=historical or {},
             disabled_codes=disabled_codes,
+        rules=rules_policy,
         )
         rule_results = run_rules_from_db(session, ctx)
         if not rule_results:
@@ -1039,7 +1381,8 @@ def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
                     r.details = _resolve_codes(r.details)
 
         try:
-            required_codes = get_required_indicator_codes(session, hospital_id, month)
+            required_codes = get_required_indicator_codes(session, hospital_id, month,
+                                                             auto_disable_null=auto_disable_null)
         except Exception:
             required_codes = {
                 code for (iid, code) in session.query(Indicator.id, Indicator.code).all()
@@ -1072,8 +1415,19 @@ def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
             layered_results=layered_rows if layered_rows else None,
             outlier_eligible_codes=outlier_eligible_codes,
         )
-        _save_validation_results(session, hospital_id, month, rule_results)
-        _save_quality_score(session, hospital_id, month, quality, action="revalidate")
+        # The rule outcomes and the score they produce are ONE snapshot: both
+        # rows are committed together, so a failure here can never leave new
+        # FAIL rows beside the old (often 100%) rule_compliance that the
+        # dashboard KPI reads while the Validation Alerts screen lists them.
+        try:
+            _save_validation_results(session, hospital_id, month, rule_results,
+                                     commit=False)
+            _save_quality_score(session, hospital_id, month, quality,
+                                action="revalidate", commit=False)
+            session.commit()
+        except Exception:
+            session.rollback()
+            raise
         done += 1
         if progress_cb:
             try:
@@ -1083,7 +1437,16 @@ def revalidate_hospital_months(session: Session, hospital_id: int, months=None,
     return done
 
 
-def _save_validation_results(session: Session, hospital_id: int, month: str, results: List[RuleResult]):
+def _save_validation_results(session: Session, hospital_id: int, month: str,
+                             results: List[RuleResult], commit: bool = True):
+    """Replace the month's stored rule outcomes.
+
+    ``commit=False`` leaves the rows pending so a caller can commit them
+    together with the QualityScore they produced. Writing the two snapshots in
+    separate transactions let a failure in between leave NEW alert rows beside
+    an OLD (often 100%) rule_compliance — the dashboard then reported perfect
+    validation while the Validation Alerts screen listed real failures.
+    """
     session.query(ValidationResult).filter(
         ValidationResult.hospital_id == hospital_id,
         ValidationResult.month == month,
@@ -1101,7 +1464,8 @@ def _save_validation_results(session: Session, hospital_id: int, month: str, res
             details=r.details,
         )
         session.add(vr)
-    session.commit()
+    if commit:
+        session.commit()
 
 
 def _save_anomaly_results(session: Session, hospital_id: int, month: str, results: list):
@@ -1304,12 +1668,18 @@ def _save_layered_results(session: Session, hospital_id: int, month: str, result
 
 
 def _save_quality_score(session: Session, hospital_id: int, month: str, quality: Dict,
-                        action: str = "analysis", actor: str = "system"):
+                        action: str = "analysis", actor: str = "system", commit: bool = True,
+                        policy_digest: Optional[str] = None,
+                        set_policy_identity: bool = False):
     """Persist the computed score WITH its scoring configuration provenance.
 
     An overwrite is recorded in quality_score_revisions first, so the values
     that were replaced (and the configuration that produced them) stay
     explainable.
+
+    D5: an analysis run also stamps the policy identity it used. Writers that
+    have no policy (dashboard recalculation, indicator toggles, repair) leave
+    the recorded identity untouched instead of erasing it.
     """
     from app.engine.quality.scoring_audit import apply_score_update
 
@@ -1326,18 +1696,25 @@ def _save_quality_score(session: Session, hospital_id: int, month: str, quality:
         issues=json.dumps(quality["issues"]),
     )
     if existing:
-        apply_score_update(session, existing, quality["scoring_config"],
-                           action, actor, **changes)
+        # ``scoring_config`` is absent for config-less writes (the failed-
+        # analysis fallback): passing None keeps the row provenance-free
+        # instead of raising and losing the fallback entirely.
+        apply_score_update(session, existing, quality.get("scoring_config"),
+                           action, actor,
+                           policy_digest=policy_digest,
+                           set_policy_identity=set_policy_identity, **changes)
     else:
         qs = QualityScore(
             hospital_id=hospital_id,
             month=month,
             scoring_fingerprint=quality.get("scoring_fingerprint"),
             scoring_config=quality.get("scoring_config"),
+            policy_digest=(policy_digest if set_policy_identity else None),
             **changes,
         )
         session.add(qs)
-    session.commit()
+    if commit:
+        session.commit()
 
 
 def _save_confidence_score(session: Session, hospital_id: int, month: str, confidence_data: Dict):

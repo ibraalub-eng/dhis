@@ -1,11 +1,13 @@
 import json
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Set
+
 import numpy as np
 from scipy import stats as scipy_stats
-from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Set
-from app.engine.quality import RuleResult, RuleStatus
-from app.engine.anomaly import compute_rate, RATE_DEFINITIONS
 
+from app.engine.anomaly import RATE_DEFINITIONS, compute_rate
+from app.engine.confidence_policy import ConfidencePolicy
+from app.engine.quality import RuleResult, RuleStatus
 
 INDICATOR_CLINICAL_WEIGHTS: Dict[str, float] = {
     "11": 5.0,
@@ -36,14 +38,6 @@ INDICATOR_GROUPS: Dict[str, List[str]] = {
     "Mortality": ["11", "17"],
     "Pregnancy Outcomes": ["7", "8"],
     "Other Services": ["13", "14", "18", "19", "20", "21", "22", "23", "24", "25"],
-}
-
-SIGNAL_WEIGHTS: Dict[str, float] = {
-    "rule_compliance": 0.55,
-    "historical": 0.10,
-    "cross_hospital": 0.10,
-    "trend": 0.10,
-    "completeness": 0.15,
 }
 
 RATE_NUM_CODES: Set[str] = set()
@@ -344,16 +338,12 @@ def _signal_completeness(
     return ConfidenceSignal("completeness", score >= 0.8, score, detail)
 
 
-def _compute_level(confidence: float, config: dict = None) -> str:
-    cfg = config or {}
-    high_cutoff = cfg.get("confidence_high", 80.0)
-    medium_cutoff = cfg.get("confidence_medium", 50.0)
-    low_cutoff = cfg.get("confidence_low", 25.0)
-    if confidence >= high_cutoff:
+def _compute_level(confidence: float, policy: ConfidencePolicy) -> str:
+    if confidence >= policy.high:
         return "HIGH"
-    if confidence >= medium_cutoff:
+    if confidence >= policy.medium:
         return "MEDIUM"
-    if confidence >= low_cutoff:
+    if confidence >= policy.low:
         return "LOW"
     return "CRITICAL"
 
@@ -420,39 +410,16 @@ def calculate_confidence(
     indicator_rule_map: Optional[Dict[str, List[str]]] = None,
     key_indicator_codes: Optional[List[str]] = None,
     disabled_codes: Optional[set] = None,
-    session=None,
+    *,
+    confidence_policy: ConfidencePolicy,
+    auto_disable_null: bool,
 ) -> HospitalConfidenceResult:
-    global SIGNAL_WEIGHTS
-    threshold_config = {}
-    if session is not None:
-        try:
-            from app.models import ConfidenceWeights
-            cw = session.query(ConfidenceWeights).first()
-            if cw:
-                SIGNAL_WEIGHTS = {
-                    "rule_compliance": cw.rule_compliance,
-                    "historical": cw.historical,
-                    "cross_hospital": cw.cross_hospital,
-                    "trend": cw.trend,
-                    "completeness": cw.completeness,
-                }
-            from app.config_utils import get_config_dict
-            threshold_config = get_config_dict(session, "thresholds")
-        except Exception:
-            pass
-
     if key_indicator_codes is None:
         key_indicator_codes = sorted(values.keys(), key=lambda c: (len(c), c))
 
-    # Check auto-disable setting
-    _auto_disable = False
-    if session is not None:
-        try:
-            from app.models import SystemSetting as _SS
-            _ss = session.query(_SS).filter(_SS.key == 'auto_disable_null_indicators').first()
-            _auto_disable = (_ss.value == 'true') if _ss else False
-        except Exception:
-            pass
+    # A3.3: the auto-disable gate arrives resolved from the run's
+    # PolicySnapshot. This function never reads System Control itself, and a
+    # missing argument is a programming error rather than a silent False.
 
     assessed: List[str] = []
     for code in values.keys():
@@ -463,7 +430,7 @@ def calculate_confidence(
             if disabled_codes and code in disabled_codes:
                 continue
             # If auto-disable ON, skip indicators not in values (disabled/missing)
-            if _auto_disable and code not in values:
+            if auto_disable_null and code not in values:
                 continue
             assessed.append(code)
 
@@ -474,15 +441,15 @@ def calculate_confidence(
 
         signals: List[ConfidenceSignal] = []
         signals.append(_signal_rule_compliance(code, rule_results, indicator_rule_map or {}))
-        z_thresh = threshold_config.get("zscore_threshold", 2.5)
+        z_thresh = confidence_policy.zscore_threshold
         signals.append(_signal_historical(code, value, historical_data, z_thresh))
         signals.append(_signal_cross_hospital(code, value, all_hospital_data, hospital_name, z_thresh))
         signals.append(_signal_trend(code, value, historical_data))
         signals.append(_signal_completeness(code, value, values, indicator_children))
 
-        raw = sum(s.score * SIGNAL_WEIGHTS.get(s.factor, 0) for s in signals)
+        raw = sum(s.score * confidence_policy.weight_for(s.factor) for s in signals)
         confidence = max(0, min(100, round(raw * 100, 1)))
-        level = _compute_level(confidence, threshold_config)
+        level = _compute_level(confidence, confidence_policy)
         recs = _build_recommendations(code, name, value, signals, level)
 
         indicators.append(IndicatorConfidence(
@@ -521,7 +488,7 @@ def calculate_confidence(
         weighted_sum += ind.confidence * w
         total_w += w
     overall = (weighted_sum / total_w) if total_w > 0 else 0
-    overall_level = _compute_level(overall, threshold_config)
+    overall_level = _compute_level(overall, confidence_policy)
 
     priority = [i for i in indicators]
 

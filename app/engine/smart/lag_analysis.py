@@ -116,7 +116,8 @@ def _hospital_rates(values: Dict[str, Any]) -> Dict[str, Optional[float]]:
     return rates
 
 
-def _load_series(session, month: str, months_back: int = 6
+def _load_series(session, month: str, months_back: int = 6, *,
+                 auto_disable_null: bool
                  ) -> Tuple[Dict[str, Dict[str, Dict[str, Optional[float]]]],
                             Dict[str, Dict[str, Any]], List[str]]:
     """سلاسل معدلات كل مستشفى لكل شهر + بيانات تعريفية (id/محافظة) + النافذة.
@@ -132,7 +133,8 @@ def _load_series(session, month: str, months_back: int = 6
     series: Dict[str, Dict[str, Dict[str, Optional[float]]]] = {}
     meta: Dict[str, Dict[str, Any]] = {}
     for m in window:
-        data = _load_hospital_data(session, m)
+        data = _load_hospital_data(session, m,
+                                   auto_disable_null=auto_disable_null)
         for name, entry in data.items():
             series.setdefault(name, {})[m] = _hospital_rates(entry.get("values", {}))
             # الاحتفاظ بأحدث بيانات تعريفية متاحة
@@ -289,7 +291,10 @@ def run_lag_analysis(session, month: str, months_back: int = 6) -> Dict[str, Any
     ثم نضبط تعدد الاختبارات بـ FDR، ونختار أفضل إزاحة لكل زوج، ونقارن بالارتباط
     الآني (A_t, B_t) لمعرفة هل التأخر يضيف معلومة فعلية.
     """
-    series, _, window = _load_series(session, month, months_back)
+    from app.engine.config_resolver import load_policy_snapshot
+    series, _, window = _load_series(
+        session, month, months_back,
+        auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
     if len(window) < 2 or len(series) < 2:
         return {
             "month": month, "lags": [],
@@ -567,7 +572,10 @@ def run_hospital_forecast(session, hospital_id: int, month: str,
     (مثل مولّد التقرير الشامل). عند عدم تمريرها تُحمَّل داخلياً.
     """
     if series is None or meta is None or window is None:
-        series, meta, window = _load_series(session, month, months_back=3)
+        from app.engine.config_resolver import load_policy_snapshot
+        series, meta, window = _load_series(
+            session, month, months_back=3,
+            auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
     if len(window) < 2:
         return {}
 
@@ -713,7 +721,10 @@ def run_early_warnings(session, month: str,
     from app.eligibility import exclude_disabled
     from app.models import QualityScore
 
-    series, meta, window = _load_series(session, month, months_back=3)
+    from app.engine.config_resolver import load_policy_snapshot
+    series, meta, window = _load_series(
+        session, month, months_back=3,
+        auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
     if len(window) < 2:
         return {"month": month, "warnings": [], "summary_ar": "يلزم شهران على الأقل للإنذار المبكر."}
 

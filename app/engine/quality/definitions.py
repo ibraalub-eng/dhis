@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from types import MappingProxyType
+
 _RULES_CONFIG = {
     "eq_tolerance": 0.01,
     "month_over_factor": 2.0,
@@ -5,6 +8,63 @@ _RULES_CONFIG = {
     "maternal_over_factor": 4.0,
     "neonatal_over_factor": 4.0,
 }
+
+#: Immutable baseline of the same values.
+#:
+#: A3.5 made ``_RULES_CONFIG`` legacy: the engine no longer reads it, and
+#: ``set_rules_config()`` is an inert compatibility shim. This frozen copy is
+#: the single documented-default source — the policy resolver's provenance and
+#: the parity tests read it, and it can never be rebound by a runtime update.
+RULE_DEFAULTS = MappingProxyType(dict(_RULES_CONFIG))
+
+#: The five rule-policy fields, in System Control order. ``RulesPolicy`` is the
+#: immutable carrier A3.5 passes to every rule evaluation; ``_RULES_CONFIG`` is
+#: kept only for import compatibility and no longer drives evaluation.
+RULE_POLICY_KEYS = (
+    "eq_tolerance",
+    "month_over_factor",
+    "month_under_factor",
+    "maternal_over_factor",
+    "neonatal_over_factor",
+)
+
+
+@dataclass(frozen=True)
+class RulesPolicy:
+    """One run's resolved rule settings (A3.5).
+
+    Frozen and self-contained: a consumer receives exactly the values the
+    resolver read for this operation, so two concurrent analyses with different
+    stored settings cannot observe each other's tolerance or month factors.
+    """
+
+    eq_tolerance: float = _RULES_CONFIG["eq_tolerance"]
+    month_over_factor: float = _RULES_CONFIG["month_over_factor"]
+    month_under_factor: float = _RULES_CONFIG["month_under_factor"]
+    maternal_over_factor: float = _RULES_CONFIG["maternal_over_factor"]
+    neonatal_over_factor: float = _RULES_CONFIG["neonatal_over_factor"]
+
+    def as_dict(self) -> dict:
+        return {key: getattr(self, key) for key in RULE_POLICY_KEYS}
+
+    @classmethod
+    def from_mapping(cls, values=None) -> "RulesPolicy":
+        """Build a policy from a stored ``rules`` mapping.
+
+        A missing key uses the documented default (the resolver's own
+        missing-setting rule); a present but non-numeric value raises instead
+        of being silently coerced.
+        """
+        resolved = {}
+        for key in RULE_POLICY_KEYS:
+            raw = (values or {}).get(key)
+            resolved[key] = (getattr(DEFAULT_RULES_POLICY, key)
+                             if raw is None else float(raw))
+        return cls(**resolved)
+
+
+#: Documented defaults — the only fallback the rule engine may use.
+DEFAULT_RULES_POLICY = RulesPolicy()
 
 
 RULE_REF_CODES = {

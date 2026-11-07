@@ -1,4 +1,7 @@
 import logging
+import math
+import numbers
+from types import MappingProxyType
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 import numpy as np
@@ -29,6 +32,137 @@ _TRENDS_CONFIG = {
     "zscore_threshold": 2.5,
 }
 
+#: Immutable copy of the DOCUMENTED engine defaults (D16-A3.1). The
+#: configuration resolver reads the trend-engine gate defaults from here
+#: instead of restating them, while ``_TRENDS_CONFIG`` stays the mutable
+#: per-process state it has always been. Captured at import, so a later
+#: ``set_trends_config`` can never change what 'the default' means.
+TREND_ENGINE_DEFAULTS = MappingProxyType(dict(_TRENDS_CONFIG))
+
+
+#: The five trend-engine gates read as raw config (they are not System Control
+#: setting specs). A3.5 P2 resolves them into ``TrendsPolicy`` so an evaluation
+#: no longer has to consult the module table.
+TREND_GATE_KEYS = (
+    "trend_finding_slope",
+    "trend_finding_deviation",
+    "trend_finding_cv",
+    "trend_finding_r_squared",
+    "trend_r_squared",
+)
+
+
+@dataclass(frozen=True)
+class TrendsPolicy:
+    """One immutable trend policy for one evaluation (A3.5 P2).
+
+    ``settings`` carries the validated System Control controls, ``bands`` the
+    monotonic slope ladder, the four gate fields the historical finding
+    thresholds, ``trend_r_squared`` the significance gate and
+    ``zscore_threshold`` the authoritative Z cut-off. A consumer receives this
+    value explicitly and reads nothing else; ``_TRENDS_CONFIG`` is never a
+    source for analytical decisions once a policy is supplied.
+    """
+
+    settings: "severity_policy.TrendSettings"
+    bands: Dict[str, float]
+    finding_slope: float
+    finding_deviation: float
+    finding_cv: float
+    finding_r_squared: float
+    trend_r_squared: float
+    zscore_threshold: float
+
+    def __post_init__(self):
+        object.__setattr__(self, "bands", MappingProxyType(dict(self.bands)))
+
+    def as_dict(self) -> Dict[str, float]:
+        return {
+            **{name: float(value) for name, value in self.bands.items()},
+            "trend_finding_slope": self.finding_slope,
+            "trend_finding_deviation": self.finding_deviation,
+            "trend_finding_cv": self.finding_cv,
+            "trend_finding_r_squared": self.finding_r_squared,
+            "trend_r_squared": self.trend_r_squared,
+            "zscore_threshold": self.zscore_threshold,
+        }
+
+
+def trends_policy_from_config(config: Optional[dict] = None) -> TrendsPolicy:
+    """Build a policy from a legacy ``config=`` mapping.
+
+    Absent keys fall back to the documented engine table, so a valid historical
+    payload produces the same values as before. Explicitly supplied values are
+    not silently replaced: the five finding gates raise ``TypeError`` for a
+    non-numeric value and the persistence gate raises for a non-numeric or
+    non-finite value, matching the pre-P2 raw comparisons that raised
+    ``TypeError``. ``zscore_threshold`` keeps the historical ``float()``
+    contract (numeric strings accepted, invalid values raise). The remaining
+    settings keep ``resolve_trend_settings``' documented coercion — invalid ->
+    default with the error recorded on ``settings.errors`` — which is what the
+    pre-P2 engine did for them.
+
+    Production paths use ``policy_view.trends_policy_from_snapshot`` instead and
+    never reach this function.
+    """
+    settings = _resolved_settings(config)
+    bands = _resolved_bands(config)
+    _validate_legacy_persistence(config)
+
+    return TrendsPolicy(
+        settings=settings,
+        bands=bands,
+        finding_slope=_legacy_gate(config, "trend_finding_slope"),
+        finding_deviation=_legacy_gate(config, "trend_finding_deviation"),
+        finding_cv=_legacy_gate(config, "trend_finding_cv"),
+        finding_r_squared=_legacy_gate(config, "trend_finding_r_squared"),
+        trend_r_squared=_legacy_gate(config, "trend_r_squared"),
+        zscore_threshold=_legacy_gate(config, "zscore_threshold",
+                                      coerce_text=True),
+    )
+
+
+def _legacy_gate(config: Optional[dict], key: str, *,
+                 coerce_text: bool = False) -> float:
+    """One raw gate for a legacy ``config=`` caller.
+
+    ``key not in config`` is absence, not ``None``: absence uses the engine
+    table exactly as before. A real number (including a non-finite one, which
+    the old comparisons accepted) passes through. Non-numeric text raises
+    ``TypeError`` like the old numeric comparison, except for the Z threshold,
+    whose historical ``float()`` accepted numeric strings and raised
+    ``ValueError`` for bad text.
+    """
+    if config is None or key not in config:
+        return float(_TRENDS_CONFIG[key])
+    value = config[key]
+    if isinstance(value, numbers.Real):
+        return float(value)
+    if coerce_text:
+        return float(value)
+    raise TypeError(
+        f"{key} must be a number, got {type(value).__name__}; the legacy "
+        "trend engine compares it numerically")
+
+
+def _validate_legacy_persistence(config: Optional[dict]) -> None:
+    """Keep the persistence gate's historical strictness.
+
+    Findings compared ``trend_finding_consecutive`` with the raw value, so a
+    string or ``None`` raised ``TypeError``. Keep that instead of letting the
+    settings plane silently substitute 3, and reject a non-finite explicit
+    value rather than coercing it to a default that could add a finding.
+    """
+    key = "trend_finding_consecutive"
+    if config is None or key not in config:
+        return
+    value = config[key]
+    if not isinstance(value, numbers.Real):
+        raise TypeError(
+            f"{key} must be a number, got {type(value).__name__}")
+    if not math.isfinite(float(value)):
+        raise ValueError(f"{key} must be finite, got {value!r}")
+
 
 #: How many times the process-global trend configuration has been
 #: overwritten in this process. Logged with the deprecation warning so a
@@ -38,24 +172,21 @@ _SET_TRENDS_CONFIG_CALLS = 0
 
 
 def set_trends_config(config: dict):
-    """Deprecated (D16-A2): overwrite the process-global trend config.
+    """Deprecated compatibility shim (A3.5 P2): records the call, moves nothing.
 
-    Kept for callers that have not migrated. A caller that hands an
-    explicit ``config`` to the trend engine already overrides every key
-    here, so the global only decides an argument-less call.
-
-    A2 does not remove it: the warning plus the call counter make every
-    remaining caller visible, so removal can follow once none are left
-    (A3). The update semantics are unchanged.
+    The analytical engine now receives a ``TrendsPolicy`` explicitly, so no
+    caller needs this. It is kept so an out-of-tree import cannot crash, but it
+    deliberately does not mutate ``_TRENDS_CONFIG``: a leftover call must not be
+    able to change another request's findings. P4 decides on deletion after a
+    release with zero observed calls.
     """
     global _SET_TRENDS_CONFIG_CALLS
-    _TRENDS_CONFIG.update(config)
     _SET_TRENDS_CONFIG_CALLS += 1
     if _SET_TRENDS_CONFIG_CALLS == 1 or _SET_TRENDS_CONFIG_CALLS % 100 == 0:
         logger.warning(
-            "set_trends_config() is deprecated (D16-A2): pass the run's "
-            "snapshot-derived configuration explicitly. Process-global "
-            "call #%d.", _SET_TRENDS_CONFIG_CALLS)
+            "set_trends_config() is inert (A3.5 P2): pass the run's "
+            "snapshot-derived TrendsPolicy explicitly. Call #%d was ignored.",
+            _SET_TRENDS_CONFIG_CALLS)
 
 
 def _resolved_settings(config: Optional[dict] = None):
@@ -198,22 +329,22 @@ def analyze_historical_trends(
     monthly_data: Dict[str, Dict[str, float]],
     additional_indicators=None,
     config: Optional[dict] = None,
+    policy: Optional[TrendsPolicy] = None,
 ) -> List[TrendResult]:
     """Analyse the configured window of months for trend results.
 
-    ``config`` is the saved AppConfig ``trends`` slice (pipeline) or the
-    validated slice returned by ``severity.load_analysis_config`` (API paths).
-    Only the most recent ``trend_analysis_window`` months are used, at least
-    ``trend_min_history_months`` usable periods are required, and the trend
-    assessment attached to each row states whether the configured direction,
-    persistence and cumulative-change gates were met.
+    ``policy`` is the run's immutable ``TrendsPolicy``; every threshold,
+    window, band and gate is read from it. ``config`` remains for legacy
+    callers and is converted with ``trends_policy_from_config`` only when no
+    policy is supplied. Only the most recent ``trend_analysis_window`` months
+    are used, at least ``trend_min_history_months`` usable periods are
+    required, and the trend assessment attached to each row states whether the
+    configured direction, persistence and cumulative-change gates were met.
     """
     results = []
-    settings = _resolved_settings(config)
-    bands = _resolved_bands(config)
-    raw = dict(_TRENDS_CONFIG)
-    if config:
-        raw.update(config)
+    policy = policy or trends_policy_from_config(config)
+    settings = policy.settings
+    bands = policy.bands
     if not settings.enabled:
         return results
     if not monthly_data:
@@ -265,8 +396,8 @@ def analyze_historical_trends(
         trend_direction, trend_severity = _compute_trend_direction(
             slope, mean_val, r_squared, slope_pct, bands=bands)
 
-        is_significant = (r_squared > raw["trend_r_squared"]
-                          or abs(slope_pct) > raw["trend_finding_slope"])
+        is_significant = (r_squared > policy.trend_r_squared
+                          or abs(slope_pct) > policy.finding_slope)
         trend_assessment = severity_policy.assess_trend(
             rate_values, valid_months, config=settings, bands=bands,
             indicator_direction=_indicator_direction(resolved),
@@ -283,16 +414,16 @@ def analyze_historical_trends(
         consec_dir, consec_count = _compute_consecutive_trend(rate_values)
 
         findings = []
-        if abs(slope_pct) > raw["trend_finding_slope"]:
+        if abs(slope_pct) > policy.finding_slope:
             direction_word = "increasing" if slope > 0 else "decreasing"
             findings.append(f"{rate_name} shows a {direction_word} trend ({slope_pct:+.1f}% per month)")
-        if consec_count >= raw["trend_finding_consecutive"]:
+        if consec_count >= settings.trend_finding_consecutive:
             findings.append(f"{consec_count} consecutive {consec_dir} months detected for {rate_name}")
-        if abs(last_vs_mean_pct) > raw["trend_finding_deviation"]:
+        if abs(last_vs_mean_pct) > policy.finding_deviation:
             findings.append(f"Last month deviates {last_vs_mean_pct:+.1f}% from mean for {rate_name}")
-        if cv > raw["trend_finding_cv"]:
+        if cv > policy.finding_cv:
             findings.append(f"High variability (CV={cv:.1f}%) for {rate_name}")
-        if r_squared > raw["trend_finding_r_squared"]:
+        if r_squared > policy.finding_r_squared:
             findings.append(f"Strong trend (R²={r_squared:.2f}) for {rate_name}")
 
         results.append(TrendResult(
@@ -327,10 +458,12 @@ def detect_trend_anomalies(
     monthly_data: Dict[str, Dict[str, float]],
     additional_indicators=None,
     config: Optional[dict] = None,
+    policy: Optional[TrendsPolicy] = None,
 ) -> List[AnomalyResultData]:
     """Current month vs its own prior history, within the configured window."""
     results = []
-    settings = _resolved_settings(config)
+    policy = policy or trends_policy_from_config(config)
+    settings = policy.settings
     if not settings.enabled:
         return results
 
@@ -385,8 +518,7 @@ def detect_trend_anomalies(
         else:
             z = (current_rate - mean_h) / std_h
 
-        z_threshold = float((config or {}).get(
-            "zscore_threshold", _TRENDS_CONFIG["zscore_threshold"]))
+        z_threshold = policy.zscore_threshold
         is_outlier = abs(z) > z_threshold
 
         if len(historical_rates) >= 3:
