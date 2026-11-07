@@ -35,7 +35,7 @@
                     d.peer_std !== null && d.peer_std !== undefined ? Number(d.peer_std).toFixed(2) : '',
                     d.peer_min != null && d.peer_max != null ? Number(d.peer_min).toFixed(2) + ' - ' + Number(d.peer_max).toFixed(2) : '',
                     d.peer_median !== null && d.peer_median !== undefined ? Number(d.peer_median).toFixed(2) : '',
-                    d.is_outlier !== undefined ? (d.is_outlier ? 'Outlier' : 'Normal') : '',
+                    d.layered_level || (d.severity_status === 'missing_layered_result' ? 'No layered evidence' : ''),
                     features,
                     d.layered_type || ''
                 ];
@@ -161,7 +161,7 @@
             // indicators can share a display name (stillbirth per deliveries
             // vs per live births) and a name filter would mix them.
             const rate = document.getElementById('outlierRateFilter').value;
-            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="10" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
+            document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="11" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading outliers...</td></tr>';
             let url = '/analysis/outliers?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
@@ -171,7 +171,7 @@
                 updateOutlierUI(data, hosp, mon, rate);
             }).catch(err => {
                 document.getElementById('outlierLoading').classList.add('hidden');
-                document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="10" style="color:red;">Error: ' + err.message + '</td></tr>';
+                document.getElementById('outlierTbody').innerHTML = '<tr><td colspan="11" style="color:red;">Error: ' + err.message + '</td></tr>';
             });
         }
 
@@ -214,7 +214,7 @@
             // Render table
             const tbody = document.getElementById('outlierTbody');
             if (!data.length) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">No outliers found.</td></tr>';
                 return;
             }
             const idxById = new Map();
@@ -232,6 +232,24 @@
                 const peerRange = (d.peer_min != null && d.peer_max != null)
                     ? Number(d.peer_min).toFixed(2) + ' – ' + Number(d.peer_max).toFixed(2)
                     : '--';
+                // Severity is the backend's answer from the single Effective
+                // Severity policy (bands + zero-spread cap + thin-peer cap +
+                // very-high gate). The browser only chooses a badge colour —
+                // it never re-grades, and it never invents a band for a row
+                // whose stored evidence is missing.
+                const sev = d.layered_level || null;
+                const sevClass = sev === 'VERY_HIGH' ? 'badge-critical'
+                    : sev === 'HIGH' ? 'badge-high'
+                    : sev === 'MODERATE' ? 'badge-medium'
+                    : sev === 'LOW' ? 'badge-low'
+                    : 'badge-muted';
+                const sevNote = sev
+                    ? (d.layered_stored_level && d.layered_stored_level !== sev
+                        ? __('Stored band: ') + d.layered_stored_level + ' — ' + __('the current policy caps it')
+                        : '')
+                    : __('No layered result for this hospital, indicator and month — no severity can be graded');
+                const sevCell = '<span class="badge ' + sevClass + '" title="' + esc(sevNote) + '">'
+                    + (sev ? esc(sev) : __('No evidence')) + '</span>';
                 // Peers cell is clickable when drill-down detail exists.
                 const rowIdx = d.id != null ? (idxById.get(String(d.id)) ?? i) : i;
                 const peerCell = hasPeers && d.peers_detail && d.peers_detail.length
@@ -274,6 +292,7 @@
                     '<td' + (zNote ? ' title="' + esc(zNote) + '"' : '') + '><span class="badge ' + zClass + '">' + (z ? Number(d.z_score).toFixed(2) : '--') + '</span></td>' +
                     '<td>' + peerCell + '</td>' +
                     '<td>' + peerRange + '</td>' +
+                    '<td>' + sevCell + '</td>' +
                     '<td>' + classificationBadge(d.layered_type, d.layered_interpretation) + '</td>' +
                     '<td>' + whyBtn + '</td>' +
                     '</tr>';
@@ -284,7 +303,7 @@
             // appear" starts. Say it out loud instead.
             if (total > data.length) {
                 tbody.insertAdjacentHTML('beforeend',
-                    '<tr data-no-sort><td colspan="10" style="text-align:center;color:var(--text-muted);font-size:0.72rem;padding:0.6rem;">'
+                    '<tr data-no-sort><td colspan="11" style="text-align:center;color:var(--text-muted);font-size:0.72rem;padding:0.6rem;">'
                     + esc(__('Showing')) + ': ' + data.length + ' / ' + total + ' — '
                     + esc(__('narrow the filter to see the rest'))
                     + '</td></tr>');

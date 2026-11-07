@@ -12,10 +12,13 @@ Nothing in this module computes a statistic. Every number it writes comes from
 the LayerResult it is handed, which is why the Quality report, Outlier
 Diagnostics, the audit screen and the Quality Score cannot disagree anymore.
 """
+import logging
 from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 from app.engine.anomaly.layered import LayerResult, is_detection_outlier
 from app.engine.anomaly.zscore import AnomalyResultData
+
+logger = logging.getLogger(__name__)
 
 # Fields the legacy readers round to two decimals; keep that shape so stored
 # rows look exactly like the ones the retired detector wrote.
@@ -42,16 +45,76 @@ def row_z_score(peer, historical) -> Optional[float]:
     return getattr(historical, "z_score", None)
 
 
-def _indicator_code(result: LayerResult, resolved: Any) -> str:
-    """The code the legacy table keyed the row by: the registry definition's
-    code when there is one, else the (first) numerator code, else the analysis
-    code of the spec."""
+def _indicator_code(spec: Any, resolved: Any) -> str:
+    """The code the legacy table keys a row by: the registry definition's code
+    when there is one, else the (first) numerator code, else the analysis code
+    of the spec."""
     if resolved is not None and getattr(resolved, "code", None):
         return resolved.code
-    spec = result.spec
     if spec.numerator_codes:
         return spec.numerator_codes[0]
     return spec.analysis_code
+
+
+def resolved_indicator_map(session, context: str = "") -> Dict[str, Any]:
+    """``analysis_code`` -> ``ResolvedIndicator`` for every analysis unit.
+
+    ONE builder: the pipeline projects legacy rows with this map, and readers
+    rebuild the projected code from it (:func:`projection_codes`), so the two
+    sides of the join can never drift apart.
+
+    A rate_config code ("rate_cs") has no registry record of its own; the same
+    rate lives in the registry under its definition code. Match them by formula
+    + scale so the projected row keeps the definition's id (the Quality
+    report's stale-formula check reads it).
+    """
+    from app.engine import indicator_service
+
+    candidates = indicator_service.resolve_outlier_candidates(session)
+    resolved_by_code = {resolved.code: resolved for resolved in candidates}
+    by_formula = {}
+    for resolved in candidates:
+        definition = getattr(resolved, "definition", None)
+        if definition is None or not definition.denominator_codes:
+            continue
+        by_formula.setdefault(
+            (tuple(definition.numerator_codes or ()),
+             tuple(definition.denominator_codes or ()),
+             round(float(definition.multiplier or 1.0), 6)),
+            resolved)
+    try:
+        from app.engine.rate_config import load_rate_specs
+        for code, rate_spec in load_rate_specs(session).items():
+            key = (tuple(rate_spec.numerator_codes),
+                   tuple(rate_spec.denominator_codes),
+                   round(float(rate_spec.rate_multiplier or 1.0), 6))
+            resolved_by_code.setdefault(
+                code, by_formula.get(key)
+                or indicator_service.resolve_spec(rate_spec))
+    except Exception:
+        logger.exception(
+            "Rate specs unreadable%s; projecting without their provenance",
+            f" for {context}" if context else "")
+    return resolved_by_code
+
+
+def projection_codes(session, specs=None, context: str = "") -> Dict[str, str]:
+    """``analysis_code`` -> the ``indicator_code`` :func:`project_rate_rows` writes.
+
+    Only rate specs are projected (a data element carries no ``AnomalyResult``
+    row), so only they get an entry. This is the stable join key between a
+    projected row and its stored ``LayeredOutlierResult``: both numbers are
+    derived from the same registry identity, never from a display name.
+    """
+    from app.engine.anomaly.layered import build_analysis_specs
+
+    specs = specs if specs is not None else build_analysis_specs(session)
+    resolved_by_code = resolved_indicator_map(session, context=context)
+    return {
+        spec.analysis_code: _indicator_code(
+            spec, resolved_by_code.get(spec.analysis_code))
+        for spec in specs if spec.is_rate
+    }
 
 
 def project_rate_rows(
@@ -102,7 +165,7 @@ def project_rate_rows(
             ]
 
         row = AnomalyResultData(
-            indicator_code=_indicator_code(result, resolved),
+            indicator_code=_indicator_code(spec, resolved),
             rate_name=spec.name,
             value=_r2(rate),
             benchmark=_r2(benchmark),

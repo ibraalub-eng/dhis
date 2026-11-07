@@ -252,7 +252,9 @@ def test_rescan_stale_confirm_recomputes_only_that_scope(
 
     calls = []
 
-    def fake_run(session, hospital_id, month, force=False):
+    def fake_run(session, hospital_id, month, force=False, policy=None):
+        # A3.3/D16: the confirmed batch hands ONE policy snapshot to every scope.
+        assert policy is not None
         calls.append((hospital_id, month, force))
         # What a real rescan does for a capped comparison.
         row = (session.query(LayeredOutlierResult)
@@ -386,20 +388,23 @@ def test_layered_summary_counts_classifications_and_hospitals(db_session, client
 
 
 def test_outliers_endpoint_includes_layered_classification(db_session, client):
+    from app.engine.anomaly.projection import projection_codes
+
     h = db_session.query(Hospital).first()
-    # rate_name "C-section rate" → registry rate_code "rate_cs"; the layered
-    # row must be keyed by that code for the join to find it.
+    # The join is keyed by the analysis code the projection wrote for this rate
+    # (resolved through the registry), not by the display name on the row.
+    code = projection_codes(db_session)["rate_cs"]
     _add_layered(db_session, h.id, "2027-06", analysis_code="rate_cs",
                  outlier_type="CLINICAL_INVESTIGATION_REQUIRED",
                  outlier_level="VERY_HIGH",
                  interpretation="Rate and history both exceed their thresholds.")
     db_session.add(AnomalyResult(
-        hospital_id=h.id, month="2027-06", indicator_code="5",
+        hospital_id=h.id, month="2027-06", indicator_code=code,
         rate_name="C-section rate", value=90.0, benchmark=40.0,
         z_score=3.1, is_outlier=True,
     ))
     db_session.add(AnomalyResult(  # no layered row for this month
-        hospital_id=h.id, month="2027-05", indicator_code="5",
+        hospital_id=h.id, month="2027-05", indicator_code=code,
         rate_name="C-section rate", value=60.0, benchmark=40.0,
         z_score=2.8, is_outlier=True,
     ))
@@ -418,6 +423,8 @@ def test_outliers_endpoint_includes_layered_classification(db_session, client):
     assert rows["2027-05"]["layered_type"] is None
     assert rows["2027-05"]["layered_level"] is None
     assert rows["2027-05"]["layered_interpretation"] is None
+    assert rows["2027-05"]["severity_status"] == "missing_layered_result"
+    assert rows["2027-05"]["layered_is_detection"] is None
 
 
 def test_layered_cache_lifecycle_within_a_request_cycle(db_session, client):

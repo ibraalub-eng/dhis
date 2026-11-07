@@ -117,22 +117,22 @@ def historical_analysis(
         raise HTTPException(status_code=400, detail="Not enough data for historical analysis")
 
     from app.engine import indicator_service
-    from app.engine.severity import AnalysisConfigError, load_analysis_config
+    from app.engine.config_resolver import PolicyUnavailable, load_policy_snapshot
+    from app.engine.policy_view import trends_policy_from_snapshot
 
-    # The saved System Control configuration is authoritative: the trend
-    # engine never runs on developer defaults because a caller forgot to load
-    # it. A configuration read failure is reported, not papered over.
+    # One snapshot per request: the trend engine receives the same immutable
+    # policy the rest of the analysis resolves from System Control. A
+    # configuration read failure is reported, not papered over.
     try:
-        analysis_config = load_analysis_config(db)
-    except AnalysisConfigError as exc:
+        trends_policy = trends_policy_from_snapshot(load_policy_snapshot(db))
+    except PolicyUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    trend_config = analysis_config.trend_engine_config()
 
     managed_indicators = indicator_service.resolve_active_definitions(
         db, site="zscore")
     trends = analyze_historical_trends(
         hospital.name, monthly_data,
-        additional_indicators=managed_indicators, config=trend_config)
+        additional_indicators=managed_indicators, policy=trends_policy)
     last_month = months[-1]
 
     hospitals_query = db.query(Hospital).filter(Hospital.is_active.is_(True))
@@ -175,7 +175,7 @@ def historical_analysis(
         additional_indicators=managed_indicators)
     trend_anomaly_results = detect_trend_anomalies(
         hospital.name, monthly_data,
-        additional_indicators=managed_indicators, config=trend_config)
+        additional_indicators=managed_indicators, policy=trends_policy)
     summary = generate_historical_summary(trends, comparisons, trend_anomaly_results, cross_anomalies)
 
     def _trend_to_dict(t):
@@ -480,6 +480,48 @@ def list_outlier_indicators(db: Session = Depends(get_db)):
     return items
 
 
+def _diagnostic_grade(row) -> dict:
+    """The authoritative band for one stored Outlier Diagnostics row.
+
+    ``effective_severity`` stays the ONE policy call (bands, zero-spread cap,
+    thin-peer cap, top-band gate) — the exactly same call the Outliers screen
+    makes, so one hospital/indicator/month cannot read two severities. This
+    wrapper adds nothing to the policy: it only refuses to present a band for a
+    row whose own severity was never stored. ``None`` is not a band, and it is
+    never reported as LOW (or as NONE, which would claim a graded
+    non-outlier).
+    """
+    from app.engine.anomaly.layered import effective_severity
+
+    grade = effective_severity(row)
+    if not grade["has_stored_level"]:
+        return {**grade, "level": None, "is_detection": None,
+                "status": "missing_layered_severity"}
+    return {**grade, "status": "graded"}
+
+
+def _diagnostic_level(row):
+    """The effective band as the Diagnostics screen may display it."""
+    return _diagnostic_grade(row)["level"]
+
+
+def _layered_strength(row) -> tuple:
+    """Which layered row represents a projected row when two share a code.
+
+    The projection keeps the strongest signal per indicator code
+    (``projection._strength``: an outlier before a normal row, then the larger
+    |z|). The read must pick the same row, so it uses the same comparison in
+    the vocabulary a stored row has: the band, then the largest layer score.
+    """
+    from app.engine.anomaly.layered import LEVEL_RANK
+
+    scores = (row.peer_outlier_score, row.historical_outlier_score,
+              row.rate_outlier_score, row.raw_value_outlier_score,
+              row.volume_anomaly_score)
+    return (LEVEL_RANK.get(row.outlier_level or "NONE", 0),
+            max((abs(float(s)) for s in scores if s is not None), default=0.0))
+
+
 @router.get("/outliers")
 def list_outliers(
     month: Optional[str] = Query(None, description="Filter by month YYYY-MM"),
@@ -495,7 +537,10 @@ def list_outliers(
     # cached v3 payload would hide the classification column for up to 24h.
     # v6: the payload now applies the shared disabled hospital/month rule, so a
     # v5 entry written before that must not be served.
-    cache_key = cache.make_key("analysis:outliers_v6", month=month, hospital_id=hospital_id, rate_name=rate_name, indicator_code=indicator_code, skip=skip, limit=limit)
+    # v7: the layered join is analysis_code-keyed (never a display name) and
+    # the payload carries the one policy verdict plus an explicit
+    # severity_status, so a v6 entry would be read with the old join.
+    cache_key = cache.make_key("analysis:outliers_v7", month=month, hospital_id=hospital_id, rate_name=rate_name, indicator_code=indicator_code, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -519,14 +564,16 @@ def list_outliers(
     total = query.count()
     results = query.order_by(AnomalyResult.z_score.desc()).offset(skip).limit(limit).all()
 
-    from app.engine.anomaly.layered import effective_row_level
+    from app.engine.anomaly.layered import effective_severity
+    from app.engine.anomaly.projection import projection_codes
 
+    # Join key: the SAME analysis_code -> projected indicator_code mapping the
+    # projection wrote the row with, rebuilt from the registry. A display name
+    # is editable text and is never a key — renaming a rate used to drop the
+    # classification of every stored row it had produced.
+    code_by_analysis = projection_codes(db) if results else {}
     layered_by_key = {}
-    rate_code_by_name = {}
     if results:
-        from app.engine.rate_config import load_rate_specs
-
-        rate_code_by_name = {spec.rate_name: spec.rate_code for spec in load_rate_specs(db).values()}
         layered_rows = (
             db.query(LayeredOutlierResult)
             .filter(
@@ -535,15 +582,22 @@ def list_outliers(
             )
             .all()
         )
-        layered_by_key = {
-            (lr.hospital_id, lr.month, lr.analysis_code): lr for lr in layered_rows
-        }
+        for lr in layered_rows:
+            key = (lr.hospital_id, lr.month,
+                   code_by_analysis.get(lr.analysis_code, lr.analysis_code))
+            current = layered_by_key.get(key)
+            if current is None or _layered_strength(lr) > _layered_strength(current):
+                layered_by_key[key] = lr
 
     output = []
     for r in results:
         hosp = r.hospital
-        layered_code = rate_code_by_name.get(r.rate_name) or r.indicator_code
-        lr = layered_by_key.get((r.hospital_id, r.month, layered_code))
+        lr = layered_by_key.get((r.hospital_id, r.month, r.indicator_code))
+        # Severity is ONE policy call (bands, zero-spread cap, thin-peer cap,
+        # very-high gate) shared with Outlier Diagnostics. Missing evidence is
+        # reported as missing, never dressed up as a valid classification.
+        grade = effective_severity(lr) if lr else None
+        graded = bool(grade and grade["has_stored_level"])
         output.append({
             "id": r.id,
             "hospital_id": r.hospital_id,
@@ -572,8 +626,17 @@ def list_outliers(
             # band beside it: this table must not show a severity the Outlier
             # screen refuses to grade.
             "layered_type": lr.outlier_type if lr else None,
-            "layered_level": effective_row_level(lr) if lr else None,
+            "layered_level": grade["level"] if graded else None,
             "layered_stored_level": lr.outlier_level if lr else None,
+            "layered_is_detection": grade["is_detection"] if graded else None,
+            # "graded" is a policy verdict; the two missing states are distinct:
+            # no layered row at all, or a row whose own severity was never
+            # stored (a legacy/aborted write). Neither is a valid band, and
+            # neither may be served as LOW/NONE.
+            "severity_status": ("graded" if graded
+                                else "missing_layered_severity" if lr
+                                else "missing_layered_result"),
+            "severity_cap": grade["cap"] if graded else None,
             "layered_interpretation": lr.interpretation if lr else None,
         })
     result = {"total": total, "skip": skip, "limit": limit, "data": output}
@@ -592,10 +655,10 @@ _LAYERED_SORT_GETTERS = {
 
 def _sort_rows_by_band(rows, sort: str, order: str) -> list:
     """Sort by the same keys as the SQL path, ordering on the effective band."""
-    from app.engine.anomaly.layered import LEVEL_RANK, effective_row_level
+    from app.engine.anomaly.layered import LEVEL_RANK
 
     if sort == "level":
-        key = lambda r: LEVEL_RANK.get(effective_row_level(r), 0)  # noqa: E731
+        key = lambda r: LEVEL_RANK.get(_diagnostic_level(r), 0)  # noqa: E731
     else:
         key = _LAYERED_SORT_GETTERS.get(sort, _LAYERED_SORT_GETTERS["month"])
     present = [r for r in rows if key(r) is not None]
@@ -604,22 +667,27 @@ def _sort_rows_by_band(rows, sort: str, order: str) -> list:
     return present + missing
 
 
-def _layered_row_dict(row_obj, spec_meta: dict, assess) -> dict:
+def _layered_row_dict(row_obj, spec_meta: dict) -> dict:
     """One stored row as the screen reads it.
 
-    ``outlier_level`` is the band the cap policy assigns NOW;
-    ``stored_outlier_level`` is the band the row holds. A row written before a
-    cap was approved is therefore presented under the current policy without
-    being rewritten, and ``severity_cap`` says why the two differ.
+    ``outlier_level``/``is_detection`` come from ``effective_severity`` — the
+    same ONE policy call the Outliers screen uses — while
+    ``stored_outlier_level`` keeps the band the row holds for audit. A row
+    written before a cap was approved is therefore presented under the current
+    policy without being rewritten, ``severity_cap`` says why the two differ,
+    and ``severity_status`` names a row whose stored band is absent instead of
+    letting it read as a graded LOW/NONE.
     """
     row = {c.name: getattr(row_obj, c.name)
            for c in LayeredOutlierResult.__table__.columns}
     row.pop("created_at", None)
-    level, cap = assess(row_obj)
-    row["stored_outlier_level"] = row.get("outlier_level")
-    row["outlier_level"] = level
-    if cap:
-        row["severity_cap"] = cap
+    grade = _diagnostic_grade(row_obj)
+    row["stored_outlier_level"] = row_obj.outlier_level
+    row["outlier_level"] = grade["level"]
+    row["is_detection"] = grade["is_detection"]
+    row["severity_status"] = grade["status"]
+    if grade["cap"]:
+        row["severity_cap"] = grade["cap"]
     name, itype = spec_meta.get(row_obj.analysis_code, (None, None))
     row["hospital"] = row_obj.hospital.name if row_obj.hospital else "Unknown"
     row["indicator_name"] = name
@@ -645,7 +713,10 @@ def list_layered(
     from app.engine.anomaly.layered import LEVELS, build_analysis_specs
 
     cache_key = cache.make_key(
-        "analysis:layered_v2",
+        # v3: the payload now carries is_detection + severity_status and can
+        # report a stored row with NO band (level null). A cached v2 entry would
+        # keep presenting such a row as NONE for up to 24h.
+        "analysis:layered_v3",
         month=month,
         hospital=hospital,
         indicator=indicator,
@@ -678,26 +749,28 @@ def list_layered(
         query = query.filter(LayeredOutlierResult.analysis_code == indicator)
     if classification:
         query = query.filter(LayeredOutlierResult.outlier_type == classification)
-    from app.engine.anomaly.layered import effective_row_level, row_level_assessment
     # The cap policy is re-applied at READ time, exactly as Quality Alerts does:
     # a row stored before a cap existed keeps its own band on the row, but every
     # filter, count and badge below uses the band the policy allows now. Both
-    # caps only ever move VERY_HIGH to HIGH, so a level filter can be answered
-    # exactly by widening it to the bands a cap can lower and filtering after.
+    # caps and the top-band gate only ever move VERY_HIGH to HIGH, so a HIGH /
+    # VERY_HIGH filter is answered exactly by widening it to the stored bands the
+    # policy can lower and filtering on the effective band afterwards. Every
+    # other band is stored verbatim (nothing can move a row INTO it), so the SQL
+    # filter already IS the effective filter — and a row with no stored band
+    # matches no band filter at all, because missing evidence is not a band.
     capped_filter = level in ("HIGH", "VERY_HIGH")
-    if capped_filter:
+    if level:
         stored_levels = (("HIGH", "VERY_HIGH") if level == "HIGH"
-                         else ("VERY_HIGH",))
+                         else ("VERY_HIGH",) if level == "VERY_HIGH"
+                         else (level,))
         query = query.filter(LayeredOutlierResult.outlier_level.in_(stored_levels))
-    elif level:
-        query = query.filter(LayeredOutlierResult.outlier_level == level)
     if investigation:
         query = query.filter(LayeredOutlierResult.investigation_route == investigation)
 
     if capped_filter:
         # The candidate set is the top two stored bands — bounded, so filtering
         # and paging here is cheap and the counts match the badges.
-        rows = [r for r in query.all() if effective_row_level(r) == level]
+        rows = [r for r in query.all() if _diagnostic_level(r) == level]
         rows = _sort_rows_by_band(rows, sort, order)
         total = len(rows)
         rows = rows[(page - 1) * page_size: page * page_size]
@@ -706,7 +779,7 @@ def list_layered(
                      for spec in build_analysis_specs(db)}
         output = []
         for r in rows:
-            output.append(_layered_row_dict(r, spec_meta, row_level_assessment))
+            output.append(_layered_row_dict(r, spec_meta))
         result = {"total": total, "page": page, "page_size": page_size,
                   "data": output}
         cache.set(cache_key, result)
@@ -734,8 +807,7 @@ def list_layered(
 
     spec_meta = {spec.analysis_code: (spec.name, spec.indicator_type)
                  for spec in build_analysis_specs(db)}
-    output = [_layered_row_dict(r, spec_meta, row_level_assessment)
-              for r in rows]
+    output = [_layered_row_dict(r, spec_meta) for r in rows]
 
     result = {"total": total, "page": page, "page_size": page_size, "data": output}
     cache.set(cache_key, result)
@@ -825,7 +897,8 @@ def layered_trend(
     filter the table honors also narrows the points here, so the chart is a
     filter-driven view; a single hospital id collapses it to one line."""
     cache_key = cache.make_key(
-        "analysis:layered_trend_v2",
+        # v3: points carry severity_status beside the effective/stored band.
+        "analysis:layered_trend_v3",
         month=month,
         hospital=hospital,
         indicator=indicator,
@@ -860,11 +933,10 @@ def layered_trend(
     rows = query.order_by(
         LayeredOutlierResult.month.asc(), LayeredOutlierResult.id.asc()
     ).all()
-    # The band filter is applied AFTER the read: the cap policy is re-applied at
+    # The band filter is applied AFTER the read: the policy is re-applied at
     # read time, so a stored VERY_HIGH that the policy caps is HIGH here too.
-    from app.engine.anomaly.layered import effective_row_level
     if level:
-        rows = [r for r in rows if effective_row_level(r) == level]
+        rows = [r for r in rows if _diagnostic_level(r) == level]
 
     series_map: dict = {}
     for r in rows:
@@ -882,8 +954,9 @@ def layered_trend(
             "raw_value": r.raw_value,
             "rate": r.rate,
             "outlier_type": r.outlier_type,
-            "outlier_level": effective_row_level(r),
+            "outlier_level": _diagnostic_level(r),
             "stored_outlier_level": r.outlier_level,
+            "severity_status": _diagnostic_grade(r)["status"],
         })
 
     result = {
@@ -953,10 +1026,9 @@ def layered_heatmap(
 
     rows = query.all()
     # Same read-time band as the table: a stored row keeps its own band, the
-    # filter and the grid use the band the cap policy allows now.
-    from app.engine.anomaly.layered import effective_row_level
+    # filter and the grid use the band the policy allows now.
     if level:
-        rows = [r for r in rows if effective_row_level(r) == level]
+        rows = [r for r in rows if _diagnostic_level(r) == level]
     groups: dict = {}
     for r in rows:
         cell = groups.setdefault((r.hospital_id, r.month), {})
@@ -1035,7 +1107,7 @@ def _stale_layered_rows(db: Session, months: Optional[List[str]] = None):
     its stored band on disk and is presented under the gate by the screens; the
     rescan continues to rewrite only what the two approved caps refuse.
     """
-    from app.engine.anomaly.layered import row_level_assessment
+    from app.engine.anomaly.layered import effective_severity
 
     query = (
         db.query(LayeredOutlierResult)
@@ -1048,7 +1120,8 @@ def _stale_layered_rows(db: Session, months: Optional[List[str]] = None):
         query = query.filter(LayeredOutlierResult.month.in_(set(months)))
     stale = []
     for row in query.all():
-        level, cap = row_level_assessment(row)
+        grade = effective_severity(row)
+        level, cap = grade["level"], grade["cap"]
         if cap is None or level == row.outlier_level:
             continue
         if not (cap.get("zero_spread_layers") or cap.get("thin_peer_group")):
@@ -1108,9 +1181,13 @@ def rescan_stale_layered(
     scopes = sorted({(row.month, row.hospital_id) for row, _cap in stale})
     rescanned: List[dict] = []
     errors: List[str] = []
+    # A3.3: one snapshot for the whole rescan batch.
+    from app.engine.config_resolver import load_policy_snapshot
+    policy = load_policy_snapshot(db)
     for month, hospital_id in scopes:
         try:
-            report = run_full_analysis(db, hospital_id, month, force=True)
+            report = run_full_analysis(db, hospital_id, month, force=True,
+                                       policy=policy)
         except Exception as exc:  # noqa: BLE001 - reported, never swallowed
             db.rollback()
             errors.append(f"{month}/{hospital_id}: {exc}")
@@ -1412,6 +1489,8 @@ def _run_reanalyze_all(hosp_list, frc, progress_cb=None):
         for h in hosp_list:
             h_months = get_enabled_months(bg_db, hospital_id=h.id)
             total_work += len(h_months)
+        from app.engine.config_resolver import load_policy_snapshot
+        _policy = load_policy_snapshot(bg_db)
         done = 0
         for h in hosp_list:
             h_months = get_enabled_months(bg_db, hospital_id=h.id)
@@ -1421,7 +1500,8 @@ def _run_reanalyze_all(hosp_list, frc, progress_cb=None):
                     if not frc and check_analysis_exists(bg_db, h.id, m):
                         skipped += 1
                     else:
-                        run_full_analysis(bg_db, h.id, m, force=frc)
+                        run_full_analysis(bg_db, h.id, m, force=frc,
+                                          policy=_policy)
                         total += 1
                 except Exception as e:
                     bg_db.rollback()

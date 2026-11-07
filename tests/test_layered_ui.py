@@ -53,7 +53,9 @@ def test_outliers_colspan_grew_to_ten_columns():
     assert js.count('colspan="9"') == 0
     # loading, error, empty rows + the truncation notice (the endpoint caps at
     # 100 rows; with every derivative indicator scanned a filter can exceed it)
-    assert js.count('colspan="10"') == 4
+    # The table has ELEVEN columns (the Why column was added last); the stale
+    # expectation of ten was corrected here, not in the production table.
+    assert js.count('colspan="11"') == 4
 
 
 def test_outliers_csv_carries_classification():

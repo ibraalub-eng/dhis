@@ -93,7 +93,15 @@ function _capReason(cap) {
     return reasons.length ? reasons.join(' \u00b7 ') : __('the comparison cannot be graded');
 }
 
-function _levelBadge(level, cap) {
+function _levelBadge(level, cap, status) {
+    // The backend decides the band; this only renders it. A row whose own
+    // severity was never stored is NOT a band: it must not read as LOW (nor as
+    // None, which claims a graded non-outlier), and no band is derived here.
+    if (status === 'missing_layered_severity' || level === null || level === undefined) {
+        return '<span class="badge badge-muted" title="'
+            + esc(__('No severity band is stored for this result.')) + '">'
+            + esc(__('No evidence')) + '</span>';
+    }
     const cls = _LEVEL_BADGES[level] || 'badge-muted';
     const badge = '<span class="badge ' + cls + '">' + esc(_levelLabel(level)) + '</span>';
     // A row written before a cap was approved still carries its own band. The
@@ -547,7 +555,7 @@ export async function loadLayered() {
                 '<td>' + esc(d.indicator_name || d.analysis_code || '') + '</td>' +
                 '<td>' + rawCell + '</td>' +
                 '<td>' + rateCell + '</td>' +
-                '<td>' + _levelBadge(d.outlier_level, d.severity_cap) + '</td>' +
+                '<td>' + _levelBadge(d.outlier_level, d.severity_cap, d.severity_status) + '</td>' +
                 '<td>' + classificationBadge(d.outlier_type, d.interpretation) + '</td>' +
                 '<td>' + whyBtn + '</td>' +
                 '</tr>';
@@ -623,7 +631,8 @@ export async function exportLayeredCSV() {
     if (!data || !data.length) return;
     const headers = ['Hospital ID', 'Hospital', 'Month', 'Indicator', 'Indicator Name', 'Type',
         'Raw Value', 'Raw Delta %', 'Rate', 'Rate Delta %',
-        'Level', 'Investigation', 'Interpretation'];
+        'Level', 'Stored Level', 'Severity Status',
+        'Investigation', 'Interpretation'];
     const rows = data.map(d => [
         d.hospital_id || '',
         d.hospital || '',
@@ -639,6 +648,10 @@ export async function exportLayeredCSV() {
         // delta here printed data with an empty Rate column — misleading CSV.
         (d.rate !== null && d.rate !== undefined) ? _deltaCsv(d.historical_change_percent) : '',
         d.outlier_level || '',
+        // The band the row itself holds, kept beside the policy band so an
+        // exported row can be audited without opening the screen.
+        d.stored_outlier_level || '',
+        d.severity_status || '',
         d.investigation_route || '',
         d.interpretation || ''
     ]);

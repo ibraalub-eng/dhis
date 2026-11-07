@@ -1313,9 +1313,37 @@ def row_level_assessment(row, threshold: Optional[float] = None
     }
 
 
+def effective_severity(row, threshold: Optional[float] = None) -> Dict[str, Any]:
+    """The ONE policy entry point for a stored row's displayed severity.
+
+    Everything a reader needs comes from here: the score bands
+    (0.25/0.50/0.75/0.90, as stored on the row), the zero-spread cap, the
+    thin-peer cap and the very-high eligibility gate — composed once in
+    :func:`row_level_assessment` — plus the detection eligibility of the
+    result, decided by the shared :func:`is_detection_outlier` floor.
+
+    API routes and the browser must display ``level`` and never re-derive it:
+    re-applying any part of the policy outside this module is how two screens
+    start disagreeing about the same row.
+    """
+    level, cap = row_level_assessment(row, threshold)
+    stored = getattr(row, "outlier_level", None)
+    return {
+        "level": level,
+        "stored_level": stored or LEVEL_NONE,
+        # A row whose own severity was never stored carries NO band to grade:
+        # readers use this to report missing evidence instead of presenting
+        # ``level`` (which is NONE for such a row) as a graded non-outlier.
+        "has_stored_level": bool(stored),
+        "is_detection": is_detection_outlier(level),
+        "capped": cap is not None,
+        "cap": cap,
+    }
+
+
 def effective_row_level(row, threshold: Optional[float] = None) -> str:
     """The band the approved policy assigns to a STORED layered row."""
-    return row_level_assessment(row, threshold)[0]
+    return effective_severity(row, threshold)["level"]
 
 
 # A z-score divides by the group's own spread. With a group smaller than
