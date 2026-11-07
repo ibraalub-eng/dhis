@@ -374,6 +374,13 @@ def rules_impact(
     all_hospital_data = get_all_hospital_data_for_month(db, latest_month) or {}
 
     # ── build per-hospital context once, then evaluate each rule ─
+    from app.engine.config_resolver import load_display_policy
+    from app.engine.policy_view import rules_policy_from_snapshot
+    _display_policy = load_display_policy(db)
+    _auto_disable_null = _display_policy.require_auto_disable_null()
+    # A3.5: preview evaluates under the stored rule policy, never the table a
+    # previous analysis happened to leave behind.
+    _rules_policy = rules_policy_from_snapshot(_display_policy)
     hospital_contexts = {}
     for h in hospitals:
         values = get_enabled_values_for_hospital_month(db, h.id, latest_month)
@@ -381,7 +388,8 @@ def rules_impact(
             hospital_contexts[h.id] = None
             continue
         historical = get_historical_months(db, h.id, latest_month)
-        disabled_ids = get_disabled_indicator_ids(db, h.id, latest_month)
+        disabled_ids = get_disabled_indicator_ids(
+            db, h.id, latest_month, auto_disable_null=_auto_disable_null)
         disabled_codes = set()
         if disabled_ids:
             dis_rows = db.query(Indicator).filter(Indicator.id.in_(disabled_ids)).all()
@@ -393,6 +401,7 @@ def rules_impact(
             all_hospital_data=all_hospital_data,
             historical_data=historical or {},
             disabled_codes=disabled_codes,
+            rules=_rules_policy,
         )
 
     # ── evaluate each rule ──────────────────────────────────────
@@ -537,6 +546,11 @@ def test_rule(body: dict, db: Session = Depends(get_db)):
     ref_codes = _get_rule_ref_codes_from_expr(body.get("expression_type"), params)
 
     per_hospital = []
+    from app.engine.config_resolver import load_display_policy
+    from app.engine.policy_view import rules_policy_from_snapshot
+    _display_policy = load_display_policy(db)
+    _auto_disable_null = _display_policy.require_auto_disable_null()
+    _rules_policy = rules_policy_from_snapshot(_display_policy)
     failed_count = 0
     passed_count = 0
     no_data_count = 0
@@ -553,7 +567,8 @@ def test_rule(body: dict, db: Session = Depends(get_db)):
             continue
 
         historical_data = get_historical_months(db, hosp.id, month)
-        disabled_ids = get_disabled_indicator_ids(db, hosp.id, month)
+        disabled_ids = get_disabled_indicator_ids(
+            db, hosp.id, month, auto_disable_null=_auto_disable_null)
         disabled_codes = set()
         if disabled_ids:
             ind_rows = db.query(Indicator).filter(Indicator.id.in_(disabled_ids)).all()
@@ -566,6 +581,7 @@ def test_rule(body: dict, db: Session = Depends(get_db)):
             all_hospital_data=all_hospital_data,
             historical_data=historical_data or {},
             disabled_codes=disabled_codes,
+            rules=_rules_policy,
         )
 
         try:

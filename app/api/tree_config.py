@@ -83,9 +83,11 @@ def save_tree_config(
             IndicatorValue.hospital_id == hospital_id).distinct().all()})
     else:
         _months = [month]
+    from app.engine.config_resolver import load_policy_snapshot
+    policy = load_policy_snapshot(db)
     for _m in _months:
         try:
-            run_full_analysis(db, hospital_id, _m, force=True)
+            run_full_analysis(db, hospital_id, _m, force=True, policy=policy)
         except Exception:
             pass
     return {"message": f"Saved {count} config entries for {hospital.name} / {month}"}
@@ -143,10 +145,12 @@ def save_default_tree_config(
     from app.models import Hospital as _Hosp
     _all_hids = [h.id for h in db.query(_Hosp.id).filter(_Hosp.is_active == True).all()]
     _analysis_months = [month] if month != "__all__" else months
+    from app.engine.config_resolver import load_policy_snapshot
+    policy = load_policy_snapshot(db)
     for _hid in _all_hids:
         for _m in _analysis_months:
             try:
-                run_full_analysis(db, _hid, _m, force=True)
+                run_full_analysis(db, _hid, _m, force=True, policy=policy)
             except Exception:
                 pass
     return {"message": f"Saved {count} default config entries for {month}"}
@@ -342,8 +346,11 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
 
     code_to_name = {ind["code"]: ind["name"] for ind in flat_list}
 
-    row = (db.query(SystemSetting).filter(SystemSetting.key == "auto_disable_null_indicators").first())
-    auto_disable_null = bool(row and row.value == "true")
+    # A3.3 display resolution: one snapshot per tree build. None means the
+    # configuration could not be read; the payload says so instead of rendering
+    # a confident "off".
+    from app.engine.config_resolver import load_display_policy
+    auto_disable_null = load_display_policy(db).auto_disable_null
 
     def _enrich_node(node):
         code = str(node["id"])
@@ -422,6 +429,7 @@ def _build_tree(db, month: str, hospital_id: int | None = None, hospital=None, d
         "children": [_enrich_node(child) for child in raw_tree["children"]],
         "default_scope": default_scope,
         "auto_disable_null": auto_disable_null,
+        "configuration_unavailable": auto_disable_null is None,
     }
 
     return tree

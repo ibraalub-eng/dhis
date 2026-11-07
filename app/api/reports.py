@@ -39,7 +39,11 @@ from app.engine.anomaly.layered import (
     is_detection_outlier,
     layer_breakdown,
 )
-from app.engine.pipeline import get_all_hospital_data_for_month, run_full_analysis
+from app.engine.pipeline import (
+    get_all_hospital_data_for_month,
+    is_fallback_quality_row,
+    run_full_analysis,
+)
 from app.indicators import SYNTHETIC_INDICATOR_CODES
 from app.core.deps import get_current_user, get_user_hospital_ids, require_permission
 
@@ -316,7 +320,9 @@ def list_reports(
     cache_key = cache.make_key(
         # v5: disabled hospital/month pairs are part of the answer (and the
         # historical flag is part of the request), so a toggle invalidates it.
-        "reports:list_v5",
+        # v6: every row now carries analysis_status/failure_kind, so payloads
+        # cached under v5 lack the failure identity and must never be served.
+        "reports:list_v6",
         uid=getattr(user, "id", 0),
         month=month,
         source_file=source_file,
@@ -393,6 +399,10 @@ def list_reports(
         )
         # is_enabled uses the same eligibility rule that filtered the query.
         is_enabled = not month_disabled(db, s.hospital_id, s.month, pairs=disabled_set)
+        # P3.3.3b completion: a persisted fallback row is a FAILED analysis,
+        # not a successful report with a zero score. Identity comes from the
+        # single shared helper — never from score == 0 (a genuine zero is ok).
+        _failed = is_fallback_quality_row(s)
         results.append(ReportOut(
             hospital=hosp.name if hosp else "Unknown",
             month=s.month,
@@ -404,6 +414,8 @@ def list_reports(
             issues=issues,
             outliers=outliers,
             is_enabled=is_enabled,
+            analysis_status="failed" if _failed else "ok",
+            failure_kind="stored_fallback" if _failed else None,
         ))
     cache.set(cache_key, results)
     return results
@@ -495,6 +507,11 @@ def detailed_report(
         outlier_penalty = report.get("outlier_penalty")
         issues = report["issues"]
         confidence = report.get("confidence")
+        # Preserve the run's own outcome on the live no-row path: an ordinary
+        # analysis failure must not be flattened into a successful report.
+        analysis_status = report.get("analysis_status")
+        failure_kind = report.get("failure_kind")
+        policy_provenance_status = report.get("policy_provenance_status")
     else:
         data_quality_score = qs.score
         rule_compliance = qs.rule_compliance
@@ -503,6 +520,10 @@ def detailed_report(
         outlier_penalty = qs.outlier_penalty
         issues = json.loads(qs.issues) if qs.issues else []
         confidence = None
+        _failed = is_fallback_quality_row(qs)
+        analysis_status = "failed" if _failed else "ok"
+        failure_kind = "stored_fallback" if _failed else None
+        policy_provenance_status = None
 
     validation_rows = db.query(ValidationResult).filter(
         ValidationResult.hospital_id == hospital_id,
@@ -555,6 +576,9 @@ def detailed_report(
         anomaly_results=anomaly_items,
         layered_results=_data_element_outliers(db, hosp, month),
         confidence=confidence,
+        analysis_status=analysis_status,
+        failure_kind=failure_kind,
+        policy_provenance_status=policy_provenance_status,
     )
 
 
@@ -583,10 +607,13 @@ def reports_from_file(
             continue
         hospital_months.add((v.hospital_id, v.month))
 
+    # A3.3: one snapshot for the whole export/re-analysis batch.
+    from app.engine.config_resolver import load_policy_snapshot
+    policy = load_policy_snapshot(db)
     reports = []
     for hospital_id, month in sorted(hospital_months):
         try:
-            report = run_full_analysis(db, hospital_id, month)
+            report = run_full_analysis(db, hospital_id, month, policy=policy)
             reports.append(report)
         except Exception:
             pass

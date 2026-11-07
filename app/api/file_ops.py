@@ -653,6 +653,9 @@ def _get_hospital_months_map(db: Session, hospitals_list: list) -> dict:
 
 
 def _run_quality_reports(db: Session, hospitals_list: list, hospital_months: dict) -> list:
+    # A3.3: one snapshot for the whole quality-report batch.
+    from app.engine.config_resolver import load_policy_snapshot
+    policy = load_policy_snapshot(db)
     reports = []
     for h in hospitals_list:
         for m in hospital_months.get(h.id, []):
@@ -664,7 +667,7 @@ def _run_quality_reports(db: Session, hospitals_list: list, hospital_months: dic
                 purge_derived_results(db, h.id, m)
                 db.commit()
 
-                report = run_full_analysis(db, h.id, m)
+                report = run_full_analysis(db, h.id, m, policy=policy)
                 if report:
                     reports.append(report)
             except Exception as e:
@@ -676,12 +679,14 @@ def _run_quality_reports(db: Session, hospitals_list: list, hospital_months: dic
 def _run_trend_analyses(db: Session, hospitals_list: list, hospital_months: dict) -> dict:
     result = {}
     from app.engine import indicator_service
-    from app.engine.severity import AnalysisConfigError, load_analysis_config
+    from app.engine.config_resolver import PolicyUnavailable, load_policy_snapshot
+    from app.engine.policy_view import trends_policy_from_snapshot
 
-    # Saved System Control configuration, once per run (never per hospital).
+    # One snapshot per run (never per hospital): every hospital in this batch
+    # evaluates against the same immutable trend policy.
     try:
-        trend_config = load_analysis_config(db).trend_engine_config()
-    except AnalysisConfigError as exc:
+        trends_policy = trends_policy_from_snapshot(load_policy_snapshot(db))
+    except PolicyUnavailable as exc:
         logger.error("Trend analyses skipped: %s", exc)
         return {"_config_error": str(exc)}
     managed_indicators = indicator_service.resolve_active_definitions(
@@ -697,7 +702,7 @@ def _run_trend_analyses(db: Session, hospitals_list: list, hospital_months: dict
                 trends = analyze_historical_trends(
                     h.name, h_monthly,
                     additional_indicators=managed_indicators,
-                    config=trend_config)
+                    policy=trends_policy)
                 if trends:
                     result[str(h.id)] = [
                         {

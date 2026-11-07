@@ -432,12 +432,14 @@ def group_impact(
     affected_hospitals = set()
     hospital_deltas = {}  # hid -> [denom_before, denom_after]
 
+    from app.engine.config_resolver import load_display_policy
     from app.engine.pipeline import (
-        _is_auto_disable_null,
         get_optional_source_indicator_ids,
         get_required_indicator_ids,
     )
-    auto_disable_null = _is_auto_disable_null(db)
+    # Display gate: None means the configuration could not be resolved, which
+    # this preview must state rather than guess.
+    auto_disable_null = load_display_policy(db).auto_disable_null
     # Optional by inheritance never counts toward the denominator (the same
     # set the score's helper subtracts), so the simulated delta matches it.
     optional_source_ids = get_optional_source_indicator_ids(db)
@@ -473,8 +475,10 @@ def group_impact(
     for h in hospitals:
         before_cnt = after_cnt = None
         try:
-            if sample_month:
-                before_cnt = len(get_required_indicator_ids(db, h.id, sample_month))
+            if sample_month and auto_disable_null is not None:
+                before_cnt = len(get_required_indicator_ids(
+                    db, h.id, sample_month,
+                    auto_disable_null=auto_disable_null))
         except Exception:
             before_cnt = None
         after_cnt = before_cnt
@@ -551,6 +555,7 @@ def group_impact(
             "sum_before": sum(b for _, (b, _) in hospital_deltas.items()) if hospital_deltas else None,
             "sum_after": sum(a for _, (_, a) in hospital_deltas.items()) if hospital_deltas else None,
         },
+        "configuration_unavailable": auto_disable_null is None,
         "note": (
             "Quality scores and smart-analytics caches are recalculated automatically when you confirm."
         ),

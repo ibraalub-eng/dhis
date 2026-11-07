@@ -46,9 +46,12 @@ def get_clinical_analysis(
 
     # Build disabled-indicator set so clinical thresholds using only disabled
     # codes are hidden from the classification table.
+    from app.engine.config_resolver import load_display_policy
     from app.engine.pipeline import get_disabled_indicator_ids
     from app.models import Indicator as _RI
-    _dis_ids = set(get_disabled_indicator_ids(db, hospital_id, month))
+    _dis_ids = set(get_disabled_indicator_ids(
+        db, hospital_id, month,
+        auto_disable_null=load_display_policy(db).require_auto_disable_null()))
     _ind_code_rows = db.query(_RI.id, _RI.code).all()
     _dis_codes = {c for i, c in _ind_code_rows if i in _dis_ids}
 

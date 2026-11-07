@@ -100,9 +100,12 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
         return
     # Weights come from the engine's single source of truth.
     resolved = resolve_scoring_config(get_config_dict(db, "quality"))
+    from app.engine.config_resolver import load_display_policy
+    _auto_disable_null = load_display_policy(db).require_auto_disable_null()
     for s in scores:
         try:
-            new_cp = round(_chc(db, s.hospital_id, s.month), 1)
+            new_cp = round(_chc(db, s.hospital_id, s.month,
+                                auto_disable_null=_auto_disable_null), 1)
             apply_score_update(
                 db, s, resolved, "indicator_config_recalc", "system",
                 completeness=new_cp,

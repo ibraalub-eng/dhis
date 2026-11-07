@@ -391,17 +391,20 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
     hospitals = result["hospitals"]
     months = result["months"]
     reports = []
+    # A3.3: one snapshot for this upload's whole re-analysis batch.
+    from app.engine.config_resolver import load_policy_snapshot
+    policy = load_policy_snapshot(db)
     for hosp in hospitals:
         # Recompute every month of the affected hospital: the new values change
         # this hospital's historical/trend baselines, not just the uploaded month.
         try:
-            recompute_hospital_months(db, hosp["id"])
+            recompute_hospital_months(db, hosp["id"], policy=policy)
         except Exception as e:
             logger.warning(f"Could not recompute months for {hosp['name']}: {e}")
         for month in months:
             try:
                 # Already freshly computed above; this returns the cached summary.
-                report = run_full_analysis(db, hosp["id"], month)
+                report = run_full_analysis(db, hosp["id"], month, policy=policy)
                 reports.append(report)
             except Exception as e:
                 logger.warning(f"Could not analyze {hosp['name']} / {month}: {e}")

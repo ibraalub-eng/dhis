@@ -7,9 +7,9 @@ from app.database import get_db
 
 logger = logging.getLogger(__name__)
 from app.models import (Hospital, QualityAlert, QualityScore, ConfidenceScore,
-                        ValidationResult, SystemSetting)
-from sqlalchemy import func, text, and_
-from app.engine.pipeline import get_enabled_values_for_hospital_month
+                        ValidationResult)
+from sqlalchemy import func, text, case
+from app.engine.pipeline import is_fallback_quality_row, get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
 from app.eligibility import disabled_pairs, exclude_disabled
 
@@ -36,6 +36,89 @@ def _analyzed_exists(db, model):
         _IV.month == model.month,
         _IV.value.isnot(None),
     ).exists()
+
+
+def _split_failed_rows(rows):
+    """Split stored score rows into (valid, excluded_failed_count).
+
+    A persisted fallback row (``is_fallback_quality_row``) is a failed
+    analysis, not a measured result. Every dashboard aggregate must be built
+    from the valid half only — score == 0 is NOT the test, because a genuine
+    successful zero-score result must stay in the population.
+    """
+    valid = [row for row in rows if not is_fallback_quality_row(row)]
+    return valid, len(rows) - len(valid)
+
+
+def _stored_rule_outcomes(db, scores) -> dict:
+    """Pass share of the stored rule outcomes, per ``(hospital_id, month)``.
+
+    The dashboard's "Validation rule" card and the Validation Alerts screen
+    must be the same number. The card reads the stored QualityScore snapshot
+    while the screen lists ValidationResult rows, so a rule refresh that only
+    half-applied (an older write, or a failure between the two saves) left the
+    card claiming 100% beside four listed failures. Deriving the card from the
+    rows the screen reads makes that disagreement impossible; the disabled-pair
+    rule is the same one the alerts screen applies.
+    """
+    if not scores:
+        return {}
+    passed = case((func.upper(ValidationResult.status) == "PASS", 1), else_=0)
+    q = db.query(
+        ValidationResult.hospital_id.label("hid"),
+        ValidationResult.month.label("month"),
+        func.sum(passed).label("passed"),
+        func.count().label("total"),
+    ).filter(
+        ValidationResult.hospital_id.in_([s.hospital_id for s in scores]),
+        ValidationResult.month.in_([s.month for s in scores]),
+    )
+    q = exclude_disabled(db, q, ValidationResult)
+    out = {}
+    for row in q.group_by(ValidationResult.hospital_id,
+                          ValidationResult.month).all():
+        if row.total:
+            out[(row.hid, row.month)] = round(float(row.passed) / row.total * 100, 1)
+    return out
+
+
+def _rule_compliance_from_rows(db, scores):
+    """Average "Validation rule" over hospital-months, from stored outcomes.
+
+    Falls back to the stored score component for a hospital-month that has no
+    stored rule outcome (a month with no applicable rule keeps its value), and
+    returns None when neither source has a number — "no data", never a
+    fabricated 100%.
+    """
+    outcomes = _stored_rule_outcomes(db, scores)
+    values = []
+    for s in scores:
+        value = outcomes.get((s.hospital_id, s.month))
+        if value is None:
+            value = s.rule_compliance
+        if value is not None:
+            values.append(float(value))
+    # Unrounded on purpose: callers pass this through _pct, which must see the
+    # real mean (99.975) to know the card may not claim 100.
+    return sum(values) / len(values) if values else None
+
+
+def _pct(value, digits: int = 1):
+    """A percentage below 100 must never be DISPLAYED as 100.
+
+    Every percentage card averages one ratio per hospital-month, so 172
+    perfect months and four at 98.5 average to 99.97 — which ``round(x, 1)``
+    rendered as "100%" right beside the four failures the Validation Alerts
+    screen lists. Only a value that really is 100 keeps 100; anything below it
+    is floored to the last visible step (99.9), so the card can never claim
+    perfection it does not have.
+    """
+    if value is None:
+        return None
+    value = float(value)
+    if value < 100:
+        return min(round(value, digits), round(100 - 10 ** -digits, digits))
+    return round(value, digits)
 
 
 def _stale_policy_alert_count(db, user_hosp_ids, hospital_id, month_from,
@@ -260,15 +343,27 @@ def _recalc_completeness(db, scores):
     If the indicator/config tables are missing or unreadable (e.g. a DB that was
     stamped to head before indicator_default_config was added), this falls back
     to the stored completeness values instead of crashing the whole dashboard.
+
+    One gate, one source of truth: manual, per-month default and per-hospital
+    override state plus the ``auto_disable_null_indicators`` flag all resolve
+    through ``pipeline.compute_hospital_completeness`` and the run's snapshot.
     """
+    from app.engine.config_resolver import load_display_policy
     from app.engine.pipeline import compute_hospital_completeness as _chc
+    # A3.3: one display resolution per session. None means the gate could not
+    # be resolved, and the stored value is shown instead of a policy we cannot
+    # name.
+    auto_disable_null = load_display_policy(db).auto_disable_null
+    if auto_disable_null is None:
+        return [float(s.completeness or 0) for s in scores]
     result = []
     for s in scores:
         try:
             # Single shared rev-2 formula (pipeline.compute_hospital_completeness)
             # — identical to what run_full_analysis writes into QualityScore, so
             # the KPI cards, ranking, radar and stored rows all agree.
-            result.append(_chc(db, s.hospital_id, s.month))
+            result.append(_chc(db, s.hospital_id, s.month,
+                               auto_disable_null=auto_disable_null))
         except Exception:
             # Indicator/config tables unreadable (e.g. a DB stamped to head
             # before those tables) — keep the stored value instead of
@@ -313,41 +408,30 @@ def dashboard_overview(
     # NOTE: Query.distinct(col1, col2) emits PostgreSQL-only DISTINCT ON which is
     # silently ignored on SQLite (inflating the count with duplicate rows). Use a
     # portable subquery on the (hospital_id, month) pair instead.
-    # Count reports only for enabled months, and only months that were
-    # actually analyzed (ghost rows excluded — see _analyzed_exists).
-    reports_q = db.query(QualityScore.hospital_id, QualityScore.month).distinct().filter(
+    # One scope query feeds the report count, the average, the trend and the
+    # hospital comparison, so every section describes the same population.
+    # Persisted fallback rows (failed analyses) are removed with the single
+    # shared helper and counted once as ``excluded_failed_analysis``.
+    scope_q = db.query(QualityScore).filter(
         _analyzed_exists(db, QualityScore)
     )
-    reports_q = _exclude_disabled(db, reports_q, QualityScore,
-                                  hospital_id=hospital_id)
+    scope_q = _exclude_disabled(db, scope_q, QualityScore,
+                                hospital_id=hospital_id)
     if user_hosp_ids is not None:
-        reports_q = reports_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
+        scope_q = scope_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if hospital_id:
-        reports_q = reports_q.filter(QualityScore.hospital_id == hospital_id)
+        scope_q = scope_q.filter(QualityScore.hospital_id == hospital_id)
     if month_from:
-        reports_q = reports_q.filter(QualityScore.month >= month_from)
+        scope_q = scope_q.filter(QualityScore.month >= month_from)
     if month_to:
-        reports_q = reports_q.filter(QualityScore.month <= month_to)
+        scope_q = scope_q.filter(QualityScore.month <= month_to)
     elif year:
-        reports_q = reports_q.filter(QualityScore.month.like(f"{year}-%"))
-    total_reports = reports_q.count()
+        scope_q = scope_q.filter(QualityScore.month.like(f"{year}-%"))
+    _valid_rows, excluded_failed = _split_failed_rows(scope_q.all())
 
-    q = db.query(func.avg(QualityScore.score)).filter(
-        _analyzed_exists(db, QualityScore)
-    )
-    q = _exclude_disabled(db, q, QualityScore, hospital_id=hospital_id)
-    if user_hosp_ids is not None:
-        q = q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
-    if hospital_id:
-        q = q.filter(QualityScore.hospital_id == hospital_id)
-    if month_from:
-        q = q.filter(QualityScore.month >= month_from)
-    if month_to:
-        q = q.filter(QualityScore.month <= month_to)
-    elif year:
-        q = q.filter(QualityScore.month.like(f"{year}-%"))
-    _avg = q.scalar()
-    avg_score = round(float(_avg), 1) if _avg is not None else None
+    total_reports = len({(s.hospital_id, s.month) for s in _valid_rows})
+    _valid_scores = [float(s.score) for s in _valid_rows if s.score is not None]
+    avg_score = round(sum(_valid_scores) / len(_valid_scores), 1) if _valid_scores else None
 
     alerts_q = db.query(ValidationResult).filter(
         ValidationResult.status == "FAIL"
@@ -372,71 +456,50 @@ def dashboard_overview(
     _quality_issues = _quality_issue_counts(
         db, user_hosp_ids, hospital_id, month_from, month_to, year)
 
-    trend_q = db.query(
-        QualityScore.month,
-        func.avg(QualityScore.score).label("score"),
-    ).filter(
-        _analyzed_exists(db, QualityScore)
-    )
-    trend_q = _exclude_disabled(db, trend_q, QualityScore,
-                                hospital_id=hospital_id)
-    if user_hosp_ids is not None:
-        trend_q = trend_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
-    if hospital_id:
-        trend_q = trend_q.filter(QualityScore.hospital_id == hospital_id)
-    if month_from:
-        trend_q = trend_q.filter(QualityScore.month >= month_from)
-    if month_to:
-        trend_q = trend_q.filter(QualityScore.month <= month_to)
-    elif year:
-        trend_q = trend_q.filter(QualityScore.month.like(f"{year}-%"))
-    trend_rows = trend_q.group_by(QualityScore.month).order_by(QualityScore.month.desc()).limit(12).all()
+    _trend_by_month: dict = {}
+    for s in _valid_rows:
+        if s.score is None:
+            continue
+        _trend_by_month.setdefault(s.month, []).append(float(s.score))
     trend_data = sorted(
-        [{"month": t[0], "score": round(float(t[1]), 1)} for t in trend_rows],
+        [{"month": m, "score": round(sum(v) / len(v), 1)}
+         for m, v in _trend_by_month.items()],
         key=lambda x: x["month"],
-    )
+    )[-12:]
 
     # hospital comparison (only enabled months). A hospital with zero analyzed
     # reports has NO score — it must not rank as 0.0 against hospitals that
     # were measured, so it is excluded entirely.
-    comp_q = db.query(
-        Hospital.id,
-        Hospital.name,
-        func.avg(QualityScore.score).label("avg_score"),
-        func.count(QualityScore.id).label("report_count"),
-    ).outerjoin(
-        QualityScore, and_(
-            QualityScore.hospital_id == Hospital.id,
-            _analyzed_exists(db, QualityScore),
-        )
-    ).filter(
+    _comp_hosp_q = db.query(Hospital.id, Hospital.name).filter(
         Hospital.is_active.is_(True)
     )
-    comp_q = _exclude_disabled(db, comp_q, QualityScore,
-                               hospital_id=hospital_id)
     if user_hosp_ids is not None:
-        comp_q = comp_q.filter(Hospital.id.in_(user_hosp_ids))
-    if month_from:
-        comp_q = comp_q.filter(QualityScore.month >= month_from)
-    if month_to:
-        comp_q = comp_q.filter(QualityScore.month <= month_to)
-    elif year:
-        comp_q = comp_q.filter(QualityScore.month.like(f"{year}-%"))
-    comp = comp_q.group_by(Hospital.id, Hospital.name).having(
-        func.count(QualityScore.id) >= 0
-    ).order_by(
-        func.avg(QualityScore.score).desc().nullslast()
-    ).all()
-
-    hospital_compare = [
-        {
-            "id": c.id,
-            "name": c.name,
-            "avg_score": round(float(c.avg_score), 1) if c.avg_score is not None else None,
-            "report_count": c.report_count,
-        }
-        for c in comp
-    ]
+        _comp_hosp_q = _comp_hosp_q.filter(Hospital.id.in_(user_hosp_ids))
+    # A month/year filter on the old LEFT JOIN degraded it to an inner join
+    # (WHERE on the right-hand table), so unmeasured hospitals dropped out of
+    # a filtered comparison. Preserve that: they appear (avg None) only in the
+    # unfiltered view.
+    _month_filtered = bool(month_from or month_to or year)
+    _valid_by_hosp: dict = {}
+    for s in _valid_rows:
+        _valid_by_hosp.setdefault(s.hospital_id, []).append(s)
+    hospital_compare = []
+    for _hid, _hname in _comp_hosp_q.all():
+        _hrows = _valid_by_hosp.get(_hid, [])
+        if not _hrows and _month_filtered:
+            continue
+        _hscores = [float(s.score) for s in _hrows if s.score is not None]
+        hospital_compare.append({
+            "id": _hid,
+            "name": _hname,
+            "avg_score": round(sum(_hscores) / len(_hscores), 1) if _hscores else None,
+            "report_count": len({s.month for s in _hrows}),
+        })
+    # Score desc, unmeasured hospitals (None) last — same order as before.
+    hospital_compare.sort(
+        key=lambda c: (c["avg_score"] is not None, c["avg_score"] or 0.0),
+        reverse=True,
+    )
 
     # confidence distribution
     conf_q = db.query(
@@ -460,70 +523,34 @@ def dashboard_overview(
     for c in conf_dist:
         dist_map[c.level] = c.count
 
-    # radar components (only enabled months)
-    radar_q = db.query(
-        func.avg(QualityScore.rule_compliance).label("rule_compliance"),
-        func.avg(QualityScore.completeness).label("completeness"),
-        func.avg(QualityScore.consistency).label("consistency"),
-    )
-    radar_q = _exclude_disabled(db, radar_q, QualityScore,
-                                hospital_id=hospital_id)
-    if user_hosp_ids is not None:
-        radar_q = radar_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
-    if hospital_id:
-        radar_q = radar_q.filter(QualityScore.hospital_id == hospital_id)
+    # radar components (only enabled months). Same valid population, with the
+    # extra ``month`` narrowing the old code applied only to this block.
+    _radar_rows = _valid_rows
     if month_from:
-        radar_q = radar_q.filter(QualityScore.month >= month_from)
+        _radar_rows = [s for s in _radar_rows if s.month >= month_from]
     if month_to:
-        radar_q = radar_q.filter(QualityScore.month <= month_to)
+        _radar_rows = [s for s in _radar_rows if s.month <= month_to]
     elif month:
-        radar_q = radar_q.filter(QualityScore.month == month)
+        _radar_rows = [s for s in _radar_rows if s.month == month]
     if year:
-        radar_q = radar_q.filter(QualityScore.month.like(f"{year}-%"))
-    radar_row = radar_q.first()
-    # Recalculate radar completeness with current disabled indicators
-    _radar_q = db.query(QualityScore)
-    _radar_q = _exclude_disabled(db, _radar_q, QualityScore, hospital_id=hospital_id)
-    if user_hosp_ids is not None:
-        _radar_q = _radar_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
-    if hospital_id:
-        _radar_q = _radar_q.filter(QualityScore.hospital_id == hospital_id)
-    if month_from:
-        _radar_q = _radar_q.filter(QualityScore.month >= month_from)
-    if month_to:
-        _radar_q = _radar_q.filter(QualityScore.month <= month_to)
-    if year:
-        _radar_q = _radar_q.filter(QualityScore.month.like(f"{year}-%"))
-    _radar_scores = _radar_q.all()
-    _radar_cp = _recalc_completeness(db, _radar_scores)
+        _radar_rows = [s for s in _radar_rows if s.month.startswith(str(year))]
+
+    _radar_cp = _recalc_completeness(db, _radar_rows)
     _radar_cp_avg = round(sum(_radar_cp) / len(_radar_cp), 1) if _radar_cp else None
+    _radar_cons = [float(s.consistency) for s in _radar_rows if s.consistency is not None]
+    _radar_pen = [abs(float(s.outlier_penalty)) for s in _radar_rows if s.outlier_penalty is not None]
     radar_components = {
-        "Validation rule": round(float(radar_row.rule_compliance), 1) if radar_row and radar_row.rule_compliance is not None else None,
+        "Validation rule": _rule_compliance_from_rows(db, _radar_rows),
         "Completeness": _radar_cp_avg,
-        "Consistency": round(float(radar_row.consistency), 1) if radar_row and radar_row.consistency is not None else None,
+        "Consistency": round(sum(_radar_cons) / len(_radar_cons), 1) if _radar_cons else None,
+        # Outlier Score is "100 minus the penalty" — with no analyzed data there
+        # is no penalty to subtract, so forcing 100 would be the loudest lie.
+        "Outlier Score": (
+            round(max(0, 100 - sum(_radar_pen) / len(_radar_pen)), 1)
+            if _radar_pen else None
+        ),
     }
-    outlier_q = db.query(func.avg(func.abs(QualityScore.outlier_penalty)).label("avg_op"))
-    outlier_q = _exclude_disabled(db, outlier_q, QualityScore,
-                                  hospital_id=hospital_id)
-    if user_hosp_ids is not None:
-        outlier_q = outlier_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
-    if hospital_id:
-        outlier_q = outlier_q.filter(QualityScore.hospital_id == hospital_id)
-    if month_from:
-        outlier_q = outlier_q.filter(QualityScore.month >= month_from)
-    if month_to:
-        outlier_q = outlier_q.filter(QualityScore.month <= month_to)
-    elif month:
-        outlier_q = outlier_q.filter(QualityScore.month == month)
-    if year:
-        outlier_q = outlier_q.filter(QualityScore.month.like(f"{year}-%"))
-    outlier_row = outlier_q.first()
-    outlier_penalty = round(float(outlier_row.avg_op), 1) if outlier_row and outlier_row.avg_op is not None else None
-    # Outlier Score is "100 minus the penalty" — with no analyzed data there is
-    # no penalty to subtract, so forcing 100 would be the loudest lie of all.
-    radar_components["Outlier Score"] = (
-        round(max(0, 100 - outlier_penalty), 1) if outlier_penalty is not None else None
-    )
+    radar_components = {k: _pct(v) for k, v in radar_components.items()}
 
     return {
         "total_hospitals": total_hospitals,
@@ -551,6 +578,9 @@ def dashboard_overview(
         "hospital_compare": hospital_compare,
         "confidence_distribution": dist_map,
         "radar_components": radar_components,
+        # Persisted failed-analysis (fallback) rows removed from every section
+        # above. One count, one population, so sections cannot disagree.
+        "excluded_failed_analysis": excluded_failed,
     }
 
 
@@ -587,10 +617,7 @@ def dashboard_trend(db: Session = Depends(get_db), user=Depends(require_permissi
             *(disabled_by_hid.get(h, set()) for h in scored_hids)
         )
 
-    trend_q = db.query(
-        QualityScore.month,
-        func.avg(QualityScore.score).label("score"),
-    ).filter(
+    trend_q = db.query(QualityScore).filter(
         _analyzed_exists(db, QualityScore)
     )
     # Exclude disabled PAIRS, not whole months: a month switched off for one
@@ -600,11 +627,19 @@ def dashboard_trend(db: Session = Depends(get_db), user=Depends(require_permissi
         trend_q = trend_q.filter(QualityScore.hospital_id.in_(user_hosp_ids))
     if common_disabled:
         trend_q = trend_q.filter(~QualityScore.month.in_(common_disabled))
-    trend_rows = trend_q.group_by(QualityScore.month).order_by(QualityScore.month.asc()).all()
+    trend_rows = trend_q.order_by(QualityScore.month.asc()).all()
+    _valid_rows, _excluded_failed = _split_failed_rows(trend_rows)
+    _by_month: dict = {}
+    for s in _valid_rows:
+        if s.score is None:
+            continue
+        _by_month.setdefault(s.month, []).append(float(s.score))
     return {
         "quality_trend": [
-            {"month": t[0], "score": round(float(t[1]), 1)} for t in trend_rows
-        ]
+            {"month": m, "score": round(sum(v) / len(v), 1)}
+            for m, v in sorted(_by_month.items())
+        ],
+        "excluded_failed_analysis": _excluded_failed,
     }
 
 
@@ -632,7 +667,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
         base = base.filter(QualityScore.month.like(f"{year}-%"))
 
     # Recalculate completeness using current disabled indicator set
-    _kpi_scores = base.all()
+    _kpi_scores, _excluded_failed = _split_failed_rows(base.all())
     # "No analyzed rows in this window" is NO DATA, not zero performance. A
     # ghost hospital-month (score row persisted, no IndicatorValue rows behind
     # it) used to render every KPI card as 0.0 / 100 — a catastrophic reading
@@ -640,15 +675,14 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
     # then 404. Every card value is None in that case and the UI shows "—".
     _has_data = bool(_kpi_scores)
     if _has_data:
-        agg = base.with_entities(
-            func.avg(QualityScore.score).label("avg_score"),
-            func.avg(QualityScore.rule_compliance).label("avg_compliance"),
-            func.avg(QualityScore.consistency).label("avg_consistency"),
-        ).first()
-
-        avg_score = round(float(agg.avg_score or 0), 1)
-        avg_compliance = round(float(agg.avg_compliance or 0), 1)
-        avg_consistency = round(float(agg.avg_consistency or 0), 1)
+        _kpi_s = [float(s.score) for s in _kpi_scores if s.score is not None]
+        avg_score = round(sum(_kpi_s) / len(_kpi_s), 1) if _kpi_s else 0
+        # Same source as the Validation Alerts screen (see the helper): the
+        # stored snapshot can lag the rule outcomes it was written beside.
+        _derived_rc = _rule_compliance_from_rows(db, _kpi_scores)
+        avg_compliance = _derived_rc if _derived_rc is not None else 0
+        _kpi_co = [float(s.consistency) for s in _kpi_scores if s.consistency is not None]
+        avg_consistency = round(sum(_kpi_co) / len(_kpi_co), 1) if _kpi_co else 0
 
         _kpi_cp = _recalc_completeness(db, _kpi_scores)
         avg_completeness = round(sum(_kpi_cp) / len(_kpi_cp), 1) if _kpi_cp else 0
@@ -668,8 +702,8 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
 
     # Outlier score (lower penalty = better)
     if _has_data:
-        _op_q = base.with_entities(func.avg(QualityScore.outlier_penalty).label("avg_op")).first()
-        outlier_penalty = round(float(_op_q.avg_op or 0), 1)
+        _op = [float(s.outlier_penalty) for s in _kpi_scores if s.outlier_penalty is not None]
+        outlier_penalty = round(sum(_op) / len(_op), 1) if _op else 0
     else:
         outlier_penalty = None
 
@@ -720,21 +754,19 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             if hospital_id:
                 pq = pq.filter(QualityScore.hospital_id == hospital_id)
             pq = pq.filter(QualityScore.month >= lo, QualityScore.month <= hi)
-            rows = pq.with_entities(
-                func.avg(QualityScore.score).label("s"),
-                func.avg(QualityScore.rule_compliance).label("c"),
-                func.avg(QualityScore.consistency).label("co"),
-                func.avg(QualityScore.outlier_penalty).label("op"),
-            ).first()
-            if rows is None or rows.s is None:
+            _prev_scores, _ = _split_failed_rows(pq.all())
+            _ps = [float(s.score) for s in _prev_scores if s.score is not None]
+            if not _ps:
                 return None  # no analyzed data in the previous window → no comparison
-            cp = _recalc_completeness(db, pq.all())
+            _pco = [float(s.consistency) for s in _prev_scores if s.consistency is not None]
+            _pop = [float(s.outlier_penalty) for s in _prev_scores if s.outlier_penalty is not None]
+            cp = _recalc_completeness(db, _prev_scores)
             return {
-                "quality_score": round(float(rows.s or 0), 1),
-                "rule_compliance": round(float(rows.c or 0), 1),
+                "quality_score": round(sum(_ps) / len(_ps), 1),
+                "rule_compliance": _pct(_rule_compliance_from_rows(db, _prev_scores)) or 0.0,
                 "completeness": round(sum(cp) / len(cp), 1) if cp else 0,
-                "consistency": round(float(rows.co or 0), 1),
-                "outlier_score": round(100 - float(rows.op or 0), 1),
+                "consistency": round(sum(_pco) / len(_pco), 1) if _pco else 0,
+                "outlier_score": round(100 - sum(_pop) / len(_pop), 1) if _pop else 0,
             }
 
         # Confidence is queried on its own table (same filters as the main
@@ -777,6 +809,7 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             net = net.filter(QualityScore.month == month)
         elif year:
             net = net.filter(QualityScore.month.like(f"{year}-%"))
+        _net_rows, _ = _split_failed_rows(net.all())
 
         def _net_val(kid):
             if kid == "conf_high":
@@ -790,18 +823,26 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
                     user_hosp_ids=user_hosp_ids,
                 ).first())
             if kid == "completeness":
-                cp = _recalc_completeness(db, net.all())
+                cp = _recalc_completeness(db, _net_rows)
                 return round(sum(cp) / len(cp), 1) if cp else None
-            col = {
-                "quality_score": QualityScore.score,
-                "rule_compliance": QualityScore.rule_compliance,
-                "consistency": QualityScore.consistency,
+            if kid == "rule_compliance":
+                # Same rows the Validation Alerts screen lists, so a peer
+                # average can never be built from a stale snapshot.
+                return _pct(_rule_compliance_from_rows(db, _net_rows))
+            if kid == "outlier_score":
+                _nop = [abs(float(s.outlier_penalty)) for s in _net_rows
+                        if s.outlier_penalty is not None]
+                return (round(100 - sum(_nop) / len(_nop), 1) if _nop else None)
+            _ncol = {
+                "quality_score": "score",
+                "rule_compliance": "rule_compliance",
+                "consistency": "consistency",
             }.get(kid)
-            if col is None:  # outlier_score: avg penalty inverted
-                row = net.with_entities(func.avg(QualityScore.outlier_penalty)).first()
-                return None if row[0] is None else round(100 - float(row[0]), 1)
-            row = net.with_entities(func.avg(col)).first()
-            return None if row[0] is None else round(float(row[0]), 1)
+            if _ncol is None:
+                return None
+            _nvals = [float(getattr(s, _ncol)) for s in _net_rows
+                      if getattr(s, _ncol) is not None]
+            return round(sum(_nvals) / len(_nvals), 1) if _nvals else None
 
         for k in kpis:
             nv = _net_val(k["id"])
@@ -826,9 +867,20 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
                     "hint": "These months are switched off for this hospital and are not counted in any KPI below.",
                 }
 
+    # Every card is a percentage: none of them may read 100 unless it is 100.
+    for k in kpis:
+        k["value"] = _pct(k["value"])
+        if k.get("prev_value") is not None:
+            k["prev_value"] = _pct(k["prev_value"])
+        if k.get("network_value") is not None:
+            k["network_value"] = _pct(k["network_value"])
+
     return {"kpis": kpis, "data_epoch": get_data_epoch(), "prev_period": prev_delta,
             "disabled_months": disabled_months_meta,
-            "has_data": _has_data}
+            "has_data": _has_data,
+            # Persisted failed-analysis rows removed from every KPI, the
+            # previous period and the peer averages above.
+            "excluded_failed_analysis": _excluded_failed}
 
 
 @router.get("/attention")
@@ -861,7 +913,9 @@ def dashboard_attention(hospital_id: int | None = None, month_from: str | None =
 
     scores_q = _base_q(QualityScore)
     scores_q = _exclude_disabled(db, scores_q, QualityScore, hospital_id=hospital_id)
-    scores = scores_q.order_by(QualityScore.hospital_id, QualityScore.month).all()
+    scores, _excluded_failed = _split_failed_rows(
+        scores_q.order_by(QualityScore.hospital_id, QualityScore.month).all()
+    )
     by_hosp: dict = {}
     for s in scores:
         if s.hospital_id in hospitals:
@@ -981,13 +1035,8 @@ def dashboard_attention(hospital_id: int | None = None, month_from: str | None =
     _an_cfg = get_anomaly_settings(db)
     _z_thresh = _an_cfg["anomaly_zscore_threshold"]
     _drift_len = int(_an_cfg["anomaly_drift_months"])
-    hq = db.query(QualityScore).filter(_analyzed_exists(db, QualityScore))
-    hq = _exclude_disabled(db, hq, QualityScore, hospital_id=hospital_id)
-    hq = hq.order_by(QualityScore.hospital_id, QualityScore.month)
-    if year:
-        hq = hq.filter(QualityScore.month.like(f"{year}-%"))
     hist: dict = {}
-    for s in hq.all():
+    for s in scores:
         if s.hospital_id in hospitals and (not hospital_id or s.hospital_id == hospital_id):
             hist.setdefault(s.hospital_id, []).append(s)
     # Component series: (key, QualityScore column, invert) — outlier_score is
@@ -1062,6 +1111,7 @@ def dashboard_attention(hospital_id: int | None = None, month_from: str | None =
         "alerts": alert_rows,
         "problems": problem_rows,
         "anomalies": anomaly_rows,
+        "excluded_failed_analysis": _excluded_failed,
     }
 
 
@@ -1088,18 +1138,19 @@ def dashboard_ranking(hospital_id: int | None = None, month_from: str | None = N
             q = q.filter(QualityScore.month >= month_from)
         if month_to:
             q = q.filter(QualityScore.month <= month_to)
-        scores = q.order_by(QualityScore.month.asc()).all()
+        scores, _ = _split_failed_rows(q.order_by(QualityScore.month.asc()).all())
 
         if not scores:
             continue
 
-        avg_score = round(sum(s.score for s in scores) / len(scores), 1)
-        avg_compliance = round(sum(s.rule_compliance or 0 for s in scores) / len(scores), 1)
-        avg_consistency = round(sum(s.consistency or 0 for s in scores) / len(scores), 1)
+        _num = [float(s.score) for s in scores if s.score is not None]
+        avg_score = round(sum(_num) / len(_num), 1) if _num else 0
+        avg_compliance = _pct(_rule_compliance_from_rows(db, scores)) or 0.0
+        avg_consistency = _pct(sum(s.consistency or 0 for s in scores) / len(scores))
 
         # Recalculate completeness using current disabled indicator set
         _cp_vals = _recalc_completeness(db, scores)
-        avg_completeness = round(sum(_cp_vals) / len(_cp_vals), 1) if _cp_vals else 0
+        avg_completeness = _pct(sum(_cp_vals) / len(_cp_vals)) if _cp_vals else 0
 
         recent_3 = [s.score for s in scores[-3:]]
         if len(recent_3) >= 2:
@@ -1182,16 +1233,20 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db), user=D
         _analyzed_exists(db, QualityScore),
     )
     scores = _exclude_disabled(db, scores, QualityScore, hospital_id=hospital_id)
-    scores = scores.order_by(QualityScore.month.asc()).all()
+    scores, _excluded_failed = _split_failed_rows(
+        scores.order_by(QualityScore.month.asc()).all()
+    )
 
-    quality_trend = [{"month": s.month, "score": round(s.score, 1)} for s in scores]
-    avg_score = round(sum(s.score for s in scores) / len(scores), 1) if scores else 0
-    avg_compliance = round(sum(s.rule_compliance or 0 for s in scores) / len(scores), 1) if scores else 0
-    avg_consistency = round(sum(s.consistency or 0 for s in scores) / len(scores), 1) if scores else 0
+    quality_trend = [{"month": s.month, "score": round(s.score, 1)}
+                     for s in scores if s.score is not None]
+    _num = [float(s.score) for s in scores if s.score is not None]
+    avg_score = round(sum(_num) / len(_num), 1) if _num else 0
+    avg_compliance = (_pct(_rule_compliance_from_rows(db, scores)) or 0.0) if scores else 0
+    avg_consistency = _pct(sum(s.consistency or 0 for s in scores) / len(scores)) if scores else 0
 
     # Recalculate completeness using current disabled indicator set
     _pcp = _recalc_completeness(db, scores)
-    avg_completeness = round(sum(_pcp) / len(_pcp), 1) if _pcp else 0
+    avg_completeness = _pct(sum(_pcp) / len(_pcp)) if _pcp else 0
 
     # Confidence: use weighted overall_confidence (matches the engine calculation)
     from app.models import ConfidenceScore as _CS
@@ -1285,6 +1340,7 @@ def hospital_performance(hospital_id: int, db: Session = Depends(get_db), user=D
         "avg_confidence": avg_confidence,
         "quality_trend": quality_trend, "clinical_rates": clinical_rates,
         "total_alerts": total_alerts, "last_alerts": last_alerts,
+        "excluded_failed_analysis": _excluded_failed,
     }
 
 
@@ -1310,9 +1366,12 @@ def recalculate_completeness(db: Session = Depends(get_db), user=Depends(require
     resolved = resolve_scoring_config(cfg_map)
     actor = getattr(user, "username", "system")
     updated = 0
+    from app.engine.config_resolver import load_display_policy
+    _auto_disable_null = load_display_policy(db).require_auto_disable_null()
     for s in scores:
         try:
-            new_cp = round(_chc(db, s.hospital_id, s.month), 1)
+            new_cp = round(_chc(db, s.hospital_id, s.month,
+                                auto_disable_null=_auto_disable_null), 1)
             apply_score_update(
                 db, s, resolved, "recalculate_completeness", actor,
                 completeness=new_cp,
@@ -1362,9 +1421,12 @@ def component_diagnostics(
     elif year:
         base = base.filter(QualityScore.month.like(f"{year}-%"))
 
-    scores = base.order_by(QualityScore.month.asc()).all()
+    scores, _excluded_failed = _split_failed_rows(
+        base.order_by(QualityScore.month.asc()).all()
+    )
     if not scores:
-        return {"components": [], "trend": []}
+        return {"components": [], "trend": [],
+                "excluded_failed_analysis": _excluded_failed}
 
     n = len(scores)
 
@@ -1516,14 +1578,11 @@ def component_diagnostics(
     override_disabled_map = {}  # {hospital_id: set(indicator_ids)} — any per-hospital config wins
     for row in override_rows:
         override_disabled_map.setdefault(row[0], set()).add(row[1])
-    # Pre-fetch auto-disable setting
-    try:
-        auto_disable_setting = db.query(SystemSetting).filter(
-            SystemSetting.key == "auto_disable_null_indicators"
-        ).first()
-        auto_disable = auto_disable_setting and auto_disable_setting.value == "true"
-    except Exception:
-        auto_disable = False
+    # Pre-fetch auto-disable gate (A3.3): display tri-state, never a silent
+    # False when the configuration is unreadable.
+    from app.engine.config_resolver import load_display_policy
+    auto_disable = load_display_policy(db).auto_disable_null
+    auto_disable_unavailable = auto_disable is None
     # Compute disabled sets per (hospital, month) in memory
     def _fast_disabled(hid, month):
         disabled = set(manual_disabled_map.get(hid, set()))
@@ -1537,6 +1596,8 @@ def component_diagnostics(
                     disabled.add(ind_id)
         return disabled
     from app.engine.quality import compute_covered_codes as _ccc
+    from app.engine.policy_view import rules_policy_from_snapshot
+    _rules_policy = rules_policy_from_snapshot(load_display_policy(db))
     _covered_cache = {}
     def _fast_covered(hid, month):
         key = (hid, month)
@@ -1544,7 +1605,7 @@ def component_diagnostics(
             iv_map = iv_index.get(key, {})
             values = {id_to_code[iid]: iv_map[iid] for iid in iv_map if iid in id_to_code and iv_map[iid] is not None}
             disabled_codes = {id_to_code[d] for d in _fast_disabled(hid, month) if d in id_to_code}
-            _covered_cache[key] = {code_to_id[c] for c in _ccc(values, disabled_codes, db) if c in code_to_id}
+            _covered_cache[key] = {code_to_id[c] for c in _ccc(values, disabled_codes, db, rules=_rules_policy) if c in code_to_id}
         return _covered_cache[key]
     # Compute completeness for each score
     from app.engine.quality import compute_completeness as _completeness
@@ -2080,6 +2141,12 @@ def component_diagnostics(
         _build("Consistency", "consistency", avg_co, co_vals, co_months, _direction(co_vals), co_causes, targets["consistency"]),
         _build("Outlier Score", "outlier_score", avg_op, op_vals, op_months, _direction(op_vals), op_causes, targets["outlier_score"]),
     ]
+    if auto_disable_unavailable:
+        # The completeness figures above fell back to the stored scores; say so
+        # rather than implying they follow a policy we could not resolve.
+        for _c in components:
+            if _c["key"] == "completeness":
+                _c["configuration_unavailable"] = True
 
     # Per-hospital monthly series per component: the sparkline inside each
     # affected-hospital card must draw THAT hospital's own line, not the
@@ -2159,4 +2226,5 @@ def component_diagnostics(
 
             })
 
-    return {"components": components, "trend": trend, "hosp_trend": hosp_trend}
+    return {"components": components, "trend": trend, "hosp_trend": hosp_trend,
+            "excluded_failed_analysis": _excluded_failed}

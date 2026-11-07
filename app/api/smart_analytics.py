@@ -238,7 +238,10 @@ def _compute_smart_data(db, month: str) -> dict:
     try:
         logger.info(f"[smart] Starting computation for {month}...")
         try:
-            result = run_smart_analytics(bg_db, month)
+            from app.engine.config_resolver import load_policy_snapshot
+            result = run_smart_analytics(
+                bg_db, month,
+                auto_disable_null=load_policy_snapshot(bg_db).require_auto_disable_null())
             logger.info(f"[smart] Computation result for {month}: hospitals={result.hospitals_count} anomalies={len(result.anomalies)} clusters={len(result.clustering.clusters) if result.clustering else 0}")
         except Exception as e:
             logger.error(f"[smart] Computation FAILED for {month}: {e}", exc_info=True)
@@ -407,7 +410,10 @@ def get_governorate_analysis(month: str, db: Session = Depends(get_db)):
     if cached is not None:
         return cached
 
-    all_data = _load_hospital_data(db, month)
+    from app.engine.config_resolver import load_policy_snapshot
+    all_data = _load_hospital_data(
+        db, month,
+        auto_disable_null=load_policy_snapshot(db).require_auto_disable_null())
     if not all_data:
         empty = _sanitize({"governorate_profiles": [], "cross_governorate_correlations": [], "indicator_governorate_heatmap": {}, "xgboost_insights": {}})
         cache.set(cache_key, empty, ttl=300)
@@ -603,14 +609,18 @@ def get_analysis_indicators(month: str, db: Session = Depends(get_db)):
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
-    result = analysis_indicator_coverage(db, month)
+    from app.engine.config_resolver import load_policy_snapshot
+    _auto_disable_null = load_policy_snapshot(db).require_auto_disable_null()
+    result = analysis_indicator_coverage(
+        db, month, auto_disable_null=_auto_disable_null)
     months = _recent_coverage_months(db, month, COVERAGE_TREND_MONTHS)
     if month not in months:
         # الشهر المطلوب يبقى آخر نقطة في الخط حتى لو لم تُسجَّل له قيم بعد
         months = (months + [month])[-COVERAGE_TREND_MONTHS:]
     history = []
     for m in months:
-        rows = result["indicators"] if m == month else analysis_indicator_coverage(db, m)["indicators"]
+        rows = result["indicators"] if m == month else analysis_indicator_coverage(
+            db, m, auto_disable_null=_auto_disable_null)["indicators"]
         history.append({
             "month": m,
             "coverage": {r["key"]: r["coverage_pct"] for r in rows},
@@ -1114,8 +1124,11 @@ def get_drilldown(
         IndicatorValue.hospital_id == hospital_id, IndicatorValue.month == month
     ).all()
     # Build disabled-indicator set so drilldown excludes them
+    from app.engine.config_resolver import load_policy_snapshot
     from app.engine.pipeline import get_disabled_indicator_ids as _gdi
-    _dis_ids = set(_gdi(db, hospital_id, month))
+    _dis_ids = set(_gdi(
+        db, hospital_id, month,
+        auto_disable_null=load_policy_snapshot(db).require_auto_disable_null()))
     for iv in iv_rows:
         if iv.indicator_id in _dis_ids:
             continue
