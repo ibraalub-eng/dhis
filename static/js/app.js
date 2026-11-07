@@ -261,6 +261,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'qualityAlertsFilterChangedDebounced');
       _bind(mod, 'qualityAlertsTogglePerspective');
       _bind(mod, 'qualityAlertsToggleVeryHighScope');
+      _bind(mod, 'qualityAlertsToggleComparisonCategory');
       _bind(mod, 'scanQualityAlerts'); _bind(mod, 'recomputeStaleQualityAlerts');
       _bind(mod, 'openQualityAlert');
       _bind(mod, 'setQualityAlertStatus'); _bind(mod, 'addQualityAlertNote');

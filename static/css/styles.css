@@ -626,6 +626,12 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 /* A KPI card that is also a filter states whether it is the active one. */
 .kpi-card.is-active { outline: 2px solid var(--accent-blue); outline-offset: 1px; border-color: var(--accent-blue); }
 .kpi-card.is-active::after { content: '\2713'; font-size: 0.7rem; color: var(--accent-blue); }
+/* A Very High evidence-breakdown cell that is also a filter, and its state. */
+.qa-breakdown-cell { cursor: pointer; }
+.qa-breakdown-cell:hover { border-left-color: var(--accent-blue); }
+.qa-breakdown-cell:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+.qa-breakdown-cell.is-active { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+.qa-breakdown-cell.is-active::after { content: '\2713'; font-size: 0.7rem; color: var(--accent-blue); float: inline-end; }
 .kpi-card .icon { font-size: 2rem; margin-bottom: 0.5rem; }
 .kpi-card .value { font-size: 1.8rem; font-weight: 700; color: var(--accent-blue); line-height: 1.2; }
 .kpi-card .label { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.3rem; }

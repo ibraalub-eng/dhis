@@ -472,16 +472,22 @@
             document.getElementById('qualityCount').textContent = filtered.length + ' report' + (filtered.length !== 1 ? 's' : '');
             if (!filtered.length && !disabled.length) { grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem;">No reports match the selected filters.</p>'; return; }
             filtered.forEach(r => {
-                const score = r.data_quality_score;
-                const scoreColor = score >= 80 ? '#2e7d32' : score >= 50 ? '#e65100' : '#c62828';
+                // P3.3.3b: a stored fallback row is a FAILED analysis, not a
+                // genuine zero score. Never render its score as a result.
+                const failed = r.analysis_status === 'failed';
+                const score = failed ? null : r.data_quality_score;
+                const scoreColor = score === null ? 'var(--accent-red)' : score >= 80 ? '#2e7d32' : score >= 50 ? '#e65100' : '#c62828';
                 const barColor = score >= 80 ? '#4caf50' : score >= 50 ? '#ff9800' : '#f44336';
                 const issueCount = r.issues ? r.issues.length : 0;
                 const outlierCount = r.outliers ? r.outliers.length : 0;
                 const card = document.createElement('div');
-                card.className = 'report-card ' + (score >= 80 ? 'good' : score >= 50 ? 'medium' : 'poor');
+                card.className = 'report-card ' + (failed ? 'poor' : score >= 80 ? 'good' : score >= 50 ? 'medium' : 'poor');
                 card.setAttribute('data-hospital', r.hospital);
                 card.setAttribute('data-month', r.month);
-                card.innerHTML = '<h3>' + r.hospital + '</h3><div class="month">' + r.month + '</div><div class="score" style="color:' + scoreColor + '">' + score + '</div><div class="progress-bar"><div class="progress-bar-fill" style="width:' + score + '%;background:' + barColor + '"></div></div><div style="margin-top:0.7rem;font-size:0.8rem;color:var(--text-secondary);">' + issueCount + ' issues &bull; ' + outlierCount + ' outliers</div>';
+                const scoreHtml = failed
+                    ? '<div class="analysis-failed" style="display:inline-block;margin:0.5rem 0;padding:0.35rem 0.8rem;border-radius:6px;background:var(--severity-critical-bg,#fdecea);color:var(--accent-red,#c62828);font-size:0.8rem;font-weight:700;">\u26a0 ' + __('Analysis failed') + '</div>'
+                    : '<div class="score" style="color:' + scoreColor + '">' + score + '</div><div class="progress-bar"><div class="progress-bar-fill" style="width:' + score + '%;background:' + barColor + '"></div></div>';
+                card.innerHTML = '<h3>' + r.hospital + '</h3><div class="month">' + r.month + '</div>' + scoreHtml + '<div style="margin-top:0.7rem;font-size:0.8rem;color:var(--text-secondary);">' + (failed ? __('Not a valid analytical result') + ' &bull; ' : '') + issueCount + ' issues &bull; ' + outlierCount + ' outliers</div>';
                 card.addEventListener('click', function() { showDetail(r.hospital, r.month); });
                 grid.appendChild(card);
             });
@@ -774,9 +780,16 @@
         };
 
         function renderDetail(container, r) {
-            const score = r.data_quality_score;
-            const scoreClass = score >= 80 ? 'score-good' : score >= 50 ? 'score-medium' : 'score-poor';
-            let html = '<div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-bottom:0.8rem;">';
+            // P3.3.3b: an explicit failed state — the stored score of a
+            // fallback row is a placeholder, never a valid analytical result.
+            const failed = r.analysis_status === 'failed';
+            const score = failed ? '\u2014' : r.data_quality_score;
+            const scoreClass = failed ? 'score-poor' : score >= 80 ? 'score-good' : score >= 50 ? 'score-medium' : 'score-poor';
+            let html = '';
+            if (failed) {
+                html += '<div class="analysis-failed-banner" style="margin-bottom:1rem;padding:0.7rem 0.9rem;border-radius:8px;background:var(--severity-critical-bg,#fdecea);border:1px solid var(--accent-red,#c62828);color:var(--accent-red,#c62828);font-size:0.85rem;font-weight:600;">\u26a0 ' + __('Analysis failed') + ' \u2014 ' + __('The stored score is a failed-analysis placeholder and is not a valid analytical result.') + '</div>';
+            }
+            html += '<div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-bottom:0.8rem;">';
 
             html += '</div>';
             html += '<div class="grid-2"><div style="text-align:center;"><div class="score-circle ' + scoreClass + '" style="margin:0 auto;">' + score + '</div><p style="font-size:0.85rem;color:var(--text-muted);margin-top:0.5rem;">Data Quality Score</p><div class="grid-4" style="margin-top:1rem;"><div class="stat-box"><div class="value">' + (r.rule_compliance!==null?r.rule_compliance+'%':'--') + '</div><div class="label">Validation rule</div></div><div class="stat-box"><div class="value">' + (r.completeness!==null?r.completeness+'%':'--') + '</div><div class="label">Completeness</div></div><div class="stat-box"><div class="value">' + (r.consistency!==null?r.consistency+'%':'--') + '</div><div class="label">Consistency</div></div><div class="stat-box"><div class="value">' + (r.outlier_penalty!==null?r.outlier_penalty+'%':'--') + '</div><div class="label">Outlier Penalty</div></div></div></div><div><h3 style="font-size:0.95rem;color:var(--text-primary);margin-bottom:0.5rem;">Issues (' + (r.issues?r.issues.length:0) + ')</h3>';

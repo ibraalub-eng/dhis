@@ -1227,7 +1227,7 @@ function loadHospitalsSettings() {
                 if (d.anomaly_patterns && d.anomaly_patterns.length) {
                     ap.innerHTML = d.anomaly_patterns.map(a => {
                         const typeColor = a.pattern_type === 'severe' ? 'var(--accent-red)' : a.pattern_type === 'moderate' ? 'var(--accent-orange)' : 'var(--accent-yellow)';
-                        const typeLabel = a.pattern_type === 'severe' ? 'Severe' : a.pattern_type === 'moderate' ? 'Moderate' : 'Mild';
+                        const typeLabel = a.pattern_type === 'severe' ? 'Severe' : a.pattern_type === 'moderate' ? 'Moderate' : a.pattern_type === 'mild' ? 'Mild' : 'Unclassified';
                         return '<div style="padding:0.35rem 0;border-bottom:1px solid #f0f0f0;">' +
                             '<div style="display:flex;align-items:center;gap:0.4rem;">' +
                                 '<span style="font-size:0.65rem;background:' + typeColor + ';color:#fff;padding:0 5px;border-radius:3px;font-weight:600;">' + typeLabel + '</span>' +
@@ -2811,6 +2811,17 @@ function loadHospitalsSettings() {
                 // reports — show a dash, never a fake 0.
                 document.getElementById('dashAvgScore').textContent = (data.avg_quality_score != null && isFinite(data.avg_quality_score))
                     ? data.avg_quality_score : '\u2014';
+                // Failed analyses (stored fallback rows) are excluded from every
+                // aggregate; state the count so the exclusion is visible and the
+                // score above is never read as if it included them.
+                const excludedEl = document.getElementById('dashExcludedFailed');
+                if (excludedEl) {
+                    const excludedFailed = data.excluded_failed_analysis || 0;
+                    excludedEl.style.display = excludedFailed > 0 ? '' : 'none';
+                    excludedEl.textContent = excludedFailed > 0
+                        ? '\u26a0 ' + excludedFailed + ' ' + __('failed analysis report(s) excluded')
+                        : '';
+                }
                 // Open risk alerts: the Quality Alerts screen's own unit (one
                 // per hospital+canonical formula+month), so this card agrees
                 // with that screen's Total issues KPI. It used to show

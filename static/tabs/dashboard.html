@@ -30,6 +30,10 @@
             <div class="value" id="dashAvgScore">-</div>
             <div class="label">Avg Quality Score</div>
             <canvas class="sparkline" id="sparkAvgScore" height="24"></canvas>
+            <!-- Failed analyses (stored fallback rows) are excluded from every
+                 aggregate above; this says how many, so the exclusion is
+                 visible instead of silent. -->
+            <div id="dashExcludedFailed" style="display:none;margin-top:0.35rem;font-size:0.72rem;font-weight:600;color:var(--accent-red,#c62828);"></div>
         </div>
         <!-- Open risk alerts: the Quality Alerts screen's unit (one per
              hospital+canonical formula+month), not the stored validation-rule
