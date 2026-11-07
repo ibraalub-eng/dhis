@@ -142,13 +142,18 @@ def _quality_config(db: Session) -> dict:
 
 
 def _zscore_threshold(db: Session) -> float:
-    """Authoritative z-score threshold — thresholds.zscore_threshold only.
+    """Authoritative z-score threshold from this explanation's snapshot.
 
-    Single resolution path shared with the pipeline, trend engine, Quality
-    Alerts and System Control (app.engine.severity.load_analysis_config).
+    One snapshot per Explain operation, the same source the trend and rules
+    explanations use. ``analysis_config_from_snapshot`` applies the same
+    clamp/round as the legacy ``load_analysis_config`` loader, so stored values
+    and defaults are unchanged; the display simply cannot disagree with the
+    policy the explanation was built from.
     """
-    from app.engine.severity import load_analysis_config
-    return load_analysis_config(db).zscore_threshold
+    from app.engine.config_resolver import load_policy_snapshot
+    from app.engine.policy_view import analysis_config_from_snapshot
+    return analysis_config_from_snapshot(
+        load_policy_snapshot(db)).zscore_threshold
 
 
 def _rate_multiplier(num_code: Optional[str], den_code: Optional[str]) -> float:
@@ -217,13 +222,17 @@ def find_data_problems(values: list, db: Session = None) -> list:
     if db is not None:
         try:
             from app.engine.quality.rules import compute_covered_codes
+            from app.engine.config_resolver import load_display_policy
+            from app.engine.policy_view import rules_policy_from_snapshot
             present = {
                 v["code"]: v["value"]
                 for v in values
                 if v.get("value") is not None
             }
             if present:
-                covered_codes = compute_covered_codes(present, set(), db) or set()
+                covered_codes = compute_covered_codes(
+                    present, set(), db,
+                    rules=rules_policy_from_snapshot(load_display_policy(db))) or set()
         except Exception:
             covered_codes = set()  # fail open: keep legacy behaviour
 
@@ -342,6 +351,7 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
     problems = find_data_problems(values, db)
     outlier_component = component == "outlier_score"
     outlier_drivers = _outliers_behind_score(db, hospital_id, month)
+    outlier_evidence = _layered_evidence_status(db, hospital_id, month)
     if outlier_component:
         # A cell with no value creates no outlier row, so it cannot explain the
         # outlier component: reporting "has no value" here buried the real
@@ -426,6 +436,12 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
             why = (f"Outlier score {op_inv:g}% = 100 - {penalty:g} penalty, from "
                    f"{len(outlier_drivers)} indicator(s) at HIGH/VERY_HIGH: "
                    f"{shown}{more}")
+        elif outlier_evidence["status"] != "canonical_layered":
+            why = (f"Outlier score {op_inv:g}% = 100 - {penalty:g} penalty, but "
+                   f"the canonical layered evidence for {month} is missing, so "
+                   f"the indicators behind the penalty cannot be listed. This is "
+                   f"not a month with no findings — it is a month with no "
+                   f"stored layered result")
         else:
             why = (f"No indicator reached HIGH or VERY_HIGH this month — outlier "
                    f"score {op_inv:g}% (penalty {penalty:g}). Missing cells are "
@@ -469,6 +485,11 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
         "components_below_target": low_components,
         "outliers": outlier_drivers,
         "outlier_component": outlier_component,
+        # Evidence provenance (Phase 5): the effective band the penalty used,
+        # the stored band for audit, and whether this month has layered
+        # evidence at all.
+        "evidence_status": outlier_evidence["status"],
+        "outlier_evidence": outlier_evidence,
         "failed_rules": failed_rules,
         "failed_rule_count": len(failed_rules),
         "classification": CLASS_DATA if problems else CLASS_STAT,
@@ -492,15 +513,19 @@ def explain_quality_score(db: Session, hospital_id: int, month: str, component: 
 
 
 def _outliers_behind_score(db: Session, hospital_id: int, month: str) -> list:
-    """The stored outlier rows the outlier component actually counts.
+    """The stored layered rows the outlier component actually counts.
 
-    The penalty uses the HIGH/VERY_HIGH levels (quality.scoring.FLAGGED_LEVELS),
-    so the explanation must name those same rows in the same order — otherwise
-    the popup explains a different number than the one the user clicked. Names
-    come from the analysis specs (data elements and derived rates share them).
+    The penalty counts rows whose EFFECTIVE band (``quality.scoring.
+    layered_severity``: the approved caps and the top-band gate included) is
+    HIGH/VERY_HIGH, so the explanation resolves every row through that same
+    function. The popup can then never claim a stored VERY_HIGH was used when
+    the policy made it HIGH — and the stored band travels beside it for audit.
+    Both bands, the cap block and the source row id are reported, so a finding
+    stays traceable to its ``LayeredOutlierResult``. Names come from the
+    analysis specs (data elements and derived rates share them).
     """
     from app.engine.anomaly.layered import LEVEL_RANK
-    from app.engine.quality.scoring import FLAGGED_LEVELS
+    from app.engine.quality.scoring import FLAGGED_LEVELS, layered_severity
     from app.models import LayeredOutlierResult
 
     rows = (
@@ -508,7 +533,6 @@ def _outliers_behind_score(db: Session, hospital_id: int, month: str) -> list:
         .filter(
             LayeredOutlierResult.hospital_id == hospital_id,
             LayeredOutlierResult.month == month,
-            LayeredOutlierResult.outlier_level.in_(tuple(FLAGGED_LEVELS)),
         )
         .all()
     )
@@ -520,23 +544,60 @@ def _outliers_behind_score(db: Session, hospital_id: int, month: str) -> list:
     except Exception:
         names = {}
 
-    drivers = [
-        {
+    drivers = []
+    for row in rows:
+        grade = layered_severity(row)
+        if grade["level"] not in FLAGGED_LEVELS:
+            continue
+        cap = grade.get("cap") or {}
+        drivers.append({
             "indicator_code": row.analysis_code,
             "indicator": names.get(row.analysis_code) or row.analysis_code,
-            "level": row.outlier_level,
+            # `level` stays the effective band: it is what the penalty used.
+            "level": grade["level"],
+            "effective_level": grade["level"],
+            "stored_level": grade["stored_level"],
+            "capped": grade["capped"],
+            "cap": grade.get("cap"),
+            "cap_policy": cap.get("policy") if isinstance(cap, dict) else None,
+            "evidence_status": grade["evidence_status"],
+            "layered_result_id": row.id,
             "type": row.outlier_type,
             "value": row.rate if row.rate is not None else row.raw_value,
             "benchmark": (row.peer_mean if row.peer_mean is not None
                           else row.historical_mean),
             "interpretation": row.interpretation,
             "investigation_route": row.investigation_route,
-        }
-        for row in rows
-    ]
+        })
     drivers.sort(key=lambda d: (-LEVEL_RANK.get(d["level"] or "NONE", 0),
                                 d["indicator"] or ""))
     return drivers
+
+
+def _layered_evidence_status(db: Session, hospital_id: int, month: str) -> dict:
+    """Whether this hospital+month HAS canonical layered evidence at all.
+
+    No row is not the same as no finding: a month that was never analysed
+    stores nothing, and describing that as "no indicator reached HIGH/VERY_HIGH"
+    would turn missing evidence into a clean result. ``status`` is
+    ``canonical_layered`` only when at least one row carries a stored band.
+    """
+    from sqlalchemy import func as _func
+
+    from app.models import LayeredOutlierResult
+
+    base = db.query(_func.count(LayeredOutlierResult.id)).filter(
+        LayeredOutlierResult.hospital_id == hospital_id,
+        LayeredOutlierResult.month == month)
+    total = base.scalar() or 0
+    graded = base.filter(
+        LayeredOutlierResult.outlier_level.isnot(None)).scalar() or 0
+    return {
+        "status": ("canonical_layered" if graded
+                   else "missing_layered_result"),
+        "rows": int(total),
+        "graded_rows": int(graded),
+    }
 
 
 # ───────────────────────────── anomaly ───────────────────────────────
@@ -1750,12 +1811,23 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
 
     managed_indicators = indicator_service.resolve_active_definitions(
         db, site="zscore")
-    from app.engine.severity import load_analysis_config
-    analysis_config = load_analysis_config(db)
+    from app.engine.config_resolver import PolicyUnavailable, load_policy_snapshot
+    from app.engine.policy_view import (
+        analysis_config_from_snapshot, trends_policy_from_snapshot)
+
+    # One snapshot per explanation: the engine and the displayed thresholds
+    # read the same resolved policy — never the process global, never a second
+    # database read that could disagree with it.
+    try:
+        policy_snapshot = load_policy_snapshot(db)
+    except PolicyUnavailable as exc:
+        return {"error": str(exc)}
+    analysis_config = analysis_config_from_snapshot(policy_snapshot)
+    trends_policy = trends_policy_from_snapshot(policy_snapshot)
     trends = analyze_historical_trends(
         hosp.name, monthly_data,
         additional_indicators=managed_indicators,
-        config=analysis_config.trend_engine_config())
+        policy=trends_policy)
     row = next((t for t in trends if t.rate_name == rate_name), None)
     if row is None:
         return {"error": f"No trend row for {rate_name} / {hosp.name}"}
@@ -1778,12 +1850,10 @@ def explain_trend_row(db: Session, hospital_id: int, rate_name: str) -> dict:
     last_val = vals[-1]
     last_vs_mean = ((last_val - mean_val) / mean_val * 100) if mean_val else 0.0
 
-    from app.config_utils import get_config_dict
-    tc = get_config_dict(db, "trends")
     thresholds = {
-        "trend_finding_slope": float(tc.get("trend_finding_slope", 5.0)),
-        "trend_finding_cv": float(tc.get("trend_finding_cv", 30.0)),
-        "trend_finding_deviation": float(tc.get("trend_finding_deviation", 25.0)),
+        "trend_finding_slope": trends_policy.finding_slope,
+        "trend_finding_cv": trends_policy.finding_cv,
+        "trend_finding_deviation": trends_policy.finding_deviation,
         # Persistence is the SAME setting System Control exposes.
         "trend_finding_consecutive": float(analysis_config.trend.min_persistence),
         # Effective temporal-trend policy (System Control).

@@ -260,6 +260,23 @@ class TestAnalyzeAnomalyPatterns:
                 value=5.0, benchmark=1.0, z_score=2.8, is_outlier=True,
             ),
         ])
+        # The projected rows are graded by the canonical layered result; the
+        # pattern label is read from its band (Phase 4), not from |z|.
+        from app.models import LayeredOutlierResult
+        db_session.add_all([
+            LayeredOutlierResult(
+                hospital_id=hospital.id, month="2026-04", analysis_code="5",
+                outlier_level="VERY_HIGH", outlier_method="peer_zscore",
+                peer_outlier_score=1.0, peer_count=6, peer_mean=25.0,
+                peer_provenance={"group": "all_active_reporting",
+                                 "values": {str(i): 20.0 + i
+                                            for i in range(6)}}),
+            LayeredOutlierResult(
+                hospital_id=hospital.id, month="2026-04", analysis_code="11",
+                outlier_level="MODERATE", outlier_method="zscore",
+                historical_outlier_score=0.55, historical_mean=1.0,
+                history_provenance={"values": [0.8, 1.2, 0.9, 1.1]}),
+        ])
         db_session.commit()
 
         patterns = analyze_anomaly_patterns(db_session, hospital.id, "2026-04")
@@ -274,10 +291,21 @@ class TestAnalyzeAnomalyPatterns:
             indicator_code="5", rate_name="C-section rate",
             value=30.0, benchmark=25.0, z_score=3.2, is_outlier=True,
         ))
+        # The canonical band — not the z magnitude — decides the label.
+        from app.models import LayeredOutlierResult
+        db_session.add(LayeredOutlierResult(
+            hospital_id=hospital.id, month="2026-04", analysis_code="5",
+            outlier_level="VERY_HIGH", outlier_method="peer_zscore",
+            peer_outlier_score=1.0, peer_count=6, peer_mean=25.0,
+            peer_provenance={"group": "all_active_reporting",
+                             "values": {str(i): 20.0 + i for i in range(6)}}))
         db_session.commit()
 
         patterns = analyze_anomaly_patterns(db_session, hospital.id, "2026-04")
         assert patterns[0].pattern_type == "severe"
+        assert patterns[0].effective_level == "VERY_HIGH"
+        assert patterns[0].evidence_source == "canonical_layered"
+        assert patterns[0].evidence_status == "equivalent"
 
 
 class TestGenerateRootCauseAnalysis:
@@ -1012,6 +1040,23 @@ class TestIntegrationHistoricalAndComparativeRootCause:
                 indicator_code="11", rate_name="Maternal mortality rate",
                 value=5.0, benchmark=1.0, z_score=2.8, is_outlier=True,
             ),
+        ])
+        # --- 5b. Canonical layered results: the band the patterns read ---
+        # (Phase 4: the label comes from the stored band, not from |z|.)
+        from app.models import LayeredOutlierResult
+        db_session.add_all([
+            LayeredOutlierResult(
+                hospital_id=target.id, month="2026-06", analysis_code="5",
+                outlier_level="VERY_HIGH", outlier_method="peer_zscore",
+                peer_outlier_score=1.0, peer_count=4, peer_mean=25.0,
+                peer_provenance={"group": "all_active_reporting",
+                                 "values": {str(p.id): 24.0 + i
+                                            for i, p in enumerate(peers)}}),
+            LayeredOutlierResult(
+                hospital_id=target.id, month="2026-06", analysis_code="11",
+                outlier_level="HIGH", outlier_method="zscore",
+                historical_outlier_score=0.8, historical_mean=1.0,
+                history_provenance={"values": [0.8, 1.2, 0.9, 1.1]}),
         ])
         db_session.commit()
 

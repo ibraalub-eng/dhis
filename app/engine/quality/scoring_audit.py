@@ -19,6 +19,7 @@ consistency components, so the same stored inputs and config always produce
 the same result. It never overwrites a row without writing a
 QualityScoreRevision first.
 """
+import json
 from typing import Dict, Optional
 
 from sqlalchemy.orm import Session
@@ -39,6 +40,7 @@ from .scoring import (
     anomaly_outlier_penalty,
     combine_quality_score,
     layered_outlier_penalty,
+    layered_severity,
     resolve_scoring_config,
     scoring_config_fingerprint,
     scoring_config_with_multiplier,
@@ -82,6 +84,7 @@ def score_snapshot(row: QualityScore) -> Dict:
         "issues": row.issues,
         "scoring_fingerprint": row.scoring_fingerprint,
         "scoring_config": row.scoring_config,
+        "policy_digest": row.policy_digest,
     }
 
 
@@ -91,6 +94,26 @@ def _numeric(values: Dict) -> Dict[str, Optional[float]]:
         for key in ("score", "rule_compliance", "completeness",
                     "consistency", "outlier_penalty")
     }
+
+
+def _is_fallback(issues) -> bool:
+    """True when a stored ``issues`` value carries the failed-analysis marker.
+
+    The same single marker and exact list membership the pipeline uses; the
+    import is local because ``app.engine.pipeline`` imports this module lazily
+    (avoiding a module-level cycle). A stored value may be the JSON string the
+    database holds or an already-parsed list.
+    """
+    from app.engine.pipeline import FALLBACK_ANALYSIS_ISSUE
+
+    if not issues:
+        return False
+    if isinstance(issues, str):
+        try:
+            issues = json.loads(issues)
+        except (TypeError, ValueError):
+            return False
+    return isinstance(issues, list) and FALLBACK_ANALYSIS_ISSUE in issues
 
 
 def _differs(previous: Dict, current: Dict) -> bool:
@@ -214,26 +237,57 @@ def recompute_from_stored_rows(row: QualityScore, layered_rows, anomaly_rows,
     return {"outlier_penalty": penalty, "score": score, "source": source}
 
 
-def apply_score_update(db: Session, row: QualityScore, config: Dict[str, float],
-                       action: str, actor: str = ACTOR_SYSTEM, **changes) -> bool:
+def apply_score_update(db: Session, row: QualityScore,
+                       config: Optional[Dict[str, float]],
+                       action: str, actor: str = ACTOR_SYSTEM,
+                       policy_digest: Optional[str] = None,
+                       set_policy_identity: bool = False, **changes) -> bool:
     """Apply a score change, recording the previous values when they move.
 
-    ``config`` must be a resolved configuration (``resolve_scoring_config``).
+    ``config`` must be a resolved configuration (``resolve_scoring_config``),
+    or ``None`` for a config-less write that no scoring configuration produced
+    (the failed-analysis fallback): such a row carries no provenance, exactly
+    like a fallback row written for the first time.
+
+    D5 identity rules:
+
+    * ``set_policy_identity=True`` records ``policy_digest`` on the row (an
+      analysis run's digest, or ``None`` to clear it for a fallback that no
+      policy produced). ``False`` leaves a row's recorded identity untouched —
+      repair/recalculation writers do not know a policy and must not erase it.
+    * A revision is written when numeric values move (as before), when the row
+      flips between the failed-analysis placeholder and a genuine result (even
+      at the same numbers — a failed 0 is not a genuine 0), or when a recorded
+      policy identity actually changes. A legacy ``NULL`` identity becoming
+      recorded is provenance being added, not a changed result, and does not
+      by itself append a revision.
+
     Returns True when a revision was recorded. The row is not committed.
     """
     previous = score_snapshot(row)
+    if set_policy_identity:
+        row.policy_digest = policy_digest
     for key, value in changes.items():
         if key not in ("score", "rule_compliance", "completeness",
                        "consistency", "outlier_penalty", "issues"):
             raise ValueError(f"Unsupported QualityScore field: {key}")
         setattr(row, key, value)
 
-    resolved = resolve_scoring_config(config)
-    row.scoring_fingerprint = scoring_config_fingerprint(resolved)
+    resolved = None
+    if config is not None:
+        resolved = resolve_scoring_config(config)
+        row.scoring_fingerprint = scoring_config_fingerprint(resolved)
+    else:
+        row.scoring_fingerprint = None
     row.scoring_config = resolved
     current = score_snapshot(row)
 
-    if not _differs(previous, current):
+    identity_changed = _is_fallback(previous["issues"]) != _is_fallback(
+        current["issues"])
+    policy_changed = (previous["policy_digest"] is not None
+                      and current["policy_digest"] is not None
+                      and previous["policy_digest"] != current["policy_digest"])
+    if not (_differs(previous, current) or identity_changed or policy_changed):
         return False
     db.add(QualityScoreRevision(
         hospital_id=row.hospital_id,
@@ -244,6 +298,8 @@ def apply_score_update(db: Session, row: QualityScore, config: Dict[str, float],
         new_score=current["score"],
         previous_fingerprint=previous["scoring_fingerprint"],
         new_fingerprint=current["scoring_fingerprint"],
+        previous_policy_digest=previous["policy_digest"],
+        new_policy_digest=current["policy_digest"],
         previous_values=previous,
         new_values=current,
         config=resolved,
@@ -270,9 +326,11 @@ def _penalty_diagnostics(db: Session, row: QualityScore, layered_rows,
         eligible = _eligible_codes_for(db, row, layered_rows)
         eligible_count = len(eligible or ())
         evaluated_count = len(layered_rows)
-        flagged = sum(
-            1 for r in layered_rows
-            if getattr(r, "outlier_level", None) in FLAGGED_LEVELS)
+        # The canonical band, exactly as the scoring path counts it: a row the
+        # approved caps/gate lowered is not reported as a top-band finding.
+        grades = [layered_severity(r) for r in layered_rows]
+        flagged = sum(1 for g in grades if g["level"] in FLAGGED_LEVELS)
+        capped = sum(1 for g in grades if g["stored_level"] != g["level"])
         eligible_penalty = round(min(
             1.0, flagged / eligible_count * multiplier) * 100, 1) \
             if eligible_count else 0.0
@@ -286,6 +344,9 @@ def _penalty_diagnostics(db: Session, row: QualityScore, layered_rows,
             "eligible": eligible_count,
             "evaluated": evaluated_count,
             "flagged": flagged,
+            # Rows whose stored band the approved policy lowered (cap/gate), so
+            # a reader can tell a stored VERY_HIGH from the HIGH that was used.
+            "capped": capped,
             "penalty": eligible_penalty,
             "stored": stored,
             "matches": matches,

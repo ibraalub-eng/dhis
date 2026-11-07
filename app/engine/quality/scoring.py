@@ -246,11 +246,14 @@ def calculate_quality_score(
                                   "peer hospital(s) cannot measure a spread")
                 issues.append(f"Anomaly: {a.rate_name} ({magnitude})")
     else:
-        flagged = [r for r in layered_results
-                   if _layered_attr(r, "outlier_level") in FLAGGED_LEVELS]
-        for r in flagged[:MAX_LAYERED_ISSUES]:
-            issues.append(
-                f"Anomaly: {_layered_name(r)} ({_layered_attr(r, 'outlier_level')})")
+        graded = [(r, layered_severity(r)) for r in layered_results]
+        flagged = [(r, g) for r, g in graded if g["level"] in FLAGGED_LEVELS]
+        for r, g in flagged[:MAX_LAYERED_ISSUES]:
+            shown = g["level"]
+            if g["stored_level"] != shown:
+                # The cap/gate changed the band: both stay readable.
+                shown = f"{shown}; stored {g['stored_level']}"
+            issues.append(f"Anomaly: {_layered_name(r)} ({shown})")
         if len(flagged) > MAX_LAYERED_ISSUES:
             issues.append(
                 f"... and {len(flagged) - MAX_LAYERED_ISSUES} more flagged indicator(s)")
@@ -370,6 +373,72 @@ def _layered_name(result) -> str:
             or getattr(result, "analysis_code", None) or "indicator")
 
 
+def layered_severity(result) -> Dict[str, object]:
+    """The CANONICAL band of one layered result, for scoring and its explanation.
+
+    A LIVE ``LayerResult`` was classified by the engine, which already applies
+    the approved caps and the top-band gate — its ``classification.outlier_level``
+    IS the effective band. A STORED ``LayeredOutlierResult`` row keeps the band
+    it was written with, so its effective band comes from the one policy entry
+    point (``layered.row_level_assessment``). Quality Score must never apply a
+    policy of its own: two severity scales are how a penalty starts disagreeing
+    with the screens that display the same row.
+
+    ``evidence_status`` says what the band rests on:
+
+    ``canonical_layered``    the row's stored scores/provenance, resolved by the
+                             approved caps and gate;
+    ``stored_level_only``    the row carries its canonical band but none of the
+                             layer scores the caps would need (written before
+                             those were stored) — the band stands, nothing is
+                             demoted and no band is invented;
+    ``missing_layered_result``  the row has no band at all.
+    """
+    from app.engine.anomaly.layered import (
+        ROW_LAYER_SCORE_FIELDS,
+        row_level_assessment,
+    )
+
+    stored = _layered_attr(result, "outlier_level")
+    if getattr(result, "classification", None) is not None:
+        return {
+            "level": stored or "NONE",
+            "stored_level": stored or "NONE",
+            "has_stored_level": bool(stored),
+            "capped": False,
+            "cap": None,
+            "evidence_status": "canonical_layered",
+        }
+    if not stored:
+        return {
+            "level": "NONE",
+            "stored_level": "NONE",
+            "has_stored_level": False,
+            "capped": False,
+            "cap": None,
+            "evidence_status": "missing_layered_result",
+        }
+    if all(getattr(result, field, None) is None
+           for _name, field in ROW_LAYER_SCORE_FIELDS):
+        return {
+            "level": stored,
+            "stored_level": stored,
+            "has_stored_level": True,
+            "capped": False,
+            "cap": None,
+            "evidence_status": "stored_level_only",
+        }
+    level, cap = row_level_assessment(result)
+    return {
+        "level": level,
+        "stored_level": stored,
+        "has_stored_level": True,
+        "capped": cap is not None,
+        "cap": cap,
+        "evidence_status": "canonical_layered",
+    }
+
+
 def _calc_layered_outlier_penalty(layered_results: list,
                                   config: Optional[Dict[str, float]] = None,
                                   eligible_codes: Optional[set] = None) -> float:
@@ -387,8 +456,12 @@ def _calc_layered_outlier_penalty(layered_results: list,
     (legacy contract). The pipeline always supplies the approved set.
     """
     rows = list(layered_results or ())
+    # The numerator counts the band the APPROVED POLICY assigns (caps and
+    # top-band gate included), not the band a row happens to carry: a discarded,
+    # capped or score-less row must be counted exactly as the diagnostics screen
+    # displays it.
     flagged = sum(1 for r in rows
-                  if _layered_attr(r, "outlier_level") in FLAGGED_LEVELS)
+                  if layered_severity(r)["level"] in FLAGGED_LEVELS)
     if eligible_codes is None:
         denominator = len(rows)
     else:

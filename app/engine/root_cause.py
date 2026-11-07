@@ -3,15 +3,28 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import case, text, func
-from app.models import Hospital, Indicator, IndicatorValue, ValidationResult, QualityScore, ConfidenceScore, AnomalyResult, Rule
+from app.models import (
+    AnomalyResult,
+    ConfidenceScore,
+    Hospital,
+    Indicator,
+    IndicatorValue,
+    LayeredOutlierResult,
+    QualityScore,
+    Rule,
+    ValidationResult,
+)
 import json
 import logging
 import math
 
 logger = logging.getLogger(__name__)
 
+from app.engine import comparison_policy  # noqa: E402
 from app.engine.anomaly.layered import (  # noqa: E402
     MIN_PEERS_FOR_TOP_BAND,
+    ROW_LAYER_SCORE_FIELDS,
+    effective_severity,
     peer_z_measurable,
     peer_z_provenance,
 )
@@ -85,6 +98,15 @@ class AnomalyPattern:
     recurrence_count: int
     pattern_type: str
     description: str
+    # Which evidence produced the label (Phase 4): the stored canonical layered
+    # result, or root cause's own description when no canonical row exists.
+    analysis_code: Optional[str] = None
+    layered_result_id: Optional[int] = None
+    stored_level: Optional[str] = None
+    effective_level: Optional[str] = None
+    score: Optional[float] = None
+    evidence_source: str = "independent_diagnostic"
+    evidence_status: str = "missing_layered_result"
 
 
 @dataclass
@@ -167,6 +189,16 @@ class PeerIndicatorComparison:
     peer_governorate_counts: Dict[str, int] = field(default_factory=dict)
     peer_types: List[str] = field(default_factory=list)
     z_provenance: Optional[dict] = None
+    # Evidence provenance (Phase 4). A comparison of the detection baseline
+    # consumes the stored layered peer layer; a stratified comparison keeps its
+    # own descriptive statistics and is labelled as independent.
+    analysis_code: Optional[str] = None
+    layered_result_id: Optional[int] = None
+    stored_level: Optional[str] = None
+    effective_level: Optional[str] = None
+    score: Optional[float] = None
+    evidence_source: str = "independent_diagnostic"
+    evidence_status: str = "missing_layered_result"
 
 
 @dataclass
@@ -400,10 +432,13 @@ def get_peer_historical_data(
     # Peer group candidates. Whatever the group type, members must be active
     # hospitals WITH data for the report month (the same peer rule as the
     # audit benchmark screen) — dataless hospitals never join the group.
+    from app.engine.config_resolver import load_policy_snapshot
     from app.engine.smart import _load_hospital_data
+    _gate = load_policy_snapshot(session).require_auto_disable_null()
     data_ids = {
         entry["hospital_id"]
-        for entry in _load_hospital_data(session, month).values()
+        for entry in _load_hospital_data(session, month,
+                                         auto_disable_null=_gate).values()
     } if month else None
 
     def _with_data(ids):
@@ -1330,6 +1365,156 @@ def _diagnose_confidence_gap_ar(signal_factor: str, name: str, level: str) -> Tu
     )
 
 
+# ── Canonical layered evidence (Phase 4) ──────────────────────────────────
+# Root Cause EXPLAINS a finding the layered engine has already detected, so it
+# reads that finding's stored evidence instead of grading the same comparison
+# again. ``effective_severity`` names the band (caps and top-band gate
+# included), and the detection-baseline peer block reuses the stored mean,
+# count and score. A comparison of a DIFFERENT population (same type, same
+# governorate, ...) remains a descriptive comparison and is labelled as such:
+# the two are never merged and never presented as the same evidence.
+EVIDENCE_CANONICAL = "canonical_layered"
+EVIDENCE_DIAGNOSTIC = "independent_diagnostic"
+# A canonical read that FAILED is not an intentional independent comparison.
+EVIDENCE_UNAVAILABLE = "canonical_evidence_unavailable"
+CANONICAL_EQUIVALENT = "equivalent"
+CANONICAL_MISSING = "missing_layered_result"
+CANONICAL_NOT_EQUIVALENT = "not_equivalent"
+CANONICAL_UNAVAILABLE = "canonical_evidence_unavailable"
+
+# The pattern label is READ FROM THE CANONICAL BAND, never from a z magnitude:
+# a fixed |z| cut-off would be a second severity scale that can disagree with
+# the one every other screen counts. A finding with no stored band is reported
+# as unclassified — missing evidence is never presented as a mild deviation.
+_PATTERN_BY_LEVEL = {
+    "VERY_HIGH": "severe",
+    "HIGH": "moderate",
+    "MODERATE": "mild",
+    "LOW": "mild",
+}
+_PATTERN_DESCRIPTION = {
+    "severe": "Extreme outlier",
+    "moderate": "Moderate outlier",
+    "mild": "Mild deviation",
+    "unclassified": "Deviation without a stored band",
+}
+_PATTERN_ORDER = {"severe": 0, "moderate": 1, "mild": 2, "unclassified": 3}
+
+
+def _analysis_code_index(session: Session) -> Dict[str, str]:
+    """``indicator code -> the layered analysis unit that analyses it``.
+
+    The projection join the pipeline itself uses, inverted; a data element is
+    its own analysis unit and maps to itself.
+    """
+    from app.engine.anomaly.projection import projection_codes
+
+    codes = {code: analysis for analysis, code in projection_codes(session).items()}
+    for (code,) in session.query(Indicator.code).all():
+        if code:
+            codes.setdefault(code, code)
+    return codes
+
+
+def _canonical_rows(session: Session, hospital_id: int,
+                    month: str) -> Dict[str, LayeredOutlierResult]:
+    """Stored layered rows for one hospital/month, keyed by analysis_code."""
+    rows = (session.query(LayeredOutlierResult)
+            .filter(LayeredOutlierResult.hospital_id == hospital_id,
+                    LayeredOutlierResult.month == month).all())
+    return {row.analysis_code: row for row in rows}
+
+
+def _canonical_score(row) -> Optional[float]:
+    """The highest stored layer score of a row (the one that set its band)."""
+    values = [getattr(row, field, None) for _name, field in ROW_LAYER_SCORE_FIELDS]
+    present = [float(v) for v in values if v is not None]
+    return max(present) if present else None
+
+
+def _feature_analysis_codes(session: Session) -> Dict[str, str]:
+    """``root-cause feature -> the layered analysis unit for the same number``.
+
+    Structural, never name-based: a count feature is analysed under its own
+    indicator code, and a rate feature under the analysis spec built from the
+    SAME numerator/denominator formula (``build_analysis_specs``). A feature
+    whose codes do not identify one canonical unit (the adolescent total is a
+    sum of two codes) maps to nothing and keeps its independent calculation.
+    """
+    from app.engine.anomaly.layered import build_analysis_specs
+    from app.engine.smart import FEATURE_SOURCE_CODES
+
+    by_formula: Dict[tuple, str] = {}
+    for spec in build_analysis_specs(session):
+        if spec.is_rate and spec.numerator_codes and spec.denominator_codes:
+            by_formula.setdefault(
+                (tuple(spec.numerator_codes), tuple(spec.denominator_codes)),
+                spec.analysis_code)
+    codes: Dict[str, str] = {}
+    for feature, sources in FEATURE_SOURCE_CODES.items():
+        if len(sources) == 1:
+            codes[feature] = sources[0]
+        elif feature == "cs_rate" and len(sources) == 2:
+            canonical = by_formula.get(((sources[0],), (sources[1],)))
+            if canonical:
+                codes[feature] = canonical
+    return codes
+
+
+def _canonical_peer_block(row, peer_values: List[float], hospital_value: float,
+                          peer_ids: List[int], peer_group: Optional[str],
+                          unavailable: bool = False
+                          ) -> Tuple[Optional[dict], str]:
+    """The stored detection-baseline peer evidence, when it IS this comparison.
+
+    ``peer_group`` is the root-cause group that produced ``peer_values``: only
+    the detection baseline can be equivalent to the canonical peer layer, and
+    its members must be exactly the hospitals compared here. Anything else is
+    ``not_equivalent`` and keeps its own descriptive statistics.
+    """
+    if unavailable:
+        # The canonical plane could not be read: report UNAVAILABLE, never the
+        # absence of a row and never an intentional independent comparison.
+        return None, CANONICAL_UNAVAILABLE
+    if row is None:
+        return None, CANONICAL_MISSING
+    provenance = getattr(row, "peer_provenance", None) or {}
+    stored_values = provenance.get("values") or {}
+    stored_ids = []
+    for key in stored_values:
+        try:
+            stored_ids.append(int(key))
+        except (TypeError, ValueError):
+            continue
+    if (peer_group != "all"
+            or provenance.get("group") != comparison_policy.DETECTION_PEER_GROUP
+            or sorted(stored_ids) != sorted(int(hid) for hid in peer_ids)):
+        return None, CANONICAL_NOT_EQUIVALENT
+    score = getattr(row, "peer_outlier_score", None)
+    mean = getattr(row, "peer_mean", None)
+    if score is None or mean is None:
+        return None, CANONICAL_MISSING
+    values = [float(v) for v in peer_values]
+    count = len(values)
+    std = (math.sqrt(sum((v - float(mean)) ** 2 for v in values) / (count - 1))
+           if count > 1 else None)
+    grade = effective_severity(row)
+    z = None
+    if std not in (None, 0) and peer_z_measurable(count):
+        z = (float(hospital_value) - float(mean)) / std
+    return {
+        "peer_mean": float(mean),
+        "peer_std": std,
+        "peer_count": count,
+        "hospital_z_score": z,
+        "score": float(score),
+        "stored_level": getattr(row, "outlier_level", None),
+        "effective_level": grade["level"],
+        "layered_result_id": getattr(row, "id", None),
+        "analysis_code": getattr(row, "analysis_code", None),
+    }, CANONICAL_EQUIVALENT
+
+
 def analyze_anomaly_patterns(
     session: Session,
     hospital_id: int,
@@ -1351,6 +1536,19 @@ def analyze_anomaly_patterns(
     prev_months = [r[0] for r in session.query(IndicatorValue.month).filter(
         IndicatorValue.hospital_id == hospital_id, IndicatorValue.month < month
     ).distinct().all()]
+    # Phase 4: the canonical rows this hospital/month already has, read ONCE.
+    # A projected finding with no stored canonical row is reported as missing
+    # evidence — never as a mild/low deviation.
+    canonical_unavailable = False
+    try:
+        canonical_rows = _canonical_rows(session, hospital_id, month)
+        code_index = _analysis_code_index(session)
+    except Exception:
+        logger.exception(
+            "Canonical layered evidence unreadable for %s/%s; anomaly patterns "
+            "report the evidence as unavailable", hospital_id, month)
+        canonical_rows, code_index = {}, {}
+        canonical_unavailable = True
     patterns = []
     for row in rows:
         code = row[0] or ""
@@ -1365,15 +1563,31 @@ def analyze_anomaly_patterns(
                 AnomalyResult.is_outlier.is_(True),
                 AnomalyResult.month.in_(prev_months),
             ).scalar() or 0
-        if abs(avg_z) > 3:
-            ptype = "severe"
-            desc = f"Extreme outlier (|z|={avg_z}) for {rate_name}"
-        elif abs(avg_z) > 2.5:
-            ptype = "moderate"
-            desc = f"Moderate outlier (|z|={avg_z}) for {rate_name}"
+        canonical = canonical_rows.get(code_index.get(code, code))
+        if canonical is not None:
+            grade = effective_severity(canonical)
+            level = grade["level"]
+            ptype = _PATTERN_BY_LEVEL.get(level or "", "unclassified")
+            stored_level = canonical.outlier_level
+            score = _canonical_score(canonical)
+            source, status = EVIDENCE_CANONICAL, CANONICAL_EQUIVALENT
+        elif canonical_unavailable:
+            grade = None
+            level = stored_level = score = None
+            ptype = "unclassified"
+            source, status = EVIDENCE_UNAVAILABLE, CANONICAL_UNAVAILABLE
         else:
-            ptype = "mild"
-            desc = f"Mild deviation (|z|={avg_z}) for {rate_name}"
+            grade = None
+            level = stored_level = score = None
+            ptype = "unclassified"
+            source, status = EVIDENCE_DIAGNOSTIC, CANONICAL_MISSING
+        desc = f"{_PATTERN_DESCRIPTION[ptype]} (|z|={avg_z}) for {rate_name}"
+        if canonical is not None and grade["capped"]:
+            desc += f"; the approved policy caps it at {level}"
+        if canonical is None:
+            desc += ("; canonical layered evidence is unavailable for this finding"
+                     if canonical_unavailable else
+                     "; canonical layered evidence is missing for this finding")
         if recurrence > 0:
             desc += f" - recurring anomaly ({recurrence} previous months)"
         patterns.append(AnomalyPattern(
@@ -1384,8 +1598,17 @@ def analyze_anomaly_patterns(
             recurrence_count=recurrence,
             pattern_type=ptype,
             description=desc,
+            analysis_code=(canonical.analysis_code if canonical is not None
+                           else None),
+            layered_result_id=getattr(canonical, "id", None),
+            stored_level=stored_level,
+            effective_level=level,
+            score=score,
+            evidence_source=source,
+            evidence_status=status,
         ))
-    patterns.sort(key=lambda p: (p.pattern_type != "severe", -abs(p.avg_z_score)))
+    patterns.sort(key=lambda p: (_PATTERN_ORDER.get(p.pattern_type, 9),
+                                 -abs(p.avg_z_score)))
     return patterns[:10]
 
 
@@ -1655,10 +1878,13 @@ def _find_peer_hospital_ids(
     # collisions), and its inclusion rule matches the audit loader's.
     data_ids: Optional[set] = None
     if month:
+        from app.engine.config_resolver import load_policy_snapshot
         from app.engine.smart import _load_hospital_data
+        _gate = load_policy_snapshot(session).require_auto_disable_null()
         data_ids = {
             entry["hospital_id"]
-            for entry in _load_hospital_data(session, month).values()
+            for entry in _load_hospital_data(session, month,
+                                             auto_disable_null=_gate).values()
         }
 
     def _with_data(ids: List[int]) -> List[int]:
@@ -1727,9 +1953,26 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_
     if match_by is None or len(peer_ids) < MIN_PEER_SIZE:
         return
     peer_meta["match_by"] = match_by
+    # Phase 4: the canonical rows and the structural feature -> analysis-unit
+    # map, read once. A missing canonical plane degrades to the existing
+    # descriptive calculation and is reported per comparison.
+    canonical_unavailable = False
+    try:
+        canonical_rows = _canonical_rows(session, hospital_id, month)
+        feature_codes = _feature_analysis_codes(session)
+    except Exception:
+        logger.exception(
+            "Canonical layered evidence unreadable for %s/%s; root-cause peer "
+            "comparisons report the evidence as unavailable",
+            hospital_id, month)
+        canonical_rows, feature_codes = {}, {}
+        canonical_unavailable = True
     peer_id_set = set(peer_ids)
+    from app.engine.config_resolver import load_policy_snapshot
     from app.engine.smart import _load_hospital_data
-    month_data = _load_hospital_data(session, month)
+    month_data = _load_hospital_data(
+        session, month,
+        auto_disable_null=load_policy_snapshot(session).require_auto_disable_null())
     hospital_map = {}
     peer_values: Dict[str, List[float]] = {}
     peer_governorates: List[str] = []
@@ -1762,17 +2005,40 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_
         if code not in hospital_map or code not in peer_values or len(peer_values[code]) < 2:
             continue
         pvals = peer_values[code]
-        mean = sum(pvals) / len(pvals)
         hv = hospital_map[code]
+        mean = sum(pvals) / len(pvals)
         if mean == 0 and hv == 0:
             continue
-        std = (sum((v - mean) ** 2 for v in pvals) / len(pvals)) ** 0.5
+        analysis_code = feature_codes.get(code)
+        canonical, evidence_status = _canonical_peer_block(
+            canonical_rows.get(analysis_code) if analysis_code else None,
+            pvals, hv, peer_ids, match_by, unavailable=canonical_unavailable)
+        if canonical is not None:
+            # The stored detection-baseline comparison IS this one: reuse its
+            # mean, count, score and band instead of recomputing them.
+            mean = canonical["peer_mean"]
+            std = canonical["peer_std"]
+            z = canonical["hospital_z_score"]
+            count = canonical["peer_count"]
+            score = canonical["score"]
+            stored_level = canonical["stored_level"]
+            effective_level = canonical["effective_level"]
+            layered_result_id = canonical["layered_result_id"]
+            analysis_code = canonical["analysis_code"]
+            evidence_source = EVIDENCE_CANONICAL
+        else:
+            std = (sum((v - mean) ** 2 for v in pvals) / len(pvals)) ** 0.5
+            z = (hv - mean) / std if std > 0 else 0.0
+            count = len(pvals)
+            score = stored_level = effective_level = layered_result_id = None
+            evidence_source = (EVIDENCE_UNAVAILABLE
+                               if evidence_status == CANONICAL_UNAVAILABLE
+                               else EVIDENCE_DIAGNOSTIC)
         percentile = float(sum(1 for v in pvals if v <= hv) / len(pvals) * 100)
         # Same rule as the benchmark and the audit screens: a peer group of 2-3
         # hospitals cannot measure a spread, so the z is withheld (None) and
         # explained, while the mean, the percentile and the gap are kept.
-        z = (hv - mean) / std if std > 0 else 0.0
-        z_provenance = peer_z_provenance(len(pvals))
+        z_provenance = peer_z_provenance(count)
         if not z_provenance["z_produced"]:
             z = None
         gap_pct = ((hv - mean) / mean * 100) if mean != 0 else 0.0
@@ -1781,9 +2047,9 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_
             indicator_name=INDICATOR_NAMES.get(code, code),
             hospital_value=round(hv, 2),
             peer_group=match_by,
-            peer_count=len(pvals),
+            peer_count=count,
             peer_mean=round(mean, 2),
-            peer_std=round(std, 2),
+            peer_std=(round(std, 2) if std is not None else 0.0),
             hospital_percentile=round(percentile, 1),
             hospital_z_score=(None if z is None else round(z, 2)),
             gap_pct=round(gap_pct, 2),
@@ -1791,6 +2057,13 @@ def _build_peer_comparisons(session, hospital_id, month, peer_comparisons, peer_
             peer_governorates=list(peer_governorates),
             peer_governorate_counts=dict(peer_governorate_counts),
             peer_types=list(peer_types),
+            analysis_code=analysis_code,
+            layered_result_id=layered_result_id,
+            stored_level=stored_level,
+            effective_level=effective_level,
+            score=score,
+            evidence_source=evidence_source,
+            evidence_status=evidence_status,
         )
 
 

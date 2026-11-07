@@ -61,9 +61,12 @@ def get_root_cause_timeline(
         )
 
     # Build disabled-indicator set so the timeline skips disabled codes
+    from app.engine.config_resolver import load_policy_snapshot
     from app.engine.pipeline import get_disabled_indicator_ids as _gdi
     from app.models import Indicator as _RI
-    _dis_ids = set(_gdi(db, hospital_id, month))
+    _dis_ids = set(_gdi(
+        db, hospital_id, month,
+        auto_disable_null=load_policy_snapshot(db).require_auto_disable_null()))
     _ind_rows = db.query(_RI.id, _RI.code).all()
     _dis_codes = {c for i, c in _ind_rows if i in _dis_ids}
 
@@ -275,6 +278,16 @@ def get_root_cause_analysis(
                 "recurrence_count": a.recurrence_count,
                 "pattern_type": a.pattern_type,
                 "description": a.description,
+                # Evidence provenance (Phase 4): the canonical layered result
+                # that produced this pattern, or the reason it is missing.
+                "indicator_code": a.indicator_code,
+                "analysis_code": a.analysis_code,
+                "layered_result_id": a.layered_result_id,
+                "stored_level": a.stored_level,
+                "effective_level": a.effective_level,
+                "score": a.score,
+                "evidence_source": a.evidence_source,
+                "evidence_status": a.evidence_status,
             }
             for a in report.anomaly_patterns
         ],
@@ -331,6 +344,16 @@ def get_root_cause_analysis(
                 "peer_governorates": v.peer_governorates,
                 "peer_governorate_counts": v.peer_governorate_counts,
                 "peer_types": v.peer_types,
+                # Evidence provenance (Phase 4): the canonical peer layer for
+                # an equivalent detection-baseline comparison, or an explicitly
+                # independent descriptive comparison.
+                "analysis_code": v.analysis_code,
+                "layered_result_id": v.layered_result_id,
+                "stored_level": v.stored_level,
+                "effective_level": v.effective_level,
+                "score": v.score,
+                "evidence_source": v.evidence_source,
+                "evidence_status": v.evidence_status,
             }
             for k, v in report.peer_comparisons.items()
         }

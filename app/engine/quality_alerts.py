@@ -76,6 +76,7 @@ from app.models import (
     Hospital,
     Indicator,
     IndicatorValue,
+    LayeredOutlierResult,
     QualityAlert,
     QualityAlertEvent,
 )
@@ -1468,6 +1469,216 @@ def _canonical_evidence(resolved, canonical_by_code: Dict[str, object],
     }
 
 
+# ── Canonical layered evidence (Phase 3) ───────────────────────────────────
+# Quality Alerts and Outlier Diagnostics grade the same comparison. Where the
+# two questions are analytically equivalent — the detection baseline (every
+# active hospital reporting the formula) and the hospital's own history window
+# — Diagnostics has already computed and STORED the score on its
+# ``LayeredOutlierResult`` row. The scan CONSUMES that stored score instead of
+# computing the same statistic a second time, so one comparison has one number.
+#
+# Reuse is proved per row, never assumed: the stored window's months and values
+# must equal the window this scan selected, and the stored peer group must be
+# exactly the hospitals this scan compared against. A stratified perspective
+# (type / ownership / facility type / governorate) is a DIFFERENT population
+# and therefore never consumes the detection baseline; it keeps its own
+# approved calculation and says so in its evidence.
+EVIDENCE_CANONICAL = "canonical_layered"
+EVIDENCE_SCAN = "alert_scan"
+CANONICAL_EQUIVALENT = "equivalent"
+CANONICAL_MISSING = "missing_layered_result"
+CANONICAL_NOT_EQUIVALENT = "not_equivalent"
+CANONICAL_INDEPENDENT = "independent_perspective"
+LAYER_HISTORY = "historical"
+LAYER_PEER = "peer"
+
+
+def canonical_analysis_codes(db: Session) -> Dict[str, str]:
+    """``indicator code -> the layered analysis unit that analyses it``.
+
+    The one join the pipeline already uses for its projection
+    (``projection.projection_codes``), inverted. A data element is its own
+    analysis unit and carries no projection row, so it maps to itself.
+    """
+    from app.engine.anomaly.projection import projection_codes
+
+    codes = {code: analysis for analysis, code in projection_codes(db).items()}
+    for (code,) in db.query(Indicator.code).all():
+        if code:
+            codes.setdefault(code, code)
+    return codes
+
+
+def canonical_layered_index(db: Session, month: str,
+                            hospital_id: Optional[int] = None
+                            ) -> Dict[Tuple[int, str], object]:
+    """Stored layered rows for one month, keyed by (hospital, analysis_code)."""
+    query = db.query(LayeredOutlierResult).filter(
+        LayeredOutlierResult.month == month)
+    if hospital_id is not None:
+        query = query.filter(LayeredOutlierResult.hospital_id == hospital_id)
+    return {(row.hospital_id, row.analysis_code): row for row in query.all()}
+
+
+def _canonical_stats(layer: str, values: Sequence[float], row) -> dict:
+    """Descriptive statistics of the STORED comparison window/group.
+
+    The layered row stores its score, mean and std; the read-time caps also ask
+    for the divisor the method divided by (MAD / IQR). Those are computed from
+    the stored values themselves — the same list the canonical calculation used
+    — so the cap test sees exactly what that calculation saw. No score is
+    recomputed here.
+    """
+    import statistics
+
+    numbers = [float(v) for v in values]
+    stored_mean = (getattr(row, "peer_mean", None) if layer == LAYER_PEER
+                   else getattr(row, "historical_mean", None))
+    stats = {
+        "mean": (float(stored_mean) if stored_mean is not None
+                 else statistics.fmean(numbers)),
+        "median": statistics.median(numbers),
+        "min": min(numbers),
+        "max": max(numbers),
+        "points": len(numbers),
+        "std": statistics.stdev(numbers) if len(numbers) >= 2 else None,
+        "mad": layered.mad(numbers) if numbers else None,
+        "iqr": ((lambda q: q[2] - q[0])(layered.quartiles(numbers))
+                if len(numbers) >= 2 else None),
+    }
+    if layer == LAYER_PEER:
+        stats["z_provenance"] = layered.peer_z_provenance(len(numbers))
+    return stats
+
+
+def _canonical_caps(row, layer: str) -> dict:
+    """The caps the canonical row recorded for this layer, if it recorded any."""
+    provenance = getattr(row, "classification_provenance", None) or {}
+    return {
+        "policy_version": provenance.get("policy_version"),
+        "zero_spread": layer in set(provenance.get("zero_spread_layers") or ()),
+        "thin_peer": layer in set(provenance.get("thin_peer_layers") or ()),
+        "level": provenance.get("level"),
+        "cap": provenance.get("cap"),
+    }
+
+
+def _canonical_z(stats: dict, current: Optional[float], *,
+                 measurable: bool) -> Optional[float]:
+    """The z the stored comparison's own mean/std support (None if unmeasurable)."""
+    std = stats.get("std")
+    mean = stats.get("mean")
+    if current is None or std in (None, 0) or mean is None or not measurable:
+        return None
+    return (float(current) - float(mean)) / float(std)
+
+
+def canonical_comparison_evidence(
+        row, perspective: str, *,
+        months: Optional[Sequence[str]] = None,
+        series: Optional[Sequence[float]] = None,
+        peer_ids: Optional[Sequence[int]] = None,
+        current: Optional[float] = None) -> Tuple[Optional[dict], str]:
+    """The stored layered layer that answers this perspective, when equivalent.
+
+    Returns ``(evidence, status)``. ``evidence`` is populated only when the
+    stored comparison IS the comparison this scan would run:
+
+    * the detection baseline (``all``) needs the stored group to be the
+      canonical detection group AND its members to be exactly the hospitals
+      this scan compared against;
+    * the history perspective needs the stored window's months and values to
+      equal the window this scan selected.
+
+    Status is ``equivalent`` (evidence returned), ``missing_layered_result``
+    (nothing stored to reuse), ``not_equivalent`` (stored evidence exists but
+    describes a different comparison) or ``independent_perspective`` (a
+    stratified population, which is deliberately its own calculation).
+    """
+    if perspective not in (PERSPECTIVE_HISTORY, PERSPECTIVE_ALL):
+        # A stratified population is not the detection baseline: keeping its
+        # own calculation is the approved behaviour, not a fallback — and it
+        # stays that way whether or not a layered row happens to exist.
+        return None, CANONICAL_INDEPENDENT
+    if row is None:
+        return None, CANONICAL_MISSING
+    if perspective == PERSPECTIVE_HISTORY:
+        provenance = getattr(row, "history_provenance", None) or {}
+        try:
+            stored_months = [str(m) for m in provenance.get("months") or ()]
+            stored_values = [float(v) for v in provenance.get("values") or ()]
+        except (TypeError, ValueError):
+            return None, CANONICAL_NOT_EQUIVALENT
+        if not stored_values:
+            return None, CANONICAL_MISSING
+        if (list(months or ()) != stored_months
+                or [float(v) for v in (series or ())] != stored_values):
+            return None, CANONICAL_NOT_EQUIVALENT
+        score = getattr(row, "historical_outlier_score", None)
+        if score is None:
+            return None, CANONICAL_MISSING
+        stats = _canonical_stats(LAYER_HISTORY, stored_values, row)
+        z = getattr(row, "historical_z_score", None)
+        return {
+            "source": EVIDENCE_CANONICAL,
+            "status": CANONICAL_EQUIVALENT,
+            "layer": LAYER_HISTORY,
+            "perspective": perspective,
+            "perspective_scope": "detection_baseline",
+            "layered_result_id": getattr(row, "id", None),
+            "analysis_code": getattr(row, "analysis_code", None),
+            "month": getattr(row, "month", None),
+            "stored_level": getattr(row, "outlier_level", None),
+            "score": float(score),
+            "baseline": stats["mean"],
+            "z": float(z) if z is not None else None,
+            "peer_count": stats["points"],
+            "stats": stats,
+            "window": [[m, v] for m, v in zip(stored_months, stored_values)],
+            "caps": _canonical_caps(row, LAYER_HISTORY),
+        }, CANONICAL_EQUIVALENT
+    provenance = getattr(row, "peer_provenance", None) or {}
+    if provenance.get("group") != comparison_policy.DETECTION_PEER_GROUP:
+        return None, CANONICAL_NOT_EQUIVALENT
+    by_id: Dict[int, float] = {}
+    for key, value in (provenance.get("values") or {}).items():
+        try:
+            by_id[int(key)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    stored_ids = sorted(by_id)
+    try:
+        compared = sorted(int(hid) for hid in (peer_ids or ()))
+    except (TypeError, ValueError):
+        return None, CANONICAL_NOT_EQUIVALENT
+    if not stored_ids or stored_ids != compared:
+        return None, CANONICAL_NOT_EQUIVALENT
+    score = getattr(row, "peer_outlier_score", None)
+    if score is None:
+        return None, CANONICAL_MISSING
+    numbers = [by_id[mid] for mid in stored_ids]
+    stats = _canonical_stats(LAYER_PEER, numbers, row)
+    return {
+        "source": EVIDENCE_CANONICAL,
+        "status": CANONICAL_EQUIVALENT,
+        "layer": LAYER_PEER,
+        "perspective": perspective,
+        "perspective_scope": "detection_baseline",
+        "layered_result_id": getattr(row, "id", None),
+        "analysis_code": getattr(row, "analysis_code", None),
+        "month": getattr(row, "month", None),
+        "stored_level": getattr(row, "outlier_level", None),
+        "score": float(score),
+        "baseline": stats["mean"],
+        "z": _canonical_z(stats, current,
+                          measurable=layered.peer_z_measurable(len(numbers))),
+        "peer_count": len(numbers),
+        "stats": stats,
+        "peer_ids": stored_ids,
+        "caps": _canonical_caps(row, LAYER_PEER),
+    }, CANONICAL_EQUIVALENT
+
+
 def _merge_investigation_state(db: Session, target: QualityAlert,
                                source: QualityAlert, now: datetime) -> bool:
     """Carry investigation state from a retired duplicate to its canonical row.
@@ -1617,6 +1828,21 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     **stats.as_dict()}
     stats.indicators = len(scanned)
 
+    # Phase 3: this month's canonical layered evidence, read ONCE per scan. A
+    # finding whose comparison is analytically equivalent to a stored layer
+    # consumes that stored score (canonical_comparison_evidence); a scan that
+    # cannot read the canonical plane keeps its own calculation and records
+    # that in every row's evidence — alerting is never blocked or silently
+    # re-graded because the layered plane is unavailable.
+    try:
+        canonical_codes = canonical_analysis_codes(db)
+        canonical_index = canonical_layered_index(db, month)
+    except Exception:
+        logger.exception(
+            "Canonical layered evidence unreadable for %s; the scan keeps its "
+            "own calculation and records the missing source", month)
+        canonical_codes, canonical_index = {}, {}
+
     directory = _hospital_directory(db)
     if not directory:
         return {"error": "No eligible hospitals", **stats.as_dict()}
@@ -1694,6 +1920,10 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                 continue  # missing / zero-denominator / non-ok: never alerted
             current = float(candidate.value)
             findings: List[dict] = []
+            analysis_code = canonical_codes.get(
+                getattr(resolved, "code", None))
+            canonical_row = (canonical_index.get((hid, analysis_code))
+                             if analysis_code else None)
 
             # ── Peer perspectives (current month) ──
             for perspective, attribute, _label in (
@@ -1701,8 +1931,23 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                 members = _peer_members(directory, hid, attribute, valid_values)
                 if len(members) < comparison.peer.min_peers:
                     continue  # peer group too small — avoid misleading comparisons
-                z, score, pstats = _peer_score(
-                    current, [v for _mid, v in members], cfg["z_threshold"])
+                canonical, canonical_status = canonical_comparison_evidence(
+                    canonical_row, perspective,
+                    peer_ids=[mid for mid, _v in members], current=current)
+                if canonical is not None:
+                    # The stored detection-baseline comparison IS this one:
+                    # consume its score instead of computing it again.
+                    score = canonical["score"]
+                    z = canonical["z"]
+                    pstats = canonical["stats"]
+                    baseline = canonical["baseline"]
+                    peer_count = canonical["peer_count"]
+                else:
+                    z, score, pstats = _peer_score(
+                        current, [v for _mid, v in members],
+                        cfg["z_threshold"])
+                    baseline = pstats["mean"]
+                    peer_count = len(members)
                 if score is None:
                     continue
                 peer_group = (
@@ -1713,9 +1958,11 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                 findings.append({
                     "perspective": perspective,
                     "score": score, "z": z, "method": "peer_zscore",
-                    "baseline": pstats["mean"],
-                    "peer_count": len(members),
+                    "baseline": baseline,
+                    "peer_count": peer_count,
                     "stats": pstats,
+                    "canonical": canonical,
+                    "canonical_status": canonical_status,
                     "peer_ids": [mid for mid, _v in members],
                     "comparison": {
                         "perspective_scope": (
@@ -1760,9 +2007,21 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     indicator_direction=direction)
                 if len(series) >= item_history_policy.min_observations:
                     spec_type = getattr(resolved, "indicator_type", None) or "rate"
-                    hscore, method, z, hstats = _history_score(
-                        spec_type, series, current, cfg["z_threshold"],
-                        outlier_method=item_settings["outlier_method"])
+                    canonical, canonical_status = canonical_comparison_evidence(
+                        canonical_row, PERSPECTIVE_HISTORY,
+                        months=series_months, series=series, current=current)
+                    if canonical is not None:
+                        # Same window, same values, same threshold: reuse the
+                        # stored layered score and keep the scan's own method
+                        # name (selection is deterministic for this window).
+                        hscore = canonical["score"]
+                        method = layered.select_method(
+                            item_settings["outlier_method"], series, spec_type)
+                        z, hstats = canonical["z"], canonical["stats"]
+                    else:
+                        hscore, method, z, hstats = _history_score(
+                            spec_type, series, current, cfg["z_threshold"],
+                            outlier_method=item_settings["outlier_method"])
                     if hscore is not None:
                         findings.append({
                             "perspective": PERSPECTIVE_HISTORY,
@@ -1770,6 +2029,8 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                             "baseline": hstats["mean"],
                             "peer_count": len(series),
                             "stats": hstats,
+                            "canonical": canonical,
+                            "canonical_status": canonical_status,
                             "history": list(zip(series_months, series,
                                                 strict=False)),
                             "comparison": {
@@ -1845,7 +2106,15 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                 # row, so the exact comparison can be audited after the
                 # configuration or data changes.
                 if "comparison" in finding:
-                    finding_evidence["comparison_policy"] = finding["comparison"]
+                    # The comparison perspective travels WITH its evidence
+                    # source, so a reader never confuses the canonical
+                    # detection baseline with a stratified population.
+                    comparison_block = dict(finding["comparison"])
+                    comparison_block["evidence_source"] = (
+                        EVIDENCE_CANONICAL if finding.get("canonical")
+                        else EVIDENCE_SCAN)
+                    comparison_block["perspective"] = finding["perspective"]
+                    finding_evidence["comparison_policy"] = comparison_block
                 evidence = dict(finding_evidence)
                 if candidate.denominator is not None:
                     evidence["denominator"] = candidate.denominator
@@ -1856,6 +2125,27 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                 # every registered code that carries it — an auditor can walk
                 # from this alert to any result computed for the same formula.
                 evidence["canonical"] = canonical_evidence
+                # Which evidence answered this perspective (Phase 3): the
+                # stored canonical layered result when the comparison is the
+                # same one, otherwise this scan's own calculation — and an
+                # explicit status saying why it is not canonical.
+                canonical_block = finding.get("canonical")
+                if canonical_block is not None:
+                    evidence["evidence_source"] = EVIDENCE_CANONICAL
+                else:
+                    evidence["evidence_source"] = EVIDENCE_SCAN
+                    canonical_block = {
+                        "source": EVIDENCE_SCAN,
+                        "status": finding.get(
+                            "canonical_status", CANONICAL_MISSING),
+                        "perspective": finding["perspective"],
+                        "perspective_scope": (
+                            "stratified"
+                            if finding["perspective"] not in (
+                                PERSPECTIVE_HISTORY, PERSPECTIVE_ALL)
+                            else "detection_baseline"),
+                    }
+                evidence["canonical_evidence"] = canonical_block
                 # Three auditable outputs. The base classification is stored
                 # verbatim; the final level is what the alert row carries.
                 evidence["base_severity"] = resolution.base.as_dict()

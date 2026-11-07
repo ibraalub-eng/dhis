@@ -585,6 +585,11 @@ def _alert_dict(alert: QualityAlert, policy: Optional[dict] = None,
         # from a docstring. ``stored_severity`` stays available to explain a cap.
         "effective_severity": effective,
         "stored_severity": alert.severity,
+        # Which evidence answered this row's comparison (Phase 3): the stored
+        # canonical layered result for an equivalent comparison, or this scan's
+        # own calculation. ``canonical_evidence`` states why when it is not.
+        "evidence_source": (alert.evidence or {}).get("evidence_source"),
+        "canonical_evidence": (alert.evidence or {}).get("canonical_evidence"),
         "severity_cap": cap,
         "top_band_eligibility": eligibility,
         **_severity_outputs(alert, policy),
@@ -687,6 +692,22 @@ def _very_high_corroborated(rows: List[QualityAlert]) -> bool:
             and _very_high_scope(rows) == "only")
 
 
+def _very_high_only_categories(fits: dict, evidence: dict,
+                               grouped: dict) -> dict:
+    """``comparison_category`` of every Very-High-only issue, by issue key.
+
+    ``fits``, ``evidence`` and ``grouped`` are the maps ``get_summary`` already
+    builds, so this adds no classification of its own: it is the same lookup
+    ``_comparison_shadow`` counts with, kept per issue because the breakdown
+    cells are filters and must list exactly the issues they counted.
+    """
+    return {
+        key: _issue_comparison_evidence(evidence.get(key) or grouped[key])[
+            "comparison_category"]
+        for key, band in fits.items() if band == "only"
+    }
+
+
 def _very_high_only_breakdown(*, total: int, corroborated: int,
                               single: int) -> dict:
     """The Very-High-only card's own split into its two subgroups.
@@ -732,6 +753,18 @@ COMPARISON_CATEGORIES = ("multiple_peer", "single_peer", "temporal_only",
                          "unknown_identity", "invalid_evidence")
 COMPARISON_RELATIONSHIPS = ("all_disjoint", "nested_only",
                             "overlapping_only", "mixed_relationships")
+
+
+def _comparison_category_filter(value):
+    """``?comparison_category=``: one evidence-breakdown category.
+
+    The tokens are the five identity categories the breakdown cells publish,
+    from the same module constant the summary counts with, so a cell and the
+    filter it sends cannot drift. An unknown value is a 422 rather than an
+    empty list that would read as "this category has no issues".
+    """
+    return _choice_filter("comparison_category", value, COMPARISON_CATEGORIES,
+                          noun="categories")
 
 
 def _comparison_policy_version(alert: QualityAlert) -> Optional[str]:
@@ -1246,6 +1279,13 @@ def get_summary(
                     "mixed = a Very High perspective beside a lower band; "
                     "corroborated = only, with 2+ perspectives agreeing; "
                     "empty = no scope. Any other value is a 422"),
+    comparison_category: Optional[str] = Query(
+        None,
+        description="multiple_peer | single_peer | temporal_only | "
+                    "unknown_identity | invalid_evidence; lists the Very "
+                    "High only issues whose comparison evidence is in that "
+                    "category. Empty = no category filter. Any other value "
+                    "is a 422"),
     q: Optional[str] = Query(None),
     include_closed: bool = Query(
         False,
@@ -1328,6 +1368,10 @@ def get_summary(
     issue's whole evidence, exactly like the split. ``corroborated`` selects the
     part of Very-High-only that two or more perspectives agreed on, which is the
     only reading of that bucket that is not vacuous.
+    ``comparison_category`` uses the evidence breakdown as a FILTER: it lists
+    the Very High only issues whose comparison evidence falls in that one
+    category, while the five cell counts keep describing the whole Very High
+    population so the cell that was clicked still shows its number.
     """
     perspective = _perspective_filter(perspective)
     indicator_type = _indicator_type_filter(indicator_type)
@@ -1336,6 +1380,7 @@ def get_summary(
     severity = _severity_filter(severity)
     confidence = _confidence_filter(confidence)
     very_high_scope = _very_high_scope_filter(very_high_scope)
+    comparison_category = _comparison_category_filter(comparison_category)
     hospital_id = _positive_id_filter("hospital_id", hospital_id)
     ownership_id = _positive_id_filter("ownership_id", ownership_id)
     governorate_id = _positive_id_filter("governorate_id", governorate_id)
@@ -1439,6 +1484,17 @@ def get_summary(
     # and ``very_high_only_corroborated_issues`` still returns it unchanged.
     comparison_shadow = _comparison_shadow(
         fits, vh_grouped, evidence, legacy_corroborated=corroborated)
+
+    # The evidence-breakdown cells are filters too: each one lists exactly the
+    # Very-High-only issues its category counted, read from the same identity
+    # classification the shadow publishes (never a second pass). The cell
+    # counts keep describing the whole Very High population, like the cards,
+    # so the clicked cell still shows its number.
+    if comparison_category:
+        categories = _very_high_only_categories(fits, evidence, vh_grouped)
+        grouped = {key: value for key, value in grouped.items()
+                   if categories.get(key) == comparison_category}
+        rows = [a for a in rows if grouped.get(_issue_key(a)) is not None]
 
     # The clickable cards narrow the LIST, not each other: with "Mixed" active
     # the split above still describes the whole Very High population, so the
@@ -1560,6 +1616,13 @@ def list_issues(
                     "mixed = a Very High perspective beside a lower band; "
                     "corroborated = only, with 2+ perspectives agreeing; "
                     "empty = no scope. Any other value is a 422"),
+    comparison_category: Optional[str] = Query(
+        None,
+        description="multiple_peer | single_peer | temporal_only | "
+                    "unknown_identity | invalid_evidence; lists the Very "
+                    "High only issues whose comparison evidence is in that "
+                    "category. Empty = no category filter. Any other value "
+                    "is a 422"),
     q: Optional[str] = Query(None),
     include_closed: bool = Query(
         False,
@@ -1592,6 +1655,7 @@ def list_issues(
     severity = _severity_filter(severity)
     confidence = _confidence_filter(confidence)
     very_high_scope = _very_high_scope_filter(very_high_scope)
+    comparison_category = _comparison_category_filter(comparison_category)
     hospital_id = _positive_id_filter("hospital_id", hospital_id)
     ownership_id = _positive_id_filter("ownership_id", ownership_id)
     governorate_id = _positive_id_filter("governorate_id", governorate_id)
@@ -1623,6 +1687,22 @@ def list_issues(
         hospital_type_id=hospital_type_id, indicator_type=indicator_type,
         q=q, include_closed=include_closed)
     alerts = [a for a in rows if _matches_severity(a, severity)]
+    if comparison_category:
+        # A category is only defined inside Very High only (the five cells
+        # partition that bucket), so an issue carrying a lower band is never
+        # listed under a cell that did not count it. Read from the issue's
+        # whole evidence, exactly like the summary's cells.
+        by_key: dict = {}
+        for alert in alerts:
+            by_key.setdefault(_issue_key(alert), []).append(alert)
+        matched = {
+            key for key, issue_rows in by_key.items()
+            if _very_high_scope(evidence.get(key) or issue_rows) == "only"
+            and _issue_comparison_evidence(
+                evidence.get(key) or issue_rows)["comparison_category"]
+            == comparison_category
+        }
+        alerts = [a for a in alerts if _issue_key(a) in matched]
     # Every issue in ``alerts`` has an entry in ``evidence`` — it is built from
     # a superset of the same conjunctive filters. Reading through ``.get``
     # keeps that a guarantee instead of an assumption: a scope lookup must

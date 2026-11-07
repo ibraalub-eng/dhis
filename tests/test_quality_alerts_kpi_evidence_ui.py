@@ -85,7 +85,7 @@ def _node(code):
     return out.stdout.strip().splitlines()[-1]
 
 
-def _render(summary, lang="en", labels=None):
+def _render(summary, lang="en", labels=None, state=None):
     dictionary = dict(labels or {})
     prelude = (
         "const AR = " + json.dumps(dictionary) + ";\n"
@@ -93,6 +93,8 @@ def _render(summary, lang="en", labels=None):
         "globalThis.__ = function (s) { return (currentLang === 'ar' && AR[s]) || s; };\n"
         "globalThis.esc = function (s) { return String(s); };\n"
         "let _tipSeq = 0;\n"
+        "let _state = " + json.dumps(state or {"comparisonCategory": None})
+        + ";\n"
     )
     code = (prelude
             + "\n".join(_declaration_source(name) for name in CONSTANTS)
@@ -277,6 +279,52 @@ def test_filters_and_scope_are_unchanged():
     # "no scope" like every other optional filter; unknown values stay 422.
     assert "def _very_high_scope_filter(" in api
     assert 'VERY_HIGH_SCOPES = ("only", "mixed", "corroborated")' in api
+
+
+# ── The breakdown cells are filters ─────────────────────────────────────────
+
+def test_every_measured_cell_filters_by_its_own_category():
+    html = _render(SNAPSHOT)
+    for category in ("multiple_peer", "single_peer", "temporal_only",
+                     "unknown_identity", "invalid_evidence"):
+        assert 'data-category="' + category + '"' in html
+    # One handler per cell: the native <button> supplies Enter/Space itself, so
+    # there is no second inline keydown path to keep in sync.
+    assert html.count(
+        "qualityAlertsToggleComparisonCategory(this.dataset.category)") == 5
+    assert html.count('<button type="button"') == 5
+    assert 'onkeydown' not in html
+    assert html.count('aria-pressed="false"') == 5
+
+
+def test_an_unmeasured_cell_is_not_a_button():
+    broken = dict(SNAPSHOT, very_high_temporal_only_issues=None)
+    html = _render(broken)
+    assert 'data-category="temporal_only"' not in html
+    assert html.count('<button type="button"') == 4
+    assert 'role="button"' not in html
+
+
+def test_the_active_cell_marks_itself_and_offers_to_clear():
+    html = _render(SNAPSHOT, state={"comparisonCategory": "single_peer"})
+    assert html.count('qa-breakdown-cell is-active') == 1
+    assert 'aria-pressed="true"' in html
+    assert "click the cell again to clear" in html
+
+
+def test_the_screen_sends_the_chosen_category_and_the_fragment_says_so():
+    src = _js()
+    assert "p.set('comparison_category', _state.comparisonCategory)" in src
+    assert "export function qualityAlertsToggleComparisonCategory" in src
+    assert "_state.comparisonCategory === category ? null : category" in src
+    # The screen's inline handlers only see globals: the loader must export it.
+    app = (ROOT / "static" / "js" / "app.js").read_text(encoding="utf-8")
+    assert "_bind(mod, 'qualityAlertsToggleComparisonCategory');" in app
+    frag = FRAGMENT.read_text(encoding="utf-8")
+    assert ("Click a category to filter the list; click it again to clear"
+            in frag)
+    assert "def _comparison_category_filter(" in (
+        ROOT / "app" / "api" / "quality_alerts.py").read_text(encoding="utf-8")
 
 
 # ── Localization ────────────────────────────────────────────────────────────
