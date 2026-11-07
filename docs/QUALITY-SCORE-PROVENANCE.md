@@ -105,6 +105,41 @@ Operational sequence for a real deployment:
 Nothing here runs automatically, and no production-wide recalculation is part
 of the migration.
 
+## Cached policy identity (D5)
+
+`quality_scores.policy_digest` records the identity (`PolicySnapshot.digest`)
+of the policy whose run produced the row. It is the digest only — no raw policy
+values, no configuration row ids and no read errors are stored or exposed.
+
+A result carries two additive fields:
+
+| Field | Meaning |
+|---|---|
+| `policy_digest` | 64-char digest of the policy behind the returned numbers, when known |
+| `policy_identity_status` | `recorded`, `unknown` (legacy row or fallback) or `unavailable` (run had no policy) |
+
+A cached read reports the identity **stored on the row**, never the policy
+resolved for that read; the row's `policy_provenance` stays `None` and
+`policy_provenance_status` stays `cached_unavailable`, so the pre-D5 contract is
+unchanged. Failed-analysis fallbacks record no identity: no policy produced
+their zeroes.
+
+Only writers that hold a snapshot stamp identity (full analysis, revalidation,
+the empty-data persist). Dashboard recalculation, indicator toggles and the
+scoring repair leave an existing digest untouched rather than erasing it.
+
+Revisions now also record `previous_policy_digest` / `new_policy_digest`, and a
+revision is written when:
+
+* numeric values move (as before);
+* the row flips between the failed-analysis placeholder and a genuine result —
+  even when both scores are `0`, because a failed zero is not a genuine zero;
+* a recorded policy identity changes while the result stays identical.
+
+A genuine zero re-analysed under the same identity writes no revision, and a
+legacy row gaining its first identity is provenance being added, not a changed
+result.
+
 ## Migration
 
 `alembic/versions/d6f7a8b9c0d1_add_quality_score_scoring_provenance.py`
