@@ -412,6 +412,22 @@ function renderAudit() {
                 : sevClass(c.status);
             html += '<span>' + statusBadge + ' <span style="font-weight:600;">' + arrow + ' ' + Math.abs(c.percent_deviation || 0).toFixed(1) + '% ' + __('vs avg') + '</span></span>';
             html += '</div>';
+            // Phase 6: the benchmark keeps its own audited status. When the
+            // canonical engine graded the very same comparison, show its band
+            // too — never as if it were this screen's verdict.
+            if (c.evidence_status === 'equivalent' && c.canonical_effective_level) {
+                html += '<div style="font-size:0.7rem;margin-top:0.15rem;">'
+                    + '<span class="badge badge-low">' + __('Canonical: ') + esc(c.canonical_effective_level) + '</span>'
+                    + (c.canonical_stored_level && c.canonical_stored_level !== c.canonical_effective_level
+                        ? ' <span class="badge badge-muted">' + __('Stored: ') + esc(c.canonical_stored_level) + '</span>' : '')
+                    + '</div>';
+            } else if (c.evidence_source === 'independent_audit') {
+                html += '<div style="font-size:0.7rem;margin-top:0.15rem;"><span class="badge badge-muted">' + __('Independent audit') + '</span></div>';
+            } else if (c.evidence_status === 'missing_layered_result') {
+                html += '<div style="font-size:0.7rem;margin-top:0.15rem;"><span class="badge badge-muted">' + __('No canonical layered result') + '</span></div>';
+            } else if (c.evidence_status === 'canonical_evidence_unavailable') {
+                html += '<div style="font-size:0.7rem;margin-top:0.15rem;"><span class="badge badge-muted">' + __('Canonical evidence unavailable') + '</span></div>';
+            }
             if (c.formula || c.formula_version) {
                 html += '<div style="font-size:0.7rem;color:var(--text-muted);">'
                     + (c.formula ? __('Formula: ') + esc(c.formula) : '')

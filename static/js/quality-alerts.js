@@ -28,6 +28,10 @@ const _state = {
     // null = both, 'only' = every fired perspective Very High, 'mixed' = a
     // Very High perspective beside a lower band.
     vhScope: null,
+    // One evidence-breakdown category, as chosen by clicking a cell: the five
+    // categories partition Very High only, so a cell lists exactly the issues
+    // it counted. null = no category filter.
+    comparisonCategory: null,
     perspectives: new Set(),   // multi-select chips; empty = all
     meta: null,
     issues: [],
@@ -197,6 +201,10 @@ function _filterQuery() {
     // Chosen on the two Very High cards; the server grades each issue from its
     // whole evidence, so this narrows the list to exactly the card's number.
     if (_state.vhScope) p.set('very_high_scope', _state.vhScope);
+    // Chosen on the evidence-breakdown cells: the server narrows the list to
+    // the Very High only issues that cell counted, so the table and the cell
+    // always describe the same population.
+    if (_state.comparisonCategory) p.set('comparison_category', _state.comparisonCategory);
     // Every selected chip is sent, as repeated parameters the server ORs, so
     // the KPIs, the total and every page describe the whole filtered
     // population instead of whichever page happened to load.
@@ -322,6 +330,18 @@ export function qualityAlertsToggleVeryHighScope(scope) {
     loadQualityAlerts();
 }
 
+// One evidence-breakdown cell at a time, like the Very High cards: the five
+// categories are mutually exclusive, so choosing a second replaces the first
+// and clicking the active cell clears it. The cell numbers keep describing the
+// whole Very High population, so the clicked cell never drops to its own
+// filtered count under the cursor.
+export function qualityAlertsToggleComparisonCategory(category) {
+    _state.comparisonCategory =
+        _state.comparisonCategory === category ? null : category;
+    _state.page = 1;
+    loadQualityAlerts();
+}
+
 let _searchTimer = null;
 export function qualityAlertsFilterChangedDebounced() {
     clearTimeout(_searchTimer);
@@ -391,22 +411,23 @@ export async function loadQualityAlerts() {
 // bucket: it is never added to an issue total. Every number printed here is
 // the server's. When a balance fails the discrepancy is printed with both
 // stored figures — nothing is re-added, smoothed or corrected in the browser.
+// A cell is also a FILTER: clicking one lists exactly the issues it counted.
 const _COMPARISON_CATEGORY_ROWS = [
     ['qaKpiMultiplePeer', 'very_high_multiple_peer_issues',
      'Multiple peer comparisons',
-     'Two or more distinct groups of hospitals were compared'],
+     'Two or more distinct groups of hospitals were compared', 'multiple_peer'],
     ['qaKpiSinglePeer', 'very_high_single_peer_issues',
      'Single peer comparison',
-     'Exactly one group of hospitals was compared, so nothing else could agree or disagree'],
+     'Exactly one group of hospitals was compared, so nothing else could agree or disagree', 'single_peer'],
     ['qaKpiTemporalOnly', 'very_high_temporal_only_issues',
      'Temporal-only',
-     "No peer group was used; the value was compared with the hospital's own earlier months"],
+     "No peer group was used; the value was compared with the hospital's own earlier months", 'temporal_only'],
     ['qaKpiUnknownIdentity', 'very_high_unknown_identity_issues',
      'Unknown comparison identity',
-     'The stored evidence does not say which hospitals were compared, so it is not counted as a peer comparison'],
+     'The stored evidence does not say which hospitals were compared, so it is not counted as a peer comparison', 'unknown_identity'],
     ['qaKpiInvalidEvidence', 'very_high_invalid_evidence_issues',
      'Invalid evidence',
-     'The stored comparison record is inconsistent and was not used'],
+     'The stored comparison record is inconsistent and was not used', 'invalid_evidence'],
 ];
 
 const _RELATIONSHIP_ROWS = [
@@ -442,6 +463,12 @@ function _fillSentence(text, values) {
     return out;
 }
 
+function _categoryLabel(category) {
+    if (!category) return '';
+    const row = _COMPARISON_CATEGORY_ROWS.find(r => r[4] === category);
+    return row ? __(row[2]) : category;
+}
+
 function _breakdownNote(text, warn, numeric) {
     return '<div' + (numeric ? ' dir="ltr"' : ' dir="auto"') +
         ' style="font-size:0.66rem;line-height:1.5;margin-top:0.25rem;overflow-wrap:anywhere;color:' +
@@ -467,13 +494,34 @@ function _breakdownSentence(text) {
         esc(text) + '</div>';
 }
 
-function _breakdownCell(id, label, help, value) {
-    const tip = _tipHelp(__(help));
-    return '<div class="qa-tip" tabindex="0"' + tip.describedby +
-        ' style="padding:0.3rem 0.45rem;background:var(--bg-elevated,#f7f7f7);border-left:2px solid var(--accent-red,#c62828);border-radius:0 4px 4px 0;min-width:0;">' +
-        '<div style="font-size:0.64rem;color:var(--text-muted);line-height:1.35;overflow-wrap:anywhere;">' + esc(__(label)) + '</div>' +
-        '<div id="' + id + '" dir="ltr" style="font-size:0.95rem;font-weight:700;text-align:start;">' + _countText(value) + '</div>' +
-        tip.html + '</div>';
+function _breakdownCell(id, label, help, value, category) {
+    // A cell is a FILTER when its category is known and the count was measured:
+    // the five categories partition Very High only, so clicking one lists
+    // exactly the issues it counted. The hint states that before the click and
+    // the active cell states how to undo it.
+    const selectable = Boolean(category) && value !== null;
+    const active = selectable && _state.comparisonCategory === category;
+    const hint = __(help) + ' — ' + (active
+        ? __('click the cell again to clear') : __('click a cell to filter'));
+    const tip = _tipHelp(hint);
+    // A measured cell is a real <button>: it gets Enter/Space activation, focus
+    // and the pressed state natively, so no role or keydown shim is needed. An
+    // unmeasured cell stays a plain div and is never announced as a button that
+    // does nothing.
+    const tag = selectable ? 'button' : 'div';
+    const attrs = (selectable
+        ? ' aria-pressed="' + (active ? 'true' : 'false') + '"' +
+          ' onclick="qualityAlertsToggleComparisonCategory(this.dataset.category)"' +
+          ' data-category="' + esc(category) + '"'
+        : '');
+    return '<' + tag + (selectable ? ' type="button"' : '') +
+        ' class="qa-tip' + (selectable ? ' qa-breakdown-cell' : '') +
+        (active ? ' is-active' : '') + '" tabindex="0"' + attrs + tip.describedby +
+        ' style="padding:0.3rem 0.45rem;background:var(--bg-elevated,#f7f7f7);border:0;border-left:2px solid var(--accent-red,#c62828);border-radius:0 4px 4px 0;min-width:0;' +
+        (selectable ? 'display:block;width:100%;appearance:none;font:inherit;color:inherit;text-align:start;cursor:pointer;' : '') + '">' +
+        '<span style="display:block;font-size:0.64rem;color:var(--text-muted);line-height:1.35;overflow-wrap:anywhere;">' + esc(__(label)) + '</span>' +
+        '<span id="' + id + '" dir="ltr" style="display:block;font-size:0.95rem;font-weight:700;text-align:start;">' + _countText(value) + '</span>' +
+        tip.html + '</' + tag + '>';
 }
 
 function _relationshipHtml(shadow, multiplePeers) {
@@ -516,11 +564,12 @@ function _comparisonBreakdownHtml(s) {
     const total = _countOrNull(source.very_high_only_issues);
     const categories = _COMPARISON_CATEGORY_ROWS.map(function (row) {
         return {id: row[0], label: row[2], help: row[3],
-                value: _countOrNull(source[row[1]])};
+                value: _countOrNull(source[row[1]]), category: row[4]};
     });
     let html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:0.4rem;">';
     categories.forEach(function (cell) {
-        html += _breakdownCell(cell.id, cell.label, cell.help, cell.value);
+        html += _breakdownCell(cell.id, cell.label, cell.help, cell.value,
+                                 cell.category);
     });
     html += '</div>';
 
@@ -728,6 +777,8 @@ function _renderSeverityReconcile(s) {
     if (_state.vhScope === 'only') parts.push(__('Very High only') + ': ' + n(total));
     else if (_state.vhScope === 'corroborated') parts.push(__('Corroborated') + ': ' + n(total));
     else if (_state.vhScope === 'mixed') parts.push(__('Mixed severity') + ': ' + n(total));
+    else if (_state.comparisonCategory)
+        parts.push(_categoryLabel(_state.comparisonCategory) + ': ' + n(total));
     else parts.push(__('total in view') + ': ' + n(total));
     // With a lower band selected the cards and the table answer different
     // questions on purpose, so the line says so instead of leaving the two
@@ -873,14 +924,16 @@ function _renderEmptyState() {
     const hint = document.getElementById('qaEmptyIntersectionHint');
     const severity = _selectedSeverity();
     const scope = _state.vhScope;
-    const conflict = Boolean(scope) && severity !== 'VERY_HIGH';
+    const category = _categoryLabel(_state.comparisonCategory);
+    const conflict = (Boolean(scope) || Boolean(category))
+        && severity !== 'VERY_HIGH';
     if (generic) generic.style.display = conflict ? 'none' : '';
     if (intersection) intersection.style.display = conflict ? '' : 'none';
     if (conflict) {
         const vh = Number((_state.summary && _state.summary.very_high_issues) || 0);
         if (title) {
             title.textContent = _severityLabel(severity) + ' + ' +
-                _scopeLabel(scope) + ' — ' +
+                (_scopeLabel(scope) || category) + ' — ' +
                 __('No issue satisfies both the selected severity and the card scope.');
         }
         if (hint) {
@@ -922,7 +975,11 @@ function _renderTable() {
         const inScope = Number(_state.issuesTotal || 0).toLocaleString('en-US');
         // summary.total_issues is narrowed by the selected band too, so it is
         // the same population as this table — never present it as "all bands".
-        scopeEl.textContent = __('Table scope:') + ' ' + sevLabel + ' · ' +
+        // An active breakdown cell is named here too: the list is then that
+        // category, not the whole band, and the line must say which.
+        const category = _categoryLabel(_state.comparisonCategory);
+        scopeEl.textContent = __('Table scope:') + ' ' + sevLabel +
+            (category ? ' · ' + category : '') + ' · ' +
             shown + ' ' + __('shown of') + ' ' + inScope + ' ' +
             __('matching issues');
     }
@@ -1501,6 +1558,37 @@ function _renderTrendChart(trend, unit) {
 }
 
 // ── Detail modal body ──────────────────────────────────────────────────
+function _bandOf(value) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (value.applied === false) return '';
+    return value.final_severity || value.final_level || value.level ||
+        value.band || value.severity || '';
+}
+
+function _evidenceSourceLabel(source) {
+    const map = {
+        canonical_layered: 'Canonical layered',
+        independent_audit: 'Independent audit',
+        independent_perspective: 'Independent perspective',
+        canonical_evidence_unavailable: 'Canonical evidence unavailable',
+    };
+    return __(map[source] || String(source || ''));
+}
+
+function _evidenceStatusLabel(status) {
+    const map = {
+        equivalent: 'Equivalent',
+        not_equivalent: 'Not equivalent',
+        independent_perspective: 'Independent perspective',
+        missing_layered_result: 'Missing layered result',
+        canonical_evidence_unavailable: 'Canonical evidence unavailable',
+        stored_level_only: 'Stored level only',
+    };
+    return __(map[status] || String(status || ''));
+}
+
+
 function _renderDetail(p) {
     const a = p.alert;
     const ev = p.evidence || {};
@@ -1562,6 +1650,46 @@ function _renderDetail(p) {
         esc(_perspectiveLabel(a.perspective_label, a.perspective)) + '</strong> · ' + esc(_methodLabel(a.method)) +
         (n ? ' · ' + (isHistory ? __('baseline points') : __('peers')) + ': ' + esc(String(n)) : '') +
         '</div></div></div>';
+
+    // 2b — Evidence provenance (Phase 8): the canonical base band, the
+    // operational trend escalation and the final alert band are three
+    // different things. The final band is the operational alert severity and
+    // is never labelled canonical when escalation changed it.
+    const canonicalEv = a.canonical_evidence || {};
+    const baseBand = _bandOf(a.base_severity);
+    const finalBand = _bandOf(a.final_severity);
+    const trendAssessed = !!a.trend_assessment;
+    const trendBand = _bandOf(a.trend_assessment);
+    let evidenceRows = '';
+    if (baseBand) {
+        evidenceRows += _kv(__('Canonical base severity'), esc(baseBand));
+    }
+    if (trendAssessed) {
+        evidenceRows += _kv(__('Trend assessment'),
+            esc(trendBand || __('Not escalated')));
+    }
+    if (finalBand) {
+        evidenceRows += _kv(__('Final alert severity'),
+            esc(finalBand) + ' · ' + esc(__('operational')));
+    }
+    if (a.evidence_source) {
+        evidenceRows += _kv(__('Evidence source'),
+            esc(_evidenceSourceLabel(a.evidence_source)));
+    }
+    if (canonicalEv.status) {
+        evidenceRows += _kv(__('Evidence status'),
+            esc(_evidenceStatusLabel(canonicalEv.status)));
+    }
+    if (canonicalEv.perspective) {
+        evidenceRows += _kv(__('Perspective'),
+            esc(_perspectiveLabel(canonicalEv.perspective_label || canonicalEv.perspective,
+                canonicalEv.perspective)));
+    }
+    if (evidenceRows) {
+        html += '<section class="qa-card"><div class="qa-card-hd">' +
+            __('Evidence provenance') + '</div><dl class="qa-kv">' +
+            evidenceRows + '</dl></section>';
+    }
 
     // 3 — The four numbers that define the finding (never duplicated below).
     html += '<div class="qa-kpis">' +

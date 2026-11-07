@@ -781,6 +781,21 @@ function _renderComparisonEvidence(cc) {
  * otherwise the code itself made readable (``not_verified`` -> "not verified").
  * An unknown code is never mapped onto a label it might not mean.
  */
+function _evidenceStatusLabel(status) {
+    const labels = {
+        canonical_layered: __('Canonical layered'),
+        stored_level_only: __('Stored level only'),
+        missing_layered_result: __('Missing layered result'),
+        canonical_evidence_unavailable: __('Canonical evidence unavailable'),
+        not_equivalent: __('Not equivalent'),
+        independent_audit: __('Independent audit'),
+        independent_perspective: __('Independent perspective'),
+        equivalent: __('Equivalent'),
+    };
+    return labels[status] || String(status || '');
+}
+
+
 function _codeLabel(code) {
     if (code === null || code === undefined || code === '') return __('unavailable');
     const raw = String(code);
@@ -934,6 +949,14 @@ function _renderPayload(p) {
     // Outliers that produced an outlier score: the rows the penalty counts
     // (HIGH/VERY_HIGH), with the number they were compared against. Without
     // this the popup explained the score with unrelated source-data gaps.
+    // Component-level evidence status: a month with no canonical layered
+    // result is MISSING EVIDENCE, not a month with no findings.
+    if (p.evidence_status &&
+            (p.outlier_component || p.evidence_status !== 'canonical_layered')) {
+        html += '<div style="font-size:0.72rem;color:var(--text-muted,#888);margin:0.15rem 0 0.1rem;">' +
+            esc(__('Evidence status')) + ': <strong>' +
+            esc(_evidenceStatusLabel(p.evidence_status)) + '</strong></div>';
+    }
     if (p.outliers && p.outliers.length) {
         html += _sectionTitle(__('Outliers that lowered the score'));
         html += p.outliers.slice(0, 8).map(function (o) {
@@ -950,6 +973,24 @@ function _renderPayload(p) {
                 // reader's language like every other code in the popup, never
                 // as the raw enum.
                 (o.type ? ' \u00b7 ' + esc(_codeLabel(o.type)) : '') + '</div>' +
+                // Evidence qualification: the headline band is the EFFECTIVE
+                // one the penalty used; the stored band and the evidence status
+                // are stated beside it, so a stored-only band can never read as
+                // verified canonical severity.
+                '<div style="color:var(--text-secondary,#555);font-size:0.72rem;">' +
+                esc(__('Effective level')) + ': <strong>' + esc(o.level || '\u2014') + '</strong>' +
+                ' \u00b7 ' + esc(__('Stored level')) + ': ' + esc(o.stored_level || o.level || '\u2014') +
+                (o.evidence_status
+                    ? ' \u00b7 ' + esc(__('Evidence status')) + ': ' +
+                      esc(_evidenceStatusLabel(o.evidence_status))
+                    : '') +
+                '</div>' +
+                (o.cap_policy
+                    ? '<div style="color:var(--text-muted,#888);font-size:0.7rem;line-height:1.45;">' +
+                      esc(__('Cap applied')) + ': ' + esc(o.cap_policy) + '</div>' : '') +
+                (o.evidence_status === 'stored_level_only'
+                    ? '<div style="color:var(--accent-orange,#e65100);font-size:0.7rem;line-height:1.45;">' +
+                      esc(__('Stored level only: this row has no layer scores, so no cap or gate could be verified')) + '</div>' : '') +
                 (o.interpretation ? '<div style="color:var(--text-muted,#888);font-size:0.7rem;line-height:1.45;">' + esc(_prose(o.interpretation)) + '</div>' : '') +
                 '</div>';
         }).join('');
