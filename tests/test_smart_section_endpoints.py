@@ -153,7 +153,6 @@ def test_xgboost_invalid_horizon_422(client):
 def test_xgboost_peer_percentile_merged_into_rows(mock_peers, client):
     """مئين النظير يُدمج في صفوف الدقة حسب اسم المستشفى — من الكاش بلا إعادة حساب."""
     _seed_xgboost_envelope("2026-06")
-    skel = None
     # أضف شذوذ المستشفى A إلى الكاش نفسه (مصدر النظراء)
     from app.cache import cache
     env = cache.get("smart_overview_2026-06_v3")

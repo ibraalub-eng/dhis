@@ -15,7 +15,6 @@ and scroll position.
 import json
 import os
 import subprocess
-import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 JS = os.path.join(ROOT, "static", "js")

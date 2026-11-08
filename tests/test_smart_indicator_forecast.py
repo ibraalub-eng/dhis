@@ -21,7 +21,6 @@ from app.engine.smart.indicator_forecast import (
     available_indicators,
     forecast_indicator_trajectory,
     indicator_rate_from_values,
-    run_indicator_forecast,
 )
 
 

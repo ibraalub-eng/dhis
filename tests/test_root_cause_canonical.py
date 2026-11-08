@@ -20,7 +20,6 @@ These tests pin:
 9. root cause stays read-only and repeatable;
 10. the API keeps its existing keys and adds the provenance.
 """
-import statistics
 
 import pytest
 from fastapi.testclient import TestClient

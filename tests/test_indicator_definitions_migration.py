@@ -11,7 +11,6 @@ import os
 from alembic.config import Config as AlembicConfig
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from alembic import command as alembic_command
 from app.config import BASE_DIR

@@ -10,8 +10,6 @@ import pytest
 from app.api.indicator_definitions import list_indicators
 from app.engine.rate_config import (
     load_rate_specs,
-    zscore_specs,
-    _RATE_SPECS_CACHE,
 )
 
 
@@ -160,9 +158,6 @@ def test_resolve_spec_fallback_respects_deactivation(db_session):
     from app.engine import indicator_service
     from app.models import IndicatorDefinition
 
-    fallback_codes = [
-        s.rate_code for s in zscore_specs()
-    ] or []
     code = next(
         (d.legacy_code for d in db_session.query(IndicatorDefinition)
          .filter(IndicatorDefinition.is_active.is_(True),

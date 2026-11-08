@@ -11,7 +11,6 @@ which happened because the details resolver treated the decimal fraction of
 
 from pathlib import Path
 
-import pytest
 
 from app.engine.pipeline import _build_code_resolver
 from app.indicators import SYNTHETIC_INDICATOR_CODES

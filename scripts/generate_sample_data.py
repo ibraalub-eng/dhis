@@ -4,7 +4,6 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pandas as pd
 import numpy as np
 from app.indicators import INDICATOR_FLAT_LIST
 
@@ -176,11 +175,9 @@ def generate_sample_excel(output_path: str = None, num_hospitals: int = 5):
 
             rows.append(row)
 
-    df = pd.DataFrame(rows)
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     from openpyxl import Workbook
-    from openpyxl.utils.dataframe import dataframe_to_rows
 
     wb = Workbook()
     ws = wb.active
@@ -191,7 +188,6 @@ def generate_sample_excel(output_path: str = None, num_hospitals: int = 5):
         ws.append([])
         break
 
-    header_row_idx = ws.max_row + 1
     cols = ["organisationunitname", "month"] + indicator_names
     ws.append(cols)
 

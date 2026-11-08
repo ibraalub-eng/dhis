@@ -6,7 +6,6 @@ Admin role and superadmin (both have dashboard.write) must get 200.
 """
 import pytest
 from unittest.mock import patch
-from app.main import app
 from app.database import get_db
 from app.core.deps import get_current_user
 from app.core.security import hash_password

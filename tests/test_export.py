@@ -518,7 +518,6 @@ def test_smart_js_has_root_cause_button_handler():
 
 def test_settings_js_has_root_cause_context_helpers():
     """settings.js ينقل سياق المستشفى والشهر إلى تبويب السبب الجذري"""
-    import os
     content = _read_settings_pair()
     assert "export function goRootCause" in content
     assert "export function applyRootCauseContext" in content

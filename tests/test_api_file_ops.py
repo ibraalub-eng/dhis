@@ -391,12 +391,9 @@ class TestDownloadSavedFile:
         must rebuild an .xlsx from the IndicatorValue rows for that file."""
         import openpyxl
         from app.models import Hospital, Indicator, IndicatorValue
-        from app.indicators import INDICATOR_FLAT_LIST
 
         hospital = db_session.query(Hospital).first()
         ind = db_session.query(Indicator).first()
-        code = ind.code if ind.code else INDICATOR_FLAT_LIST[0]["code"]
-        name = ind.name if ind.name else INDICATOR_FLAT_LIST[0]["name"]
         db_session.add(IndicatorValue(
             hospital_id=hospital.id, indicator_id=ind.id, month="2026-03",
             value=42.5, source_file="dl_history_only.xlsx",

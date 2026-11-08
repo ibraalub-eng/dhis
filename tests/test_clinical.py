@@ -510,7 +510,7 @@ def test_clinical_ai_cached_per_hospital_month(monkeypatch, db_session):
 
     vals = {"2": 100, "5": 30, "6": 95, "10": 2, "11": 0, "7": 1,
             "17": 1, "6.f": 8, "6.g": 6, "16": 4}
-    r1 = run_clinical_analysis("H1", "2026-06", vals, session=db_session)
+    run_clinical_analysis("H1", "2026-06", vals, session=db_session)
     r2 = run_clinical_analysis("H1", "2026-06", vals, session=db_session)
     assert calls["n"] == 1, "الاستدعاء الثاني يجب أن يأتي من التخزين المؤقت لا Gemini"
     assert len(r2.recommendations) >= 1

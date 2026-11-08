@@ -628,7 +628,6 @@ def test_causal_chain_creation():
 def test_get_historical_data(db_session):
     from app.engine.root_cause import get_historical_data, MonthDataPoint
     from app.models import Hospital, Indicator, IndicatorValue
-    from datetime import datetime
 
     hospital = Hospital(name="Test Hospital", is_active=True)
     db_session.add(hospital)
@@ -723,7 +722,7 @@ def test_calculate_trend_stable():
 
 
 def test_calculate_trend_insufficient_data():
-    from app.engine.root_cause import calculate_trend, MonthDataPoint
+    from app.engine.root_cause import calculate_trend
 
     result = calculate_trend([])
 
@@ -922,7 +921,6 @@ class TestIntegrationHistoricalAndComparativeRootCause:
             RootCauseReport,
             CausalNode,
             CausalChain,
-            PeerComparison,
         )
         from app.models import (
             Hospital, HospitalType, FacilityOwnership, Governorate,

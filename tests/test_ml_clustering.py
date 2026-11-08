@@ -1,4 +1,3 @@
-import pytest
 from app.engine.ml.clustering import cluster_hospitals
 
 

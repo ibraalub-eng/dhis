@@ -158,7 +158,6 @@ def test_text_explanation_falls_back_without_stratified(sample_anomalies, sample
 def test_shap_direction_semantics_negative_is_driver():
     """SHAP يفسّر decision_function حيث الأقل = أكثر شذوذاً: الإسهام السالب
     يزيد الشذوذ (increases_anomaly)، والموجب يخفضه. هذا عكس التفسير الخاطئ السابق."""
-    import numpy as np
     from app.engine.smart.schemas import SmartAnomalyResult
     from app.engine.smart.explainability import explain_anomalies
 
@@ -193,7 +192,6 @@ def test_shap_direction_semantics_negative_is_driver():
     assert factors
     # العوامل ذات المساهمة السالبة هي المسؤولة (تزيد الشذوذ)
     driver = [f for f in factors if f.direction == "increases_anomaly"]
-    non_driver = [f for f in factors if f.direction == "decreases_anomaly"]
     assert driver, "يجب وجود عامل موجب للشذوذ (إسهام سالب) لمستشفى شاذ فعلاً"
     # التحقق من الاتساق: كل عامل سالب في SHAP مصنّف كمسؤول، وكل موجب كغير مسؤول
     for f in factors:

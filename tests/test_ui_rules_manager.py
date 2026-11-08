@@ -153,7 +153,6 @@ def test_seed_rules_include_op_formula_rules():
 def test_seed_op_rules_dispatch_correctly(db_session):
     """The seeded op-bearing formula rules actually pass/fail through the real
     engine on plausible and implausible data."""
-    import json as _json
     from scripts.seed_rules import RULES
     from app.engine.quality import ValidationContext, dispatch_rule, RuleStatus
 
@@ -573,7 +572,7 @@ def test_rules_search_rejects_login_username_junk():
     assert "window._rulesSearchAppState" in render[:2500]
     assert "_rulesSearchIsLoginJunk" in render[:2500]
     # restore path: scrub legacy persisted junk, then re-check after autofill can land
-    restore = js[js.index("_rulesSearchAppState = savedSearch"):]  # noqa: duplicate-source-comment
+    restore = js[js.index("_rulesSearchAppState = savedSearch"):]  # duplicate-source-comment
     assert "setTimeout" in restore[:900]
 
 

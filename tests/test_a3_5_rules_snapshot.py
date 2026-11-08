@@ -13,7 +13,6 @@ from __future__ import annotations
 import ast
 import dataclasses
 import pathlib
-import re
 import threading
 
 import pytest

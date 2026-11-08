@@ -1,4 +1,3 @@
-import pytest
 from app.engine.ml.anomaly import detect_ml_anomalies
 
 def test_detect_ml_anomalies_basic():

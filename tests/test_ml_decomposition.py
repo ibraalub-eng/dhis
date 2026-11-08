@@ -1,4 +1,3 @@
-import pytest
 from app.engine.ml.decomposition import run_pca
 
 

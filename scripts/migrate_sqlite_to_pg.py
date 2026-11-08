@@ -19,14 +19,12 @@ Usage:
 import argparse
 import os
 import sys
-import time
 from pathlib import Path
 
 # Ensure project root is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import create_engine, text, inspect, MetaData
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, text, inspect
 
 # ── Tables in foreign-key insertion order ──
 TABLES_IN_ORDER = [
@@ -162,7 +160,7 @@ def insert_data(pg_engine, data):
                             )
                             new_id = result.scalar()
                             new_id_map[old_id] = new_id
-                        except Exception as e:
+                        except Exception:
                             # Try without RETURNING (some columns like system_settings use non-int PKs)
                             try:
                                 conn.execute(

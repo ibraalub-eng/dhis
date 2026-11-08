@@ -576,7 +576,7 @@ def test_component_diagnostics_missing_by_indicator_months(client, db_session):
 def test_save_tree_config_triggers_full_reanalysis(client, db_session):
     """Disabling an indicator via tree save must call run_full_analysis(force=True),
     which purges stale stored rows and writes fresh ones."""
-    from app.models import Indicator, IndicatorValue, AnomalyResult
+    from app.models import Indicator, AnomalyResult
 
     ind = db_session.query(Indicator).first()
     assert ind is not None, "no indicators seeded"
@@ -621,7 +621,7 @@ def test_save_tree_config_triggers_full_reanalysis(client, db_session):
 
 def test_save_default_tree_config_triggers_full_reanalysis(client, db_session):
     """Disabling an indicator via default tree save must re-run analysis for all hospitals."""
-    from app.models import Indicator, IndicatorValue, AnomalyResult, Hospital
+    from app.models import Indicator, AnomalyResult, Hospital
 
     ind = db_session.query(Indicator).first()
     assert ind is not None, "no indicators seeded"
@@ -674,7 +674,7 @@ def test_all_months_save_never_persists_all_month_row(client, db_session):
 
     The save must re-analyze every *concrete* month instead, and the pipeline
     itself must refuse any non YYYY-MM month."""
-    from app.models import Hospital, Indicator, IndicatorValue, QualityScore
+    from app.models import Hospital, Indicator, QualityScore
 
     ind = db_session.query(Indicator).first()
     assert ind is not None, "no indicators seeded"
@@ -953,7 +953,6 @@ def test_drilldown_excludes_ghost_months_and_inactive_hospitals(db_session, clie
                 assert h["hospital_id"] not in inactive_ids, (
                     f"inactive hospital #{h['hospital_id']} leaked into affected list"
                 )
-                pair = (h["hospital_id"], month)
                 if h["hospital_id"] == 1:
                     assert month not in h.get("problem_months", []), (
                         f"ghost month {month} leaked into affected list: {h}"
@@ -992,6 +991,7 @@ def _engine_style_completeness(db, hospital_id, month):
         get_required_indicator_codes,
     )
     from app.engine.quality import compute_completeness, compute_covered_codes
+    from app.models import Indicator
     values = get_enabled_values_for_hospital_month(db, hospital_id, month)
     disabled_ids = get_disabled_indicator_ids(db, hospital_id, month, auto_disable_null=False)
     disabled_codes = {
@@ -1060,7 +1060,7 @@ def test_disabled_month_excluded_from_kpi_entirely(db_session, client):
     """Disabling a month for a hospital (month_enabled_<hid>_<month> = false)
     must remove that month from the hospital's KPI aggregates ENTIRELY —
     score AND completeness — in per-hospital AND network-wide views."""
-    from app.models import QualityScore, SystemSetting, IndicatorValue
+    from app.models import QualityScore, SystemSetting
     month = "2027-11"
     _insert_indicator_value(db_session, 1, month, "2", 100)
     _insert_indicator_value(db_session, 1, month, "2.a", 60)

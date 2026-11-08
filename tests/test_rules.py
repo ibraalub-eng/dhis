@@ -6,7 +6,6 @@ from app.engine.quality import (
     run_all_rules,
     RuleStatus,
     Severity,
-    set_rules_config,
 )
 
 

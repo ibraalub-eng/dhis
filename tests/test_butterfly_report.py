@@ -1,5 +1,4 @@
 """Tests for the Butterfly Intelligence comprehensive report structure."""
-import pytest
 from app.engine.comparative.report_generator import (
     SECTIONS, _build_local_sections, _parse_sections,
 )

@@ -320,7 +320,6 @@ def test_anomaly_ignores_stable_hospital(app, db_session):
     """A hospital hovering within noise must NOT be flagged — the anomaly
     list must stay trustworthy, not cry wolf on every wiggle."""
     h = db_session.query(Hospital).first()
-    ind = db_session.query(Indicator).first()
     scores = {"2026-01": 90.0, "2026-02": 89.0, "2026-03": 91.0, "2026-04": 90.0}
     for m, sc in scores.items():
         db_session.add(QualityScore(hospital_id=h.id, month=m, score=sc, rule_compliance=sc,

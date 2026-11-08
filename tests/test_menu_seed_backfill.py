@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.models import MenuGroup, MenuItem
-from app.menu_registry import DEFAULT_GROUPS, TAB_REGISTRY
+from app.menu_registry import TAB_REGISTRY
 from scripts.seed_menu import seed_menu
 
 

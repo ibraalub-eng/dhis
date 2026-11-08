@@ -13,7 +13,6 @@ indicator (grouping the per-site copies of a rate by formula + unit scale, the
 zscore copy representing its group), the pipeline analyzes that set, and the
 filter is populated from the registry.
 """
-import pytest
 from fastapi.testclient import TestClient
 
 from app.cache import cache

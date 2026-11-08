@@ -9,7 +9,6 @@ users think a real indicator was missing. Engine guards (rule details,
 completeness counting, audit rows, upload template) already skip it via
 SYNTHETIC_INDICATOR_CODES; this file locks the tree/flat-list views.
 """
-import pytest
 from fastapi.testclient import TestClient
 
 from app.indicators import (

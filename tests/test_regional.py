@@ -5,7 +5,6 @@
 الإقليمية، بوابة الثقة للمخاطر، وواجهة /regional.
 """
 
-import math
 
 import pytest
 from fastapi.testclient import TestClient
@@ -216,7 +215,7 @@ def test_births_vs_mortality_insufficient():
 
 def _seed_trending_data(db_session):
     """محافظتان: الأولى بوفيات متصاعدة شهراً بعد شهر، الثانية مستقرة."""
-    from app.models import QualityScore, Hospital
+    from app.models import QualityScore
 
     months = ["2026-01", "2026-02", "2026-03", "2026-04"]
     for m in months:
@@ -237,7 +236,7 @@ def _seed_trending_data(db_session):
 
 
 def _add_month_values(db_session, hosp_name, values_by_month):
-    from app.models import Hospital, IndicatorValue, Indicator
+    from app.models import Hospital, IndicatorValue
 
     hosp = db_session.query(Hospital).filter(Hospital.name == hosp_name).first()
     inds = _ensure_indicators(db_session)
@@ -287,9 +286,9 @@ def test_risk_quality_gate_low_confidence(db_session):
 
 def test_risk_quality_gate_high_confidence(db_session):
     """اكتمال مرتفع ومقام صالح => ثقة عالية."""
-    from app.models import QualityScore, Hospital, Governorate
+    from app.models import QualityScore, Hospital
 
-    gov = _seed_gov(db_session, "محافظة كاملة", ["م ك"])
+    _seed_gov(db_session, "محافظة كاملة", ["م ك"])
     hosp = db_session.query(Hospital).filter(Hospital.name == "م ك").first()
     db_session.add(QualityScore(hospital_id=hosp.id, month="2026-06", score=90.0,
                                 completeness=95.0, consistency=90.0, rule_compliance=95.0))
@@ -373,7 +372,7 @@ def test_regional_table_withholds_the_z_for_a_thin_benchmark(db_session):
 
 def test_regional_anomalies_historical_spike(db_session):
     """قفزة في معدل وفيات محافظة مقابل أشهرها السابقة => شذوذ تاريخي."""
-    from app.models import QualityScore, Hospital
+    from app.models import QualityScore
 
     months = ["2026-01", "2026-02", "2026-03", "2026-04"]
     for m in months:
@@ -474,7 +473,7 @@ def test_run_regional_analysis_includes_new_keys(db_session):
 def test_run_regional_analysis_governorate_summaries(db_session):
     """صفوف المحافظات تتضمن ملخصات جدول التحليل المقارن: متوسط الجودة والشذوذ
     وعدد القيم الشاذة وأبرز مؤشر والاتجاه (الحقول التي يعرضها جدول المحافظات)."""
-    from app.models import QualityScore, AnomalyResult, Hospital, Governorate
+    from app.models import QualityScore, AnomalyResult, Hospital
 
     gov = _seed_gov(db_session, "محافظة جودة", ["م ج1", "م ج2"])
     hospitals = db_session.query(Hospital).filter(Hospital.governorate_id == gov.id).all()

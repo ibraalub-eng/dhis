@@ -550,7 +550,6 @@ def test_envelope_reports_uncomputable_numbers_as_null_not_zero():
     rendering that as "n/a".
     """
     import json
-    import math
     import numpy as np
     from app.api.smart_analytics import _sanitize
 

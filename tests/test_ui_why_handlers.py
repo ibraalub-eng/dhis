@@ -245,7 +245,6 @@ def _run_payload(payload):
 def test_every_generated_onclick_handler_is_valid_javascript():
     """Each onclick payload must parse as a function body — the check npm
     cannot do, because it only sees the concatenation, not its result."""
-    js = _read()
     checked = 0
     for line, statement in _statements_with(_drilldown_src(), "onclick="):
         for payload in _onclick_payloads(_render(statement)):
@@ -260,7 +259,6 @@ def test_generated_onclick_handlers_execute_without_throwing():
     """Parsing is not enough: the handler must run top to bottom (the shape of
     the bug this file guards against — a broken map callback threw only on
     click)."""
-    js = _read()
     ran = 0
     for line, statement in _statements_with(_drilldown_src(), "onclick="):
         for payload in _onclick_payloads(_render(statement)):
@@ -275,7 +273,6 @@ def test_generated_why_handlers_reach_the_popup_with_their_options():
     """The affected-hospital score Why button must open the object-form digest
     naming hospital, month and component, so the popup explains that hospital's
     worst month FOR THAT COMPONENT."""
-    js = _read()
     opts = None
     for line, statement in _statements_with(_drilldown_src(), "window.showWhyPopup("):
         for payload in _onclick_payloads(_render(statement)):

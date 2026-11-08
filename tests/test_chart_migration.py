@@ -245,7 +245,6 @@ class TestTimelineAPI:
         from app.models import (
             Hospital, HospitalType, Indicator, IndicatorValue,
         )
-        from app.engine.root_cause import _month_offset
 
         htype = HospitalType(name="TimelineGov")
         db_session.add(htype)

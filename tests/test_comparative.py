@@ -512,8 +512,7 @@ def test_advanced_comparison_with_comparison_type(client):
 # --- Comprehensive Unit Tests for Advanced Comparison ---
 
 from app.engine.comparative.advanced_comparison import (
-    TrendData, PeerComparison, AdvancedComparisonResult,
-    analyze_trends, generate_comparison_chart,
+    TrendData, analyze_trends, generate_comparison_chart,
 )
 
 
@@ -826,7 +825,7 @@ def _make_scope_anomaly(hospital_id, name, score):
 @patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
 def test_compare_peers_scope_governorate_filters_by_fk(mock_analytics, db_session):
     """نطاق governorate يُعيد فقط المستشفيات التي تشارك نفس governorate_id للمستشفى المرجعي."""
-    from app.models import Hospital, Governorate, HospitalType
+    from app.models import Hospital, Governorate
 
     gov_a = Governorate(name="Gov A")
     gov_b = Governorate(name="Gov B")
@@ -857,7 +856,7 @@ def test_compare_peers_scope_governorate_filters_by_fk(mock_analytics, db_sessio
 @patch("app.engine.comparative.advanced_comparison.run_smart_analytics")
 def test_compare_peers_scope_type_filters_by_fk(mock_analytics, db_session):
     """نطاق type يُعيد فقط المستشفيات التي تشارك نفس hospital_type_id للمستشفى المرجعي."""
-    from app.models import Hospital, Governorate, HospitalType
+    from app.models import Hospital, HospitalType
 
     t_a = HospitalType(name="Type A")
     t_b = HospitalType(name="Type B")
@@ -1190,7 +1189,6 @@ def test_local_fallback_report_contains_kpi_data(db_session):
 
 def test_generate_report_falls_back_to_local_when_ai_fails(client):
     """اختبار أن التقرير يستخدم البديل المحلي عند فشل الذكاء الاصطناعي"""
-    from app.engine.comparative.report_generator import _call_api
     with patch("app.engine.comparative.report_generator._call_api", return_value=None):
         response = client.get("/comparative/comprehensive-report/2026-06")
     assert response.status_code == 200
@@ -1201,7 +1199,6 @@ def test_generate_report_falls_back_to_local_when_ai_fails(client):
 
 def test_generate_report_falls_back_when_ai_raises(client):
     """اختبار أن التقرير يستخدم البديل المحلي عند استثناء الذكاء الاصطناعي"""
-    from app.engine.comparative.report_generator import _call_api
     with patch("app.engine.comparative.report_generator._call_api", side_effect=Exception("API error")):
         response = client.get("/comparative/comprehensive-report/2026-06")
     assert response.status_code == 200
@@ -1266,7 +1263,7 @@ def test_report_cache_get_missing(db_session):
     assert get_stored_report(db_session, "2026-06", "ar") is None
 
 
-def test_report_cache_separated_by_lang(db_session):
+def test_report_store_separated_by_lang(db_session):
     from app.engine.comparative.report_cache import store_report, get_stored_report
     store_report(db_session, "2026-06", "ar", {"month": "2026-06", "report": "ar"})
     store_report(db_session, "2026-06", "en", {"month": "2026-06", "report": "en"})

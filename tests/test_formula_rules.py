@@ -9,7 +9,7 @@ from app.engine.quality import (
     RuleType,
     dispatch_rule,
 )
-from app.engine.quality.rules import _eval_formula, _formula, _get_rule_ref_codes_from_expr
+from app.engine.quality.rules import _eval_formula, _get_rule_ref_codes_from_expr
 
 
 def _make_ctx(data: dict, **kw) -> ValidationContext:

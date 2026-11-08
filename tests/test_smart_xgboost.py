@@ -223,7 +223,7 @@ class TestModelPersistence:
 
     def test_model_saved_and_reused_without_retrain(self, tmp_path, monkeypatch):
         from app.engine.smart.xgboost_predictor import (
-            run_xgboost_predictions, MODEL_DIR as DEFAULT_MODEL_DIR,
+            run_xgboost_predictions,
         )
         model_dir = str(tmp_path / "models")
         monkeypatch.setattr("app.engine.smart.xgboost_predictor.MODEL_DIR", model_dir)
@@ -284,7 +284,7 @@ class TestModelPersistence:
 
     def test_retrain_when_source_data_changes(self, tmp_path, monkeypatch):
         from app.engine.smart.xgboost_predictor import run_xgboost_predictions
-        from app.models import IndicatorValue, Indicator
+        from app.models import IndicatorValue
         import os
 
         model_dir = str(tmp_path / "models")
@@ -318,7 +318,7 @@ class TestModelPersistence:
         monkeypatch.setattr("app.engine.smart.xgboost_predictor.MODEL_DIR", model_dir)
         session = _build_xgb_db()
         try:
-            r1 = run_xgboost_predictions(session, "2026-03", {"xgb_n_estimators": 20})
+            run_xgboost_predictions(session, "2026-03", {"xgb_n_estimators": 20})
             # إضافة شهر جديد بالكامل
             rnd = random.Random(7)
             for hosp_id in range(1, 8):
@@ -601,7 +601,7 @@ class TestXGBoostPredictionResult:
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
         from app.database import Base
-        from app.models import Hospital, Governorate, HospitalType, Indicator, IndicatorValue, QualityScore
+        from app.models import Hospital, Governorate, HospitalType, Indicator, IndicatorValue
         import random
 
         engine = create_engine("sqlite:///:memory:")

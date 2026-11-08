@@ -819,7 +819,7 @@ def _seed_peer_mode_hospitals(db_session, gov_name="ModeGov", type_name="ModeTyp
 
 def test_peer_mode_auto_unchanged(db_session):
     """Default auto mode keeps the legacy peer choice: same type wins."""
-    from app.engine.root_cause import generate_root_cause_analysis, _find_peer_hospital_ids
+    from app.engine.root_cause import generate_root_cause_analysis
 
     target, peers, outsider = _seed_peer_mode_hospitals(db_session)
 
@@ -984,7 +984,6 @@ def test_api_peer_mode_param_and_validation(db_session):
 
 def test_frontend_peer_mode_dropdown_present():
     """The Root Cause tab exposes the Peer Group dropdown and sends peer_mode to the API."""
-    import re
     with open("static/tabs/root-cause.html", encoding="utf-8") as f:
         html = f.read()
     assert 'id="rcPeerMode"' in html
@@ -1063,7 +1062,6 @@ def test_timeline_returns_peers_detail_per_indicator(db_session):
 def test_frontend_peer_table_follows_timeline_selection():
     """The Peer Hospitals table re-renders from the selected timeline
     indicator (peers_detail) and falls back to the group list."""
-    import os
     js = _read_settings_pair()
     assert "function _renderRcPeerHospitalsTable" in js
     # called from the chart draw so a dropdown change updates the table

@@ -15,9 +15,7 @@ These pin the two P1 bugs documented in
 
 import ast
 import os
-import re
 
-import pytest
 
 from app.menu_registry import TAB_REGISTRY
 from app.main import CANONICAL_PERMISSION_CODENAMES

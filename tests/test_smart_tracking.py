@@ -5,7 +5,6 @@
 الفعلي m+1 تُقيَّم اللقطة: خطأ حقيقي + إصابة الاتجاه + إصابة الخطورة،
 مع تجميع شهري واتجاه تحسّن النموذج عبر الأشهر.
 """
-import json
 import os
 
 import pytest
@@ -14,7 +13,6 @@ from app.main import app
 from app.database import get_db
 
 from app.engine.smart import tracking
-from app.engine.smart.tracking import _next_months
 
 
 @pytest.fixture

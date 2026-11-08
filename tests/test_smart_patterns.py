@@ -78,7 +78,6 @@ def test_apriori_itemsets_basic():
     }
     itemsets = _apriori_itemsets(tx, min_support=0.3)
     assert len(itemsets) >= 1
-    found = {(sorted(fs)[0], sorted(fs)[1] if len(fs) > 1 else None): s for fs, s in itemsets}
     assert any(fs == frozenset({"cs_rate", "preterm"}) for fs, _ in itemsets)
 
 

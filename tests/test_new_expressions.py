@@ -4,8 +4,6 @@ from types import SimpleNamespace
 from app.engine.quality import (
     ValidationContext,
     RuleStatus,
-    Severity,
-    RuleType,
     dispatch_rule,
 )
 from app.engine.confidence import _extract_codes_from_params
@@ -214,7 +212,6 @@ def test_extract_codes_ge_factor():
 
 def _seeded_rule(code: str):
     """Build a rule-like object from the seeded catalog entry."""
-    import json
     from scripts.seed_rules import RULES
     entry = next(r for r in RULES if r["code"] == code)
     return SimpleNamespace(

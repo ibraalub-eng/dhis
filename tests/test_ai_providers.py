@@ -40,7 +40,6 @@ def test_local_root_cause_fallback_enhanced():
 
 def test_generate_root_cause_ai_uses_enhanced_prompt_with_historical_data():
     from app.plugins.ai import generate_root_cause_ai
-    from app.plugins.ai.providers import _local_root_cause_fallback_enhanced
 
     report_data = {
         "hospital": "Test Hospital",

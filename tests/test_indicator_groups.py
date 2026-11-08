@@ -24,7 +24,6 @@ from app.models import (
     HospitalIndicatorConfig,
     Indicator,
     IndicatorDefaultConfig,
-    IndicatorGroup,
     IndicatorGroupMember,
     IndicatorValue,
     QualityScore,
@@ -274,27 +273,27 @@ class TestDerivedState:
         }).json()["id"]
         assert client.get("/indicator-groups").json()[0]["is_enabled"] is True
 
-        client.put(f"/indicator-groups/{gid}/toggle", json={"enabled": False})  # noqa: range known
+        client.put(f"/indicator-groups/{gid}/toggle", json={"enabled": False})  # range known
         assert client.get("/indicator-groups").json()[0]["is_enabled"] is False
         client.put(f"/indicator-groups/{gid}/toggle", json={"enabled": True})
         assert client.get("/indicator-groups").json()[0]["is_enabled"] is True
 
     def test_single_indicator_edit_updates_derived_state(self, client, db_session):
         """Rev 2 rationale: a stored flag would go stale here; derived state does not."""
-        gid = client.post("/indicator-groups", json={
+        client.post("/indicator-groups", json={
             "name": "Stale", "scope_type": "all", "month_from": "2026-06",
             "indicator_ids": [_iid(db_session, "10")],
-        }).json()["id"]
+        })
         # Toggle ONE member directly (outside the group).
         client.put(f"/hospitals/indicators/{_iid(db_session, '10')}/toggle-default?month=2026-06")
         assert client.get("/indicator-groups").json()[0]["is_enabled"] is False
 
     def test_hospital_scope_derived_state(self, client, db_session):
         hosp = db_session.query(Hospital).first()
-        gid = client.post("/indicator-groups", json={
+        client.post("/indicator-groups", json={
             "name": "HDerived", "scope_type": "hospital", "hospital_id": hosp.id,
             "indicator_ids": [_iid(db_session, "12")],
-        }).json()["id"]
+        })
         db_session.add(HospitalIndicatorConfig(
             hospital_id=hosp.id, indicator_id=_iid(db_session, "12"), is_enabled=False,
         ))

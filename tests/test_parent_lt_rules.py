@@ -5,8 +5,6 @@ from types import SimpleNamespace
 from app.engine.quality import (
     ValidationContext,
     RuleStatus,
-    Severity,
-    RuleType,
     dispatch_rule,
 )
 from app.engine.quality.rules import _get_rule_ref_codes_from_expr

@@ -23,7 +23,6 @@ from app.core.deps import (
 )
 from app.core.security import hash_password
 from app.database import get_db
-from app.main import app
 from app.models import Hospital, Permission, Role, User
 
 PW = "scope-pw-123"

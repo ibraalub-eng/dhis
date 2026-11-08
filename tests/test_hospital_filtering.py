@@ -1,15 +1,10 @@
 """Test hospital filtering by user role/assignment.
 Overrides conftest's _bypass_auth to test real JWT-based auth."""
 import pytest
-from app.main import app
-from app.database import get_db, Base
-from app.models import User, Role, Permission, Hospital, user_hospitals
+from app.models import User, Role, Permission, Hospital
 from app.core.security import hash_password
 from app.core.deps import get_current_user
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 from scripts.seed_indicators import seed_indicators
 from scripts.seed_rules import seed_rules
 
