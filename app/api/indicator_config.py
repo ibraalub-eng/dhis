@@ -120,7 +120,6 @@ def _recalc_hospital_scores(db: Session, hospital_id: int):
 
 def _recalc_all_hospital_scores(db: Session):
     """Recalculate completeness and overall score for ALL hospitals."""
-    from sqlalchemy import func
     hospital_ids = [h.id for h in db.query(Hospital.id).filter(Hospital.is_active.is_(True)).all()]
     for hid in hospital_ids:
         _recalc_hospital_scores(db, hid)

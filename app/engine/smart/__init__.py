@@ -35,7 +35,6 @@ def _disabled_maps(session: Session, month: str, hospitals, indicators, all_valu
         disabled_map.setdefault(d.hospital_id, set()).add(d.indicator_id)
 
     # Default (All Hospitals) disabled for this month — inherited unless hospital overrides ──
-    from app.models import IndicatorDefaultConfig
     default_disabled = set(
         c.indicator_id for c in session.query(IndicatorDefaultConfig).filter(
             IndicatorDefaultConfig.month == month,

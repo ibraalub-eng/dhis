@@ -1,8 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder
 import xgboost as xgb
 import shap
 
@@ -152,7 +151,6 @@ def _compute_xgboost_governorate_insights(df: pd.DataFrame, feature_cols: List[s
         X_numeric = available[numeric_features].fillna(0).values
         X_cat = gov_encoded[available.index]
         X = np.hstack([X_numeric, X_cat])
-        all_names = numeric_features + gov_feature_names
 
         model = xgb.XGBRegressor(n_estimators=80, max_depth=4, learning_rate=0.1, random_state=42, verbosity=0)
         model.fit(X, y)

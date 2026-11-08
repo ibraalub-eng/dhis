@@ -1,6 +1,5 @@
-import json
 from sqlalchemy.orm import Session
-from app.models import Hospital, IndicatorValue, Indicator, ValidationResult, QualityScore, AnomalyResult, HospitalIndicatorConfig, ConfidenceScore
+from app.models import Hospital, IndicatorValue, Indicator, ValidationResult, QualityScore, AnomalyResult, ConfidenceScore
 from app.engine.quality import ValidationContext, get_covered_child_codes
 from app.engine.pipeline import (get_effective_manual_disabled_ids,
                                  get_optional_source_indicator_ids)

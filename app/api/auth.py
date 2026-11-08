@@ -229,7 +229,7 @@ def get_sessions(request: Request, db: Session = Depends(get_db), user=Depends(g
     """Return recent session events. Superadmin only."""
     if not user.is_superuser:
         raise HTTPException(status_code=403, detail="Superadmin only")
-    from sqlalchemy import func, or_, text
+    from sqlalchemy import func
     from app.config import ACCESS_TOKEN_EXPIRE_MINUTES
     cutoff = datetime.utcnow() - timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     limit = int(request.query_params.get("limit", 100))

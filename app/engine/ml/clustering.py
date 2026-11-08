@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import Dict, Optional
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
@@ -80,7 +80,6 @@ def cluster_hospitals(
     sil = float(best_score) if best_score > 0 else None
 
     # Compute PCA coordinates for biplot visualization
-    pca_coords = []
     explained_variance = []
     pca_coord_dict = {}
     if X_scaled.shape[0] >= 2 and X_scaled.shape[1] >= 2:

@@ -695,7 +695,7 @@ def add_members(group_id: int, body: IndicatorGroupMembersIn, db: Session = Depe
         next_order += 1
         added += 1
     # Exclusive membership: newly added members leave every other group.
-    evicted = _evict_from_other_groups(db, group.id, body.indicator_ids)
+    _evict_from_other_groups(db, group.id, body.indicator_ids)
     db.commit()
     return _group_out(db, group, include_members=True)
 

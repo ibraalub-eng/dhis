@@ -3,12 +3,11 @@ import threading
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
 from app.core.deps import (
-    get_current_user,
     require_permission,
     user_has_unrestricted_hospitals,
     UNRESTRICTED_HOSPITALS_PERMISSION,
@@ -456,7 +455,7 @@ def _run_deep_recompute(task_id: str, targets: list):
             done += len(months)
             set_progress(task_id, int(done / total * 100))
         set_status(task_id, "done")
-    except Exception as e:  # run_task also guards, but keep the session safe
+    except Exception:  # run_task also guards, but keep the session safe
         try:
             bg_db.rollback()
         except Exception:

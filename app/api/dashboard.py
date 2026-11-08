@@ -1,4 +1,3 @@
-import json
 import logging
 import re
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,7 +7,7 @@ from app.database import get_db
 logger = logging.getLogger(__name__)
 from app.models import (Hospital, QualityAlert, QualityScore, ConfidenceScore,
                         ValidationResult)
-from sqlalchemy import func, text, case
+from sqlalchemy import func, case
 from app.engine.pipeline import is_fallback_quality_row, get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
 from app.eligibility import disabled_pairs, exclude_disabled
@@ -1399,7 +1398,7 @@ def component_diagnostics(
 ):
     """Detailed per-component diagnostics with causes, impact, and monthly history.
     If metric is specified (e.g. completeness, rule_compliance), return only that component."""
-    from app.models import Indicator, IndicatorValue, HospitalIndicatorConfig
+    from app.models import Indicator, IndicatorValue
 
     # The drilldown must answer the SAME question as the KPI card it was opened
     # from: same analyzed gate, same disabled-month exclusion, same user
@@ -1509,7 +1508,6 @@ def component_diagnostics(
         rc_causes.append({"cause": "All rules passing", "detail": f"Average {avg_rc}% across {n} months", "severity": "ok", "impact_pct": 0})
 
     # Completeness — batch-optimized: pre-fetch all data in one pass
-    from app.engine.pipeline import get_disabled_indicator_ids as _get_disabled
     from app.models import HospitalIndicatorConfig as _HIC
     # Pre-fetch all indicators once
     # Exclude synthetic labels (code "0") here too — they are not data

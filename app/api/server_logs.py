@@ -4,9 +4,7 @@ import threading
 import time
 from collections import deque
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 
-from app.database import get_db
 from app.core.deps import require_permission
 
 router = APIRouter(prefix="/logs", tags=["logs"])

@@ -758,7 +758,6 @@ def _extract_rule_structure(session: Session) -> Dict[str, Dict]:
         child = params.get("child")
         children = params.get("children")
         num = params.get("num_code")
-        den = params.get("den_code")
         if isinstance(children, list) and children:
             # شكلان: {parent, children} (R001) أو {child, children} (R024)
             structure[code] = {

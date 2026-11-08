@@ -1,6 +1,6 @@
 """ML-enhanced statistical analysis (clustering, anomaly detection, PCA)."""
 
-from typing import List, Dict, Optional
+from typing import Dict
 
 from .clustering import cluster_hospitals
 from .anomaly import detect_ml_anomalies

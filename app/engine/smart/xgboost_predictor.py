@@ -9,7 +9,7 @@ import joblib
 import numpy as np
 from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import r2_score, mean_absolute_error, accuracy_score, classification_report
+from sklearn.metrics import r2_score, mean_absolute_error, accuracy_score
 import xgboost as xgb
 import shap
 
@@ -35,9 +35,8 @@ from app.engine.smart.schemas import (
     XGBoostPredictionResult,
     XGBoostDriver,
     XGBoostGlobalExplanation,
-    SmartAnomalyResult,
 )
-from app.engine.smart.anomaly import FEATURE_KEYS, _normalize_scores
+from app.engine.smart.anomaly import FEATURE_KEYS, _normalize_scores  # noqa: F401 (re-exported for tests)
 
 ARABIC_NAMES = {
     "cs_rate": "معدل العمليات القيصارية",
@@ -431,7 +430,6 @@ def compute_forecast_accuracy(xgb_result) -> Optional[Dict[str, Any]]:
     تقديرات إحصائية من بيانات ماضية — لا تنبؤ مؤكد.
     """
     folds = getattr(xgb_result, "fold_predictions", None) or []
-    preds = getattr(xgb_result, "predictions", None) or []
     model_mae = float(getattr(xgb_result, "model_mae", 0.0) or 0.0)
     if not folds:
         return None
@@ -890,9 +888,6 @@ def run_xgboost_predictions(
             ensemble_results.append({"name": cfg["name"], "r2": r2, "mae": mae_val, "model": model})
             ensemble_weights.append(max(r2, 0.01))
 
-        total_weight = sum(ensemble_weights) or 1.0
-        normalized_weights = [w / total_weight for w in ensemble_weights]
-
         target_labels = np.array([_score_to_severity(s) for s in y_defined])
         le = LabelEncoder()
         le.fit(["normal", "warning", "critical"])
@@ -1003,16 +998,6 @@ def run_xgboost_predictions(
         predicted_score = float(best_model.predict(X_all[idx:idx+1])[0])
         predicted_score = min(max(predicted_score, 0.0), 1.0)
 
-        try:
-            if clf is not None and le is not None:
-                clf_class_idx = clf.predict(X_all[idx:idx+1])[0]
-                clf_severity = le.inverse_transform([clf_class_idx])[0]
-            else:
-                # المصنّف غير متاح (عينات قليلة أو حُمّل بلا مصنّف) — تصنيف من الدرجة
-                clf_severity = _score_to_severity(predicted_score)
-        except Exception:
-            clf_severity = _score_to_severity(predicted_score)
-
         pred_severity = _score_to_severity(predicted_score)
 
         current_score = data["current_score"]
@@ -1035,11 +1020,6 @@ def run_xgboost_predictions(
         ))
 
     predictions.sort(key=lambda p: p.predicted_next_score, reverse=True)
-
-    model_comparison = [
-        {"name": r["name"], "r2": round(r["r2"], 4), "mae": round(r["mae"], 4)}
-        for r in ensemble_results
-    ]
 
     wf_r2 = None
     wf_mae = None

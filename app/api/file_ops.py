@@ -15,7 +15,6 @@ from app.engine.pipeline import (
 from app.engine.anomaly import analyze_historical_trends, compare_hospitals
 from app.engine.clinical import run_clinical_analysis
 from app.utils.excel_parser import process_excel_upload
-from datetime import datetime
 from app.config import UPLOAD_DIR, MAX_UPLOAD_SIZE
 from app.schemas import MultiFileUploadResponse
 from app.core.deps import require_permission
@@ -241,7 +240,6 @@ def delete_saved_files(body: dict, db: Session = Depends(get_db)):
     quality / anomaly results) so the data no longer appears in the
     "Previously Uploaded Files" list or in any analysis.
     """
-    from app.models import AnomalyResult
     filenames = body.get("filenames", [])
     deleted = 0
     for fname in filenames:

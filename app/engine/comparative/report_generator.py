@@ -829,9 +829,7 @@ def _build_local_sections(analytics, lang: str = "ar", indicator_stats=None,
     anomalies = list(analytics.anomalies or []) if analytics else []
     clustering = analytics.clustering if analytics else None
     correlations = analytics.correlations if analytics else None
-    residuals = list(analytics.residuals or []) if analytics else []
     stratified = list(analytics.stratified or []) if analytics else []
-    explanations = list(analytics.explanations or []) if analytics else []
     geo = analytics.geo if analytics else None
     xgboost = analytics.xgboost_predictions if analytics else None
 

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sa_func
 from app.database import get_db
-from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig, SystemSetting, IndicatorDefaultConfig
+from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig, IndicatorDefaultConfig
 from app.indicators import build_tree_from_db, get_flat_list_from_db
 from app.core.deps import require_permission
 

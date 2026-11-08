@@ -207,7 +207,7 @@ def get_severity_trend_settings(db: Session) -> dict:
 def get_database_status(db: Session = Depends(get_db)):
     """Check database connection and return stats."""
     from sqlalchemy import inspect as sa_inspect, func
-    from app.models import Hospital, IndicatorValue, QualityScore, Indicator, Rule, AppConfig, SystemSetting
+    from app.models import Hospital, IndicatorValue, QualityScore, Indicator, Rule
     try:
         db.execute(func.now())
         total_hospitals = db.query(func.count(Hospital.id)).scalar() or 0

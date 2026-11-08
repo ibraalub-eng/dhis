@@ -233,7 +233,6 @@ def _compute_smart_data(db, month: str) -> dict:
     issues with request-scoped sessions closing prematurely.
     """
     from app.database import SessionLocal
-    import signal
     bg_db = SessionLocal()
     try:
         logger.info(f"[smart] Starting computation for {month}...")
@@ -301,7 +300,6 @@ def _compute_smart_data(db, month: str) -> dict:
         bg_db.close()
 
 
-import threading as _threading
 _compute_locks = {}  # month -> bool to track if computation is in progress
 
 

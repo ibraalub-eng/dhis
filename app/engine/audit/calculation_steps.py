@@ -1,6 +1,5 @@
-import json
 from sqlalchemy.orm import Session
-from app.models import Hospital, QualityScore, ConfidenceScore, Indicator, IndicatorValue
+from app.models import Hospital, QualityScore, ConfidenceScore, Indicator
 from app.engine.clinical import compute_all_classifications
 from app.engine import indicator_service
 from app.engine.clinical.risk_profile import compute_risk_profile

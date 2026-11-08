@@ -499,7 +499,6 @@ def clear_all_data(db: Session = Depends(get_db)):
     """Nuclear option: clear ALL indicator data, quality scores, validation results.
     Hospitals remain but become inactive."""
     from app.models import IndicatorValue, QualityScore, ValidationResult, ClinicalInsight
-    from sqlalchemy import func as sa_func
 
     iv_count = db.query(IndicatorValue).delete(synchronize_session=False)
     qs_count = db.query(QualityScore).delete(synchronize_session=False)
@@ -579,7 +578,6 @@ def bulk_update_metadata(
     Each item: {name, governorate, hospital_type, facility_ownership,
                 facility_type, organisation_unit_id, address}
     """
-    from sqlalchemy import func as sqlfunc
 
     gov_map = {g.name.lower(): g.id for g in db.query(Governorate).all()}
     type_map = {t.name.lower(): t.id for t in db.query(HospitalType).all()}
