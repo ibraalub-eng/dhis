@@ -104,3 +104,27 @@ It is intentionally read-only evidence: it does not change application behavior.
 4. **Repeated `app` fixture names** in tests (`test_hospital_authorization_scope.py`,
    `test_hospital_filtering.py`, `test_reanalyze_permissions.py`) reported as
    `F811`; verify they are intentional local fixtures before touching.
+
+## Phase 1 result (unused imports and variables)
+
+| Check | Before | After |
+|---|---|---|
+| `app` — `F401` | 33 | 0 |
+| `app` — `F841` | 12 | 0 |
+| `app` — `F811` | 1 | 0 |
+| `app` — total Ruff issues | 265 | 216 |
+| `tests` + `scripts` — `F401/F841/F811/F821` | 109 | 0 |
+
+Notes:
+
+- One `F401` was kept deliberately: `_normalize_scores` is re-exported from
+  `app/engine/smart/xgboost_predictor.py` and imported by `tests/test_smart_xgboost.py`.
+  It now carries `# noqa: F401 (re-exported for tests)`.
+- Latent `F821` fixed by importing `Indicator` inside
+  `tests/test_recalc_scores.py::_engine_style_completeness`.
+- The shadowed `test_report_cache_separated_by_lang` was renamed to
+  `test_report_store_separated_by_lang`, so both cache tests now run
+  (collection: 3770 → 3771).
+- Module-level `from app.main import app` was removed from three test modules
+  where every use was a pytest fixture parameter, not the import.
+- Verification: 1096 affected tests passed; full collection succeeds.
