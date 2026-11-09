@@ -556,7 +556,12 @@ def test_very_high_filter_and_cards_state_how_they_relate():
     # The old note claimed every other severity was excluded, which the Very
     # High filter never did: a mixed issue carries a lower band and is listed.
     assert "Showing only Very High alerts" not in frag
-    assert "at least one Very High perspective" in frag
+    # The note keeps only the exclusion: "any issue with at least one Very High
+    # perspective" is the Very High issues card's own sublabel, one line below.
+    assert ('data-i18n="Issues that are only High or lower stay out of this '
+            'list"') in frag
+    assert "Very High lists any issue with at least one Very High perspective" \
+        not in frag
 
     # A single-perspective issue has no lower band by default, so the bucket's
     # label does not claim agreement between perspectives. The split itself
@@ -573,14 +578,21 @@ def test_very_high_filter_and_cards_state_how_they_relate():
             f"the split belongs to the card, not the line: {duplicated}"
     # The fired sets stay one hover away, so the distribution is still reachable.
     assert "s.very_high_only_by_perspectives" in reconcile
+    # The click instruction is stated once, on this line. The card tooltips
+    # carry only what each card means, so the same sentence no longer appears
+    # in three tooltips as well.
+    cards = js[js.index("function _renderScopeCards("):]
+    cards = cards[:cards.index("function _renderSeverityReconcile(")]
+    for hint in ("click a card to filter", "click the card again to clear"):
+        assert hint not in cards, \
+            f"the click hint belongs to the line, not the cards: {hint}"
 
     i18n = _read(JS / "i18n.js")
     for key in ("'no lower band':",
                 "'Perspectives that fired on the Very High only issues':",
                 "'mixed':", "'total in view':",
                 "'No lower band on any perspective':",
-                "'Very High lists any issue with at least one Very High "
-                "perspective"):
+                "'Issues that are only High or lower stay out of this list'"):
         assert key in i18n, f"missing Arabic label for {key}"
 
 

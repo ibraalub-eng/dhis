@@ -131,7 +131,9 @@
             'No severity band is stored for this result.': 'لا يوجد تصنيف شدة مخزَّن لهذه النتيجة.',
             'Skip low confidence': 'استبعاد الثقة المنخفضة',
             'Showing only Very High alerts — other severities stay in the audit trail': 'يعرض هذا القسم تنبيهات الشدة العالية فقط — بقية درجات الخطورة تبقى مسجلة في سجل التدقيق',
-            'Very High lists any issue with at least one Very High perspective — issues that are only High or lower stay out of this list': 'فلتر «عالية جداً» يعرض كل مشكلة لديها زاوية مقارنة واحدة على الأقل عالية جداً — أما المشكلات التي كل زواياها «عالية» أو أدنى فتبقى خارج هذه القائمة',
+            // The note states only the exclusion; "at least one Very High
+            // perspective" is the Very High issues card's own sublabel.
+            'Issues that are only High or lower stay out of this list': 'المشكلات التي كل زواياها «عالية» أو أدنى تبقى خارج هذه القائمة',
             // "Every perspective" was read as agreement between comparisons,
             // but most Very-High-only issues fired on a single perspective. The
             // card states that split; this label only names the bucket.

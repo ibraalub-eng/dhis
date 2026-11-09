@@ -722,9 +722,11 @@ function _renderScopeCards() {
         // The hint is bilingual: the fragment's static title is only the
         // pre-render fallback. It states what the card MEANS before how to use
         // it, so a tooltip never reduces "Corroborated" to "click to filter".
-        const hint = __(_VH_SCOPE_HELP[scope] || label) + ' — '
-            + (active ? __('click the card again to clear')
-                      : __('click a card to filter'));
+        // The tooltip states only what the card MEANS. The click instruction
+        // is printed once, on the reconcile line under the cards, which names
+        // the active scope anyway; repeating it in three tooltips made the
+        // same instruction appear four times on one screen.
+        const hint = __(_VH_SCOPE_HELP[scope] || label);
         // One description, referenced once. Setting title= on top would
         // announce the same sentence twice, and aria-label would duplicate
         // the whole hint as the accessible name.
