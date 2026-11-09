@@ -639,10 +639,9 @@ function _renderKpis(s) {
     // describing the Very High findings they are named for. Perspectives
     // narrow the table too, never the cards.
     set('qaKpiVeryHighOnly', s.very_high_only_issues ?? 0);
-    // The part of that bucket two or more comparisons agreed on; a card of its
-    // own, because "no lower band" alone also covers a single comparison
-    // nothing could have disagreed with.
-    set('qaKpiCorroborated', s.very_high_only_corroborated_issues ?? 0);
+    // The corroborated count is printed once, in the split under the legacy
+    // line: showing it in the clickable line as well repeated the same figure
+    // twice within four lines.
     set('qaKpiMixed', s.mixed_severity_issues ?? 0);
     set('qaKpiTotal', s.total_issues ?? 0);
     // Very High ISSUES: any issue with at least one Very High comparison,
@@ -746,20 +745,13 @@ function _renderScopeCards() {
 function _renderSeverityReconcile(s) {
     const el = document.getElementById('qaSeverityReconcile');
     if (!el || !s) return;
-    const only = Number(s.very_high_only_issues || 0);
-    const mixed = Number(s.mixed_severity_issues || 0);
     const total = Number(s.total_issues || 0);
     const n = v => v.toLocaleString('en-US');
-    // The split IS the Very High population of the scope (the server computes
-    // both from the whole evidence of each issue and ignores the band filter),
-    // so the sum is the number the two cards account for — not a third figure
-    // counted a different way.
-    const veryHigh = only + mixed;
-    // The bucket's corroborated / single-perspective split is stated on the
-    // "Very High only" card itself — both counts, both shares and the sum — so
-    // the line keeps to the bucket and its total instead of quoting the same
-    // split a second time in a different shape.
-    const onlyText = n(only) + ' ' + __('no lower band');
+    // The Very High = "no lower band" + mixed equation is printed ONCE, on the
+    // evidence-breakdown card above, where it is also balance-checked against
+    // the stored Very High issue count. Repeating it here printed the same
+    // three figures twice within a few lines, so this line keeps to what only
+    // it can say: which filter is active and how many issues match it.
     // Which comparisons fired together — one hover away, so the line above
     // stays a sentence while the whole distribution is still available.
     const firedSets = s.very_high_only_by_perspectives || [];
@@ -768,10 +760,7 @@ function _renderSeverityReconcile(s) {
           firedSets.slice(0, 10).map(f =>
               (f.perspectives || []).join(' + ') + ' — ' + n(f.issues)).join(' · ')
         : '';
-    const parts = [
-        __('Very High') + ' = ' + onlyText +
-        ' + ' + n(mixed) + ' ' + __('mixed') + ' = ' + n(veryHigh),
-    ];
+    const parts = [];
     // With a card active the list is that subset, so the line names the filter
     // instead of repeating the whole scope as if nothing were narrowed.
     if (_state.vhScope === 'only') parts.push(__('Very High only') + ': ' + n(total));

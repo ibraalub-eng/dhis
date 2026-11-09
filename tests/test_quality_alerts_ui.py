@@ -540,12 +540,16 @@ def test_very_high_filter_and_cards_state_how_they_relate():
     js = _read(JS / "quality-alerts.js")
     assert "function _renderSeverityReconcile(" in js
     assert "_renderSeverityReconcile(s)" in js, "the line must be fed by the summary"
-    for field in ("s.very_high_only_issues", "s.mixed_severity_issues",
+    for field in ("s.very_high_only_issues", "source.mixed_severity_issues",
                   "s.total_issues"):
-        assert field in js, f"reconciliation must read {field}"
-    # The two cards ARE the Very High population, so the line adds them up
-    # instead of quoting a third figure counted a different way.
-    assert "const veryHigh = only + mixed;" in js
+        assert field in js, f"the cards and the line must read {field}"
+    # The equation is printed once, on the evidence-breakdown card, where it is
+    # balance-checked. The line under the cards keeps only what it alone says
+    # (the active scope and the matching total), so the same three figures are
+    # not stated twice within a few lines.
+    reconcile_line = js[js.index("function _renderSeverityReconcile("):]
+    reconcile_line = reconcile_line[:reconcile_line.index("function _updateChipCounts")]
+    assert "only + mixed" not in reconcile_line
 
     frag = _read(TABS / "quality-alerts.html")
     assert 'id="qaSeverityReconcile"' in frag
@@ -558,7 +562,7 @@ def test_very_high_filter_and_cards_state_how_they_relate():
     # label does not claim agreement between perspectives. The split itself
     # (corroborated vs single perspective, with shares and the sum) is stated on
     # the "Very High only" card, so the line must not quote it a second time.
-    assert "'no lower band'" in js
+    assert "No lower band on any perspective" in frag
     reconcile = js[js.index("function _renderSeverityReconcile("):]
     reconcile = reconcile[:reconcile.index("function _updateChipCounts")]
     for duplicated in ("very_high_single_perspective_issues",
@@ -654,8 +658,13 @@ def test_very_high_only_card_states_the_two_subgroups_it_is_made_of():
         assert f'id="{element}"' in frag, f"{element} must exist for the split"
     assert 'data-i18n="Single perspective"' in frag
     assert 'data-i18n="Corroborated"' in frag
-    assert "Perspectives are not independent clinical evidence" in frag
-    assert "Mixed severity means at least one perspective is Very High" in frag
+    # Each definition is printed once: the card tooltips carry it, and the
+    # paragraphs under the legacy line that repeated them verbatim are gone.
+    assert frag.count("Perspectives are not independent clinical evidence") == 1
+    assert frag.count("Mixed severity means at least one perspective is Very High") == 1
+    # The breakdown section sits directly under the card and titles itself, so
+    # a fourth line inside the card only inflated it past every other card.
+    assert "Split by comparison evidence below" not in frag
 
     js = _read(JS / "quality-alerts.js")
     assert "function _renderVeryHighOnlyBreakdown(s)" in js

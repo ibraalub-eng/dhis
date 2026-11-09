@@ -262,8 +262,10 @@ def test_legacy_label_count_is_visible_and_labelled():
     line = next(l for l in frag.splitlines() if 'id="qaCardCorroborated"' in l)
     assert "qualityAlertsToggleVeryHighScope('corroborated')" in line
     assert 'role="button"' in line and 'tabindex="0"' in line
-    # The legacy number has its own element, outside the identity breakdown.
-    assert 'id="qaKpiCorroborated"' in frag
+    # The legacy count prints once, in the split below the line: repeating it in
+    # the clickable line showed the same number twice within four lines.
+    assert 'id="qaKpiCorroborated"' not in frag
+    assert 'id="qaKpiOnlyCorroborated"' in frag
     src = _js()
     renderer = src[src.index("function _comparisonBreakdownHtml("):]
     renderer = renderer[:renderer.index("function _renderComparisonBreakdown(")]
