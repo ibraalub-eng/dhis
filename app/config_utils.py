@@ -9,12 +9,6 @@ AI_CONFIG_KEYS = {
 }
 
 
-def get_config_value(db, key: str, default: float = 0.0) -> float:
-    from app.models import AppConfig
-    row = db.query(AppConfig).filter(AppConfig.key == key).first()
-    return row.value if row else default
-
-
 def get_config_dict(db, category: str) -> dict:
     from app.models import AppConfig
     rows = db.query(AppConfig).filter(AppConfig.category == category).all()

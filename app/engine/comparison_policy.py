@@ -105,9 +105,6 @@ class HistoryWindow:
     def valid_count(self) -> int:
         return len(self.observations)
 
-    def is_sufficient(self, min_observations: int) -> bool:
-        return self.valid_count >= max(1, int(min_observations))
-
     def as_dict(self) -> Dict[str, Any]:
         return {
             "window": self.window,

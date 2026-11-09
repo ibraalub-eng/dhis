@@ -63,13 +63,6 @@ CLASS_DATA = "data_problem"
 CLASS_STAT = "statistical_finding"
 CLASS_CLIN = "clinical_finding"
 
-CLASS_BADGES = {
-    CLASS_DATA: {"icon": "\U0001f527", "label": "Data problem"},
-    CLASS_STAT: {"icon": "\U0001f4ca", "label": "Statistical finding"},
-    CLASS_CLIN: {"icon": "\U0001f3e5", "label": "Clinical finding"},
-}
-
-
 # Component key → (QualityScore column, invert). outlier_score is stored as
 # a penalty, so its inverted value (100−penalty) is what the detector and
 # the sparkline plot — "worse" is always a lower value.

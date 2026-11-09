@@ -49,20 +49,17 @@ def set_slow_query_logging(enabled: bool):
     global _slow_query_logging
     _slow_query_logging = enabled
 
-def is_slow_query_logging_enabled() -> bool:
-    return _slow_query_logging
-
 # Per-connection timing storage: (cursor_id, statement) -> start_time
 _query_start_times = {}
 
 @event.listens_for(engine, "before_cursor_execute")
-def _before_execute(conn, cursor, statement, parameters, context, executemany):
+def _before_execute(conn, cursor, statement, parameters, context, _executemany):
     sql_count_var.set(sql_count_var.get() + 1)
     if _slow_query_logging:
         _query_start_times[id(cursor)] = time.time()
 
 @event.listens_for(engine, "after_cursor_execute")
-def _after_execute(conn, cursor, statement, parameters, context, executemany):
+def _after_execute(conn, cursor, statement, parameters, context, _executemany):
     start = _query_start_times.pop(id(cursor), None)
     if start is None or not _slow_query_logging:
         return

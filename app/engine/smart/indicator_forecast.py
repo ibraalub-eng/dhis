@@ -22,7 +22,6 @@
 قواعد الصياغة: كل المخرجات تقديرات إحصائية لا تنبؤ مؤكد، وكل رسالة تنتهي
 بإخلاء المسؤولية الإحصائي.
 """
-from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -168,15 +167,6 @@ try:
 except ImportError:  # pragma: no cover - early_warning موجود دائماً في هذا المستودع
     BLEND_MIN_MONTHS = 3
     DEFAULT_WEIGHTS = {"trend": 0.3, "peer": 0.3, "self": 0.4}
-
-
-@dataclass
-class _Point:
-    month: str
-    horizon_month: int
-    value: float
-    lower: float
-    upper: float
 
 
 def _model_forecast(history: List[float], h: int) -> float:

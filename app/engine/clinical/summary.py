@@ -18,10 +18,6 @@ class ClinicalSummary:
     executive_summary: str = ""
 
 
-def is_arabic_locale() -> bool:
-    return False
-
-
 LOW_TO_CRITICAL = {0: "normal", 1: "mild", 2: "moderate", 3: "high", 4: "critical"}
 
 

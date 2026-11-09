@@ -227,19 +227,6 @@ class CausalChain:
     chain_path_arabic: str = ""
 
 
-@dataclass
-class HistoricalComparativeReport:
-    hospital_id: int
-    hospital_name: str
-    current_month: str
-    causal_tree: List[CausalNode]
-    causal_chains: List[CausalChain]
-    historical_trends: Dict[str, Dict]
-    peer_comparisons: Dict[str, PeerComparison]
-    summary_arabic: str
-    priority_actions: List[str]
-
-
 def _month_offset(month: str, months_back: int) -> str:
     """يعيد أول شهر ضمن نافذة الرجوع، نسبةً لشهر التقرير لا لتاريخ اليوم."""
     try:
@@ -558,7 +545,7 @@ def calculate_trend(history: List[MonthDataPoint]) -> Dict:
     values = [p.value for p in history]
     months = list(range(len(values)))
 
-    slope, intercept, r_value, p_value, std_err = stats.linregress(months, values)
+    slope, intercept, r_value, p_value, _std_err = stats.linregress(months, values)
 
     # Constant series (zero variance) -> scipy returns NaN for r and p.
     # NaN values break JSON serialization (500 on /root-cause endpoints), so

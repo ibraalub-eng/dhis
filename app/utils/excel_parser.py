@@ -176,7 +176,7 @@ def _find_header_row(file_path: str, engine: str, sheet_name: str = 0) -> Tuple[
         cols_lower = [str(c).strip().lower() for c in df.columns]
         matched = 0
         for col in cols_lower:
-            for ind_name, ind_code in INDICATOR_NAME_TO_CODE.items():
+            for ind_name in INDICATOR_NAME_TO_CODE:
                 if ind_name.lower().strip() == col or col in ind_name.lower().strip():
                     matched += 1
                     break

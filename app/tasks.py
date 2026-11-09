@@ -67,13 +67,4 @@ def get_task(task_id: str) -> dict | None:
         return None
 
 
-def cleanup_old_tasks(max_age_hours: int = 24):
-    now = datetime.utcnow()
-    with _lock:
-        to_delete = []
-        for tid, t in _task_store.items():
-            age = now - datetime.fromisoformat(t["created_at"])
-            if age.total_seconds() > max_age_hours * 3600:
-                to_delete.append(tid)
-        for tid in to_delete:
-            del _task_store[tid]
+

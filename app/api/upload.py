@@ -69,7 +69,7 @@ async def _check_upload_size(file: UploadFile):
         )
 
 
-def _precompute_smart_bg(db_session, months: list):
+def _precompute_smart_bg(months: list):
     """Pre-compute smart analytics for all months in a background thread.
 
     After upload, the smart analytics pipeline (9 engines) is heavy.
@@ -337,7 +337,7 @@ async def upload_excel(file: UploadFile = File(...), override: bool = Query(Fals
     cache.invalidate("smart_analysis_indicators_")
     invalidate_report_cache(db)
     # Pre-compute smart analytics in background so the dashboard loads instantly
-    _precompute_smart_bg(db, result.get("months", []))
+    _precompute_smart_bg(result.get("months", []))
     return UploadResponse(**result)
 
 
@@ -410,7 +410,7 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
                 logger.warning(f"Could not analyze {hosp['name']} / {month}: {e}")
 
     # Pre-compute smart analytics in background
-    _precompute_smart_bg(db, months)
+    _precompute_smart_bg(months)
     return AutoReportResponse(
         filename=result["filename"],
         hospitals=hospitals,

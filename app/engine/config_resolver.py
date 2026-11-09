@@ -424,16 +424,6 @@ class _Collector:
                                        fallback=fallback))
 
 
-def _float_or(raw: Any, default: float) -> Tuple[float, str]:
-    """``(value, 'database'|'invalid'|'default')`` for an optional number."""
-    if raw is None:
-        return default, "default"
-    try:
-        return float(raw), "database"
-    except (TypeError, ValueError):
-        return default, "invalid"
-
-
 def _resolve_flags(system_settings: Mapping[str, Any],
                    collector: _Collector) -> Dict[str, Any]:
     """Analysis gates, resolved as explicit Booleans from the text store.

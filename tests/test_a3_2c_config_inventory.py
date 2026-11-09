@@ -141,13 +141,15 @@ def test_resolver_does_not_yet_cover_smart_flags_or_dashboard():
 
 
 def test_category_sweeps_remain_the_real_access_path():
-    """D10: 24 textual occurrences in 15 files -> 21 executable call sites.
+    """D10: 22 textual occurrences in 15 files -> 19 executable call sites.
 
     A3.5 P1 replaced the pipeline's direct ``rules`` category reads with the
     resolved ``RulesPolicy``; P2 did the same for ``trends`` and ``rates``, and
     P3 (D5) moved confidence onto the snapshot, removing the last standalone
     ``thresholds`` sweep in ``engine/confidence.py``. The remaining sweeps are
-    ml/quality (P3 still to migrate) and the display paths.
+    ml/quality (P3 still to migrate) and the display paths. The phase-1 cleanup
+    then deleted two unused ``scoring_audit`` wrappers that only repeated the
+    surviving ``get_config_dict(db, "quality")`` calls, taking 24 -> 22.
     """
     sources = _sources(APP, SCRIPTS)
     holders = {
@@ -156,11 +158,11 @@ def test_category_sweeps_remain_the_real_access_path():
         if CATEGORY_SWEEP in text
     }
     assert len(holders) == 15, sorted(holders)
-    assert sum(holders.values()) == 24, holders
+    assert sum(holders.values()) == 22, holders
     # 1 definition (config_utils) + 2 docstring mentions (scoring.py).
     assert holders["app/config_utils.py"] == 1
     assert holders["app/engine/quality/scoring.py"] == 2
-    assert sum(holders.values()) - 1 - 2 == 21
+    assert sum(holders.values()) - 1 - 2 == 19
     assert holders["app/engine/pipeline.py"] == 3
 
 

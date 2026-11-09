@@ -45,23 +45,6 @@ def get_db():
         db.close()
 
 
-def get_pool_status():
-    """Return connection pool stats for monitoring."""
-    if not engine or not hasattr(engine, "pool"):
-        return {}
-    pool = engine.pool
-    try:
-        return {
-            "pool_size": pool.size(),
-            "checked_in": pool.checkedin(),
-            "checked_out": pool.checkedout(),
-            "overflow": pool.overflow(),
-            "total_connections": pool.size() + pool.overflow(),
-        }
-    except Exception:
-        return {}
-
-
 def init_db():
     """No-op - Alembic manages all schema. Kept for backward compatibility."""
     pass

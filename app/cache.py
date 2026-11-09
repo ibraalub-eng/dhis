@@ -308,13 +308,5 @@ def refresh_data_epoch() -> Optional[str]:
     return _data_epoch
 
 
-def reset_data_epoch_for_tests() -> None:
-    """Tests: drop back to lazy computation with an isolated cache dir."""
-    global _data_epoch, _last_epoch_check
-    with _epoch_lock:
-        _data_epoch = None
-        _last_epoch_check = 0.0
-
-
 # 24-hour cache for smart analytics (persistent across restarts)
 cache = TTLCache(default_ttl=86400)

@@ -67,23 +67,3 @@ def _invalidate_caches(key_templates: list, kwargs: dict):
     except Exception:
         pass  # Don't let cache errors propagate
 
-
-def get_envelope_or_empty(result: dict, section_key: Optional[str] = None):
-    """Check if a smart analytics envelope has data, computing, or empty.
-
-    Returns (response_dict, should_return) tuple.
-    Callers do: resp, ok = get_envelope_or_empty(data); if ok: return resp
-
-    Replaces the duplicated pattern:
-        result = _get_envelope_or_empty(db, month)
-        if "empty" in result or "computing" in result:
-            return result
-        data = result["data"]
-        response = {"month": month, "section_data": data["section_key"]}
-        return response
-    """
-    if "empty" in result or "computing" in result:
-        return result, True
-    if section_key:
-        return {"data": result["data"][section_key]}, False
-    return result, False

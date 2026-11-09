@@ -604,7 +604,7 @@ def _process_preview_worker(file_path: str) -> dict:
         # Pre-compute smart analytics in background so the dashboard loads instantly
         try:
             from app.api.upload import _precompute_smart_bg
-            _precompute_smart_bg(db, sorted(all_months))
+            _precompute_smart_bg(sorted(all_months))
         except Exception as e:
             logger.warning("Smart analytics precompute failed: %s", e)
 

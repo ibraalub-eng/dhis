@@ -515,7 +515,7 @@ class TestFeatureVariantSelection:
                 rows.append(_row(
                     f"H{h}", month, _flat_vals(base + i * 3.0)))
         X_all, feature_names, meta, m2i, imp, scaler, enc = _build_supervised_dataset(
-            rows, [f"H{h}" for h in range(n_hosp)], 0)
+            rows, [f"H{h}" for h in range(n_hosp)])
         cur, targets, defined = _compute_target_scores(rows, meta, months)
         defined_idx = np.where(defined)[0]
         return X_all, feature_names, meta, defined_idx, targets[defined_idx], [meta[int(i)] for i in defined_idx]

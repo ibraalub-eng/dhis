@@ -211,7 +211,6 @@ def _compute_derived_features(values: Dict[str, float]) -> Dict[str, float]:
 def _build_supervised_dataset(
     all_rows: List[Dict],
     hospital_names: List[str],
-    target_month_idx: int,
 ):
     cat_map = {}
     for row in all_rows:
@@ -274,7 +273,7 @@ def _build_supervised_dataset(
         cur_vals = row["values"]
 
         # الفروق الأساسية الأربعة (كما كانت)
-        for dk, sk in zip(delta_keys, delta_source_keys):
+        for sk in delta_source_keys:
             prev_val = prev_vals.get(sk, 0)
             cur_val = cur_vals.get(sk, 0)
             delta = (cur_val - prev_val) / prev_val if prev_val > 0 else 0
@@ -803,7 +802,7 @@ def run_xgboost_predictions(
 
     # المتجه الفائق: الميزات الأساسية + المشتقة + الفروق الأربعة + التأخرات والفروق الموسّعة.
     X_all, feature_names, meta, month_to_idx, imputer, scaler, encoder = _build_supervised_dataset(
-        all_rows, hospital_names, current_idx
+        all_rows, hospital_names
     )
 
     # Pass ALL loaded months (including next) so target labels can use next-month data

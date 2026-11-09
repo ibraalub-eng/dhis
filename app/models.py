@@ -819,14 +819,6 @@ class MenuItem(Base):
 
 QUALITY_ALERT_SEVERITIES = ("LOW", "MODERATE", "HIGH", "VERY_HIGH")  # same bands as layered.BAND_CUTOFFS
 QUALITY_ALERT_STATUSES = ("New", "Under Review", "Confirmed Issue", "False Positive", "Resolved")
-QUALITY_ALERT_PERSPECTIVES = (
-    "history",        # hospital vs its own prior periods
-    "type",           # vs hospitals of the same hospital_type
-    "ownership",      # vs hospitals of the same facility_ownership
-    "facility_type",  # vs hospitals of the same facility_type
-    "governorate",    # vs hospitals in the same governorate
-    "all",            # vs all eligible hospitals with valid data
-)
 
 
 class QualityAlert(Base):

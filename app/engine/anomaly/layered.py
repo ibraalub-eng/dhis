@@ -278,10 +278,6 @@ def level_for_score(score: Optional[float]) -> Optional[str]:
     return LEVEL_VERY_HIGH
 
 
-def level_rank(level: Optional[str]) -> Optional[int]:
-    return LEVEL_RANK.get(level) if level else None
-
-
 def level_gte(level: Optional[str], minimum: str) -> bool:
     """None-safe: a not-applicable layer never satisfies a minimum."""
     rank = LEVEL_RANK.get(level) if level else None
@@ -713,12 +709,6 @@ PEER_DEFINITION_COMPLETE = "complete_from_row"
 PEER_DEFINITION_SELF_CONTAINED = "self_contained_no_catalog"
 PEER_DEFINITION_CATALOG_ONLY = "catalog_only"
 PEER_DEFINITION_NOT_ESTABLISHABLE = "not_establishable"
-PEER_DEFINITION_STATUSES = (
-    PEER_DEFINITION_COMPLETE,
-    PEER_DEFINITION_SELF_CONTAINED,
-    PEER_DEFINITION_CATALOG_ONLY,
-    PEER_DEFINITION_NOT_ESTABLISHABLE,
-)
 # Legitimate spellings a caller may hand over for an unclosable definition.
 UNESTABLISHED_DEFINITION_STATUSES = frozenset({
     PEER_DEFINITION_NOT_ESTABLISHABLE, "not_established", "missing", "unknown",
@@ -1127,20 +1117,6 @@ def gate_threshold(stored: Optional[float] = None,
     return PEER_Z_THRESHOLD_DEFAULT
 
 
-def top_band_route(layer: Optional[str], *,
-                   raw_count_on_rate: bool = False) -> str:
-    """Which rule judges a top band held by ``layer`` (see the block above)."""
-    if layer == "peer":
-        return ROUTE_PEER
-    if layer == "volume":
-        return ROUTE_VOLUME
-    if layer == "raw" and raw_count_on_rate:
-        return ROUTE_RAW_UNIT
-    if layer in OWN_HISTORY_LAYERS:
-        return ROUTE_HISTORY
-    return ROUTE_NO_TOP_LAYER
-
-
 def row_gate_threshold(row, configured: Optional[float] = None) -> float:
     """The threshold a STORED layered row recorded for its own comparison."""
     provenance = getattr(row, "classification_provenance", None) or {}
@@ -1471,12 +1447,6 @@ def denominator_analysis_value(spec: AnalysisSpec, values: Dict[str, float]) -> 
     return _sum_codes(values, spec.denominator_codes)
 
 
-def score_window(method: str, series: Sequence[float], current: float,
-                 previous: Optional[float], threshold: float) -> Optional[float]:
-    """Public entry point: score `current` against a prepared window."""
-    return _score_window(method, series, current, previous, threshold)
-
-
 def score_window_detail(method: str, series: Sequence[float], current: float,
                         previous: Optional[float], threshold: float
                         ) -> Tuple[Optional[float], Optional[float]]:
@@ -1487,12 +1457,6 @@ def score_window_detail(method: str, series: Sequence[float], current: float,
     screen and can record the underlying change evidence.
     """
     return _score_window_detail(method, series, current, previous, threshold)
-
-
-def _score_window(method: str, series: Sequence[float], current: float,
-                  previous: Optional[float], threshold: float) -> Optional[float]:
-    """Score `current` against the prior window with the chosen method."""
-    return _score_window_detail(method, series, current, previous, threshold)[0]
 
 
 def _score_window_detail(method: str, series: Sequence[float], current: float,

@@ -12,7 +12,6 @@ load_dotenv(os.path.join(BASE_DIR, ".env"))
 # Data directories (uploads, samples — stored on disk, not in DB)
 DATA_DIR = os.getenv("DATA_DIR", os.path.join(BASE_DIR, "data"))
 UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
-SAMPLE_DIR = os.path.join(DATA_DIR, "sample")
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)

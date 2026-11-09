@@ -59,20 +59,6 @@ STATE_UNKNOWN = "unknown"
 ACTOR_SYSTEM = "system"
 
 
-def current_scoring_config(db: Session) -> Dict[str, float]:
-    """The approved scoring configuration from AppConfig (category quality)."""
-    return resolve_scoring_config(get_config_dict(db, "quality"))
-
-
-def previous_scoring_config(db: Session) -> Dict[str, float]:
-    """Approved configuration with the old hidden fallback multiplier.
-
-    Only used to RECOGNISE rows; it is never written back.
-    """
-    return scoring_config_with_multiplier(
-        PREVIOUS_OUTLIER_MULTIPLIER, get_config_dict(db, "quality"))
-
-
 def score_snapshot(row: QualityScore) -> Dict:
     """Every stored value a recompute can overwrite."""
     return {

@@ -144,8 +144,6 @@ _STATUS_PRIORITY = {status: rank for rank, status in enumerate(_STATUS_ROLLUP)}
 # status explicitly. Otherwise a closed alert would keep alerting forever, with
 # nothing but a coloured badge to tell the reader it was already dealt with.
 CLOSED_STATUSES = (STATUS_RESOLVED, STATUS_FALSE_POSITIVE)
-OPEN_STATUSES = tuple(status for status in QUALITY_ALERT_STATUSES
-                      if status not in CLOSED_STATUSES)
 
 
 def is_open_status(status: Optional[str]) -> bool:
