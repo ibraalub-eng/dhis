@@ -6,7 +6,7 @@ from app.database import get_db
 
 logger = logging.getLogger(__name__)
 from app.models import (Hospital, QualityAlert, QualityScore, ConfidenceScore,
-                        ValidationResult)
+                        LayeredOutlierResult, ValidationResult)
 from sqlalchemy import func, case
 from app.engine.pipeline import is_fallback_quality_row, get_enabled_values_for_hospital_month
 from app.core.deps import require_permission, get_user_hospital_ids
@@ -880,6 +880,294 @@ def dashboard_kpi(hospital_id: int | None = None, month: str | None = None, mont
             # Persisted failed-analysis rows removed from every KPI, the
             # previous period and the peer averages above.
             "excluded_failed_analysis": _excluded_failed}
+
+
+# ── Prominent clinical indicators panel (raw + derived) ──────────────────
+# An executive needs the clinical numbers, not only the quality score. Every
+# value here is a PURE READ of the persisted layered rows (the project's
+# dashboard doctrine: nothing is recomputed at page-load), so the rate, the
+# previous-month comparison and the status chip are the engine's own row and
+# can never disagree with Outlier Diagnostics.
+#
+# Codes are registry rate_codes in display order. A code with no registry spec
+# is skipped, because the panel must never restate a formula (guard test
+# tests/test_rates_registry_no_hardcode.py). rate_congenital sits between the
+# newborn outcomes on purpose: registering that rate on the Indicators screen
+# makes it appear here automatically, and CLINICAL_PANEL_LIMIT then drops the
+# least prominent row instead of growing the table.
+CLINICAL_PANEL_CODES = (
+    "rate_cs", "rate_smm", "rate_mmr", "rate_nmr",
+    "rate_stillbirth", "rate_congenital", "rate_preterm", "rate_lbw", "rate_bf",
+)
+CLINICAL_PANEL_LIMIT = 10
+
+# Arabic display names (docs/ARABIC-TERMINOLOGY.md). The English name stays the
+# registry's rate_name so one rate is called the same thing on every screen.
+CLINICAL_PANEL_LABELS_AR = {
+    "rate_cs": "معدل العمليات القيصارية",
+    "rate_smm": "معدل المضاعفات الخطيرة (SMM)",
+    "rate_mmr": "وفيات الأمهات لكل 100,000 مولود حي",
+    "rate_nmr": "وفيات حديثي الولادة لكل 1,000 مولود حي",
+    "rate_stillbirth": "معدل الولادات الميتة",
+    "rate_congenital": "معدل التشوهات الخلقية",
+    "rate_preterm": "معدل الولادات المبكرة",
+    "rate_lbw": "معدل نقص وزن الولادة",
+    "rate_bf": "الرضاعة الطبيعية في الساعة الأولى",
+}
+
+
+def _clinical_panel_specs(db) -> dict:
+    """Registry specs for the panel codes (DB-tuned spec first, then clinical).
+
+    ``load_rate_specs`` merges the user's rate_config rows over the zscore
+    slice, so a formula edited on the Indicators screen wins; the clinical
+    slice supplies the rates that exist only there (rate_lbw, rate_bf).
+    """
+    from app.engine.rate_config import builtin_spec, load_rate_specs
+
+    merged = load_rate_specs(db)
+    specs = {}
+    # Every rate the diagnosis engine analyzes today: the zscore slice merged
+    # with the user's own rate_config rows, so a rate registered on the
+    # Indicators screen is available to the panel without a code change.
+    for code, spec in merged.items():
+        if spec.is_rate:
+            specs[code] = spec
+    # Plus the clinical-only rates (rate_lbw, rate_bf): displayable only when a
+    # run actually stored rows for them — the endpoint drops the rest.
+    for code in CLINICAL_PANEL_CODES:
+        if code in specs:
+            continue
+        spec = builtin_spec("clinical", code)
+        if spec is not None and spec.is_rate:
+            specs[code] = spec
+    return specs
+
+
+@router.get("/clinical-indicators")
+def dashboard_clinical_indicators(
+    hospital_id: int | None = None,
+    month: str | None = None,
+    month_from: str | None = None,
+    month_to: str | None = None,
+    year: str | None = None,
+    db: Session = Depends(get_db),
+    user=Depends(require_permission("dashboard.read")),
+):
+    """Eight prominent clinical indicators: raw value, denominator, derived
+    rate, previous-month change, and the diagnosis status of that same month.
+
+    Rate rows store the engine's numerator/denominator, so an "All Hospitals"
+    value is the ratio of the sums — never an average of rates. A zero or
+    missing denominator stays "not computable", never a silent 0.
+    """
+    from app.engine.anomaly.layered import LEVEL_RANK, is_detection_outlier
+    from app.engine.rate_config import compute_rate
+
+    user_hosp_ids = get_user_hospital_ids(user, db)
+    if year is not None and not re.match(r"^\d{4}$", str(year)):
+        return {"error": "Invalid year format"}
+
+    specs = _clinical_panel_specs(db)
+    codes = list(specs)
+    payload = {
+        "available": False, "rows": [], "scope": ("hospital" if hospital_id else "all"),
+        "period_mode": "all_months", "month": None, "previous_month": None,
+        "first_month": None, "last_month": None, "months_count": 0,
+        "hospitals_compared": 0, "very_high_rows": 0, "very_high_hospitals": 0,
+        "note": "",
+    }
+    if not codes:
+        payload["note"] = ("لا يوجد أي من معدلات اللوحة في سجل المعدلات — "
+                           "سجّلها من شاشة المؤشرات.")
+        return payload
+
+    query = db.query(LayeredOutlierResult).filter(
+        LayeredOutlierResult.analysis_code.in_(codes)
+    )
+    query = _exclude_disabled(db, query, LayeredOutlierResult, hospital_id=hospital_id)
+    if user_hosp_ids is not None:
+        query = query.filter(LayeredOutlierResult.hospital_id.in_(user_hosp_ids))
+    if hospital_id:
+        query = query.filter(LayeredOutlierResult.hospital_id == hospital_id)
+    if month_from:
+        query = query.filter(LayeredOutlierResult.month >= month_from)
+    if month_to:
+        query = query.filter(LayeredOutlierResult.month <= month_to)
+    # An explicit ``month`` is deliberately NOT applied in SQL: the month before
+    # it is needed for the comparison, so the window is selected below.
+    elif year:
+        query = query.filter(LayeredOutlierResult.month.like(f"{year}-%"))
+
+    by_month: dict = {}
+    for row in query.all():
+        by_month.setdefault(row.month, []).append(row)
+    if not by_month:
+        payload["note"] = ("لا توجد نتائج تشخيص محفوظة لهذه الفترة — شغّل التحليل "
+                           "(إعادة الحساب) ثم أعد التحميل.")
+        return payload
+
+    # Period mode. An explicit month (or month_to) reads that single month and
+    # compares it with the month before. With no month filter the panel follows
+    # the dashboard's own range and pools EVERY month in it — that is the
+    # default view — comparing the window's first month with its last.
+    requested_month = month or month_to
+    period_mode = "month" if requested_month else "all_months"
+    if period_mode == "month":
+        base = requested_month if requested_month in by_month else max(by_month)
+        prior = [m for m in by_month if m < base]
+        prev_month = max(prior) if prior else None
+        window_months = [base]
+    else:
+        base = None
+        prev_month = None
+        window_months = sorted(by_month)
+
+    # List only rates the diagnosis engine actually analyzed. The panel reads
+    # stored rows, so a rate outside the layered catalog (the clinical-only
+    # rate_lbw / rate_bf, which the engine never scores) would sit here empty
+    # for good — a permanent dash reads as "no data" when the truth is
+    # "not part of the diagnosis". Registering such a rate in the zscore
+    # registry makes the engine analyze it, and it appears here on the next
+    # analysis run.
+    analyzed = {row.analysis_code for rows in by_month.values() for row in rows}
+    preferred = [code for code in CLINICAL_PANEL_CODES if code in analyzed]
+    # Any other analyzed rate (one the user registered later) follows the
+    # prominent set instead of being hidden behind a fixed list.
+    extras = sorted(code for code in analyzed
+                    if code not in preferred and code in specs)
+    codes = (preferred + extras)[:CLINICAL_PANEL_LIMIT]
+    if not codes:
+        payload["note"] = ("لا يوجد أي من معدلات اللوحة ضمن نتائج التشخيص المخزّنة "
+                           "لهذه الفترة.")
+        return payload
+
+    def _bucket(rows):
+        """analysis_code -> pooled numerator/denominator + its stored rows."""
+        out: dict = {}
+        for row in rows:
+            entry = out.setdefault(row.analysis_code, {
+                "num": 0.0, "den": 0.0, "has_num": False, "has_den": False,
+                "rows": [],
+            })
+            if row.numerator is not None:
+                entry["num"] += float(row.numerator)
+                entry["has_num"] = True
+            if row.denominator is not None:
+                entry["den"] += float(row.denominator)
+                entry["has_den"] = True
+            entry["rows"].append(row)
+        return out
+
+    current = _bucket([row for m in window_months for row in by_month.get(m, [])])
+    previous = _bucket(by_month.get(prev_month, [])) if prev_month else {}
+    # Window edges: the "all months" comparison reads first month vs last month.
+    first_bucket = _bucket(by_month.get(window_months[0], [])) if window_months else {}
+    last_bucket = _bucket(by_month.get(window_months[-1], [])) if window_months else {}
+
+    def _pooled_rate(spec, entry):
+        if entry is None or not entry["has_num"] or not entry["has_den"]:
+            return None
+        return compute_rate({"n": entry["num"], "d": entry["den"]},
+                            ("n",), ("d",), spec.rate_multiplier)
+
+    rows_out = []
+    for code in codes:
+        spec = specs[code]
+        cur = current.get(code)
+        rate = _pooled_rate(spec, cur)
+        if period_mode == "month":
+            prev_rate = _pooled_rate(spec, previous.get(code))
+            change_rate = rate
+        else:
+            prev_rate = _pooled_rate(spec, first_bucket.get(code))
+            change_rate = _pooled_rate(spec, last_bucket.get(code))
+        change = None
+        if change_rate is not None and prev_rate:
+            change = round((change_rate - prev_rate) / prev_rate * 100.0, 1)
+
+        level = outlier_type = interpretation = None
+        flagged = very_high = total = 0
+        if cur:
+            # Counted per HOSPITAL, not per hospital-month: over several months
+            # one hospital must not weigh in once per month.
+            per_hospital: dict = {}
+            for row in cur["rows"]:
+                worst_here = per_hospital.get(row.hospital_id)
+                if worst_here is None or (LEVEL_RANK.get(row.outlier_level or "NONE", 0)
+                                          > LEVEL_RANK.get(worst_here.outlier_level or "NONE", 0)):
+                    per_hospital[row.hospital_id] = row
+            total = len(per_hospital)
+            flagged = sum(1 for row in per_hospital.values()
+                          if is_detection_outlier(row.outlier_level))
+            very_high = sum(1 for row in per_hospital.values()
+                            if (row.outlier_level or "") == "VERY_HIGH")
+            worst = max(cur["rows"],
+                        key=lambda r: LEVEL_RANK.get(r.outlier_level or "NONE", 0))
+            level = worst.outlier_level
+            outlier_type = worst.outlier_type
+            # A single hospital reads its own sentence; a network-wide row would
+            # have to invent one from several hospitals' rows.
+            interpretation = worst.interpretation if hospital_id else None
+
+        reason = None
+        if rate is None:
+            reason = ("لا توجد نتيجة تشخيص محفوظة لهذا المؤشر في الشهر المحدد."
+                      if not cur else
+                      "المقام مفقود أو صفر — المعدل غير قابل للحساب.")
+
+        rows_out.append({
+            "rate_code": code,
+            "name_ar": CLINICAL_PANEL_LABELS_AR.get(code, spec.rate_name),
+            "name_en": spec.rate_name,
+            "unit": spec.unit,
+            "numerator": round(cur["num"], 2) if cur and cur["has_num"] else None,
+            "denominator": round(cur["den"], 2) if cur and cur["has_den"] else None,
+            "rate": round(rate, 2) if rate is not None else None,
+            "previous_rate": round(prev_rate, 2) if prev_rate is not None else None,
+            "change_percent": change,
+            "level": level,
+            "outlier_type": outlier_type,
+            "flagged_hospitals": flagged,
+            "very_high_hospitals": very_high,
+            "total_hospitals": total,
+            "interpretation": interpretation,
+            "available": rate is not None,
+            "reason": reason,
+        })
+
+    # Panel-level Very High tally: how many of the shown indicators carry a
+    # VERY_HIGH status, and how many hospitals carry one (distinct).
+    very_high_rows = sum(1 for r in rows_out if (r["level"] or "") == "VERY_HIGH")
+    very_high_hospitals: set = set()
+    for r in rows_out:
+        if (r["level"] or "") != "VERY_HIGH":
+            continue
+        entry = current.get(r["rate_code"])
+        if entry:
+            very_high_hospitals |= {row.hospital_id for row in entry["rows"]
+                                    if (row.outlier_level or "") == "VERY_HIGH"}
+
+    payload.update({
+        "available": True,
+        "period_mode": period_mode,
+        "month": base,
+        "previous_month": prev_month,
+        "first_month": window_months[0] if window_months else None,
+        "last_month": window_months[-1] if window_months else None,
+        "months_count": len(window_months),
+        "hospitals_compared": len({row.hospital_id for m in window_months
+                                   for row in by_month.get(m, [])}),
+        "very_high_rows": very_high_rows,
+        "very_high_hospitals": len(very_high_hospitals),
+        "rows": rows_out,
+        "note": ("القيم مقروءة من نتائج التشخيص المحفوظة — لا يُعاد حساب أي رقم عند "
+                 "تحميل الشاشة، وشريحة الحالة هي صف «تشخيص الشذوذ» نفسه."
+                 + (" شريحة الحالة في وضع كل الأشهر تُظهر أسوأ تصنيف داخل الفترة، "
+                    "والعدّاد يبيّن عدد المستشفيات المصابة به."
+                    if period_mode == "all_months" else "")),
+    })
+    return payload
 
 
 @router.get("/attention")

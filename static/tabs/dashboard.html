@@ -61,6 +61,14 @@
         </div>
     </div>
     <div class="dashboard-grid" id="dashKpiCards"></div>
+    <!-- Prominent clinical indicators: raw value + derived rate + the stored
+         diagnosis status, read from the persisted layered rows (no number is
+         recomputed at page-load, so it cannot disagree with Outlier
+         Diagnostics). Populated by loadClinicalIndicators(). -->
+    <div class="card" id="dashClinicalCard" style="margin-top:1.5rem;">
+        <h2>Prominent Clinical Indicators <span id="dashClinicalMonth" style="font-size:0.75rem;font-weight:400;color:var(--text-muted);margin-left:0.5rem;"></span></h2>
+        <div id="dashClinicalTable" style="overflow-x:auto;"></div>
+    </div>
     <!-- 'Needs attention' strip: worst movers / critical alerts / data problems -->
     <div id="dashAttention" style="margin-top:1.5rem;"></div>
     <div class="charts-row" style="margin-top:1rem;">

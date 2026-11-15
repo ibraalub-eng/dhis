@@ -2992,6 +2992,7 @@ function loadHospitalsSettings() {
                 // Load heatmap — ignores the selected hospital on purpose
                 // (network-wide peer comparison, see loadHeatmap).
                 loadHeatmap();
+                loadClinicalIndicators();
                 loadRankingTable();
                 loadAttentionStrip();
             }).finally(() => {
@@ -2999,6 +3000,135 @@ function loadHospitalsSettings() {
                 if (dl) dl.style.display = 'none';
             }).catch(e => {
                 console.error('Dashboard error:', e);
+            });
+        }
+
+        // ── Prominent clinical indicators (raw + derived) ────────────
+        // Pure read of the stored layered rows: raw value, denominator, rate,
+        // the engine's own previous-month change and its status chip. Nothing
+        // is recomputed here, so this panel cannot disagree with Outlier
+        // Diagnostics. Rate rows carry numerator/denominator, so the 'All
+        // Hospitals' rate is the ratio of the sums, computed server-side.
+        var CLINICAL_LEVEL_COLOR = {
+            VERY_HIGH: 'var(--accent-red, #c62828)',
+            HIGH: 'var(--accent-orange, #e07b00)',
+            MODERATE: '#b58900',
+            LOW: 'var(--accent-teal, #2e7d32)',
+            NONE: 'var(--text-muted, #6b7280)'
+        };
+        // INSUFFICIENT_HISTORY is a distinct outcome, never "normal" (the
+        // engine withholds an assessment instead of grading it). Any other
+        // unexpected level falls back to its stored code rather than to the
+        // reassuring "Normal" label.
+        var CLINICAL_LEVEL_KEY = {
+            VERY_HIGH: 'Very High', HIGH: 'High', MODERATE: 'Moderate',
+            LOW: 'Low', NONE: 'Normal', INSUFFICIENT_HISTORY: 'Insufficient history'
+        };
+
+        function _clinicalNum(value) {
+            if (value == null || !isFinite(value)) return '\u2014';
+            var n = Number(value);
+            return (Math.abs(n) >= 1000) ? n.toLocaleString() : String(Math.round(n * 100) / 100);
+        }
+
+        function renderClinicalIndicators(data) {
+            var el = document.getElementById('dashClinicalTable');
+            if (!el) return;
+            var monthEl = document.getElementById('dashClinicalMonth');
+            if (monthEl) {
+                // The panel follows the dashboard filters. With no month filter
+                // it pools every month in the range (the default view) and says
+                // so, rather than silently showing one month's numbers.
+                var span = '';
+                if (data && data.period_mode === 'all_months' && data.first_month) {
+                    span = data.first_month + ' \u2192 ' + data.last_month +
+                        (data.months_count ? ' \u00b7 ' + data.months_count + ' ' + __('months') : '');
+                } else if (data && data.month) {
+                    span = data.month + (data.previous_month ? ' \u00b7 ' + __('Previous period') + ' ' + data.previous_month : '');
+                }
+                var vh = (data && data.very_high_rows)
+                    ? ' <span style="display:inline-block;margin-left:0.4rem;padding:1px 7px;border-radius:10px;border:1px solid var(--accent-red, #c62828);color:var(--accent-red, #c62828);font-size:0.68rem;font-weight:700;">' +
+                      __('Very High') + ': ' + data.very_high_rows + ' / ' + data.very_high_hospitals + ' ' + __('Hospital') + '</span>'
+                    : '';
+                monthEl.innerHTML = esc(span) + vh;
+            }
+            if (!data || !data.available || !(data.rows || []).length) {
+                el.innerHTML = '<div style="padding:0.55rem 0.8rem;color:var(--text-secondary);font-size:0.78rem;">' +
+                    esc((data && data.note) || __('No data')) + '</div>';
+                return;
+            }
+            var hid = document.getElementById('dashHospital').value;
+            var th = 'text-align:right;padding:0.35rem 0.5rem;border-bottom:1px solid var(--border-default);font-size:0.72rem;color:var(--text-secondary);white-space:nowrap;';
+            var td = 'padding:0.35rem 0.5rem;border-bottom:1px dashed var(--border-default);font-size:0.76rem;white-space:nowrap;';
+            // Over a whole window "previous period" means first month vs last;
+            // over one month it means the month before.
+            var changeHead = (data.period_mode === 'all_months') ? __('Trend') : __('Previous period');
+            var head = '<tr>' + ['Indicator', 'Raw value', 'Denominator', 'Rate', changeHead, 'Status']
+                .map(function (h) { return '<th style="' + th + '">' + __(h) + '</th>'; }).join('') +
+                '<th style="' + th + '"></th></tr>';
+            var body = data.rows.map(function (r) {
+                var levelKey = CLINICAL_LEVEL_KEY[r.level] || r.level;
+                var color = CLINICAL_LEVEL_COLOR[r.level] || CLINICAL_LEVEL_COLOR.NONE;
+                // The chip is the worst stored row; with many hospitals the
+                // count says how many carry it, so it never reads as one case.
+                var chip = (r.level && r.available)
+                    ? '<span style="display:inline-block;padding:1px 7px;border-radius:10px;border:1px solid ' + color +
+                      ';color:' + color + ';font-size:0.68rem;font-weight:700;">' + __(levelKey) + '</span>'
+                    : '<span style="color:var(--text-muted);">\u2014</span>';
+                if (data.scope === 'all' && r.total_hospitals > 1) {
+                    chip += '<div style="color:var(--text-muted);font-size:0.66rem;">' +
+                        r.flagged_hospitals + '/' + r.total_hospitals + ' ' + __('Hospital') +
+                        (r.very_high_hospitals ? ' \u00b7 ' + r.very_high_hospitals + ' ' + __('Very High') : '') +
+                        '</div>';
+                }
+                var change = (r.change_percent == null)
+                    ? '\u2014'
+                    : '<span style="font-weight:600;color:' +
+                      (r.change_percent > 0 ? 'var(--accent-red, #c62828)'
+                          : (r.change_percent < 0 ? 'var(--accent-teal, #2e7d32)' : 'var(--text-secondary)')) +
+                      ';" dir="ltr">' + (r.change_percent > 0 ? '+' : '') + r.change_percent + '%</span>';
+                // A stored row for ONE hospital can be explained row-by-row;
+                // a network-wide chip has no single analysis_code row to open.
+                var why = (data.scope === 'hospital' && hid && r.available)
+                    ? '<button onclick="window.showWhyPopup({kind:\'layered_outlier\',hospitalId:' + Number(hid) +
+                      ',month:\'' + String(data.month).replace(/[^0-9-]/g, '') +
+                      '\',indicatorCode:\'' + String(r.rate_code).replace(/[^a-z_]/g, '') + '\'})" ' +
+                      'style="background:var(--bg-elevated);border:1px solid var(--border-default);border-radius:4px;padding:2px 8px;font-size:0.68rem;font-weight:700;cursor:pointer;color:var(--accent-blue);">' +
+                      __('Why') + '</button>'
+                    : '';
+                var rateCell = r.available
+                    ? _clinicalNum(r.rate) + ' <span style="color:var(--text-muted);font-size:0.68rem;">' + esc(r.unit || '') + '</span>'
+                    : '<span title="' + esc(r.reason || '') + '" style="color:var(--text-muted);">\u2014</span>';
+                return '<tr>' +
+                    '<td style="' + td + 'font-weight:600;">' + esc(r.name_ar) + '</td>' +
+                    '<td style="' + td + '" dir="ltr">' + _clinicalNum(r.numerator) + '</td>' +
+                    '<td style="' + td + '" dir="ltr">' + _clinicalNum(r.denominator) + '</td>' +
+                    '<td style="' + td + '" dir="ltr">' + rateCell + '</td>' +
+                    '<td style="' + td + '" dir="ltr">' + change + '</td>' +
+                    '<td style="' + td + '">' + chip + '</td>' +
+                    '<td style="' + td + '">' + why + '</td>' +
+                    '</tr>';
+            }).join('');
+            el.innerHTML = '<table style="width:100%;border-collapse:collapse;"><thead>' + head + '</thead><tbody>' +
+                body + '</tbody></table>' +
+                '<div style="margin-top:0.4rem;color:var(--text-muted);font-size:0.68rem;">' + esc(data.note || '') + '</div>';
+        }
+
+        function loadClinicalIndicators() {
+            var el = document.getElementById('dashClinicalTable');
+            if (!el) return;
+            var hid = document.getElementById('dashHospital').value;
+            var yr = document.getElementById('dashYear').value;
+            var dr = window._dashboardDateRange;
+            var url = '/dashboard/clinical-indicators?';
+            if (hid) url += 'hospital_id=' + hid + '&';
+            if (dr && dr.from) url += 'month_from=' + dr.from + '&';
+            if (dr && dr.to) url += 'month_to=' + dr.to + '&';
+            if (yr) url += 'year=' + yr;
+            el.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.8rem;color:var(--text-secondary);"><span class="spinner"></span> Loading...</div>';
+            apiGet(url).then(renderClinicalIndicators).catch(function (e) {
+                console.warn('Clinical indicators failed to load:', e);
+                el.innerHTML = '<div style="padding:0.55rem 0.8rem;color:var(--text-secondary);font-size:0.78rem;">' + __('No data') + '</div>';
             });
         }
 
