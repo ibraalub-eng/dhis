@@ -3046,9 +3046,12 @@ function loadHospitalsSettings() {
                 } else if (data && data.month) {
                     span = data.month + (data.previous_month ? ' \u00b7 ' + __('Previous period') + ' ' + data.previous_month : '');
                 }
+                // One hospital needs no "x of y hospitals" counter; only the
+                // network view has hospitals to count.
                 var vh = (data && data.very_high_rows)
                     ? ' <span style="display:inline-block;margin-left:0.4rem;padding:1px 7px;border-radius:10px;border:1px solid var(--accent-red, #c62828);color:var(--accent-red, #c62828);font-size:0.68rem;font-weight:700;">' +
-                      __('Very High') + ': ' + data.very_high_rows + ' / ' + data.very_high_hospitals + ' ' + __('Hospital') + '</span>'
+                      __('Very High') + ': ' + data.very_high_rows +
+                      (data.scope === 'all' ? ' / ' + data.very_high_hospitals + ' ' + __('Hospital') : '') + '</span>'
                     : '';
                 monthEl.innerHTML = esc(span) + vh;
             }
