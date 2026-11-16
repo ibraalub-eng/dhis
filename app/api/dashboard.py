@@ -954,8 +954,8 @@ def dashboard_clinical_indicators(
     db: Session = Depends(get_db),
     user=Depends(require_permission("dashboard.read")),
 ):
-    """Eight prominent clinical indicators: raw value, denominator, derived
-    rate, previous-month change, and the diagnosis status of that same month.
+    """Up to ten prominent clinical indicators: raw value, denominator, derived
+    rate, previous-period change, and the diagnosis status of that same period.
 
     Rate rows store the engine's numerator/denominator, so an "All Hospitals"
     value is the ratio of the sums — never an average of rates. A zero or
