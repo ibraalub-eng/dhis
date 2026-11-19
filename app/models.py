@@ -800,6 +800,9 @@ class MenuItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     group_id = Column(Integer, ForeignKey("menu_groups.id", ondelete="CASCADE"), nullable=False, index=True)
     tab_key = Column(String(50), nullable=False)
+    # Optional display name for this screen. NULL = fall back to the tab
+    # registry label in app/menu_registry.py.
+    label_override = Column(String(100), nullable=True)
     sort_order = Column(Integer, default=0)
 
     group = relationship("MenuGroup", back_populates="items")

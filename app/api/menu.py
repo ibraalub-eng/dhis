@@ -21,11 +21,15 @@ router = APIRouter(
 
 def _item_dict(item: MenuItem) -> dict:
     meta = TAB_REGISTRY.get(item.tab_key, {})
+    default_label = meta.get("label", item.tab_key)
     return {
         "id": item.id,
         "group_id": item.group_id,
         "tab_key": item.tab_key,
-        "label": meta.get("label", item.tab_key),
+        # A per-item rename wins over the registry default; default_label lets
+        # the admin UI show what an override replaced and offer a reset.
+        "label": item.label_override or default_label,
+        "default_label": default_label,
         "icon": meta.get("icon", ""),
         "permission": meta.get("permission", ""),
         "superadmin_only": meta.get("superadmin_only", False),
@@ -139,6 +143,9 @@ def create_item(body: _ItemCreate, db: Session = Depends(get_db)):
 class _ItemUpdate(BaseModel):
     sort_order: Optional[int] = None
     group_id: Optional[int] = None
+    # Sidebar name for this screen. Omitted/null = unchanged, empty string
+    # (or whitespace only) = drop the override and restore the default.
+    label: Optional[str] = None
 
 
 @router.patch("/items/{item_id}", dependencies=[Depends(require_permission("menu.manage"))])
@@ -160,6 +167,11 @@ def update_item(item_id: int, body: _ItemUpdate, db: Session = Depends(get_db)):
         item.group_id = body.group_id
     if body.sort_order is not None:
         item.sort_order = body.sort_order
+    if body.label is not None:
+        label = body.label.strip()
+        if len(label) > 100:
+            raise HTTPException(422, "Label must be at most 100 characters")
+        item.label_override = label or None
     db.commit()
     db.refresh(item)
     return _item_dict(item)

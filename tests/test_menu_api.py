@@ -152,6 +152,31 @@ def test_move_item_to_group_with_same_tab_key_returns_409(client):
     assert resp.status_code == 409
 
 
+def test_rename_menu_item_label(client):
+    """The sidebar name can be overridden per item and reset to the default."""
+    groups = client.get("/menu").json()["groups"]
+    upload = next(i for i in groups[1]["items"] if i["tab_key"] == "upload")
+    assert upload["label"] == "Upload Data"
+    assert upload["default_label"] == "Upload Data"
+
+    resp = client.patch(f"/menu/items/{upload['id']}", json={"label": "\u0631\u0641\u0639 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a"})
+    assert resp.status_code == 200
+    assert resp.json()["label"] == "\u0631\u0641\u0639 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a"
+
+    # Persisted, and the registry default stays available for the reset offer.
+    renamed = next(
+        i for i in client.get("/menu").json()["groups"][1]["items"]
+        if i["tab_key"] == "upload"
+    )
+    assert renamed["label"] == "\u0631\u0641\u0639 \u0627\u0644\u0628\u064a\u0627\u0646\u0627\u062a"
+    assert renamed["default_label"] == "Upload Data"
+
+    # An empty name clears the override instead of blanking the sidebar.
+    resp = client.patch(f"/menu/items/{upload['id']}", json={"label": "   "})
+    assert resp.status_code == 200
+    assert resp.json()["label"] == "Upload Data"
+
+
 def test_settings_tab_included_in_groups(client):
     resp = client.get("/menu")
     all_tab_keys = [

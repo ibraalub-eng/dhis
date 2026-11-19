@@ -2224,6 +2224,8 @@
                 const tag = parent.tagName;
                 if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'CANVAS') continue;
                 if (parent.tagName === 'INPUT' || parent.tagName === 'SELECT' || parent.tagName === 'TEXTAREA') continue;
+                // Screen titles follow the menu rename; never re-translate them.
+                if (parent.closest('[data-menu-label]')) continue;
                 if (/^[\d\s,.%+\-/]+$/.test(text)) continue;
                 if (currentLang === 'ar') {
                     if (translations[text]) nodesToReplace.push(node);

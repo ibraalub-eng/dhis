@@ -207,6 +207,7 @@ window._adminAssignHospitals = function(id, btn) {
 
     container.innerHTML = `
       <div style="padding:1rem;">
+        <h2 style="margin:0 0 1rem;" data-menu-label data-i18n="System Control">${__('System Control')}</h2>
         <!-- KPI Summary -->
         <div class="admin-kpis">
           <div class="kpi-card"><div class="icon">👥</div><div class="value">${users.filter(function(u){ return u.is_active !== false; }).length}</div><div class="label">${__('Active Users')}</div></div>
@@ -788,7 +789,7 @@ window._adminAssignHospitals = function(id, btn) {
         <div id="adminMenuLayoutPanel" style="display:none;">
           <h2 style="color:var(--accent-purple);margin-bottom:0.5rem;">📋 Menu Layout</h2>
           <p style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:0.7rem;">
-            Manage sidebar groups, add tabs, and reorder items. Changes apply immediately.
+            Manage sidebar groups, add tabs, rename screens, and reorder items. Changes apply immediately.
           </p>
           <div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;">
             <button class="btn btn-sm btn-outline" onclick="addMenuGroup()">➕ Add Group</button>
@@ -797,6 +798,9 @@ window._adminAssignHospitals = function(id, btn) {
         </div>
       </div>
     `;
+    // The header is rebuilt with the panel, so a sidebar rename must be
+    // re-applied to it here (switchTab's call ran before this markup existed).
+    if (typeof window.applyScreenTitle === 'function') window.applyScreenTitle('admin');
     // Reset flags since DOM was rebuilt
     window._adminDbLoaded = false;
     _hydrateAdminKpis();
@@ -1417,6 +1421,8 @@ window._adminAssignHospitals = function(id, btn) {
   };
 
   function _renderMenuLayout(groups, el) {
+    // Kept for editMenuItem(): the rendered buttons pass only the item id.
+    window._menuLayoutGroups = groups || [];
     if (!groups.length) {
       el.innerHTML = '<div style="color:var(--text-muted);padding:1rem;">No groups. Click "Add Group" to create one.</div>';
       return;
@@ -1439,10 +1445,12 @@ window._adminAssignHospitals = function(id, btn) {
         var upBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.6rem;padding:0.1rem 0.35rem;' + (firstI ? 'opacity:0.35;' : '') + '" ' + (firstI ? 'disabled' : '') + ' onclick="moveMenuItem(' + item.id + ',' + g.id + ',-1)" title="Move up">⬆</button>';
         var dnBtn = '<button class="btn btn-sm btn-outline" style="font-size:0.6rem;padding:0.1rem 0.35rem;' + (lastI ? 'opacity:0.35;' : '') + '" ' + (lastI ? 'disabled' : '') + ' onclick="moveMenuItem(' + item.id + ',' + g.id + ',1)" title="Move down">⬇</button>';
         html += '<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.8rem 0.4rem 2rem;border-top:1px solid var(--border-default);font-size:0.8rem;">';
+        var renamed = item.default_label && item.label !== item.default_label;
         html += '<span>' + esc(item.icon) + '</span>';
-        html += '<span style="flex:1;">' + esc(item.label) + '</span>';
+        html += '<span style="flex:1;">' + esc(item.label) + (renamed ? ' <span style="font-size:0.62rem;color:var(--text-muted);">(renamed)</span>' : '') + '</span>';
         html += '<span style="font-size:0.65rem;color:var(--text-muted);">[ ' + esc(item.tab_key) + ' ]</span>';
         html += upBtn + dnBtn;
+        html += '<button class="btn btn-sm btn-outline" style="font-size:0.7rem;" onclick="editMenuItem(' + item.id + ')" title="Rename">✏️</button>';
         html += '<button class="btn btn-sm btn-outline" style="color:var(--accent-red);font-size:0.7rem;" onclick="deleteMenuItem(' + item.id + ')" title="Remove">✕</button>';
         html += '</div>';
       });
@@ -1525,6 +1533,24 @@ window._adminAssignHospitals = function(id, btn) {
     if (err) { toastError(err); return; }
     toastSuccess('Tab added');
     loadMenuLayout();
+  };
+
+  window.editMenuItem = async function(id) {
+    var item = null;
+    (window._menuLayoutGroups || []).forEach(function(g) {
+      (g.items || []).forEach(function(it) { if (it.id === id) item = it; });
+    });
+    if (!item) return;
+    var fallback = item.default_label || item.tab_key;
+    var label = prompt('Name shown for this screen in the sidebar\n(leave empty to restore "' + fallback + '"):', item.label || '');
+    if (label === null) return;
+    var resp = await api('/menu/items/' + id, { method:'PATCH', body: JSON.stringify({label: label}) });
+    var err = _menuApiFailed(resp);
+    if (err) { toastError(err); return; }
+    toastSuccess('Screen name updated');
+    loadMenuLayout();
+    // Rebuild the sidebar so the new name shows without a page reload
+    if (typeof window.renderSidebar === 'function') window.renderSidebar();
   };
 
   window.deleteMenuItem = async function(id) {

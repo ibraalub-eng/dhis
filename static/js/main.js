@@ -197,7 +197,7 @@
             const targetContent = document.getElementById('tab-' + name);
             if (!targetTab || !targetContent) return;
             targetTab.classList.add('active');
-            targetContent.classList.add('active'); updateBreadcrumb(name);
+            targetContent.classList.add('active'); updateBreadcrumb(name); applyScreenTitle(name);
             _saveUIState(name);
             // Record the activation in the in-page tab trail (browser Back then
             // walks the trail instead of leaving the app). Skipped when the
@@ -233,6 +233,8 @@
                     _initTab(name);
                     // Re-apply translations to newly loaded content
                     if (typeof window.applyLang === 'function') window.applyLang();
+                    // The fragment is in the DOM now: its title can follow a rename.
+                    applyScreenTitle(name);
                 }).catch((err) => {
                     targetContent.dataset.loaded = 'false';
                     _tabInited.delete(name);
@@ -376,8 +378,40 @@
         // -- Breadcrumb Navigation --
         var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', 'quality-alerts': 'Quality Alerts', analysis: 'Hospital Comparisons', clinical: 'Clinical Intelligence', outliers: 'Outlier Scan', layered: 'Outlier Diagnostics', alerts: 'Validation Alerts', 'indicator-tree': 'Data Tree', 'indicator-groups': 'Data Group', indicators: 'Indicators', 'rules-manager': 'Validation Rules', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', guides: 'Guides', settings: 'System Settings', 'smart-analytics': 'Smart Analytics', 'smart-forecast': 'Smart Forecast' };
         var _tabIcons = { dashboard: '📊', upload: '📤', quality: '⭐', analysis: '📈', clinical: '🩺', outliers: '⚠', layered: '🧱', alerts: '🔔', 'indicator-tree': '🌳', 'indicator-groups': '🗂️', indicators: '📐', 'rules-manager': '📝', 'root-cause': '🔍', audit: '📋', admin: '🛡', guides: '📚', settings: '⚙', 'smart-analytics': '🧠', 'smart-forecast': '🔮' };
-        export function updateBreadcrumb(tabName) { var el = document.getElementById('bcCurrent'); if (!el) return; el.textContent = (_tabIcons[tabName]||'')+' '+(_tabLabels[tabName]||tabName); }
+        export function updateBreadcrumb(tabName) { var el = document.getElementById('bcCurrent'); if (!el) return; var name = (window._menuLabels && window._menuLabels[tabName]) || _tabLabels[tabName] || tabName; el.textContent = (_tabIcons[tabName]||'')+' '+name; }
         window.updateBreadcrumb = updateBreadcrumb;
+
+        // -- In-page screen title (follows a sidebar rename) --
+        // The title heading of each tab fragment carries data-menu-label. When
+        // the menu item was renamed, that heading shows the same name; when the
+        // rename is cleared the fragment's own markup (and its i18n key) comes
+        // back, so the translated default title returns.
+        export function applyScreenTitle(tabName) {
+            var pane = document.getElementById('tab-' + tabName);
+            if (!pane) return;
+            var el = pane.querySelector('[data-menu-label]');
+            if (!el) return;
+            var label = window._menuLabels && window._menuLabels[tabName];
+            var def = window._menuDefaults && window._menuDefaults[tabName];
+            var renamed = !!(label && def && label !== def);
+            if (renamed) {
+                if (el.dataset.menuTitleHtml === undefined) {
+                    el.dataset.menuTitleHtml = el.innerHTML;
+                    el.dataset.menuTitleI18n = el.getAttribute('data-i18n') || '';
+                }
+                if (el.getAttribute('data-i18n') !== null) el.removeAttribute('data-i18n');
+                if (el.textContent !== label) el.textContent = label;
+                el.dataset.menuTitleApplied = '1';
+            } else if (el.dataset.menuTitleApplied === '1') {
+                el.innerHTML = el.dataset.menuTitleHtml || '';
+                if (el.dataset.menuTitleI18n) el.setAttribute('data-i18n', el.dataset.menuTitleI18n);
+                delete el.dataset.menuTitleApplied;
+                delete el.dataset.menuTitleHtml;
+                delete el.dataset.menuTitleI18n;
+                if (typeof window.applyLang === 'function') window.applyLang();
+            }
+        }
+        window.applyScreenTitle = applyScreenTitle;
 
         // -- Global Search (Ctrl+K) --
         var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'quality-alerts',kw:'quality alerts risk outliers very high peer comparison ownership governance region'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
@@ -395,7 +429,7 @@
             var html = '';
             items.forEach(function(item,i){
                 var icon=_tabIcons[item.tab]||'';
-                var label=_tabLabels[item.tab]||item.tab;
+                var label=(window._menuLabels&&window._menuLabels[item.tab])||_tabLabels[item.tab]||item.tab;
                 var cls='search-result-item'+(i===0?' selected':'');
                 html+='<div class="'+cls+'" data-tab="'+item.tab+'"><span class="sr-icon">'+icon+'</span><span>'+label+'</span></div>';
             });

@@ -7,6 +7,26 @@ import { switchTab } from './main.js';
 var _sidebarData = null;
 
 /**
+ * Expose the server-side names (registry default or per-item rename) so the
+ * breadcrumb and search results show the same name as the sidebar.
+ */
+function _applyLabels(groups) {
+    var map = {};
+    var defaults = {};
+    (groups || []).forEach(function(group) {
+        (group.items || []).forEach(function(item) {
+            if (!item.tab_key) return;
+            if (item.label) map[item.tab_key] = item.label;
+            if (item.default_label) defaults[item.tab_key] = item.default_label;
+        });
+    });
+    window._menuLabels = map;
+    // Registry names: the screen title only follows a real rename, and this is
+    // how the client tells an override apart from the default label.
+    window._menuDefaults = defaults;
+}
+
+/**
  * Build a sidebar item element (.tab with data-tab + data-requires).
  */
 function _buildItem(item) {
@@ -94,9 +114,21 @@ function _render(groups) {
     }
     // Highlight the active tab
     _highlightActive();
+    // Renames can arrive after the header rendered (admin edits a name), so
+    // refresh the breadcrumb with the current name of the open screen.
+    var activeTab = document.querySelector('#sidebarRoot .tab.active');
+    if (activeTab && typeof window.updateBreadcrumb === 'function') {
+        window.updateBreadcrumb(activeTab.getAttribute('data-tab'));
+    }
     // Translate the dynamically-built sidebar (group names + item labels)
     if (typeof window.applyLang === 'function') {
         window.applyLang();
+    }
+    // A rename saved from the admin panel must also update the open screen's
+    // own title without a reload.
+    var activeName = document.querySelector('#sidebarRoot .tab.active');
+    if (activeName && typeof window.applyScreenTitle === 'function') {
+        window.applyScreenTitle(activeName.getAttribute('data-tab'));
     }
 }
 
@@ -120,6 +152,7 @@ export async function renderSidebar() {
         if (!resp.ok) throw new Error(resp.status);
         var data = await resp.json();
         _sidebarData = data;
+        _applyLabels(data.groups);
         _render(data.groups || []);
     } catch(e) {
         console.warn('[sidebar] Failed to load menu:', e);
