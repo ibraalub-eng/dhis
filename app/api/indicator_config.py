@@ -3,7 +3,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.database import get_db
-from app.models import Hospital, Indicator, IndicatorValue, HospitalIndicatorConfig
+from app.models import (
+    Hospital, Indicator, IndicatorDirectionHistory, IndicatorValue,
+    HospitalIndicatorConfig,
+)
 from app.schemas import (
     HospitalIndicatorConfigOut, ConfigToggleOut,
     IndicatorUpdate, IndicatorOut, IndicatorBase, RequirementTypeIn,
@@ -11,6 +14,10 @@ from app.schemas import (
 from app.core.deps import require_permission
 
 router = APIRouter(prefix="/hospitals", tags=["hospitals"], dependencies=[Depends(require_permission("settings.read"))])
+
+# A raw Data Element has no target range column, so "target_range" is not a
+# direction it can honour. The values match the clinical direction vocabulary.
+_RAW_DIRECTIONS = ("none", "higher_is_better", "lower_is_better")
 
 
 def _get_or_create_config(db: Session, hospital_id: int, indicator_id: int) -> HospitalIndicatorConfig:
@@ -616,11 +623,12 @@ def bulk_reorder_indicators(
     return {"message": f"{len(items)} indicators reordered"}
 
 
-@router.put("/indicators/{indicator_id}", response_model=IndicatorOut, dependencies=[Depends(require_permission("settings.write"))])
+@router.put("/indicators/{indicator_id}", response_model=IndicatorOut)
 def update_global_indicator(
     indicator_id: int,
     update: IndicatorUpdate,
     db: Session = Depends(get_db),
+    user=Depends(require_permission("settings.write")),
 ):
     ind = db.query(Indicator).filter(Indicator.id == indicator_id).first()
     if not ind:
@@ -631,6 +639,28 @@ def update_global_indicator(
         ind.formula = update.formula
     if update.default_weight is not None:
         ind.default_weight = update.default_weight
+    if "global_direction" in update.model_fields_set:
+        # Raw elements have no target range of their own, so only the two
+        # clinical directions and the explicit "none" are accepted here.
+        direction = (update.global_direction or "none").strip() or "none"
+        if direction not in _RAW_DIRECTIONS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"global_direction must be one of {', '.join(_RAW_DIRECTIONS)}",
+            )
+        new_value = None if direction == "none" else direction
+        previous_value = ind.global_direction or None
+        if new_value != previous_value:
+            # Only a real change is a change: re-saving the same direction
+            # records nothing, so the trail never fills with no-ops.
+            db.add(IndicatorDirectionHistory(
+                indicator_id=ind.id,
+                indicator_code=ind.code,
+                previous_value=previous_value,
+                new_value=new_value,
+                changed_by=getattr(user, "username", None),
+            ))
+        ind.global_direction = new_value
     db.commit()
     db.refresh(ind)
     return ind

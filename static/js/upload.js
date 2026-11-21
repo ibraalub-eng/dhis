@@ -1,7 +1,7 @@
         import { API, apiGet, clearApiCache } from './api.js';
         import { __ } from './i18n.js';
         import { esc, setStatus } from './tree.js';
-        import { _restoreUIState } from './main.js';
+        import { _restoreUIState, _saveUIState } from './main.js';
 
         // ── Smart Data Entry ──────────────────────────────────────
         let dropZone = null;
@@ -515,6 +515,41 @@
         let currentHospitalId = null;
         let currentHospitalName = null;
         let currentMonth = null;
+
+        // Deep link target for the Quality component screens: land this screen
+        // on one hospital-month and open the same report card detail the grid
+        // uses. The list and both selects are populated asynchronously, so wait
+        // (bounded) for the requested options instead of filtering to nothing.
+        export function openQualityReportFor(hospital, month) {
+            let tries = 40; // ~6s ceiling: the reports request has to land first
+            function hasOption(el, value) {
+                if (!value) return false;
+                for (let i = 0; i < el.options.length; i++) {
+                    if (el.options[i].value === value) return true;
+                }
+                return false;
+            }
+            function attempt() {
+                const hf = document.getElementById('qualityHospitalFilter');
+                const mf = document.getElementById('qualityMonthFilter');
+                if (!hf || !mf) {
+                    if (tries-- > 0) setTimeout(attempt, 150);
+                    return;
+                }
+                const hospitalReady = hospital ? hasOption(hf, hospital) : false;
+                const monthReady = month ? hasOption(mf, month) : false;
+                if ((hospital && !hospitalReady) || (month && !monthReady)) {
+                    if (tries-- > 0) setTimeout(attempt, 150);
+                    return;
+                }
+                if (hospitalReady) hf.value = hospital;
+                if (monthReady) mf.value = month;
+                _saveUIState('quality');
+                filterQualityReports();
+                if (hospitalReady && monthReady) showDetail(hospital, month);
+            }
+            attempt();
+        }
 
         export async function showDetail(hospitalName, month) {
             const modal = document.getElementById('detailModal');

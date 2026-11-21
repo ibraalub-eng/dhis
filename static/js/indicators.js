@@ -659,14 +659,31 @@ function _renderDerivedSummary(d) {
         pairs.push(['Operator', esc(d.operator || '/')]);
         pairs.push(['Multiplier', esc(String(d.multiplier == null ? 1 : d.multiplier))]);
     }
-    pairs.push(['Direction', esc(d.direction || 'none')]);
+    pairs.push(['Global direction', esc(d.global_direction || d.direction || 'none')]);
+    if (d.local_direction != null || d.global_direction != null) {
+        pairs.push(['Local direction', esc(d.local_direction || 'none')]);
+    }
+    if (d.global_reference_value != null) {
+        pairs.push(['Global direction value', esc(String(d.global_reference_value))]);
+    }
+    if (d.local_reference_value != null) {
+        pairs.push(['Local direction value', esc(String(d.local_reference_value))]);
+    }
     if (d.threshold_low != null || d.threshold_high != null) {
         pairs.push(['Thresholds', esc(String(d.threshold_low == null ? '…' : d.threshold_low)) +
             ' – ' + esc(String(d.threshold_high == null ? '…' : d.threshold_high))]);
     }
-    if (d.target_min != null || d.target_max != null) {
-        pairs.push(['Target range', esc(String(d.target_min == null ? '…' : d.target_min)) +
-            ' – ' + esc(String(d.target_max == null ? '…' : d.target_max))]);
+    const range = (label, lo, hi) => {
+        if (lo == null && hi == null) return;
+        pairs.push([label, esc(String(lo == null ? '…' : lo)) +
+            ' – ' + esc(String(hi == null ? '…' : hi))]);
+    };
+    range('Global target range', d.global_target_min, d.global_target_max);
+    range('Local target range', d.local_target_min, d.local_target_max);
+    if (d.global_target_min == null && d.global_target_max == null &&
+        d.local_target_min == null && d.local_target_max == null) {
+        // Older rows keep the single pair until it is edited into a family.
+        range('Target range', d.target_min, d.target_max);
     }
     pairs.push(['Status', d.is_active
         ? '<span style="color:var(--accent-green);font-weight:600;">● ' + esc(_t('Active')) + '</span>'
@@ -787,8 +804,10 @@ async function _loadRawDetail(code) {
     }
     const wrap = document.getElementById('indDefSection');
     if (!wrap || !_drawerItem || _drawerItem.code !== code) return;
-    // Everything below is a MIRROR of the Data Tree: this screen never edits a
-    // data element (no name, group, requirement or switch here).
+    // Everything below is a MIRROR of the Data Tree (no name, group,
+    // requirement or switch here). The one exception is the clinical
+    // direction: an element has no definition to carry it, so it is recorded
+    // on the element and edited here.
     const pairs = [
         ['Level', esc(String(d.level == null ? '—' : d.level))],
         ['Type', esc(d.indicator_type || '—')],
@@ -810,6 +829,8 @@ async function _loadRawDetail(code) {
         ['Data rows', esc(String(d.data_rows == null ? '—' : d.data_rows))],
         ['Latest month', esc(d.latest_month || '—')],
     ];
+    // Writers see the editable control below; read-only users see the value.
+    if (!_canWrite()) pairs.push(['Global direction', esc(d.global_direction || 'none')]);
     let html = _kvTable(pairs);
     if (d.optional_by_inheritance) {
         // Why a Required element is not counted as required — the same rule
@@ -835,9 +856,43 @@ async function _loadRawDetail(code) {
                 esc(r.name || r.code) + '</button>').join('') +
             '</div>';
     }
+    if (_canWrite()) {
+        const current = d.global_direction || 'none';
+        const options = [
+            ['none', 'None (statistical only)'],
+            ['higher_is_better', 'Higher is better'],
+            ['lower_is_better', 'Lower is better'],
+        ].map(([value, label]) =>
+            '<option value="' + value + '"' + (value === current ? ' selected' : '') + '>' +
+            esc(_t(label)) + '</option>').join('');
+        html += '<div style="margin-top:0.75rem;padding:0.55rem 0.65rem;border:1px solid var(--border-default);border-radius:6px;">' +
+            '<div style="font-weight:600;font-size:0.76rem;margin-bottom:0.35rem;">' +
+            esc(_t('Clinical direction')) + '</div>' +
+            '<div style="display:flex;gap:0.4rem;align-items:center;">' +
+            '<select id="indRawDirection" style="flex:1;padding:0.28rem 0.4rem;border:1px solid var(--border-default);border-radius:5px;background:var(--bg-surface);color:var(--text-primary);font-size:0.76rem;">' +
+            options + '</select>' +
+            '<button class="btn btn-sm btn-primary" onclick="window._indSaveRawDirection(' +
+            Number(d.id) + ')">' + esc(_t('Save')) + '</button></div>' +
+            '<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.3rem;">' +
+            esc(_t('Interpretation only — severity and statistical status are unchanged.')) +
+            '</div></div>';
+    }
     html += '<div style="margin-top:0.7rem;font-size:0.72rem;color:var(--text-muted);">' +
         esc(_t('Raw data elements are managed on the Data Tree tab.')) + '</div>';
     wrap.innerHTML = html;
+}
+
+async function _saveRawDirection(id) {
+    const select = document.getElementById('indRawDirection');
+    if (!select) return;
+    try {
+        await apiPut('/hospitals/indicators/' + id, { global_direction: select.value });
+    } catch (err) {
+        toastError(_errText(err));
+        return;
+    }
+    toastSuccess(_t('Direction saved'));
+    if (_drawerItem && _drawerItem.kind === 'raw') _loadRawDetail(_drawerItem.code);
 }
 
 async function _ensureScopeLists() {
@@ -938,7 +993,9 @@ export function closeIndicatorBuilder() {
 
 function _resetBuilder() {
     ['indCode', 'indName', 'indDesc', 'indExpr', 'indUnit',
-        'indTargetMin', 'indTargetMax'].forEach(id => {
+        'indGlobalRefValue', 'indLocalRefValue',
+        'indGlobalTargetMin', 'indGlobalTargetMax',
+        'indLocalTargetMin', 'indLocalTargetMax'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -949,7 +1006,9 @@ function _resetBuilder() {
     set('indAggregation', 'sum');
     set('indOperator', '/');
     set('indMultiplier', '100');
-    set('indDirection', 'none');
+    set('indGlobalDirection', 'none');
+    set('indLocalDirection', 'none');
+    _onDirectionChange();
     _autoGeneratedName = '';
     _nameManuallyEdited = false;
     const code = document.getElementById('indCode');
@@ -960,7 +1019,6 @@ function _resetBuilder() {
     _denCodes = [];
     _renderZones();
     _onModeChange();
-    _onDirectionChange();
     _renderPreview();
 }
 
@@ -984,13 +1042,21 @@ async function _fillBuilder(id) {
     set('indAggregation', d.aggregation);
     set('indOperator', d.operator);
     set('indMultiplier', d.multiplier == null ? '' : d.multiplier);
-    set('indDirection', d.direction || 'none');
+    // Each family has its own direction; the legacy single one is only a
+    // fallback for rows written before the split.
+    set('indGlobalDirection', d.global_direction || d.direction || 'none');
+    set('indLocalDirection',
+        d.local_direction || d.global_direction || d.direction || 'none');
+    set('indGlobalRefValue', d.global_reference_value);
+    set('indLocalRefValue', d.local_reference_value);
     _storedThresholds = {
         low: d.threshold_low == null ? null : d.threshold_low,
         high: d.threshold_high == null ? null : d.threshold_high,
     };
-    set('indTargetMin', d.target_min);
-    set('indTargetMax', d.target_max);
+    set('indGlobalTargetMin', d.global_target_min);
+    set('indGlobalTargetMax', d.global_target_max);
+    set('indLocalTargetMin', d.local_target_min);
+    set('indLocalTargetMax', d.local_target_max);
     _autoGeneratedName = '';
     _nameManuallyEdited = true;
     // The code is immutable (history/results keep referencing it).
@@ -999,8 +1065,13 @@ async function _fillBuilder(id) {
     const advanced = document.getElementById('indAdvancedOptions');
     if (advanced) {
         advanced.open = d.formula_type === 'expression' ||
-            !!d.description || (d.direction && d.direction !== 'none') ||
-            d.target_min != null || d.target_max != null;
+            !!d.description ||
+            (d.global_direction && d.global_direction !== 'none') ||
+            (d.local_direction && d.local_direction !== 'none') ||
+            (d.direction && d.direction !== 'none') ||
+            d.global_reference_value != null || d.local_reference_value != null ||
+            d.global_target_min != null || d.global_target_max != null ||
+            d.local_target_min != null || d.local_target_max != null;
     }
     _numCodes = (d.numerator_codes || []).slice();
     _denCodes = (d.denominator_codes || []).slice();
@@ -1190,12 +1261,27 @@ function _onModeChange() {
     _renderPreview();
 }
 
+// The benchmark fields follow the Direction: a single value per family for
+// "higher/lower is better", a target range per family for "target range", and
+// nothing when no direction is configured. Hidden inputs keep their value, so
+// switching the direction back never loses what was typed.
 function _onDirectionChange() {
-    const show = _val('indDirection') === 'target_range';
-    ['indTargetMinWrap', 'indTargetMaxWrap'].forEach(id => {
+    const isValue = d => d === 'higher_is_better' || d === 'lower_is_better';
+    const globalDir = _val('indGlobalDirection') || 'none';
+    const localDir = _val('indLocalDirection') || 'none';
+    const toggle = (id, visible) => {
         const el = document.getElementById(id);
-        if (el) el.style.display = show ? '' : 'none';
-    });
+        if (el) el.style.display = visible ? '' : 'none';
+    };
+    toggle('indGlobalRefWrap', isValue(globalDir));
+    toggle('indGlobalTargetMinWrap', globalDir === 'target_range');
+    toggle('indGlobalTargetMaxWrap', globalDir === 'target_range');
+    toggle('indLocalRefWrap', isValue(localDir));
+    toggle('indLocalTargetMinWrap', localDir === 'target_range');
+    toggle('indLocalTargetMaxWrap', localDir === 'target_range');
+    toggle('indValueHint', isValue(globalDir) || isValue(localDir));
+    toggle('indTargetHint',
+        globalDir === 'target_range' || localDir === 'target_range');
 }
 
 // Display-only pretty print: no user formula text is ever run here.
@@ -1240,11 +1326,22 @@ function _collectDraft() {
         formula_type: mode || 'ratio',
         result_type: _val('indResultType') || 'percentage',
         unit: _val('indUnit').trim() || null,
-        direction: _val('indDirection') || 'none',
+        // The Direction field was replaced by one direction per benchmark
+        // family; the legacy single column is left untouched on update.
+        global_direction: _val('indGlobalDirection') || 'none',
+        local_direction: _val('indLocalDirection') || 'none',
+        // Each direction value is independent and optional: an empty input
+        // is sent as null so the stored value is cleared, never defaulted.
+        global_reference_value: _numVal('indGlobalRefValue'),
+        local_reference_value: _numVal('indLocalRefValue'),
         threshold_low: _storedThresholds.low,
         threshold_high: _storedThresholds.high,
-        target_min: _numVal('indTargetMin'),
-        target_max: _numVal('indTargetMax'),
+        // Target ranges are per benchmark family: both bounds of a family are
+        // sent together, or both null (the API rejects a half-filled pair).
+        global_target_min: _numVal('indGlobalTargetMin'),
+        global_target_max: _numVal('indGlobalTargetMax'),
+        local_target_min: _numVal('indLocalTargetMin'),
+        local_target_max: _numVal('indLocalTargetMax'),
     };
     if (mode === 'expression') {
         draft.expression = _val('indExpr').trim() || null;
@@ -1552,11 +1649,12 @@ async function recomputeIndicators_impl() {
 // (window._indX && window._indX()) resolve before the first init call.
 window._indFilterChange = _onFilterChange;
 window._indRetry = function () { _loadList(); };
+window._indDirectionChange = _onDirectionChange;
 window._indModeChange = _onModeChange;
 window._indPaletteRender = _renderPalette;
-window._indDirectionChange = _onDirectionChange;
 window._indRunPreview = function () { _runPreview(); };
 window._indOpenDetail = function (kind, code, defId) { _openDetail(kind, code, defId); };
+window._indSaveRawDirection = function (id) { _saveRawDirection(id); };
 window._indEditFromDrawer = function () { openIndicatorBuilder(); };
 window._indToggleFromDrawer = function () { toggleIndicatorActive(); };
 window._indDeleteFromDrawer = function () { deleteIndicator(); };

@@ -1,0 +1,80 @@
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+  <div>
+    <h2 style="margin:0;" data-menu-label data-i18n="Direction Coverage">Direction Coverage</h2>
+    <span style="font-size:0.82rem;color:var(--text-muted);" data-i18n="Families and data elements with no recorded clinical direction — ordered by the active alerts they affect.">Families and data elements with no recorded clinical direction — ordered by the active alerts they affect.</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:0.4rem;">
+    <button class="btn btn-sm btn-outline" onclick="window._dcReload && window._dcReload()" title="Reload the coverage list">↻ <span data-i18n="Refresh">Refresh</span></button>
+    <button class="btn btn-sm" id="dcApplyBtn" data-requires="settings.write" onclick="window._dcApply && window._dcApply()">✓ <span data-i18n="Apply selected">Apply selected</span> <span id="dcApplyCount" style="opacity:0.8;"></span></button>
+  </div>
+</div>
+
+<div id="dcSummary" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.6rem;margin-bottom:0.8rem;">
+  <div class="card" style="padding:0.7rem 0.9rem;">
+    <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;" data-i18n="Families without direction">Families without direction</div>
+    <div id="dcFamilies" style="font-size:1.35rem;font-weight:700;color:var(--accent-orange);">—</div>
+  </div>
+  <div class="card" style="padding:0.7rem 0.9rem;">
+    <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;" data-i18n="Data elements without direction">Data elements without direction</div>
+    <div id="dcElements" style="font-size:1.35rem;font-weight:700;color:var(--accent-orange);">—</div>
+  </div>
+  <div class="card" style="padding:0.7rem 0.9rem;">
+    <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;" data-i18n="Active alerts affected">Active alerts affected</div>
+    <div id="dcAlerts" style="font-size:1.35rem;font-weight:700;color:var(--accent-red);">—</div>
+  </div>
+  <div class="card" style="padding:0.7rem 0.9rem;">
+    <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;" data-i18n="With a suggested direction">With a suggested direction</div>
+    <div id="dcSuggested" style="font-size:1.35rem;font-weight:700;color:var(--accent-green);">—</div>
+  </div>
+</div>
+
+<div id="dcRescanBanner" class="card" style="display:none;padding:0.7rem 0.9rem;margin-bottom:0.8rem;border-left:4px solid var(--accent-orange);">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:0.6rem;flex-wrap:wrap;">
+    <div style="font-size:0.8rem;color:var(--text-secondary);">
+      <strong data-i18n="Directions saved.">Directions saved.</strong>
+      <span data-i18n="Stored alerts keep their old interpretation until the next Quality Alerts scan.">Stored alerts keep their old interpretation until the next Quality Alerts scan.</span>
+    </div>
+    <button class="btn btn-sm" data-requires="quality_alerts.write" onclick="window._dcRescan && window._dcRescan()" data-i18n="Rescan all months">Rescan all months</button>
+  </div>
+</div>
+
+<div class="card" style="padding:0.8rem 1rem;">
+  <div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:center;margin-bottom:0.7rem;">
+    <input id="dcSearch" data-i18n-placeholder="Search code, name or group…" placeholder="Search code, name or group…" oninput="window._dcFilterChange && window._dcFilterChange()" style="flex:1;min-width:170px;font-size:0.78rem;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+    <select id="dcFilter" onchange="window._dcFilterChange && window._dcFilterChange()" style="font-size:0.76rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+      <option value="all" data-i18n="All items">All items</option>
+      <option value="family" data-i18n="Families only">Families only</option>
+      <option value="raw" data-i18n="Data elements only">Data elements only</option>
+      <option value="alerts" data-i18n="With active alerts">With active alerts</option>
+      <option value="suggested" data-i18n="With a suggestion">With a suggestion</option>
+    </select>
+    <label style="display:flex;align-items:center;gap:0.3rem;font-size:0.74rem;color:var(--text-secondary);cursor:pointer;">
+      <input type="checkbox" id="dcSelectAll" onchange="window._dcToggleAll && window._dcToggleAll(this.checked)" style="accent-color:var(--accent-blue);">
+      <span data-i18n="Select all with a suggestion">Select all with a suggestion</span>
+    </label>
+    <span id="dcCount" style="font-size:0.72rem;color:var(--text-muted);"></span>
+  </div>
+
+  <div id="dcLoading" style="display:none;text-align:center;padding:1.5rem;color:var(--text-muted);"><span class="spinner"></span> <span style="font-size:0.8rem;" data-i18n="Loading coverage…">Loading coverage…</span></div>
+  <div id="dcEmpty" style="display:none;text-align:center;padding:2rem 1rem;color:var(--text-muted);">
+    <div style="font-size:1.6rem;margin-bottom:0.4rem;opacity:0.35;">🧭</div>
+    <p style="margin:0;font-size:0.85rem;" data-i18n="Every indicator carries a direction — nothing to review.">Every indicator carries a direction — nothing to review.</p>
+  </div>
+
+  <div style="overflow-x:auto;">
+    <table class="tbl" style="width:100%;font-size:0.78rem;">
+      <thead>
+        <tr>
+          <th style="width:28px;"></th>
+          <th style="text-align:left;" data-i18n="Type">Type</th>
+          <th style="text-align:left;" data-i18n="Code">Code</th>
+          <th style="text-align:left;" data-i18n="Name">Name</th>
+          <th style="text-align:right;" data-i18n="Active alerts">Active alerts</th>
+          <th style="text-align:left;" data-i18n="Direction to apply">Direction to apply</th>
+          <th style="text-align:left;" data-i18n="Suggested because">Suggested because</th>
+        </tr>
+      </thead>
+      <tbody id="dcTbody"></tbody>
+    </table>
+  </div>
+</div>

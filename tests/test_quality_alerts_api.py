@@ -159,6 +159,204 @@ def test_scan_produces_registry_driven_alerts(client, db_session, registry_datas
         assert alert.severity in ("MODERATE", "HIGH", "VERY_HIGH")
 
 
+def test_configured_references_are_compared_in_the_scan(client, db_session,
+                                                        registry_dataset):
+    """The definition's global/local reference values raise their own rows.
+
+    Hospital 1 reports 80% in the scan month. A configured global reference of
+    20% is +300% away from it and a local reference of 40% is +100% away: each
+    configured value is an INDEPENDENT comparison perspective, interpreted with
+    the definition's direction (lower_is_better -> above the reference is a
+    concern). A fixed value has no dispersion, so its band stops at HIGH.
+    """
+    definition = registry_dataset["definition"]
+    definition.global_reference_value = 20.0
+    definition.local_reference_value = 40.0
+    db_session.commit()
+
+    resp = _scan(client, registry_dataset["scan_month"])
+    assert resp.status_code == 200, resp.text
+
+    spike = registry_dataset["hospitals"][0]
+    rows = db_session.query(QualityAlert).filter_by(
+        hospital_id=spike.id, indicator_code="QA_TEST_RATE",
+        month=registry_dataset["scan_month"]).all()
+    by_perspective = {row.perspective: row for row in rows}
+
+    expected = {"global_reference": (20.0, 300.0),
+                "local_reference": (40.0, 100.0)}
+    for key, (reference, deviation) in expected.items():
+        row = by_perspective.get(key)
+        assert row is not None, f"{key} must be stored as its own perspective"
+        assert row.method == "reference_deviation"
+        assert row.baseline_value == pytest.approx(reference)
+        assert row.deviation_pct == pytest.approx(deviation)
+        # A configured reference is one point: no z, no spread.
+        assert row.z_score is None
+        assert row.evidence["stats"]["std"] is None
+        assert row.evidence["reference"]["value"] == pytest.approx(reference)
+        assert row.interpretation == INTERP_HIGH_CONCERN
+        # Reported deviation is banded by the trend bands and cannot claim the
+        # top band (a single value has no dispersion to grade against).
+        assert row.score < 0.90
+        assert row.evidence["base_severity"]["level"] in (
+            "LOW", "MODERATE", "HIGH")
+
+
+def test_family_target_ranges_are_compared_in_the_scan(client, db_session,
+                                                       registry_dataset):
+    """Each family's target range is its own benchmark in the scan.
+
+    Hospital 1 reports 80%. A global target range of 0-10 puts it 700% above
+    the nearest bound (the max, 10), so the row is measured from that bound and
+    the range travels with the evidence.
+    """
+    definition = registry_dataset["definition"]
+    definition.global_target_min = 0.0
+    definition.global_target_max = 10.0
+    db_session.commit()
+
+    resp = _scan(client, registry_dataset["scan_month"])
+    assert resp.status_code == 200, resp.text
+
+    spike = registry_dataset["hospitals"][0]
+    row = db_session.query(QualityAlert).filter_by(
+        hospital_id=spike.id, indicator_code="QA_TEST_RATE",
+        month=registry_dataset["scan_month"],
+        perspective="global_reference").first()
+    assert row is not None, "the configured global range must be compared"
+    assert row.baseline_value == pytest.approx(10.0)
+    assert row.deviation_pct == pytest.approx(700.0)
+    assert row.evidence["reference"]["basis"] == "target_range"
+    assert row.evidence["reference"]["range"] == {"min": 0.0, "max": 10.0}
+    assert row.evidence["reference"]["edge"] == "max"
+
+
+def test_settings_on_a_duplicate_registration_reach_the_scan(client, db_session,
+                                                             registry_dataset):
+    """Direction and benchmarks are formula-level, not registration-level.
+
+    The registry keeps a per-site copy of a rate and users edit whichever copy
+    they opened. The scan analyses ONE representative (the zscore copy), so a
+    direction or benchmark recorded on the clinical copy must still apply —
+    while a value the representative itself records still wins over the
+    duplicate.
+    """
+    definition = registry_dataset["definition"]
+    # The representative keeps a global benchmark and NO clinical direction
+    # (neither the family ones nor the legacy single column).
+    definition.global_reference_value = 30.0
+    definition.direction = None
+    definition.global_direction = None
+    definition.local_direction = None
+
+    duplicate = IndicatorDefinition(
+        code="QA_TEST_RATE_CLINICAL",
+        name="QA Test Rate (clinical copy)",
+        formula_type="ratio",
+        numerator_codes=["QA_NUM"],
+        denominator_codes=["QA_DEN"],
+        operator="/",
+        multiplier=100.0,
+        result_type="percentage",
+        unit="%",
+        source_site="clinical",
+        global_reference_value=20.0,
+        local_reference_value=40.0,
+        global_direction="lower_is_better",
+        local_direction="higher_is_better",
+        is_active=True,
+    )
+    db_session.add(duplicate)
+    db_session.commit()
+
+    resp = _scan(client, registry_dataset["scan_month"])
+    assert resp.status_code == 200, resp.text
+
+    spike = registry_dataset["hospitals"][0]
+    rows = {row.perspective: row for row in db_session.query(QualityAlert).filter_by(
+        hospital_id=spike.id, indicator_code="QA_TEST_RATE",
+        month=registry_dataset["scan_month"]).all()}
+
+    global_row = rows.get("global_reference")
+    assert global_row is not None, "the duplicate's global direction must apply"
+    # The representative's own benchmark wins over the duplicate's 20.
+    assert global_row.baseline_value == pytest.approx(30.0)
+    assert global_row.direction == "lower_is_better"
+    assert global_row.interpretation == INTERP_HIGH_CONCERN
+
+    # ...while whatever the representative left NULL comes from the duplicate.
+    local_row = rows.get("local_reference")
+    assert local_row is not None, "the duplicate's local benchmark must apply"
+    assert local_row.baseline_value == pytest.approx(40.0)
+    # The local family's own direction interprets its own row.
+    assert local_row.direction == "higher_is_better"
+    assert local_row.interpretation == INTERP_HIGH_FAVORABLE
+
+
+
+def test_an_inactive_copy_never_supplies_settings(client, db_session,
+                                                  registry_dataset):
+    """Deactivating a registration excludes its settings from the formula.
+
+    Inactive rows are excluded from analysis, so a benchmark or direction left
+    on one of them must not govern the scans of its active siblings — the
+    merged settings simply miss, exactly as before that copy existed.
+    """
+    from app.engine import indicator_service
+
+    definition = registry_dataset["definition"]
+    definition.direction = None
+    definition.global_direction = None
+    definition.local_direction = None
+
+    inactive = IndicatorDefinition(
+        code="QA_TEST_RATE_INACTIVE",
+        name="QA Test Rate (inactive clinical copy)",
+        formula_type="ratio",
+        numerator_codes=["QA_NUM"],
+        denominator_codes=["QA_DEN"],
+        operator="/",
+        multiplier=100.0,
+        result_type="percentage",
+        unit="%",
+        source_site="clinical",
+        global_direction="lower_is_better",
+        global_reference_value=20.0,
+        is_active=False,
+    )
+    db_session.add(inactive)
+    db_session.commit()
+
+    group = next(g for g in indicator_service.canonical_formulas(db_session)
+                 if "QA_TEST_RATE" in g.registered_codes)
+    assert group.code == "QA_TEST_RATE"
+    assert group.resolved.family_settings.values == {}
+    assert resolve_direction(db_session, group.resolved)[0] == "none"
+
+    resp = _scan(client, registry_dataset["scan_month"])
+    assert resp.status_code == 200, resp.text
+    spike = registry_dataset["hospitals"][0]
+    rows = db_session.query(QualityAlert).filter_by(
+        hospital_id=spike.id, indicator_code="QA_TEST_RATE",
+        month=registry_dataset["scan_month"]).all()
+    assert rows
+    assert all(row.direction in (None, "none") for row in rows)
+    assert not [row for row in rows if row.perspective in (
+        "global_reference", "local_reference")]
+
+
+def test_a_null_reference_never_produces_a_reference_row(client, db_session,
+                                                        registry_dataset):
+    """Absent references are NULL: no comparison, not a comparison with 0."""
+    resp = _scan(client, registry_dataset["scan_month"])
+    assert resp.status_code == 200, resp.text
+    stored = db_session.query(QualityAlert).filter(
+        QualityAlert.perspective.in_(("global_reference", "local_reference"))
+    ).count()
+    assert stored == 0
+
+
 def test_issues_group_perspectives_into_one_risk_issue(client, db_session, registry_dataset):
     _scan(client, registry_dataset["scan_month"])
     resp = client.get("/quality-alerts/issues",
@@ -3019,6 +3217,135 @@ def test_detail_publishes_effective_severity_and_keeps_stored(
     for sibling in payload["issue"]["perspectives"]:
         assert sibling["effective_severity"] == sibling["severity"]
         assert "stored_severity" in sibling
+
+
+def test_a_raw_element_direction_is_saved_on_the_element(
+        client, db_session, registry_dataset):
+    """The element has no definition, so its direction is stored on the element
+    and read back by the scan; an unsupported value is rejected, not stored."""
+    from app.engine.quality_alerts import resolve_data_elements
+
+    raw = db_session.query(Indicator).filter_by(code="QA_NUM").first()
+    resp = client.put(f"/hospitals/indicators/{raw.id}",
+                      json={"global_direction": " lower_is_better "})
+    assert resp.status_code == 200, resp.text
+    db_session.refresh(raw)
+    assert raw.global_direction == "lower_is_better"
+    # The drawer reads this endpoint, so it must publish the saved value.
+    detail = client.get("/indicators/raw/QA_NUM")
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["global_direction"] == "lower_is_better"
+
+    element = next(e for e in resolve_data_elements(db_session)
+                   if e.code == "QA_NUM")
+    assert element.global_direction == "lower_is_better"
+    assert resolve_direction(db_session, element)[0] == "lower_is_better"
+
+    # Unknown values (and target_range, which an element cannot honour) are
+    # rejected, never stored or silently ignored.
+    for value in ("target_range", "worse"):
+        bad = client.put(f"/hospitals/indicators/{raw.id}",
+                         json={"global_direction": value})
+        assert bad.status_code == 422, (value, bad.text)
+    db_session.refresh(raw)
+    assert raw.global_direction == "lower_is_better"
+
+    # An explicit null and "none" both clear the setting.
+    for payload in ({"global_direction": None}, {"global_direction": "none"}):
+        cleared = client.put(f"/hospitals/indicators/{raw.id}", json=payload)
+        assert cleared.status_code == 200, cleared.text
+        db_session.refresh(raw)
+        assert raw.global_direction is None
+
+
+def test_raw_direction_changes_are_audited(client, db_session, registry_dataset):
+    """Every real direction change records the old value, who and when — and a
+    re-save of the same value records nothing."""
+    from app.models import IndicatorDirectionHistory
+
+    raw = db_session.query(Indicator).filter_by(code="QA_NUM").first()
+    url = f"/hospitals/indicators/{raw.id}"
+
+    assert client.put(url, json={"global_direction": "lower_is_better"}).status_code == 200
+    # Same value again: not a change.
+    assert client.put(url, json={"global_direction": "lower_is_better"}).status_code == 200
+
+    rows = (db_session.query(IndicatorDirectionHistory)
+            .filter_by(indicator_code="QA_NUM")
+            .order_by(IndicatorDirectionHistory.id).all())
+    assert len(rows) == 1
+    assert rows[0].previous_value is None
+    assert rows[0].new_value == "lower_is_better"
+    assert rows[0].changed_by == "testadmin"
+    assert rows[0].created_at is not None
+
+    assert client.put(url, json={"global_direction": "higher_is_better"}).status_code == 200
+    assert client.put(url, json={"global_direction": "none"}).status_code == 200
+
+    history = client.get("/indicators/raw/QA_NUM/direction-history")
+    assert history.status_code == 200, history.text
+    payload = history.json()
+    assert [(row["previous_value"], row["new_value"]) for row in payload] == [
+        ("higher_is_better", None),
+        ("lower_is_better", "higher_is_better"),
+        (None, "lower_is_better"),
+    ]
+    assert {row["changed_by"] for row in payload} == {"testadmin"}
+    assert [row["id"] for row in payload] == sorted(
+        (row["id"] for row in payload), reverse=True)
+
+
+def test_raw_element_direction_reaches_the_alert_and_its_interpretation(
+        client, db_session):
+    """End to end: a direction saved on the element is what the scan's alert
+    row carries, and flipping it changes that row's interpretation."""
+    hospitals = db_session.query(Hospital).order_by(Hospital.id).limit(3).all()
+    raw = Indicator(code="QA_RAW_DIR", name="QA raw direction element")
+    db_session.add(raw)
+    db_session.flush()
+
+    months = ["2026-05", "2026-06", "2026-07", "2026-08"]
+    # Hospital 1 rises sharply in the scan month; the others stay flat.
+    series = {
+        0: [10.0, 12.0, 11.0, 40.0],
+        1: [10.0, 11.0, 9.0, 10.0],
+        2: [9.0, 10.0, 12.0, 11.0],
+    }
+    for index, hospital in enumerate(hospitals):
+        for month, value in zip(months, series[index]):
+            db_session.add(IndicatorValue(
+                hospital_id=hospital.id, indicator_id=raw.id,
+                month=month, value=value))
+    db_session.commit()
+
+    url = f"/hospitals/indicators/{raw.id}"
+    assert client.put(url, json={"global_direction": "lower_is_better"}).status_code == 200
+
+    scan_month = months[-1]
+    assert _scan(client, scan_month).status_code == 200
+    db_session.expire_all()
+    rows = (db_session.query(QualityAlert)
+            .filter_by(hospital_id=hospitals[0].id,
+                       indicator_code="QA_RAW_DIR", month=scan_month,
+                       active=True)
+            .all())
+    assert rows, "the raw element must be scanned as stored values"
+    assert {row.direction for row in rows} == {"lower_is_better"}
+    assert {row.interpretation for row in rows} == {INTERP_HIGH_CONCERN}
+
+    # The same element, same value, opposite meaning: the rescan rewrites the
+    # direction AND the interpretation of the persisted row.
+    assert client.put(url, json={"global_direction": "higher_is_better"}).status_code == 200
+    assert _scan(client, scan_month).status_code == 200
+    db_session.expire_all()
+    rows = (db_session.query(QualityAlert)
+            .filter_by(hospital_id=hospitals[0].id,
+                       indicator_code="QA_RAW_DIR", month=scan_month,
+                       active=True)
+            .all())
+    assert rows
+    assert {row.direction for row in rows} == {"higher_is_better"}
+    assert {row.interpretation for row in rows} == {INTERP_HIGH_FAVORABLE}
 
 
 def test_issue_payload_keeps_primary_effective_and_stored_severity(

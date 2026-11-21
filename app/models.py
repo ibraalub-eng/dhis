@@ -115,6 +115,12 @@ class Indicator(Base):
     historical_enabled = Column(Boolean, nullable=True, server_default=text("true"), default=True)
     peer_comparison_enabled = Column(Boolean, nullable=True, server_default=text("true"), default=True)
 
+    # Clinical direction of a raw Data Element. Elements are scanned as-is
+    # (they have no formula), so their direction cannot live on a derived
+    # definition; NULL means "not set" and the scan keeps falling back to the
+    # clinical threshold table, exactly as before this column existed.
+    global_direction = Column(String(20), nullable=True)
+
     parent = relationship("Indicator", remote_side=[id], backref="children")
     values = relationship("IndicatorValue", back_populates="indicator")
     hospital_configs = relationship("HospitalIndicatorConfig", back_populates="indicator", cascade="all, delete-orphan")
@@ -154,6 +160,30 @@ class IndicatorDefaultConfig(Base):
     __table_args__ = (
         UniqueConstraint("indicator_id", "month", name="uq_indicator_default_month"),
     )
+
+
+class IndicatorDirectionHistory(Base):
+    """Audit trail for a raw Data Element's clinical direction.
+
+    A raw element is scanned as stored values and has no derived definition
+    row, so its direction lives on ``indicators.global_direction``. This table
+    records every real change: who made it, when, and the value it replaced.
+    Rows outlive the element — ``indicator_id`` is SET NULL on deletion while
+    ``indicator_code`` keeps the trail queryable afterwards (mirrors
+    RuleHistory / IndicatorDefinitionVersion).
+    """
+    __tablename__ = "indicator_direction_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    indicator_id = Column(
+        Integer, ForeignKey("indicators.id", ondelete="SET NULL"),
+        nullable=True, index=True,
+    )
+    indicator_code = Column(String(50), nullable=False, index=True)
+    previous_value = Column(String(20), nullable=True)  # NULL = unset
+    new_value = Column(String(20), nullable=True)       # NULL = unset
+    changed_by = Column(String(255), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class IndicatorGroup(Base):
@@ -287,10 +317,33 @@ class IndicatorDefinition(Base):
     precision = Column(Integer, nullable=True)
     rounding = Column(String(10), nullable=False, server_default="half_up", default="half_up")
     direction = Column(String(20), nullable=True)     # higher/lower_is_better | target_range | none
+    # Clinical direction per benchmark family. The global direction governs
+    # every comparison (peers, history and the global reference); the local
+    # direction governs only the local reference family. NULL means "not set"
+    # — the global one then falls back to the legacy ``direction`` column, and
+    # the local one to the resolved global direction.
+    global_direction = Column(String(20), nullable=True)
+    local_direction = Column(String(20), nullable=True)
+    # The direction value per benchmark family, so the same indicator can
+    # carry both the global and the local reference figure. Both are optional
+    # and independent — a definition may record either, both or neither, and
+    # an unrecorded value stays NULL. Stored per definition so the comparison
+    # mechanics can evolve without changing the definition shape.
+    global_reference_value = Column(Float, nullable=True)
+    local_reference_value = Column(Float, nullable=True)
     threshold_low = Column(Float, nullable=True)
     threshold_high = Column(Float, nullable=True)
+    # Target range per benchmark family. A family's pair is used as its
+    # comparison range only when BOTH bounds are recorded; a half-filled pair
+    # is invalid at the API and is never guessed at here. The legacy
+    # target_min/target_max pair stays for rows written before the split (the
+    # migration copies it into the global family).
     target_min = Column(Float, nullable=True)
     target_max = Column(Float, nullable=True)
+    global_target_min = Column(Float, nullable=True)
+    global_target_max = Column(Float, nullable=True)
+    local_target_min = Column(Float, nullable=True)
+    local_target_max = Column(Float, nullable=True)
 
     # ── lifecycle ────────────────────────────────────────────────────────
     is_active = Column(Boolean, nullable=False, server_default=text("true"), default=True)

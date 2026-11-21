@@ -174,11 +174,20 @@ def compute_all_classifications(
                 formula_version=resolved.formula_version,
             ))
             continue
-        direction = getattr(resolved.definition, "direction", None)
+        direction = (getattr(resolved.definition, "global_direction", None)
+                     or getattr(resolved.definition, "direction", None))
         low = getattr(resolved.definition, "threshold_low", None)
         high = getattr(resolved.definition, "threshold_high", None)
         target_min = getattr(resolved.definition, "target_min", None)
         target_max = getattr(resolved.definition, "target_max", None)
+        if target_min is None and target_max is None:
+            # Family ranges replace the single legacy pair: classify against
+            # the global range, then the local one, when only they are set.
+            target_min = getattr(resolved.definition, "global_target_min", None)
+            target_max = getattr(resolved.definition, "global_target_max", None)
+            if target_min is None and target_max is None:
+                target_min = getattr(resolved.definition, "local_target_min", None)
+                target_max = getattr(resolved.definition, "local_target_max", None)
         classification = "unknown"
         label = "No Threshold"
         if indicator_calc_result.status == indicator_calc.STATUS_OK and value is not None:

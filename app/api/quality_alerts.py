@@ -1230,6 +1230,17 @@ def get_meta(db: Session = Depends(get_db)):
             {"key": engine.PERSPECTIVE_ALL,
              "label": engine.PERSPECTIVE_LABELS[engine.PERSPECTIVE_ALL],
              "available": True},
+            # Configured benchmarks. Each is available only for indicators whose
+            # definition carries that value (NULL contributes no comparison), so
+            # the filter is offered but counts what was actually raised.
+            {"key": engine.PERSPECTIVE_GLOBAL_REFERENCE,
+             "label": engine.PERSPECTIVE_LABELS[
+                 engine.PERSPECTIVE_GLOBAL_REFERENCE],
+             "available": True},
+            {"key": engine.PERSPECTIVE_LOCAL_REFERENCE,
+             "label": engine.PERSPECTIVE_LABELS[
+                 engine.PERSPECTIVE_LOCAL_REFERENCE],
+             "available": True},
             {"key": "governance", "label": "Governance / managing authority",
              "available": False,
              "unavailable_reason": "No managing-authority metadata exists in the "
@@ -1238,7 +1249,8 @@ def get_meta(db: Session = Depends(get_db)):
         "severities": list(QUALITY_ALERT_SEVERITIES),
         "statuses": list(QUALITY_ALERT_STATUSES),
         "interpretation_legend": INTERPRETATION_LEGEND,
-        "methods": ["peer_zscore", "zscore", "robust_z", "iqr", "pct_change"],
+        "methods": ["peer_zscore", "zscore", "robust_z", "iqr", "pct_change",
+                    "reference_deviation"],
     }
 
 
@@ -1936,7 +1948,13 @@ def get_alert(alert_id: int, db: Session = Depends(get_db)):
                 "id": row.id, "code": row.code, "name": row.name,
                 "description": row.description, "unit": row.unit,
                 "direction": row.direction or "none",
+                "global_direction": getattr(row, "global_direction", None),
+                "local_direction": getattr(row, "local_direction", None),
                 "target_min": row.target_min, "target_max": row.target_max,
+                "global_target_min": row.global_target_min,
+                "global_target_max": row.global_target_max,
+                "local_target_min": row.local_target_min,
+                "local_target_max": row.local_target_max,
                 "threshold_low": row.threshold_low, "threshold_high": row.threshold_high,
                 "version": row.version, "is_active": row.is_active,
                 "formula": alert.formula or row.expression,

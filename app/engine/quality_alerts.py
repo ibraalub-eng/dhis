@@ -111,7 +111,40 @@ PERSPECTIVE_LABELS = {
     PERSPECTIVE_FACILITY_TYPE: "Facility-type peers",
     PERSPECTIVE_GOVERNORATE: "Regional peers (governorate)",
     PERSPECTIVE_ALL: "All hospitals",
+    # Configured reference benchmarks (IndicatorDefinition.global_reference_value
+    # / local_reference_value). A definition may carry neither value, either
+    # one, or both: each configured value is its own comparison perspective.
+    "global_reference": "Global reference (configured)",
+    "local_reference": "Local reference (configured)",
 }
+
+PERSPECTIVE_GLOBAL_REFERENCE = "global_reference"
+PERSPECTIVE_LOCAL_REFERENCE = "local_reference"
+
+#: (perspective key, IndicatorDefinition single-value attribute, target-min
+#: attribute, target-max attribute, English label). NULL is absent — a missing
+#: reference contributes no comparison at all, and is never read as 0. A family
+#: that records BOTH target bounds is compared against that range instead of
+#: the single value: inside the range there is nothing to review, outside it
+#: the deviation is measured from the nearest bound.
+REFERENCE_PERSPECTIVES: Tuple[Tuple[str, str, str, str, str], ...] = (
+    (PERSPECTIVE_GLOBAL_REFERENCE, "global_reference_value",
+     "global_target_min", "global_target_max", "global reference"),
+    (PERSPECTIVE_LOCAL_REFERENCE, "local_reference_value",
+     "local_target_min", "local_target_max", "local reference"),
+)
+REFERENCE_PERSPECTIVE_KEYS: Tuple[str, ...] = tuple(
+    entry[0] for entry in REFERENCE_PERSPECTIVES)
+
+METHOD_REFERENCE_DEVIATION = "reference_deviation"
+REFERENCE_SCOPE = "definition_reference"
+#: A configured benchmark is a fixed value or range: it has no spread, so its
+#: band can never claim the top band (the same ceiling the zero-dispersion cap
+#: applies).
+REFERENCE_MAX_SCORE = 0.89
+REFERENCE_BAND_POLICY = (
+    "REFERENCE_NO_DISPERSION: a configured reference is a fixed value or range, "
+    "so the deviation from it cannot measure a spread — the band stops at HIGH.")
 
 # Interpretation labels — the clinical-direction vocabulary the UI shows.
 INTERP_HIGH_CONCERN = "high_is_concern"
@@ -291,6 +324,8 @@ class RawElementRef:
     peer_comparison_enabled: bool = True
     minimum_history_period: int = comparison_policy.MIN_HISTORY_OBSERVATIONS_DEFAULT
     outlier_method: str = "auto"
+    # Set on the element itself: it has no definition to carry the direction.
+    global_direction: Optional[str] = None
 
 
 def resolve_data_elements(db: Session) -> List[RawElementRef]:
@@ -313,6 +348,7 @@ def resolve_data_elements(db: Session) -> List[RawElementRef]:
             minimum_history_period=(row.minimum_history_period
                                     or comparison_policy.MIN_HISTORY_OBSERVATIONS_DEFAULT),
             outlier_method=(row.outlier_method or "auto"),
+            global_direction=(row.global_direction or None),
         )
         for row in rows
     ]
@@ -342,19 +378,42 @@ def _candidate(resolved, values: Dict[str, float], hospital_id: int,
 
 # ── Direction / clinical interpretation ─────────────────────────────────────
 
+#: The only directions a raw Data Element can honour: it has no target-range
+#: columns, so anything else (including a stray "target_range") is ignored
+#: instead of being interpreted as a range with no bounds.
+_ELEMENT_DIRECTIONS: Tuple[str, ...] = ("higher_is_better", "lower_is_better")
+
+
 def resolve_direction(db: Session, resolved) -> Tuple[str, Optional[float], Optional[float]]:
     """(direction, target_min, target_max) for an indicator — metadata only.
 
     Order: the definition's own configured direction (user-set in the
-    Indicators screen) wins; else the clinical threshold table's
-    ``higher_is_worse`` for the matching registry code (existing configured
-    clinical interpretation rules); else "none" (statistical only).
+    Indicators screen) wins; then a raw Data Element's own direction; else the
+    clinical threshold table's ``higher_is_worse`` for the matching registry
+    code (existing configured clinical interpretation rules); else "none"
+    (statistical only).
     """
-    definition = getattr(resolved, "definition", None)
+    definition = indicator_service.family_settings_view(resolved)
     if definition is not None:
-        direction = (getattr(definition, "direction", None) or "").strip()
+        # The global family's direction governs every comparison; the legacy
+        # single column is the fallback for rows written before the split.
+        direction = (_family_direction(definition, "global_direction")
+                     or _family_direction(definition, "direction") or "")
         if direction and direction != "none":
-            return direction, getattr(definition, "target_min", None), getattr(definition, "target_max", None)
+            target_min = getattr(definition, "target_min", None)
+            target_max = getattr(definition, "target_max", None)
+            if direction == "target_range":
+                # The family pair replaces the single legacy range.
+                bounds = reference_bounds(
+                    definition, "global_target_min", "global_target_max")
+                if bounds is not None:
+                    target_min, target_max = bounds
+            return direction, target_min, target_max
+    # A raw Data Element carries its own direction: there is no definition row
+    # to hold it. An unset element keeps the threshold fallback below.
+    element_direction = getattr(resolved, "global_direction", None)
+    if element_direction in _ELEMENT_DIRECTIONS:
+        return element_direction, None, None
     code = getattr(resolved, "code", None)
     if code:
         try:
@@ -392,6 +451,237 @@ def interpret_deviation(direction: str, value: Optional[float],
     if direction == "lower_is_better":
         return INTERP_HIGH_CONCERN if high else INTERP_LOW_FAVORABLE
     return INTERP_STATISTICAL_ONLY
+
+
+# ── Configured reference benchmarks ─────────────────────────────────────────
+
+def reference_deviation_pct(current, reference) -> Optional[float]:
+    """Relative deviation from a FIXED configured reference, or None.
+
+    A reference of 0 has no percentage base: the comparison is skipped rather
+    than invented, and a stored NULL stays absent instead of becoming 0.
+    """
+    try:
+        value = float(current)
+        base = float(reference)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(value) and math.isfinite(base)) or base == 0:
+        return None
+    return (value - base) / base * 100.0
+
+
+def reference_score(deviation_pct: Optional[float],
+                    bands: Mapping[str, float]) -> Optional[float]:
+    """0-1 score for a deviation from a fixed reference, or None.
+
+    Uses the SAME band percentages the temporal-trend policy already exposes
+    (stable / low / moderate / high), so a deviation of one magnitude lands in
+    the same band whether it was measured against a trend or a reference.
+    Below the stable band there is nothing to raise. The score is piecewise
+    linear between the band edges and stops at ``REFERENCE_MAX_SCORE``: a
+    single fixed value has no dispersion, so the top band is never claimed.
+    """
+    if deviation_pct is None:
+        return None
+    try:
+        pct = abs(float(deviation_pct))
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(pct):
+        return None
+
+    def _band(name: str, default: float) -> float:
+        try:
+            return float(bands.get(name, default))
+        except (TypeError, ValueError):
+            return default
+
+    stable = max(0.0, _band("stable", 2.0))
+    low = max(stable, _band("low", 5.0))
+    moderate = max(low, _band("moderate", 15.0))
+    high = max(moderate, _band("high", 30.0))
+    if pct < stable:
+        return None
+    edges = ((stable, 0.25), (low, 0.50), (moderate, 0.75),
+             (high, REFERENCE_MAX_SCORE))
+    if pct >= high:
+        return REFERENCE_MAX_SCORE
+    for (x0, y0), (x1, y1) in zip(edges, edges[1:]):
+        if pct < x1:
+            if x1 <= x0:
+                return y1
+            return y0 + (y1 - y0) * (pct - x0) / (x1 - x0)
+    return REFERENCE_MAX_SCORE
+
+
+def reference_bounds(definition, min_attribute: str,
+                     max_attribute: str) -> Optional[Tuple[float, float]]:
+    """(min, max) when BOTH bounds of a family's target range are recorded.
+
+    Half a range is not a range: it is treated as absent rather than guessed
+    at (the API rejects it anyway) — the family then falls back to its single
+    reference value, or contributes nothing.
+    """
+    low = getattr(definition, min_attribute, None)
+    high = getattr(definition, max_attribute, None)
+    if low is None or high is None:
+        return None
+    try:
+        low_value = float(low)
+        high_value = float(high)
+    except (TypeError, ValueError):
+        return None
+    if (not (math.isfinite(low_value) and math.isfinite(high_value))
+            or low_value > high_value):
+        return None
+    return low_value, high_value
+
+
+def reference_range_deviation_pct(current, low, high) -> Optional[float]:
+    """Deviation from a target RANGE, or None when it cannot be measured.
+
+    Inside the range there is nothing to review, so the deviation is 0. Outside
+    it, the distance is measured from the NEAREST bound, relative to that bound
+    — the same percentage arithmetic the single-value comparison uses, so the
+    existing bands keep their meaning. A bound of 0 has no percentage base and
+    yields None instead of an invented number.
+    """
+    try:
+        value = float(current)
+        low_value = float(low)
+        high_value = float(high)
+    except (TypeError, ValueError):
+        return None
+    if (not (math.isfinite(value) and math.isfinite(low_value)
+             and math.isfinite(high_value)) or low_value > high_value):
+        return None
+    if low_value <= value <= high_value:
+        return 0.0
+    edge = low_value if value < low_value else high_value
+    return reference_deviation_pct(value, edge)
+
+
+def reference_findings(resolved, current: float,
+                       bands: Mapping[str, float]) -> List[dict]:
+    """Comparison findings for every reference configured on a definition.
+
+    One finding per benchmark family (global and local are independent, so a
+    definition that carries both yields two). Each family is graded against its
+    own target range when both bounds are recorded, otherwise against its single
+    reference value. A NULL — or 0, which has no percentage base — yields none,
+    leaving the scan's existing peer/history behaviour untouched. A value inside
+    the family's range yields none either: there is nothing to review. The
+    finding carries no z-score and no spread: the reference is a fixed
+    benchmark, not a measured distribution.
+    """
+    definition = indicator_service.family_settings_view(resolved)
+    if definition is None:
+        return []
+    findings: List[dict] = []
+    for (perspective, value_attribute, min_attribute,
+         max_attribute, label) in REFERENCE_PERSPECTIVES:
+        bounds = reference_bounds(definition, min_attribute, max_attribute)
+        reference_block: dict = {"kind": perspective, "label": label,
+                                 "band_policy": REFERENCE_BAND_POLICY}
+        if bounds is not None:
+            low, high = bounds
+            deviation = reference_range_deviation_pct(current, low, high)
+            if deviation is None or deviation == 0:
+                continue  # unusable base, or inside the range: no comparison
+            edge = "min" if float(current) < low else "max"
+            base = low if edge == "min" else high
+            reference_block.update({
+                "basis": "target_range",
+                "value": base,
+                "deviation_pct": round(deviation, 4),
+                "range": {"min": low, "max": high},
+                "edge": edge,
+            })
+        else:
+            reference = getattr(definition, value_attribute, None)
+            if reference is None:
+                continue
+            deviation = reference_deviation_pct(current, reference)
+            if deviation is None:
+                continue
+            base = float(reference)
+            reference_block.update({
+                "basis": "value",
+                "value": base,
+                "deviation_pct": round(deviation, 4),
+            })
+        score = reference_score(deviation, bands)
+        if score is None:
+            continue
+        findings.append({
+            "perspective": perspective,
+            "score": score,
+            "z": None,
+            "method": METHOD_REFERENCE_DEVIATION,
+            "baseline": base,
+            "peer_count": None,
+            # Stated explicitly: one configured value or range, no spread. A
+            # reader must never mistake this for a measured peer distribution.
+            "stats": {"n": 1, "points": 1, "mean": base, "std": None,
+                      "reference": base},
+            "canonical": None,
+            "canonical_status": CANONICAL_INDEPENDENT,
+            "reference": dict(reference_block),
+            "comparison": {
+                "perspective_scope": REFERENCE_SCOPE,
+                "reference": dict(reference_block),
+            },
+        })
+    return findings
+
+
+def _family_direction(definition, attribute: str) -> Optional[str]:
+    """One family's configured direction, or None when it is not recorded."""
+    value = getattr(definition, attribute, None)
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def interpretation_direction(definition, perspective: str,
+                             fallback: str) -> str:
+    """Clinical direction to interpret one finding with.
+
+    The LOCAL reference family carries its own direction; every other
+    comparison (peers, history, the global family) uses the resolved
+    definition direction, which already prefers the global family direction
+    over the legacy single one. A family without a direction falls back.
+    """
+    if definition is not None and perspective == PERSPECTIVE_LOCAL_REFERENCE:
+        local = _family_direction(definition, "local_direction")
+        if local is not None:
+            return local
+    return fallback
+
+
+def interpretation_targets(definition, perspective: str,
+                           fallback_min: Optional[float] = None,
+                           fallback_max: Optional[float] = None,
+                           ) -> Tuple[Optional[float], Optional[float]]:
+    """Target bounds used to interpret one finding.
+
+    A row compared against a family's range is interpreted with THAT family's
+    bounds; anything else keeps the resolved definition targets. Without this a
+    definition configured with the family pairs (and no legacy target_min/max)
+    would read as "within target" right after being flagged outside it.
+    """
+    if definition is not None:
+        for (key, _value_attribute, min_attribute,
+             max_attribute, _label) in REFERENCE_PERSPECTIVES:
+            if key != perspective:
+                continue
+            bounds = reference_bounds(definition, min_attribute, max_attribute)
+            if bounds is not None:
+                return bounds
+            break
+    return fallback_min, fallback_max
 
 
 # ── Peer helpers ────────────────────────────────────────────────────────────
@@ -1283,7 +1573,16 @@ def alert_trend(db: Session, alert: QualityAlert,
             peer_counts.append(0)
             baseline.append(None)
 
-    if is_peer:
+    reference_block = (alert.evidence or {}).get("reference") or {}
+    if alert.perspective in REFERENCE_PERSPECTIVE_KEYS:
+        # A configured benchmark is one fixed number (or one fixed range) on
+        # every month of the chart, named as the reference it is — never as a
+        # prior-months mean. The label stays clean so the screen can translate
+        # it; the value/range travels beside it.
+        baseline_label = PERSPECTIVE_LABELS.get(alert.perspective,
+                                                alert.perspective)
+        baseline_kind = "reference"
+    elif is_peer:
         baseline_label = (PERSPECTIVE_LABELS.get(alert.perspective, alert.perspective)
                           + " — mean")
         baseline_kind = "peer"
@@ -1302,6 +1601,10 @@ def alert_trend(db: Session, alert: QualityAlert,
         "peer_counts": peer_counts,
         "reference_value": alert.baseline_value,
         "reference_label": PERSPECTIVE_LABELS.get(alert.perspective, alert.perspective),
+        # Which form the benchmark took: a single value, or the target range
+        # whose nearest bound produced this row (the chart draws the bounds).
+        "reference_basis": reference_block.get("basis"),
+        "reference_range": reference_block.get("range"),
         "alert_month": alert.month,
         "alert_value": alert.current_value,
         "unit": alert.unit or "",
@@ -1429,6 +1732,9 @@ def _severity_source(perspective: str) -> str:
     """
     if perspective == PERSPECTIVE_HISTORY:
         return severity_policy.SOURCE_STATISTICAL_OUTLIER
+    if perspective in REFERENCE_PERSPECTIVE_KEYS:
+        # A fixed benchmark is not a statistical outlier and not a peer spread.
+        return severity_policy.SOURCE_REFERENCE_BENCHMARK
     return severity_policy.SOURCE_PEER_COMPARISON
 
 
@@ -1708,7 +2014,8 @@ def _merge_investigation_state(db: Session, target: QualityAlert,
 
 def _reason_text(resolved, perspective: str, severity: str,
                  current: float, baseline: float, z: Optional[float],
-                 peer_count: Optional[int], interpretation: str) -> str:
+                 peer_count: Optional[int], interpretation: str,
+                 reference: Optional[Mapping] = None) -> str:
     unit = getattr(resolved, "unit", "") or ""
     label = PERSPECTIVE_LABELS.get(perspective, perspective)
     direction = {
@@ -1720,7 +2027,25 @@ def _reason_text(resolved, perspective: str, severity: str,
         INTERP_WITHIN_TARGET: "The value is outside its baseline but still within the configured target range.",
         INTERP_STATISTICAL_ONLY: "No clinical direction is configured — treat as a statistical deviation only.",
     }.get(interpretation, "")
-    parts = [f"{resolved.name} = {current:g}{unit} deviates from the {label.lower()} baseline {baseline:g}"]
+    if perspective in REFERENCE_PERSPECTIVE_KEYS:
+        # A reference is a configured benchmark, not a measured baseline. Use
+        # its short name ("global reference"), not the chip label that already
+        # says "(configured)".
+        label = next((entry[4] for entry in REFERENCE_PERSPECTIVES
+                      if entry[0] == perspective), label)
+        bounds = (reference or {}).get("range")
+        if bounds:
+            # A range benchmark has two bounds: naming only the nearest one as
+            # "the reference" would read as a single number that was never set.
+            parts = [f"{resolved.name} = {current:g}{unit} is outside the "
+                     f"configured {label} range {bounds['min']:g}–{bounds['max']:g} "
+                     f"(nearest bound {baseline:g})"]
+        else:
+            parts = [f"{resolved.name} = {current:g}{unit} deviates from the "
+                     f"configured {label} {baseline:g}"]
+    else:
+        parts = [f"{resolved.name} = {current:g}{unit} deviates from the "
+                 f"{label.lower()} baseline {baseline:g}"]
     if z is not None:
         parts.append(f"z = {z:.2f}")
     if peer_count is not None:
@@ -1904,8 +2229,11 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
             hid: c.value for hid, c in by_hospital.items()
             if c.value is not None and math.isfinite(float(c.value))
         }
-        if len(valid_values) < 2:
-            continue  # nothing comparable — safeguards, never a forced alert
+        # A configured reference benchmark needs no peer group: the reference
+        # perspectives below are evaluated even when only one hospital reports
+        # the indicator. Peer and history comparisons keep the original
+        # safeguard (fewer than two values: nothing comparable).
+        peers_comparable = len(valid_values) >= 2
 
         direction, target_min, target_max = resolve_direction(db, resolved)
         ml_out = (_ml_flags(valid_values, cfg["ml_min_samples"])
@@ -1917,7 +2245,10 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
             if candidate.value is None:
                 continue  # missing / zero-denominator / non-ok: never alerted
             current = float(candidate.value)
-            findings: List[dict] = []
+            # Configured references first: independent of the peer/history
+            # safeguards and of each other (global and local are separate).
+            findings: List[dict] = reference_findings(
+                resolved, current, sev_cfg.trend_bands)
             analysis_code = canonical_codes.get(
                 getattr(resolved, "code", None))
             canonical_row = (canonical_index.get((hid, analysis_code))
@@ -1925,7 +2256,8 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
 
             # ── Peer perspectives (current month) ──
             for perspective, attribute, _label in (
-                    PEER_PERSPECTIVES if peers_allowed else ()):
+                    PEER_PERSPECTIVES if (peers_allowed and peers_comparable)
+                    else ()):
                 members = _peer_members(directory, hid, attribute, valid_values)
                 if len(members) < comparison.peer.min_peers:
                     continue  # peer group too small — avoid misleading comparisons
@@ -1983,7 +2315,9 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
 
             # ── History perspective (own prior periods) ──
             trend_assessment = None
-            if history_allowed:
+            # Unchanged safeguard: the window comparison needs the same
+            # comparability the peer baselines require.
+            if history_allowed and peers_comparable:
                 if hid not in history_cache:
                     history_cache[hid] = get_historical_months(db, hid, month)
                 history = history_cache[hid]
@@ -2073,9 +2407,14 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     severity, finding.get("peer_count"),
                     finding.get("method"))
                 stats.perspectives_evaluated += 1
+                definition = indicator_service.family_settings_view(resolved)
+                interp_min, interp_max = interpretation_targets(
+                    definition, finding["perspective"], target_min, target_max)
+                row_direction = interpretation_direction(
+                    definition, finding["perspective"], direction)
                 interpretation = interpret_deviation(
-                    direction, current, finding["baseline"],
-                    target_min, target_max)
+                    row_direction, current, finding["baseline"],
+                    interp_min, interp_max)
                 ml_agrees: Optional[bool] = None
                 confidence = "high"
                 if (finding["perspective"] == PERSPECTIVE_ALL
@@ -2083,7 +2422,8 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     ml_agrees = hid in ml_out
                     if not ml_agrees:
                         confidence = "low"
-                if finding["peer_count"] < SMALL_COMPARISON_GROUP:
+                peer_count = finding.get("peer_count")
+                if peer_count is not None and peer_count < SMALL_COMPARISON_GROUP:
                     confidence = "low"  # small comparison group
                 finding_evidence = {
                     "baseline_label": PERSPECTIVE_LABELS.get(
@@ -2100,6 +2440,11 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     finding_evidence["peer_ids"] = finding["peer_ids"][:50]
                 if "history" in finding:
                     finding_evidence["history"] = finding["history"]
+                if "reference" in finding:
+                    # The configured value this row was compared against, the
+                    # deviation measured from it and the band policy that keeps
+                    # a single-value reference out of the top band.
+                    finding_evidence["reference"] = finding["reference"]
                 # Effective window / peer group / eligible peers behind THIS
                 # row, so the exact comparison can be audited after the
                 # configuration or data changes.
@@ -2172,7 +2517,8 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                 reason = _reason_text(
                     resolved, finding["perspective"], severity, current,
                     float(finding["baseline"]), finding["z"],
-                    finding["peer_count"], interpretation)
+                    finding["peer_count"], interpretation,
+                    reference=finding.get("reference"))
                 if resolution.applied:
                     reason += (f" Base severity {resolution.base.level} was "
                                f"changed to {severity} by the configured "
@@ -2205,7 +2551,7 @@ def scan(db: Session, month: str, hospital_id: Optional[int] = None,
                     deviation_pct=((current - float(finding["baseline"]))
                                    / float(finding["baseline"]) * 100.0)
                     if finding["baseline"] else None,
-                    direction=direction, interpretation=interpretation,
+                    direction=row_direction, interpretation=interpretation,
                     reason=reason, confidence=confidence, evidence=evidence,
                     now=now)
 

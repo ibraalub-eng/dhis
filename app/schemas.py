@@ -127,6 +127,20 @@ class IndicatorUpdate(BaseModel):
     name: Optional[str] = None
     formula: Optional[str] = None
     default_weight: Optional[float] = None
+    global_direction: Optional[str] = None
+
+
+class IndicatorDirectionHistoryOut(BaseModel):
+    """One recorded change of a raw Data Element's clinical direction."""
+    id: int
+    indicator_code: str
+    previous_value: Optional[str] = None
+    new_value: Optional[str] = None
+    changed_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
 
 
 # ── Indicators management (derived-indicator definitions) ───────────────────
@@ -150,11 +164,19 @@ class IndicatorDefinitionBase(BaseModel):
     # precision N = round stored/computed values to N decimals (mode below)
     precision: Optional[int] = None        # 0..6, validated in _validate_draft
     rounding: str = "half_up"              # half_up | half_even | down
-    direction: Optional[str] = None        # none | higher/lower_is_better | target_range
+    direction: Optional[str] = None        # legacy single direction (older clients)
+    global_direction: Optional[str] = None  # none | higher/lower_is_better | target_range
+    local_direction: Optional[str] = None   # none | higher/lower_is_better | target_range
+    global_reference_value: Optional[float] = None   # direction value, global (NULL = not recorded)
+    local_reference_value: Optional[float] = None    # direction value, local (NULL = not recorded)
     threshold_low: Optional[float] = None
     threshold_high: Optional[float] = None
     target_min: Optional[float] = None
     target_max: Optional[float] = None
+    global_target_min: Optional[float] = None   # target range, global (both or neither)
+    global_target_max: Optional[float] = None
+    local_target_min: Optional[float] = None    # target range, local (both or neither)
+    local_target_max: Optional[float] = None
     is_active: bool = True
 
 
@@ -166,6 +188,8 @@ class IndicatorDefinitionUpdate(BaseModel):
     """Partial update — ``code`` is intentionally immutable so indicator
     IDs referenced by history/results never change meaning."""
     name: Optional[str] = None
+    # (global_direction / local_direction are declared with the other
+    # direction fields below, next to the direction value.)
     description: Optional[str] = None
     group_name: Optional[str] = None
     formula_type: Optional[str] = None
@@ -180,10 +204,18 @@ class IndicatorDefinitionUpdate(BaseModel):
     precision: Optional[int] = None
     rounding: Optional[str] = None
     direction: Optional[str] = None
+    global_direction: Optional[str] = None   # none | higher/lower_is_better | target_range
+    local_direction: Optional[str] = None    # none | higher/lower_is_better | target_range
+    global_reference_value: Optional[float] = None   # direction value, global (NULL = not recorded)
+    local_reference_value: Optional[float] = None    # direction value, local (NULL = not recorded)
     threshold_low: Optional[float] = None
     threshold_high: Optional[float] = None
     target_min: Optional[float] = None
     target_max: Optional[float] = None
+    global_target_min: Optional[float] = None   # target range, global (both or neither)
+    global_target_max: Optional[float] = None
+    local_target_min: Optional[float] = None    # target range, local (both or neither)
+    local_target_max: Optional[float] = None
     is_active: Optional[bool] = None
 
 
@@ -208,10 +240,18 @@ class IndicatorDefinitionOut(BaseModel):
     precision: Optional[int] = None
     rounding: str = "half_up"
     direction: Optional[str] = None
+    global_direction: Optional[str] = None   # none | higher/lower_is_better | target_range
+    local_direction: Optional[str] = None    # none | higher/lower_is_better | target_range
+    global_reference_value: Optional[float] = None   # direction value, global (NULL = not recorded)
+    local_reference_value: Optional[float] = None    # direction value, local (NULL = not recorded)
     threshold_low: Optional[float] = None
     threshold_high: Optional[float] = None
     target_min: Optional[float] = None
     target_max: Optional[float] = None
+    global_target_min: Optional[float] = None   # target range, global (both or neither)
+    global_target_max: Optional[float] = None
+    local_target_min: Optional[float] = None    # target range, local (both or neither)
+    local_target_max: Optional[float] = None
     is_active: bool = True
     version: int = 1
     formula_display: Optional[str] = None

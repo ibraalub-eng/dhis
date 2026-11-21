@@ -186,6 +186,10 @@ function _renderFallback() {
         ]},
         {id:'fb-4', name:'Oversight', icon:'🛡️', items:[
             {tab_key:'quality', label:'Quality Reports', icon:'✅', permission:'quality.read'},
+            {tab_key:'quality-completeness', label:'Completeness', icon:'🧩', permission:'quality.read'},
+            {tab_key:'quality-compliance', label:'Rule Compliance', icon:'📏', permission:'quality.read'},
+            {tab_key:'quality-consistency', label:'Consistency', icon:'🔗', permission:'quality.read'},
+            {tab_key:'quality-confidence', label:'Confidence', icon:'🎯', permission:'quality.read'},
             {tab_key:'quality-alerts', label:'Quality Alerts', icon:'🚨', permission:'quality_alerts.read'},
             {tab_key:'outliers', label:'Outlier Scan', icon:'⚠️', permission:'outliers.read'},
             {tab_key:'layered', label:'Outlier Diagnostics', icon:'🧱', permission:'analysis.read'},

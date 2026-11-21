@@ -230,23 +230,52 @@
           <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Expression">Expression</label>
           <textarea id="indExpr" rows="3" placeholder="e.g. ({5} / {2}) * 100 — use {code} references, + - * / and parentheses" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);font-family:monospace;font-size:0.8rem;direction:ltr;"></textarea>
         </div>
+        <div style="grid-column:1/-1;font-weight:600;font-size:0.78rem;color:var(--text-secondary);border-top:1px solid var(--border-default);padding-top:0.4rem;" data-i18n="Global benchmark">Global benchmark</div>
         <div>
-          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Direction">Direction</label>
-          <select id="indDirection" onchange="window._indDirectionChange && window._indDirectionChange()" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Global direction">Global direction</label>
+          <select id="indGlobalDirection" onchange="window._indDirectionChange && window._indDirectionChange()" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
             <option value="none" data-i18n="None">None</option>
             <option value="higher_is_better" data-i18n="Higher is better">Higher is better</option>
             <option value="lower_is_better" data-i18n="Lower is better">Lower is better</option>
             <option value="target_range" data-i18n="Target range">Target range</option>
           </select>
         </div>
-        <div id="indTargetMinWrap" style="display:none;">
-          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Target min">Target min</label>
-          <input id="indTargetMin" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        <div id="indGlobalRefWrap" style="display:none;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Global direction value">Global direction value</label>
+          <input id="indGlobalRefValue" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
         </div>
-        <div id="indTargetMaxWrap" style="display:none;">
-          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Target max">Target max</label>
-          <input id="indTargetMax" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        <div id="indGlobalTargetMinWrap" style="display:none;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Global target min">Global target min</label>
+          <input id="indGlobalTargetMin" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
         </div>
+        <div id="indGlobalTargetMaxWrap" style="display:none;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Global target max">Global target max</label>
+          <input id="indGlobalTargetMax" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+        <div style="grid-column:1/-1;font-weight:600;font-size:0.78rem;color:var(--text-secondary);border-top:1px solid var(--border-default);padding-top:0.4rem;" data-i18n="Local benchmark">Local benchmark</div>
+        <div>
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Local direction">Local direction</label>
+          <select id="indLocalDirection" onchange="window._indDirectionChange && window._indDirectionChange()" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
+            <option value="none" data-i18n="None">None</option>
+            <option value="higher_is_better" data-i18n="Higher is better">Higher is better</option>
+            <option value="lower_is_better" data-i18n="Lower is better">Lower is better</option>
+            <option value="target_range" data-i18n="Target range">Target range</option>
+          </select>
+        </div>
+        <div id="indLocalRefWrap" style="display:none;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Local direction value">Local direction value</label>
+          <input id="indLocalRefValue" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+        <div id="indLocalTargetMinWrap" style="display:none;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Local target min">Local target min</label>
+          <input id="indLocalTargetMin" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+        <div id="indLocalTargetMaxWrap" style="display:none;">
+          <label style="font-size:0.8rem;color:var(--text-secondary);display:block;margin-bottom:0.2rem;" data-i18n="Local target max">Local target max</label>
+          <input id="indLocalTargetMax" type="number" step="any" style="width:100%;box-sizing:border-box;padding:0.4rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);direction:ltr;">
+        </div>
+        <div id="indValueHint" style="display:none;grid-column:1/-1;font-size:0.7rem;color:var(--text-muted);margin-top:-0.3rem;" data-i18n="Leave empty to store no value (null)">Leave empty to store no value (null)</div>
+        <div id="indTargetHint" style="display:none;grid-column:1/-1;font-size:0.7rem;color:var(--text-muted);margin-top:-0.3rem;" data-i18n="Fill both bounds of a family's target range, or leave both empty">Fill both bounds of a family's target range, or leave both empty</div>
       </div>
     </details>
 

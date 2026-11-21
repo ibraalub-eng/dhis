@@ -50,6 +50,7 @@ from app.models import (
     IndicatorDefaultConfig,
     IndicatorDefinition,
     IndicatorDefinitionVersion,
+    IndicatorDirectionHistory,
     IndicatorValue,
 )
 from app.schemas import (
@@ -59,6 +60,7 @@ from app.schemas import (
     IndicatorDefinitionOut,
     IndicatorDefinitionUpdate,
     IndicatorDefinitionVersionOut,
+    IndicatorDirectionHistoryOut,
     IndicatorListOut,
     IndicatorPreviewIn,
     IndicatorPreviewOut,
@@ -120,8 +122,12 @@ _CONTENT_FIELDS = (
     "name", "description", "group_name", "formula_type", "expression",
     "numerator_codes", "denominator_codes", "operator", "multiplier",
     "aggregation", "result_type", "unit", "precision", "rounding",
-    "direction", "threshold_low",
+    "direction", "global_direction", "local_direction",
+    "global_reference_value", "local_reference_value",
+    "threshold_low",
     "threshold_high", "target_min", "target_max",
+    "global_target_min", "global_target_max",
+    "local_target_min", "local_target_max",
 )
 
 
@@ -308,10 +314,18 @@ def _definition_fields(defn) -> dict:
         "precision": getattr(defn, "precision", None),
         "rounding": getattr(defn, "rounding", None) or "half_up",
         "direction": defn.direction,
+        "global_direction": getattr(defn, "global_direction", None),
+        "local_direction": getattr(defn, "local_direction", None),
+        "global_reference_value": getattr(defn, "global_reference_value", None),
+        "local_reference_value": getattr(defn, "local_reference_value", None),
         "threshold_low": defn.threshold_low,
         "threshold_high": defn.threshold_high,
         "target_min": defn.target_min,
         "target_max": defn.target_max,
+        "global_target_min": getattr(defn, "global_target_min", None),
+        "global_target_max": getattr(defn, "global_target_max", None),
+        "local_target_min": getattr(defn, "local_target_min", None),
+        "local_target_max": getattr(defn, "local_target_max", None),
         "is_active": bool(defn.is_active),
         "version": int(defn.version),
     }
@@ -387,6 +401,22 @@ def _validate_draft(db: Session, draft, exclude_id: Optional[int] = None,
         errors.append(f"Result type must be one of: {', '.join(calc.RESULT_TYPES)}")
     if draft.direction is not None and draft.direction not in calc.DIRECTIONS:
         errors.append(f"Direction must be one of: {', '.join(calc.DIRECTIONS)}")
+    for label, value in (("Global direction", getattr(draft, "global_direction", None)),
+                         ("Local direction", getattr(draft, "local_direction", None))):
+        if value is not None and value not in calc.DIRECTIONS:
+            errors.append(f"{label} must be one of: {', '.join(calc.DIRECTIONS)}")
+    # Both direction values are optional and independent: an empty field is
+    # stored as NULL, never coerced to 0 or to the other family's value.
+    for label, value in (
+            ("Global direction value", getattr(draft, "global_reference_value", None)),
+            ("Local direction value", getattr(draft, "local_reference_value", None))):
+        if value is None:
+            continue
+        try:
+            if not math.isfinite(float(value)):
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append(f"{label} must be a finite number")
     if getattr(draft, "precision", None) is not None:
         try:
             p = int(draft.precision)
@@ -417,8 +447,46 @@ def _validate_draft(db: Session, draft, exclude_id: Optional[int] = None,
                 errors.append(f"{label} values must be finite numbers")
             elif lo > hi:
                 errors.append(f"{label}: low value cannot exceed high value")
-    if draft.direction == "target_range" and (draft.target_min is None or draft.target_max is None):
-        errors.append("Direction 'target_range' requires both target min and max")
+    # Family target ranges: both bounds or neither. A half-filled pair would
+    # silently contribute no comparison, so it is rejected instead.
+    family_ranges = (
+        ("Global target range", getattr(draft, "global_target_min", None),
+         getattr(draft, "global_target_max", None)),
+        ("Local target range", getattr(draft, "local_target_min", None),
+         getattr(draft, "local_target_max", None)),
+    )
+    for label, lo, hi in family_ranges:
+        if (lo is None) != (hi is None):
+            errors.append(f"{label} requires both min and max")
+        elif lo is not None:
+            try:
+                lo_value, hi_value = float(lo), float(hi)
+            except (TypeError, ValueError):
+                errors.append(f"{label} values must be finite numbers")
+                continue
+            if not (math.isfinite(lo_value) and math.isfinite(hi_value)):
+                errors.append(f"{label} values must be finite numbers")
+            elif lo_value > hi_value:
+                errors.append(f"{label}: low value cannot exceed high value")
+    complete_family_range = any(
+        lo is not None and hi is not None for _label, lo, hi in family_ranges)
+    legacy_range = (getattr(draft, "target_min", None) is not None
+                    and getattr(draft, "target_max", None) is not None)
+    # Each family's own direction decides whether its range is required.
+    for label, direction_value, lo, hi in (
+            ("global", getattr(draft, "global_direction", None),
+             getattr(draft, "global_target_min", None),
+             getattr(draft, "global_target_max", None)),
+            ("local", getattr(draft, "local_direction", None),
+             getattr(draft, "local_target_min", None),
+             getattr(draft, "local_target_max", None))):
+        if direction_value == "target_range" and (lo is None or hi is None):
+            errors.append(
+                f"Direction '{label}' = target_range requires {label} "
+                "target min and max")
+    if draft.direction == "target_range" and not (legacy_range or complete_family_range):
+        errors.append("Direction 'target_range' requires target min and max "
+                      "for the global or local benchmark")
     if ((draft.threshold_low is not None or draft.threshold_high is not None)
             and (draft.direction in (None, "", "none"))):
         warnings.append("Thresholds are set but interpretation direction is 'none' — "
@@ -643,10 +711,18 @@ def _draft_fields(draft, canonical: Optional[str]) -> dict:
         "precision": getattr(draft, "precision", None),
         "rounding": getattr(draft, "rounding", None) or "half_up",
         "direction": draft.direction,
+        "global_direction": getattr(draft, "global_direction", None),
+        "local_direction": getattr(draft, "local_direction", None),
+        "global_reference_value": getattr(draft, "global_reference_value", None),
+        "local_reference_value": getattr(draft, "local_reference_value", None),
         "threshold_low": draft.threshold_low,
         "threshold_high": draft.threshold_high,
         "target_min": draft.target_min,
         "target_max": draft.target_max,
+        "global_target_min": getattr(draft, "global_target_min", None),
+        "global_target_max": getattr(draft, "global_target_max", None),
+        "local_target_min": getattr(draft, "local_target_min", None),
+        "local_target_max": getattr(draft, "local_target_max", None),
         "is_active": bool(draft.is_active),
         "version": 1,
     }
@@ -1431,6 +1507,7 @@ def get_raw_indicator(code: str, db: Session = Depends(get_db)):
         "peer_comparison_enabled": ind.peer_comparison_enabled,
         "formula": ind.formula or None,
         "default_weight": ind.default_weight,
+        "global_direction": ind.global_direction or None,
         "parent_code": parent_code,
         "children": [
             {
@@ -1445,6 +1522,23 @@ def get_raw_indicator(code: str, db: Session = Depends(get_db)):
         "latest_month": month_row[0] if month_row else None,
         "referenced_by": referenced_by,
     }
+
+
+@router.get("/raw/{code}/direction-history",
+            response_model=List[IndicatorDirectionHistoryOut])
+def get_raw_direction_history(code: str, db: Session = Depends(get_db)):
+    """Every recorded change of a Data Element's clinical direction.
+
+    Newest first. The trail is keyed by code, so it stays readable after the
+    element itself is deleted (its rows are detached, never dropped).
+    """
+    rows = (db.query(IndicatorDirectionHistory)
+            .filter(IndicatorDirectionHistory.indicator_code == code)
+            .order_by(IndicatorDirectionHistory.id.desc())
+            .all())
+    if not rows and db.query(Indicator.id).filter(Indicator.code == code).first() is None:
+        raise HTTPException(status_code=404, detail="Data element not found")
+    return rows
 
 
 @router.get("/rate/{code}")

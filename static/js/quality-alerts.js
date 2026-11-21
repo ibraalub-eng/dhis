@@ -1005,7 +1005,7 @@ function _renderTable() {
                          _perspectiveLabel(p.perspective_label, p.perspective),
                          p.reason || ''].filter(Boolean).join(' · ');
             return '<span class="badge ' +
-                (p.severity === 'VERY_HIGH' ? 'badge-critical' : 'badge-muted') +
+                (_SEVERITY_BADGES[p.severity] || 'badge-muted') +
                 '" style="font-size:0.62rem;padding:0 4px;" title="' + esc(tip) + '">' +
                 esc(_perspectiveLabel(p.perspective_label, p.perspective)) + '</span>';
         }).join(' ');
@@ -1200,6 +1200,7 @@ const _METHOD_LABELS = {
     pct_change: 'Percent change vs own history',
     iqr: 'IQR vs own history',
     rolling_median_mad: 'Rolling median (MAD) vs own history',
+    reference_deviation: 'Configured reference deviation',
     insufficient_history: 'Insufficient history',
 };
 const _STAT_LABELS = {
@@ -1451,6 +1452,10 @@ function _renderTrendChart(trend, unit) {
     const alertIndex = months.indexOf(trend.alert_month);
     const baselineValues = trend.baseline || [];
     const hasPeerBaseline = baselineValues.some(v => v !== null && v !== undefined);
+    // A range benchmark is TWO bounds, not one line: drawing only the nearest
+    // bound would hide the values the target actually accepts.
+    const referenceRange = trend.reference_range;
+    const referenceLabel = _perspectiveLabel(trend.reference_label || trend.baseline_label);
 
     const datasets = [{
         label: __('This hospital'),
@@ -1481,9 +1486,33 @@ function _renderTrendChart(trend, unit) {
             spanGaps: true,
             fill: false,
         });
+    } else if (referenceRange) {
+        datasets.push({
+            label: referenceLabel + ' · ' + __('Min'),
+            data: months.map(() => referenceRange.min),
+            borderColor: colors.secondary || colors.neutral,
+            backgroundColor: (colors.secondary || colors.neutral) + '22',
+            _colorRole: 'secondary',
+            borderWidth: 1.5,
+            borderDash: [3, 4],
+            pointRadius: 0,
+            tension: 0,
+            fill: '+1',
+        }, {
+            label: referenceLabel + ' · ' + __('Max'),
+            data: months.map(() => referenceRange.max),
+            borderColor: colors.secondary || colors.neutral,
+            backgroundColor: 'transparent',
+            _colorRole: 'secondary',
+            borderWidth: 1.5,
+            borderDash: [3, 4],
+            pointRadius: 0,
+            tension: 0,
+            fill: false,
+        });
     } else if (trend.reference_value !== null && trend.reference_value !== undefined) {
         datasets.push({
-            label: _perspectiveLabel(trend.baseline_label) || __('Baseline'),
+            label: referenceLabel || __('Baseline'),
             data: months.map(() => trend.reference_value),
             borderColor: colors.secondary || colors.neutral,
             backgroundColor: 'transparent',
@@ -1724,7 +1753,13 @@ function _renderDetail(p) {
               '<span><i class="qa-lg qa-lg-solid"></i>' + __('This hospital') + '</span>' +
               (hasBaselineLine
                   ? '<span><i class="qa-lg qa-lg-dash"></i>' +
-                    esc(_perspectiveLabel(trend.baseline_label) || __('Baseline')) + '</span>'
+                    esc(_perspectiveLabel(trend.reference_label || trend.baseline_label) || __('Baseline')) +
+                    (trend.reference_range
+                        ? ' · ' + esc(_fmtValue(trend.reference_range.min, unit) + ' – ' +
+                                      _fmtValue(trend.reference_range.max, unit))
+                        : (trend.reference_value != null
+                            ? ' · ' + esc(_fmtValue(trend.reference_value, unit)) : '')) +
+                    '</span>'
                   : '') +
               '<span><i class="qa-lg qa-lg-ring"></i>' + __('Alert month') + '</span>' +
               '</div>'
@@ -1786,8 +1821,23 @@ function _renderDetail(p) {
     // visible (a collapsed summary hid the only evidence a reader can use to
     // judge the baseline), and every group the issue used is listed so a
     // history alert still shows the peer comparisons run for the same finding.
+    // A configured benchmark is not a peer group: the issue's peer groups
+    // belong to its other perspectives, so showing them here would claim a
+    // comparison this row never made (and the fallback used to claim history).
+    const isReference = a.perspective === 'global_reference' ||
+        a.perspective === 'local_reference';
     let peersHtml = '';
-    if (peerGroups.length) {
+    if (isReference) {
+        const ref = ev.reference || {};
+        const bounds = ref.range;
+        const target = bounds
+            ? _fmtValue(bounds.min, unit) + ' – ' + _fmtValue(bounds.max, unit)
+            : _fmtValue(a.baseline_value, unit);
+        peersHtml = '<div class="qa-note">' +
+            esc(__('This finding compares the hospital against the configured benchmark, not against peer hospitals') +
+                ': ' + _perspectiveLabel(a.perspective_label, a.perspective) + ' · ' + target) +
+            '</div>';
+    } else if (peerGroups.length) {
         peersHtml = peerGroups.map(group => {
             const rows = (group.peers || []).map(peer =>
                 '<tr><td>' + esc(peer.name) + '</td>' +
@@ -1815,7 +1865,18 @@ function _renderDetail(p) {
 
     // 6 — Indicator definition, straight from the registry.
     if (def) {
-        let defRows = _kv(__('Direction'), esc(_directionLabel(def.direction || a.direction)));
+        let defRows = _kv(__('Global direction'),
+            esc(_directionLabel(def.global_direction || def.direction || a.direction)));
+        if (def.local_direction) {
+            defRows += _kv(__('Local direction'),
+                esc(_directionLabel(def.local_direction)));
+        }
+        [['Global target range', def.global_target_min, def.global_target_max],
+         ['Local target range', def.local_target_min, def.local_target_max]]
+            .forEach(([label, lo, hi]) => {
+                if (lo == null && hi == null) return;
+                defRows += _kv(__(label), esc(String(lo ?? '—')) + ' – ' + esc(String(hi ?? '—')));
+            });
         if (def.target_min != null || def.target_max != null) {
             defRows += _kv(__('Target'),
                 esc(String(def.target_min ?? '—')) + ' – ' + esc(String(def.target_max ?? '—')));

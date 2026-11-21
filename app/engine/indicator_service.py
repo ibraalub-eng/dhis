@@ -32,7 +32,7 @@ import logging
 import zlib
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from app.engine import indicator_calc as calc
 from app.engine import indicator_deps
@@ -68,6 +68,7 @@ class ResolvedIndicator:
     site: Optional[str] = None       # rate_config site (rate_spec only)
     ref_codes: List[str] = field(default_factory=list)
     definition: object = None        # IndicatorDefinition (derived)
+    family_settings: object = None   # merged FamilySettings of its formula
     spec: object = None              # RateSpec (rate_spec)
 
 
@@ -281,6 +282,85 @@ def _outlier_preference(resolved: ResolvedIndicator) -> tuple:
             resolved.code or "")
 
 
+#: Direction / configured-benchmark settings belong to the LOGICAL formula, not
+#: to one registration of it. The registry keeps a per-site copy of most rates
+#: and users edit whichever copy they opened, so a benchmark or direction
+#: recorded on the clinical (or forecast) copy must reach the scan, which
+#: analyses one representative (the zscore copy).
+FAMILY_SETTING_FIELDS: Tuple[str, ...] = (
+    "direction",
+    "global_direction",
+    "local_direction",
+    "global_reference_value",
+    "local_reference_value",
+    "global_target_min",
+    "global_target_max",
+    "local_target_min",
+    "local_target_max",
+    "target_min",
+    "target_max",
+)
+
+
+@dataclass(frozen=True)
+class FamilySettings:
+    """The direction/benchmark settings of one logical formula.
+
+    Only the values are kept: attribute access mirrors ``IndicatorDefinition``
+    so existing readers (``reference_bounds``, ``_family_direction``, ...) work
+    unchanged, and a setting that no copy records simply misses (``getattr``
+    with a default), exactly like a NULL column.
+    """
+
+    values: Dict[str, object] = field(default_factory=dict)
+
+    def __getattr__(self, attribute: str):
+        try:
+            values = object.__getattribute__(self, "values")
+        except AttributeError:  # pragma: no cover - dataclass internals
+            raise AttributeError(attribute) from None
+        if attribute in values:
+            return values[attribute]
+        raise AttributeError(attribute)
+
+
+def merge_family_settings(members) -> FamilySettings:
+    """Coalesce family settings across the copies of one logical formula.
+
+    ``members`` are the formula's resolved registrations in precedence order
+    (the representative first). For each setting the first recorded value wins:
+    NULL and blank mean "not recorded", never "zero" and never "unset this on
+    the formula", so a value stored on the representative beats a stale
+    duplicate and anything left NULL there is taken from a sibling.
+    """
+    values: Dict[str, object] = {}
+    for member in members:
+        definition = getattr(member, "definition", None)
+        if definition is None:
+            continue
+        for attribute in FAMILY_SETTING_FIELDS:
+            if attribute in values:
+                continue
+            value = getattr(definition, attribute, None)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue
+            values[attribute] = value
+    return FamilySettings(values=values)
+
+
+def family_settings_view(resolved):
+    """Effective direction/reference settings for one resolved indicator.
+
+    Canonical resolution attaches the merged settings of the whole formula; an
+    indicator resolved on its own keeps its own definition row, so a screen
+    that shows one registration still reads that registration's values.
+    """
+    settings = getattr(resolved, "family_settings", None)
+    if settings is not None:
+        return settings
+    return getattr(resolved, "definition", None)
+
+
 @dataclass
 class CanonicalFormula:
     """One logical formula with every registry code that carries it.
@@ -302,7 +382,9 @@ def _canonical_formulas(db, include_inactive: bool = False) -> List[CanonicalFor
     per-site copies of ``rate_cs``) collapse into ONE group, with the same
     representative preference the outlier scan has always used. Inactive rows
     are excluded from analysis but included when building the code index, so a
-    stored finding on a since-deactivated alias can still be traced.
+    stored finding on a since-deactivated alias can still be traced. Each
+    group's representative carries the merged ``family_settings`` of every
+    active copy, so direction/benchmark edits on any copy apply.
     """
     from app.engine import canonical_identity
     from app.models import IndicatorDefinition
@@ -311,10 +393,12 @@ def _canonical_formulas(db, include_inactive: bool = False) -> List[CanonicalFor
     if not include_inactive:
         query = query.filter(IndicatorDefinition.is_active.is_(True))
     groups: Dict[str, CanonicalFormula] = {}
+    members: Dict[str, List[ResolvedIndicator]] = {}
     for definition in query.order_by(IndicatorDefinition.code).all():
         resolved = _resolved_definition(definition)
         key = canonical_identity.identity_key(
             canonical_identity.resolved_identity(resolved))
+        members.setdefault(key, []).append(resolved)
         group = groups.get(key)
         if group is None:
             groups[key] = CanonicalFormula(
@@ -325,6 +409,20 @@ def _canonical_formulas(db, include_inactive: bool = False) -> List[CanonicalFor
         if _outlier_preference(resolved) < _outlier_preference(group.resolved):
             group.resolved = resolved
             group.code = resolved.code
+    if include_inactive:
+        # Index-only callers name codes and identities; they never read
+        # settings, and an inactive copy must not contribute any.
+        return list(groups.values())
+    for key, group in groups.items():
+        # Direction and benchmark settings are a property of the FORMULA: they
+        # are coalesced from every copy, the representative's own value first,
+        # so an edit made on any per-site registration reaches the scan even
+        # though only the representative is analysed.
+        siblings = sorted(
+            (item for item in members[key] if item is not group.resolved),
+            key=_outlier_preference)
+        group.resolved.family_settings = merge_family_settings(
+            [group.resolved] + siblings)
     return list(groups.values())
 
 

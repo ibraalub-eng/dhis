@@ -255,8 +255,13 @@ def test_migration_revision_is_new_head():
     # revision sits on top of the hospital-month audit table, the quality-score
     # revision repair follows it, and the D5 policy-identity revision (a single
     # head) closes the chain.
-    assert script.get_current_head() == "d0e1f2a3b4c5"
+    assert script.get_current_head() == "f3a4b5c6d7e8"
+    assert script.get_revision("f3a4b5c6d7e8").down_revision == "e7f8a9b0c1d2"
+    assert script.get_revision("e7f8a9b0c1d2").down_revision == "b2c3d4e5f6a7"
+    assert script.get_revision("b2c3d4e5f6a7").down_revision == "a2b3c4d5e6f7"
+    assert script.get_revision("a2b3c4d5e6f7").down_revision == "d0e1f2a3b4c5"
     assert script.get_revision("d0e1f2a3b4c5").down_revision == "b7c1d2e3f4a5"
+    assert script.get_revision("b7c1d2e3f4a5").down_revision == "d8e9f0a1b2c3"
     assert script.get_revision("d8e9f0a1b2c3").down_revision == "a1c2e3f4b5d6"
     assert script.get_revision("a1c2e3f4b5d6").down_revision == "f5a6b7c8d9e0"
     assert script.get_revision("f5a6b7c8d9e0").down_revision == "c3d4e5f6a7b8"

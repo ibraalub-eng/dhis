@@ -59,6 +59,8 @@ window.filterQualityReports = _stub('filterQualityReports');
 window.rerenderVal = _stub('rerenderVal');
 window.rerenderAnom = _stub('rerenderAnom');
 window.loadQualityReports = _stub('loadQualityReports');
+window.openQualityReportFor = _stub('openQualityReportFor');
+window.initQualityComponents = _stub('initQualityComponents');
 window.loadOutliers = _stub('loadOutliers');
 window.loadRuleFailures = _stub('loadRuleFailures');
 window.exportOutliersCSV = _stub('exportOutliersCSV');
@@ -203,6 +205,7 @@ async function _loadModules() {
   const mods = [
     ['upload',      () => import('./upload.js')],
     ['quality-alerts', () => import('./quality-alerts.js')],
+    ['quality-components', () => import('./quality-components.js')],
     ['outliers',    () => import('./outliers.js')],
     ['layered',    () => import('./layered.js')],
     ['alerts',      () => import('./alerts.js')],
@@ -213,6 +216,7 @@ async function _loadModules() {
     ['tree',        () => import('./tree.js')],
     ['indicatorGroups', () => import('./indicator-groups.js')],
     ['indicators', () => import('./indicators.js')],
+    ['directionCoverage', () => import('./direction-coverage.js')],
     ['rules',       () => import('./rules.js')],
     ['audit',       () => import('./audit.js')],
     ['hospitals',   () => import('./hospitals.js')],
@@ -248,6 +252,13 @@ function _bindAll(mod, label) {
       _bind(mod, 'displayResults');
       _bind(mod, 'filterPriorityTable'); _bind(mod, 'filterQualityReports');
       _bind(mod, 'rerenderVal'); _bind(mod, 'rerenderAnom'); _bind(mod, 'loadQualityReports');
+      _bind(mod, 'openQualityReportFor');
+      break;
+    case 'directionCoverage':
+      _bind(mod, 'initDirectionCoverage'); _bind(mod, 'loadDirectionCoverage');
+      _bind(mod, 'directionCoverageFilterChanged');
+      _bind(mod, 'directionCoverageToggleAllSuggested');
+      _bind(mod, 'applyDirectionCoverage'); _bind(mod, 'rescanAfterDirections');
       break;
     case 'outliers':
       _bind(mod, 'loadOutliers'); _bind(mod, 'loadRuleFailures');
@@ -266,6 +277,9 @@ function _bindAll(mod, label) {
       _bind(mod, 'openQualityAlert');
       _bind(mod, 'setQualityAlertStatus'); _bind(mod, 'addQualityAlertNote');
       _bind(mod, 'exportQualityAlertsCSV');
+      break;
+    case 'quality-components':
+      _bind(mod, 'initQualityComponents');
       break;
     case 'layered':
       _bind(mod, 'loadLayered'); _bind(mod, 'layeredFilterChange');

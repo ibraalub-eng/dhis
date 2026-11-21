@@ -95,6 +95,9 @@ SOURCE_STATISTICAL_OUTLIER = "statistical_outlier"
 SOURCE_DATA_QUALITY = "data_quality"
 SOURCE_PEER_COMPARISON = "peer_comparison"
 SOURCE_TEMPORAL_TREND = "temporal_trend"
+# A comparison against a FIXED configured reference (global/local benchmark),
+# which is neither a statistical outlier nor a measured peer spread.
+SOURCE_REFERENCE_BENCHMARK = "reference_benchmark"
 SOURCE_SEVERITY_POLICY = "severity_policy"
 SOURCE_LEGACY = "legacy"
 SOURCES: Tuple[str, ...] = (
@@ -103,6 +106,7 @@ SOURCES: Tuple[str, ...] = (
     SOURCE_DATA_QUALITY,
     SOURCE_PEER_COMPARISON,
     SOURCE_TEMPORAL_TREND,
+    SOURCE_REFERENCE_BENCHMARK,
 )
 
 

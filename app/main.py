@@ -32,6 +32,7 @@ from app.api import (  # noqa: E402
     upload,
 )
 from app.api import audit as audit_api
+from app.api import direction_coverage as direction_coverage_api
 from app.api import auth as auth_router
 from app.api import comparative as comparative_router
 from app.api import export as export_router
@@ -43,6 +44,7 @@ from app.api import indicator_definitions as indicator_definitions_router
 from app.api import indicator_groups as indicator_groups_router
 from app.api import menu as menu_router
 from app.api import quality_alerts as quality_alerts_router
+from app.api import quality_components as quality_components_router
 from app.api import regional as regional_router
 from app.api import rules as rules_api
 from app.api import server_logs as server_logs_router
@@ -881,6 +883,7 @@ app.include_router(hospitals.router)
 app.include_router(indicator_config.router)
 app.include_router(indicator_groups_router.router)
 app.include_router(indicator_definitions_router.router)
+app.include_router(direction_coverage_api.router)
 app.include_router(tree_config.router)
 app.include_router(reports.router)
 app.include_router(analysis.router)
@@ -888,6 +891,7 @@ app.include_router(rules_api.router)
 app.include_router(clinical.router)
 app.include_router(alerts.router)
 app.include_router(quality_alerts_router.router)
+app.include_router(quality_components_router.router)
 app.include_router(confidence.router)
 app.include_router(config_api.router)
 app.include_router(config_api.db_router)

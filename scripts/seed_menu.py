@@ -1,11 +1,12 @@
 """Seed default menu groups into the database."""
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import SessionLocal, init_db
-from app.models import MenuGroup, MenuItem
 from app.menu_registry import DEFAULT_GROUPS, TAB_REGISTRY
+from app.models import MenuGroup, MenuItem
 
 
 def _backfill_new_tabs(session):
@@ -33,11 +34,28 @@ def _backfill_new_tabs(session):
             # that was RENAMED or deleted gets a first-active fallback so the
             # tab stays reachable; a group that was DEACTIVATED is respected —
             # the admin deliberately hid that content.
-            target = (
-                session.query(MenuGroup)
-                .filter(MenuGroup.name == group_def["name"], MenuGroup.is_active.is_(True))
-                .first()
-            )
+            # Prefer the section that already holds a sibling tab from this
+            # default layout: a renamed section (e.g. "Oversight" renamed to
+            # "Quality") keeps receiving its new screens instead of the tab
+            # landing in whichever group happens to be first.
+            sibling_group_ids = {
+                item.group_id for item in items
+                if item.tab_key in group_def["items"] and item.tab_key != tab_key
+            }
+            target = None
+            if sibling_group_ids:
+                target = (
+                    session.query(MenuGroup)
+                    .filter(MenuGroup.id.in_(sibling_group_ids), MenuGroup.is_active.is_(True))
+                    .order_by(MenuGroup.sort_order, MenuGroup.id)
+                    .first()
+                )
+            if target is None:
+                target = (
+                    session.query(MenuGroup)
+                    .filter(MenuGroup.name == group_def["name"], MenuGroup.is_active.is_(True))
+                    .first()
+                )
             if target is None and not session.query(MenuGroup).filter(
                 MenuGroup.name == group_def["name"]
             ).first():

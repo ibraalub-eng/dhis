@@ -316,6 +316,13 @@
                     goRootCause(Number(hid), month || '');
                 });
             }
+            if (screen === 'quality' && (params.get('hospital') || month)) {
+                // Quality component drill-down: filter the reports grid to the
+                // hospital-month and open its report card detail.
+                _whenBound('openQualityReportFor', function (openReport) {
+                    openReport(params.get('hospital') || '', month || '');
+                });
+            }
         }
 
         function _initTab(name) {
@@ -343,6 +350,10 @@
             if (name === 'dashboard') _tryInit('initDashboard', 10);
             if (name === 'upload') _tryInit('initUploadTab', 10);
             if (name === 'quality') _tryInit('loadQualityReports', 10);
+            if (name === 'quality-completeness' || name === 'quality-compliance'
+                || name === 'quality-consistency' || name === 'quality-confidence') {
+                _tryInit('initQualityComponents', 10);
+            }
             if (name === 'quality-alerts') _tryInit('initQualityAlerts', 10);
             if (name === 'alerts') { _tryInit('loadAlerts', 10); _tryInit('loadRuleFailures', 10); }
             if (name === 'outliers') _tryInit('loadOutliers', 10);
@@ -355,6 +366,7 @@
             if (name === 'rules-manager') _tryInit('loadRulesManager', 10);
             if (name === 'indicator-groups') _tryInit('initIndicatorGroups', 10);
             if (name === 'indicators') _tryInit('initIndicators', 10);
+            if (name === 'direction-coverage') _tryInit('initDirectionCoverage', 10);
             if (name === 'audit') _tryInit('initAudit', 10);
             if (name === 'smart-analytics') _tryInit('initSmartAnalytics', 10);
             if (name === 'smart-forecast') _tryInit('initSmartForecast', 10);
@@ -376,8 +388,8 @@
         window.skeletonCard=skeletonCard;window.skeletonTable=skeletonTable;window.skeletonChart=skeletonChart;
 
         // -- Breadcrumb Navigation --
-        var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', 'quality-alerts': 'Quality Alerts', analysis: 'Hospital Comparisons', clinical: 'Clinical Intelligence', outliers: 'Outlier Scan', layered: 'Outlier Diagnostics', alerts: 'Validation Alerts', 'indicator-tree': 'Data Tree', 'indicator-groups': 'Data Group', indicators: 'Indicators', 'rules-manager': 'Validation Rules', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', guides: 'Guides', settings: 'System Settings', 'smart-analytics': 'Smart Analytics', 'smart-forecast': 'Smart Forecast' };
-        var _tabIcons = { dashboard: '📊', upload: '📤', quality: '⭐', analysis: '📈', clinical: '🩺', outliers: '⚠', layered: '🧱', alerts: '🔔', 'indicator-tree': '🌳', 'indicator-groups': '🗂️', indicators: '📐', 'rules-manager': '📝', 'root-cause': '🔍', audit: '📋', admin: '🛡', guides: '📚', settings: '⚙', 'smart-analytics': '🧠', 'smart-forecast': '🔮' };
+        var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', 'quality-completeness': 'Completeness', 'quality-compliance': 'Rule Compliance', 'quality-consistency': 'Consistency', 'quality-confidence': 'Confidence', 'quality-alerts': 'Quality Alerts', analysis: 'Hospital Comparisons', clinical: 'Clinical Intelligence', outliers: 'Outlier Scan', layered: 'Outlier Diagnostics', alerts: 'Validation Alerts', 'indicator-tree': 'Data Tree', 'indicator-groups': 'Data Group', indicators: 'Indicators', 'direction-coverage': 'Direction Coverage', 'rules-manager': 'Validation Rules', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', guides: 'Guides', settings: 'System Settings', 'smart-analytics': 'Smart Analytics', 'smart-forecast': 'Smart Forecast' };
+        var _tabIcons = { dashboard: '📊', upload: '📤', quality: '⭐', 'quality-completeness': '🧩', 'quality-compliance': '📏', 'quality-consistency': '🔗', 'quality-confidence': '🎯', analysis: '📈', clinical: '🩺', outliers: '⚠', layered: '🧱', alerts: '🔔', 'indicator-tree': '🌳', 'indicator-groups': '🗂️', indicators: '📐', 'direction-coverage': '🧭', 'rules-manager': '📝', 'root-cause': '🔍', audit: '📋', admin: '🛡', guides: '📚', settings: '⚙', 'smart-analytics': '🧠', 'smart-forecast': '🔮' };
         export function updateBreadcrumb(tabName) { var el = document.getElementById('bcCurrent'); if (!el) return; var name = (window._menuLabels && window._menuLabels[tabName]) || _tabLabels[tabName] || tabName; el.textContent = (_tabIcons[tabName]||'')+' '+name; }
         window.updateBreadcrumb = updateBreadcrumb;
 
@@ -414,7 +426,7 @@
         window.applyScreenTitle = applyScreenTitle;
 
         // -- Global Search (Ctrl+K) --
-        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'quality-alerts',kw:'quality alerts risk outliers very high peer comparison ownership governance region'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
+        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'quality-completeness',kw:'completeness missing values quality score part'},{tab:'quality-compliance',kw:'rule compliance validation passed quality score part'},{tab:'quality-consistency',kw:'consistency contradictions quality score part'},{tab:'quality-confidence',kw:'confidence reliability trust quality score part'},{tab:'quality-alerts',kw:'quality alerts risk outliers very high peer comparison ownership governance region'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'direction-coverage',kw:'direction coverage clinical interpretation missing higher is better lower is worse اتجاه التغطية'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
         var _searchIdx = 0;
         function openSearch() { var ov=document.getElementById('searchOverlay'); var inp=document.getElementById('searchInput'); if(!ov||!inp)return; ov.classList.add('active'); inp.value=''; inp.focus(); _showSearchResults(''); }
         function closeSearch() { var ov=document.getElementById('searchOverlay'); if(ov)ov.classList.remove('active'); }
