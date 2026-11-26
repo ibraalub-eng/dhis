@@ -18,6 +18,7 @@ import { __ } from './i18n.js';
 import { esc } from './tree.js';
 import { toastSuccess, toastError, toastInfo } from './toast.js';
 import { confirmAction } from './confirm-modal.js';
+import { screenUrl } from './newtab.js';
 
 const _FRESH = { noCache: true };
 
@@ -28,8 +29,6 @@ const _DIR_LABEL = {
 
 const _BASIS_LABEL = {
     clinical_guideline: 'Clinical guideline',
-    numerator_of: 'Numerator of a directed rate',
-    conflict: 'Rates disagree',
     none: 'No basis',
 };
 
@@ -68,8 +67,6 @@ function _visibleItems() {
     const filter = _val('dcFilter') || 'all';
     const needle = _val('dcSearch').trim().toLowerCase();
     return _items.filter(item => {
-        if (filter === 'family' && item.kind !== 'family') return false;
-        if (filter === 'raw' && item.kind !== 'raw') return false;
         if (filter === 'alerts' && !item.active_alerts) return false;
         if (filter === 'suggested' && !item.suggested_direction) return false;
         if (needle) {
@@ -93,28 +90,36 @@ function _dirOptions(item) {
 }
 
 function _rowHtml(item) {
-    const key = item.kind + ':' + item.code;
+    const key = item.code;
     const suggested = item.suggested_direction || '';
     const basis = _BASIS_LABEL[item.suggestion_basis] || item.suggestion_basis;
     const reason = item.suggestion_reason || '';
-    const kindLabel = item.kind === 'family'
-        ? _t('Family') : _t('Data element');
     const group = item.group_name
         ? '<div style="font-size:0.68rem;color:var(--text-muted);">' + esc(item.group_name) + '</div>'
         : '';
     const unit = item.unit
         ? '<span style="font-size:0.68rem;color:var(--text-muted);"> · ' + esc(item.unit) + '</span>'
         : '';
-    const badgeColor = item.kind === 'family' ? 'var(--accent-purple)' : 'var(--accent-blue)';
     const alertStyle = item.active_alerts
         ? 'font-weight:700;color:var(--text-primary);'
         : 'color:var(--text-muted);';
-    return '<tr data-kind="' + esc(item.kind) + '" data-code="' + esc(item.code) + '" data-key="' + esc(key) + '">' +
+    // The code opens the family's definition in a new tab, so the reviewer
+    // reads the full detail while this reviewed list (selections included)
+    // stays put.
+    const codeHref = screenUrl('indicators', {
+        code: item.code,
+        def: item.definition_id || '',
+    });
+    const codeTitle = _t('Open the indicator definition');
+    return '<tr data-code="' + esc(item.code) + '" data-key="' + esc(key) + '">' +
         '<td style="text-align:center;">' +
         '<input type="checkbox" class="dc-pick" data-key="' + esc(key) + '" style="accent-color:var(--accent-blue);">' +
         '</td>' +
-        '<td><span style="font-size:0.66rem;font-weight:600;color:' + badgeColor + ';border:1px solid ' + badgeColor + ';border-radius:10px;padding:1px 7px;white-space:nowrap;">' + esc(kindLabel) + '</span></td>' +
-        '<td style="font-family:monospace;direction:ltr;text-align:left;white-space:nowrap;">' + esc(item.code) + '</td>' +
+        '<td style="text-align:left;white-space:nowrap;">' +
+        '<a class="dc-code-link" href="' + esc(codeHref) + '" target="_blank" rel="noopener"' +
+        ' title="' + esc(codeTitle) + '"' +
+        ' style="font-family:monospace;direction:ltr;color:var(--accent-blue);text-decoration:underline;">' +
+        esc(item.code) + '</a></td>' +
         '<td>' + esc(item.name) + unit + group + '</td>' +
         '<td style="text-align:right;' + alertStyle + '">' + _fmtInt(item.active_alerts) + '</td>' +
         '<td><select class="dc-dir" data-key="' + esc(key) + '" style="font-size:0.74rem;padding:0.2rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">' +
@@ -170,7 +175,6 @@ function _selectedRows() {
             const box = tr.querySelector('.dc-pick');
             const select = tr.querySelector('.dc-dir');
             return {
-                kind: tr.dataset.kind,
                 code: tr.dataset.code,
                 checked: !!(box && box.checked),
                 direction: select ? select.value : '',
@@ -203,7 +207,7 @@ async function loadDirectionCoverage_impl() {
             if (el) el.textContent = _fmtInt(value || 0);
         };
         set('dcFamilies', summary.families);
-        set('dcElements', summary.elements);
+
         set('dcAlerts', summary.active_alerts);
         set('dcSuggested', summary.with_suggestion);
         _render();
@@ -211,7 +215,7 @@ async function loadDirectionCoverage_impl() {
     } catch (err) {
         toastError(_errText(err));
         if (tbody) {
-            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--accent-red);padding:1rem;">' +
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--accent-red);padding:1rem;">' +
                 esc(_errText(err)) + '</td></tr>';
         }
     } finally {
@@ -253,13 +257,11 @@ async function applyDirectionCoverage_impl() {
             (missing.length > 5 ? '…' : '') + ')');
         return;
     }
-    const families = picked.filter(row => row.kind === 'family').length;
-    const elements = picked.length - families;
+    const families = picked.length;
     const ok = await confirmAction({
         title: _t('Apply the reviewed directions?'),
         message: _t('This writes the clinical direction of the selected indicators. Nothing else changes.'),
-        details: _t('Families') + ': ' + families + ' · ' +
-            _t('Data elements') + ': ' + elements + '<br>' +
+        details: _t('Families') + ': ' + families + '<br>' +
             picked.map(row => esc(row.code) + ' → ' + esc(_t(_DIR_LABEL[row.direction])))
                 .join('<br>'),
         okLabel: _t('Apply'),
@@ -271,7 +273,7 @@ async function applyDirectionCoverage_impl() {
     try {
         const res = await apiPostJSON('/direction-coverage/apply', {
             items: picked.map(row => ({
-                kind: row.kind, code: row.code, direction: row.direction,
+                kind: 'family', code: row.code, direction: row.direction,
             })),
         });
         const applied = (res && res.applied) || 0;

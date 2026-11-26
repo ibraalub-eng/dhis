@@ -444,24 +444,8 @@ function _statusCell(it, toggleable) {
         '">' + dot + label + '</button>';
 }
 
-// Data elements mirror the Data Tree's Required/Optional flag. A Required
-// element whose sources are all Optional is NOT counted as required (the
-// completeness denominator skips it), so it gets its own label instead of
-// looking identical to a genuinely required element.
-function _reqBadge(it) {
-    if (it.kind !== 'raw') return '';
-    const req = it.requirement_type || 'Required';
-    const inherited = req === 'Required' && !!it.optional_by_inheritance;
-    const label = inherited ? _t('Optional (inherited)') : _t(req);
-    const cls = 'ind-req-chip' + (req === 'Optional' ? ' opt' : '') + (inherited ? ' inh' : '');
-    const title = inherited
-        ? _t('Optional by inheritance: every sub-indicator is Optional, so it is not counted as required.')
-        : (req === 'Optional'
-            ? _t('Optional: excluded from the completeness denominator.')
-            : _t('Required: counts in the completeness denominator.'));
-    return ' <span class="' + cls + '" title="' + esc(title) + '">' + esc(label) + '</span>';
-}
-
+// The Required/Optional flag is NOT shown on this screen: it belongs to the
+// Data Tree, where it is edited. The catalog stays a clean name/code list.
 function _rowHtml(it) {
     const defId = it.definition_id || '';
     // Managed derived indicators are edited in place and flipped between
@@ -495,7 +479,6 @@ function _rowHtml(it) {
         '<td style="padding:0.35rem 0.4rem;color:var(--text-primary);">' +
             '<span style="font-weight:600;">' + esc(it.name) + '</span> ' +
             '<code style="font-size:0.7rem;color:var(--text-muted);direction:ltr;">' + esc(it.code) + '</code>' +
-            _reqBadge(it) +
             (it.description
                 ? '<div style="font-size:0.7rem;color:var(--text-muted);">' + esc(it.description) + '</div>'
                 : '') +
@@ -811,10 +794,6 @@ async function _loadRawDetail(code) {
     const pairs = [
         ['Level', esc(String(d.level == null ? '—' : d.level))],
         ['Type', esc(d.indicator_type || '—')],
-        ['Requirement', esc(d.requirement_type || '—') +
-            (d.optional_by_inheritance
-                ? ' <span class="ind-req-chip inh">' + esc(_t('Optional (inherited)')) + '</span>'
-                : '')],
         ['Status', _drawerItem.status === 'active'
             ? '<span style="color:var(--accent-green);font-weight:600;">● ' + esc(_t('Active')) + '</span>'
             : '<span style="color:var(--accent-red);font-weight:600;">● ' + esc(_t('Inactive')) + '</span>'],
@@ -832,21 +811,6 @@ async function _loadRawDetail(code) {
     // Writers see the editable control below; read-only users see the value.
     if (!_canWrite()) pairs.push(['Global direction', esc(d.global_direction || 'none')]);
     let html = _kvTable(pairs);
-    if (d.optional_by_inheritance) {
-        // Why a Required element is not counted as required — the same rule
-        // the completeness denominator composes through. Name the sources so
-        // the exclusion is auditable from here.
-        const optionalKids = (d.children || []).filter(c =>
-            (c.requirement_type || 'Required') === 'Optional' || c.optional_by_inheritance);
-        html += '<div style="margin-top:0.6rem;padding:0.45rem 0.6rem;border:1px dashed var(--accent-amber,#d97706);border-radius:6px;font-size:0.72rem;color:var(--text-secondary);">' +
-            '<strong style="color:var(--accent-amber,#d97706);">' +
-            esc(_t('Optional (inherited)')) + '</strong> — ' +
-            esc(_t('Not counted as required: every source element under it is Optional.')) +
-            (optionalKids.length
-                ? ' <span style="direction:ltr;">(' + optionalKids.map(c => esc(c.code)).join(', ') + ')</span>'
-                : '') +
-            '</div>';
-    }
     if (d.referenced_by && d.referenced_by.length) {
         html += '<div style="font-weight:600;margin:0.7rem 0 0.3rem;">' + esc(_t('Used by these managed indicators')) + '</div>' +
             '<div style="display:flex;gap:0.4rem;flex-wrap:wrap;">' +
@@ -1644,6 +1608,37 @@ async function recomputeIndicators_impl() {
     }
 }
 
+// ── Deep link: open one catalog row by code ──────────────────────────
+// Direction Coverage links here so its reviewer can read the definition (or
+// the raw element) before applying a direction there. The catalog owns the
+// row's kind, so the right drawer loader runs; a code the catalog does not
+// list falls back to the definition id, then to the raw element reader.
+async function openIndicatorForCode_impl(code, defId, attempt) {
+    attempt = attempt || 0;
+    // The fragment is injected after switchTab, so the drawer may not be in the
+    // DOM yet when the deep link fires: retry briefly instead of dropping it.
+    if (!document.getElementById('indDrawer')) {
+        if (attempt < 20) {
+            setTimeout(function () { openIndicatorForCode_impl(code, defId, attempt + 1); }, 250);
+        }
+        return;
+    }
+    const wanted = String(code || '').trim();
+    const wantedId = Number(defId) || null;
+    if (!wanted) return;
+    if (!_items.length) {
+        try { await _loadList(); } catch (e) { /* the drawer still opens below */ }
+    }
+    const item = _items.find(x => x.code === wanted)
+        || (wantedId ? _items.find(x => Number(x.definition_id) === wantedId) : null);
+    if (item) {
+        _openDetail(item.kind, item.code,
+            item.definition_id ? Number(item.definition_id) : null);
+        return;
+    }
+    _openDetail(wantedId ? 'derived' : 'raw', wanted, wantedId);
+}
+
 // ── Inline-handler hooks referenced by the fragment (window.*) ────────
 // Declared at module load so the fragment's guarded inline handlers
 // (window._indX && window._indX()) resolve before the first init call.
@@ -1663,6 +1658,7 @@ window._indDeleteFromDrawer = function () { deleteIndicator(); };
 // Thin sync wrappers over the async implementations so inline handlers,
 // app.js _bind() and main.js _tryInit() all receive plain functions.
 export function initIndicators() { return initIndicators_impl(); }
+export function openIndicatorForCode(code, defId) { return openIndicatorForCode_impl(code, defId); }
 export function saveIndicator() { return saveIndicator_impl(); }
 export function validateIndicatorDraft() { return validateIndicatorDraft_impl(); }
 export function toggleIndicatorActive() { return toggleIndicatorActive_impl(); }

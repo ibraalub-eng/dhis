@@ -1,10 +1,10 @@
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
   <div>
     <h2 style="margin:0;" data-menu-label data-i18n="Direction Coverage">Direction Coverage</h2>
-    <span style="font-size:0.82rem;color:var(--text-muted);" data-i18n="Families and data elements with no recorded clinical direction — ordered by the active alerts they affect.">Families and data elements with no recorded clinical direction — ordered by the active alerts they affect.</span>
+    <span style="font-size:0.82rem;color:var(--text-muted);" data-i18n="Indicator families with no recorded clinical direction — ordered by the active alerts they affect.">Indicator families with no recorded clinical direction — ordered by the active alerts they affect.</span>
   </div>
   <div style="display:flex;align-items:center;gap:0.4rem;">
-    <button class="btn btn-sm btn-outline" onclick="window._dcReload && window._dcReload()" title="Reload the coverage list">↻ <span data-i18n="Refresh">Refresh</span></button>
+    <button class="btn btn-sm btn-outline" onclick="window._dcReload && window._dcReload()" title="Reload the coverage list" data-i18n-title="Reload the coverage list">↻ <span data-i18n="Refresh">Refresh</span></button>
     <button class="btn btn-sm" id="dcApplyBtn" data-requires="settings.write" onclick="window._dcApply && window._dcApply()">✓ <span data-i18n="Apply selected">Apply selected</span> <span id="dcApplyCount" style="opacity:0.8;"></span></button>
   </div>
 </div>
@@ -13,10 +13,6 @@
   <div class="card" style="padding:0.7rem 0.9rem;">
     <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;" data-i18n="Families without direction">Families without direction</div>
     <div id="dcFamilies" style="font-size:1.35rem;font-weight:700;color:var(--accent-orange);">—</div>
-  </div>
-  <div class="card" style="padding:0.7rem 0.9rem;">
-    <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;" data-i18n="Data elements without direction">Data elements without direction</div>
-    <div id="dcElements" style="font-size:1.35rem;font-weight:700;color:var(--accent-orange);">—</div>
   </div>
   <div class="card" style="padding:0.7rem 0.9rem;">
     <div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;" data-i18n="Active alerts affected">Active alerts affected</div>
@@ -43,8 +39,6 @@
     <input id="dcSearch" data-i18n-placeholder="Search code, name or group…" placeholder="Search code, name or group…" oninput="window._dcFilterChange && window._dcFilterChange()" style="flex:1;min-width:170px;font-size:0.78rem;padding:0.3rem 0.5rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
     <select id="dcFilter" onchange="window._dcFilterChange && window._dcFilterChange()" style="font-size:0.76rem;padding:0.3rem;border:1px solid var(--border-default);border-radius:6px;background:var(--bg-input);color:var(--text-primary);">
       <option value="all" data-i18n="All items">All items</option>
-      <option value="family" data-i18n="Families only">Families only</option>
-      <option value="raw" data-i18n="Data elements only">Data elements only</option>
       <option value="alerts" data-i18n="With active alerts">With active alerts</option>
       <option value="suggested" data-i18n="With a suggestion">With a suggestion</option>
     </select>
@@ -66,7 +60,6 @@
       <thead>
         <tr>
           <th style="width:28px;"></th>
-          <th style="text-align:left;" data-i18n="Type">Type</th>
           <th style="text-align:left;" data-i18n="Code">Code</th>
           <th style="text-align:left;" data-i18n="Name">Name</th>
           <th style="text-align:right;" data-i18n="Active alerts">Active alerts</th>

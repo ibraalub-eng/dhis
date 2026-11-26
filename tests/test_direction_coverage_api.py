@@ -3,13 +3,15 @@
 The screen exists because an alert can only say whether a deviation is good or
 bad when the indicator carries a direction. These tests pin:
 
-* the list contains only indicators with NO recorded direction,
+* the list contains registered indicator families only — a raw Data Element is
+  edited on the element itself and never joins this queue,
+* only families with NO recorded direction appear,
 * the order is by ACTIVE alerts (archived rows never count),
-* a suggestion always names its basis and is never invented: a guideline, a
-  numerator role, or an explicit "no basis",
-* bulk apply writes families on their representative definition (with the
-  version audit) and raw elements on the element (with the direction audit),
-  skips no-ops, and rejects an invalid batch before writing anything.
+* a suggestion names its basis and is never invented: a clinical guideline or
+  an explicit "no basis",
+* bulk apply writes the family on its representative definition with the
+  version audit, skips no-ops, rejects raw items, and rejects an invalid batch
+  before writing anything.
 """
 import json
 
@@ -21,7 +23,6 @@ from app.models import (
     Indicator,
     IndicatorDefinition,
     IndicatorDefinitionVersion,
-    IndicatorDirectionHistory,
     QualityAlert,
 )
 
@@ -33,8 +34,8 @@ def client(app):
 
 @pytest.fixture
 def coverage_dataset(db_session):
-    """One directed-by-guideline family, its numerator and denominator, and an
-    unrelated element with the most active alerts."""
+    """One family directed by guideline plus a second, unmapped family; their
+    raw source elements stay unlisted even though three carry alerts."""
     family = IndicatorDefinition(
         code="DC_CS_RATE",
         name="DC C-Section Rate",
@@ -69,7 +70,7 @@ def coverage_dataset(db_session):
 
     hospital = db_session.query(Hospital).order_by(Hospital.id).first()
     months = ["2026-01", "2026-02", "2026-03"]
-    for index, month in enumerate(months):
+    for month in months:
         db_session.add(QualityAlert(
             hospital_id=hospital.id, month=month, perspective="history",
             indicator_code="DC_CS_RATE", indicator_name="DC C-Section Rate",
@@ -81,6 +82,13 @@ def coverage_dataset(db_session):
         indicator_code="DC_CS_RATE", indicator_name="DC C-Section Rate",
         severity="HIGH", method="zscore", active=False,
     ))
+    # The second family carries fewer active alerts, so it sorts below.
+    db_session.add(QualityAlert(
+        hospital_id=hospital.id, month="2026-01", perspective="history",
+        indicator_code="DC_OTHER_RATE", indicator_name="DC Unmapped Rate",
+        severity="MODERATE", method="zscore", active=True,
+    ))
+    # Raw elements carry alerts of their own; they must not appear in the list.
     for index in range(5):
         db_session.add(QualityAlert(
             hospital_id=hospital.id, month=months[index % 3],
@@ -111,70 +119,63 @@ def _by_code(payload):
 
 # ── list + suggestions ──────────────────────────────────────────────────────
 
-def test_list_order_and_scope_use_active_alerts_only(client, db_session,
-                                                     coverage_dataset):
+def test_list_covers_families_only_and_counts_active_alerts(
+        client, db_session, coverage_dataset):
     payload = _items(client)
     items = _by_code(payload)
-    # The family has 3 active + 1 archived alert.
+
+    # Raw data elements never join the queue: their direction is edited on the
+    # element itself, not applied from this screen.
+    assert all(item["kind"] == "family" for item in payload["items"])
+    for code in ("DC_CS_NUM", "DC_DELIVERIES", "DC_OTHER_NUM",
+                 "DC_UNRELATED"):
+        assert code not in items
+    assert "elements" not in payload["summary"]
+
+    # The family has 3 active + 1 archived alert; the second family has 1.
     assert items["DC_CS_RATE"]["active_alerts"] == 3
-    assert items["DC_UNRELATED"]["active_alerts"] == 5
-
+    assert items["DC_OTHER_RATE"]["active_alerts"] == 1
     codes = [item["code"] for item in payload["items"]]
-    assert codes.index("DC_UNRELATED") < codes.index("DC_CS_RATE")
-    # Directed definitions/elements are not in the list at all.
-    assert "DC_OTHER_RATE" in items
+    assert codes.index("DC_CS_RATE") < codes.index("DC_OTHER_RATE")
     assert payload["summary"]["families"] >= 2
-    assert payload["summary"]["active_alerts"] >= 9
+    assert payload["summary"]["active_alerts"] >= 4
 
-    # A recorded direction removes the item.
+    # A recorded direction removes the family.
     coverage_dataset["family"].global_direction = "lower_is_better"
     db_session.commit()
     assert "DC_CS_RATE" not in _by_code(_items(client))
 
 
-def test_suggestions_name_their_basis_or_stay_empty(client, coverage_dataset):
+def test_suggestion_names_its_guideline_or_stays_empty(client, coverage_dataset):
     items = _by_code(_items(client))
 
     family = items["DC_CS_RATE"]
-    assert family["kind"] == "family"
     assert family["suggested_direction"] == "lower_is_better"
     assert family["suggestion_basis"] == "clinical_guideline"
     assert "WHO" in family["suggestion_reason"]
 
-    # A numerator of a directed rate moves the rate the same way.
-    numerator = items["DC_CS_NUM"]
-    assert numerator["suggested_direction"] == "lower_is_better"
-    assert numerator["suggestion_basis"] == "numerator_of"
-    assert "DC C-Section Rate" in numerator["suggestion_reason"]
-
-    # The denominator has no clinical meaning of its own.
-    denominator = items["DC_DELIVERIES"]
-    assert denominator["suggested_direction"] is None
-    assert denominator["suggestion_basis"] == "none"
-    assert "Denominator" in denominator["suggestion_reason"]
-
-    # Nothing invents a direction for an unrelated element.
-    unrelated = items["DC_UNRELATED"]
-    assert unrelated["suggested_direction"] is None
-    assert unrelated["suggestion_basis"] == "none"
+    # Nothing invents a direction for a family no guideline covers.
+    other = items["DC_OTHER_RATE"]
+    assert other["suggested_direction"] is None
+    assert other["suggestion_basis"] == "none"
+    assert other["suggestion_reason"] is None
 
 
 # ── bulk apply ──────────────────────────────────────────────────────────────
 
-def test_bulk_apply_writes_both_kinds_with_their_audit(
+def test_bulk_apply_writes_the_family_with_its_audit(
         client, db_session, coverage_dataset):
     body = {"items": [
         {"kind": "family", "code": "DC_CS_RATE",
          "direction": "lower_is_better"},
-        {"kind": "raw", "code": "DC_CS_NUM", "direction": "lower_is_better"},
     ]}
     resp = client.post("/direction-coverage/apply", json=body)
     assert resp.status_code == 200, resp.text
     result = resp.json()
-    assert result["applied"] == 2
+    assert result["applied"] == 1
     assert result["skipped"] == 0
     assert result["rescan_required"] is True
-    # 3 alerts on the family + 0 on its numerator.
+    # 3 alerts on the family.
     assert result["affected_alerts"] == 3
 
     family = coverage_dataset["family"]
@@ -189,44 +190,39 @@ def test_bulk_apply_writes_both_kinds_with_their_audit(
     assert json.loads(version.changed_fields) == ["global_direction"]
     assert version.changed_by == "testadmin"
 
-    raw = coverage_dataset["num"]
-    db_session.refresh(raw)
-    assert raw.global_direction == "lower_is_better"
-    history = (db_session.query(IndicatorDirectionHistory)
-               .filter_by(indicator_code="DC_CS_NUM")
-               .all())
-    assert len(history) == 1
-    assert history[0].previous_value is None
-    assert history[0].new_value == "lower_is_better"
-    assert history[0].changed_by == "testadmin"
+    # The raw element used by the family is untouched.
+    db_session.refresh(coverage_dataset["num"])
+    assert coverage_dataset["num"].global_direction is None
 
-    # Re-applying the same reviewed list changes nothing and adds no rows.
+    # Re-applying the same reviewed list changes nothing.
     again = client.post("/direction-coverage/apply", json=body)
     assert again.status_code == 200, again.text
     assert again.json()["applied"] == 0
-    assert again.json()["skipped"] == 2
+    assert again.json()["skipped"] == 1
     assert again.json()["rescan_required"] is False
     db_session.refresh(family)
     assert family.version == 2
-    assert (db_session.query(IndicatorDirectionHistory)
-            .filter_by(indicator_code="DC_CS_NUM").count()) == 1
 
-    # Both rows leave the coverage list.
-    items = _by_code(_items(client))
-    assert "DC_CS_RATE" not in items
-    assert "DC_CS_NUM" not in items
+    # The family leaves the coverage list.
+    assert "DC_CS_RATE" not in _by_code(_items(client))
 
 
-def test_invalid_batch_is_rejected_before_anything_is_written(
+def test_only_families_and_valid_batches_are_applied(
         client, db_session, coverage_dataset):
+    # A raw Data Element is not applicable from this screen.
+    raw = client.post("/direction-coverage/apply", json={"items": [
+        {"kind": "raw", "code": "DC_UNRELATED", "direction": "lower_is_better"},
+    ]})
+    assert raw.status_code == 422, raw.text
+    db_session.refresh(coverage_dataset["unrelated"])
+    assert coverage_dataset["unrelated"].global_direction is None
+
     bad = client.post("/direction-coverage/apply", json={"items": [
-        {"kind": "raw", "code": "DC_UNRELATED",
-         "direction": "lower_is_better"},
         {"kind": "family", "code": "DC_CS_RATE", "direction": "target_range"},
     ]})
     assert bad.status_code == 422, bad.text
-    db_session.refresh(coverage_dataset["unrelated"])
-    assert coverage_dataset["unrelated"].global_direction is None
+    db_session.refresh(coverage_dataset["family"])
+    assert coverage_dataset["family"].global_direction is None
 
     unknown = client.post("/direction-coverage/apply", json={"items": [
         {"kind": "family", "code": "NOPE", "direction": "lower_is_better"},
