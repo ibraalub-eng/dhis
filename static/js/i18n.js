@@ -18,6 +18,9 @@
             // Menu group names
             'Home': 'الرئيسية',
             'Data': 'البيانات',
+            'User Guide': 'دليل المستخدم',
+            'Step-by-step guides for every screen in the Data section.': 'أدلة خطوة بخطوة لكل شاشة في قسم البيانات.',
+            'Search a screen or a topic…': 'ابحث عن شاشة أو موضوع…',
             'Analysis': 'التحليل',
             'Oversight': 'الرقابة',
             'System': 'النظام',
@@ -622,6 +625,8 @@
             'Status': 'الحالة',
             'Details': 'التفاصيل',
             'Validation Results': 'نتائج التحقق',
+            'Compliance by hospital': 'الالتزام بالقواعد حسب المستشفى',
+            'Stored validation results: the rules that failed and the compliance score they add up to': 'نتائج التحقق المخزنة: القواعد التي أخفقت والدرجة التي تجمعها',
             'Anomaly Detection': 'كشف الشذوذ',
             'Rate': 'المعدل',
             'Z-Score': 'درجة Z',
@@ -1519,6 +1524,12 @@
             'Clear all log entries from memory?': 'مسح جميع السجلات من الذاكرة؟',
             'Error': 'خطأ',
             'Failed': 'فشل',
+            'Month analysis': 'حالة تحليل الشهور',
+            'Analyzing': 'قيد التحليل',
+            'Complete': 'مكتمل',
+            'Queued': 'في الانتظار',
+            'Scores and reports appear for each month as its analysis finishes — an unfinished month is not empty data.': 'تظهر الدرجات والتقارير لكل شهر عند انتهاء تحليله — الشهر غير المكتمل ليس شهرًا بلا بيانات.',
+            'Analysis status unavailable': 'تعذر عرض حالة التحليل',
             'Roles': 'الأدوار',
             'This cannot be undone.': 'لا يمكن التراجع عن هذا الإجراء.',
             'Actual': 'الفعلي',
@@ -2249,10 +2260,9 @@
             'VERY_HIGH requires the comparison\'s own dispersion to support the top band: a robust scale (MAD/IQR) can sit at its floor and grade any change as maximal, so the same window\'s dispersion-aware score decides whether the top band may be claimed. Below it the band is HIGH': 'يتطلب المستوى الأعلى أن يدعمه تباين المقارنة نفسها: فقد يستقر مقياس التباين المتين (MAD/IQR) عند حده الأدنى فيصنّف أي تغيير كأقصى ما يمكن، لذا تحدد الدرجة الواعية بالتباين في النافذة نفسها ما إذا كان يمكن ادعاء المستوى الأعلى. ودون ذلك يكون المستوى HIGH',
             // Direction coverage screen
             'Direction Coverage': 'تغطية الاتجاه',
-            'Families and data elements with no recorded clinical direction — ordered by the active alerts they affect.': 'العائلات وعناصر البيانات التي لا تحمل اتجاهًا سريريًا مسجَّلًا — مرتّبة حسب التنبيهات النشطة المتأثرة.',
+            'Indicator families with no recorded clinical direction — ordered by the active alerts they affect.': 'عائلات المؤشرات التي لا تحمل اتجاهًا سريريًا مسجَّلًا — مرتّبة حسب التنبيهات النشطة المتأثرة.',
             'Apply selected': 'تطبيق المحدَّد',
             'Families without direction': 'عائلات بلا اتجاه',
-            'Data elements without direction': 'عناصر بيانات بلا اتجاه',
             'Active alerts affected': 'تنبيهات نشطة متأثرة',
             'With a suggested direction': 'بها اتجاه مقترح',
             'Directions saved.': 'تم حفظ الاتجاهات.',
@@ -2261,7 +2271,6 @@
             'Search code, name or group…': 'ابحث بالرمز أو الاسم أو المجموعة…',
             'All items': 'كل العناصر',
             'Families only': 'العائلات فقط',
-            'Data elements only': 'عناصر البيانات فقط',
             'With active alerts': 'مع تنبيهات نشطة',
             'With a suggestion': 'بها اقتراح',
             'Select all with a suggestion': 'تحديد الكل الذي له اقتراح',
@@ -2279,6 +2288,9 @@
             'No basis': 'لا أساس',
             'proposed': 'مقترح',
             '— choose —': '— اختر —',
+            'Open the indicator definition': 'افتح تعريف المؤشر',
+            'Open the data element': 'افتح عنصر البيانات',
+            'Reload the coverage list': 'إعادة تحميل قائمة التغطية',
             'Select at least one row to apply.': 'حدّد صفًا واحدًا على الأقل للتطبيق.',
             'Choose a direction for the selected rows, or clear their selection.': 'اختر اتجاهًا للصفوف المحدَّدة أو ألغِ تحديدها.',
             'Apply the reviewed directions?': 'تطبيق الاتجاهات المراجَعة؟',
@@ -2369,6 +2381,13 @@
             });
             // Translate placeholders only when a real translation exists, so
             // fragments that already carry a localized placeholder keep it.
+            // Tooltips follow the placeholder rule: apply only a real
+            // translation, so the English title stays as authored otherwise.
+            document.querySelectorAll('[data-i18n-title]').forEach(el => {
+                const key = el.getAttribute('data-i18n-title');
+                const trans = __(key);
+                if (trans !== key) el.setAttribute('title', trans);
+            });
             document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
                 const key = el.getAttribute('data-i18n-placeholder');
                 const trans = __(key);
