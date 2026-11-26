@@ -720,6 +720,47 @@ def validate_rule(body: dict, db: Session = Depends(get_db)):
     # skipped by the engine (which reports PASS), so the two sides are checked
     # here — before the definition can be saved — with a message naming the
     # offending side.
+    if (expr or "").lower() == "compare":
+        from app.engine.quality.rules import compare_params
+
+        normalized = compare_params(params_raw)
+        if normalized is None:
+            errors.append("A compare rule needs both sides: left and right.")
+        elif not normalized["left"]["codes"]:
+            errors.append("Left side is required.")
+        elif not normalized["right"]["codes"]:
+            errors.append("Right side is required.")
+        if str(params_raw.get("op") or ">=").strip() not in ("=", "!=", ">", ">=", "<", "<="):
+            errors.append(
+                f"Unknown comparison operator '{params_raw.get('op')}'. "
+                "Use one of =, !=, >, >=, <, <=."
+            )
+
+    if (expr or "").lower() == "trend":
+        from app.engine.quality.rules import trend_params
+
+        if trend_params(params_raw) is None:
+            errors.append(
+                "A trend rule needs a direction (over or under) and the indicator code(s) it watches."
+            )
+        raw_factor = params_raw.get("factor")
+        if raw_factor not in (None, ""):
+            try:
+                valid_factor = float(raw_factor) > 0
+            except (TypeError, ValueError):
+                valid_factor = False
+            if not valid_factor:
+                errors.append("The trend factor must be a positive number.")
+
+    if (expr or "").lower() == "value_check":
+        from app.engine.quality.rules import value_check_params
+
+        if value_check_params(params_raw) is None:
+            errors.append(
+                "A value_check rule needs at least one check "
+                "(negative, decimal, missing, all_zero) with the indicator codes it reads."
+            )
+
     if (expr or "").lower() == "formula":
         from app.engine.quality.rules import validate_formula_expression
 

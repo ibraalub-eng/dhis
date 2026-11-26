@@ -218,21 +218,15 @@
                     </div>
                     <div><label style="font-size:0.8rem;color:var(--text-secondary);">Expression Type</label><br>
                         <select id="ruleEditExpr" style="width:100%;" onchange="ruleExprTemplate()">
-                            <option value="ge">ge — parent >= sum(children)</option>
-                            <option value="gt">gt — parent &gt; sum(children)</option>
-                            <option value="ge_factor">ge_factor — parent × factor >= sum(children)</option>
-                            <option value="eq">eq — parent == sum(children)</option>
-                            <option value="le">le — child <= parent</option>
-                            <option value="lt">lt — child &lt; parent</option>
-                            <option value="le_sum">le_sum — child >= sum(children)</option>
-                            <option value="parent_le">parent_le — parent &lt;= sum(children)</option>
-                            <option value="parent_lt">parent_lt — parent &lt; sum(children)</option>
+                            <option value="compare">compare — left operand op right operand</option>
                             <option value="month_over">month_over — current > factor * prev</option>
                             <option value="month_under">month_under — current < factor * prev</option>
+                            <option value="trend">trend — direction (over/under) + factor vs previous month</option>
                             <option value="neg_check">neg_check — negative values</option>
                             <option value="decimal_check">decimal_check — decimal values</option>
                             <option value="missing">missing — missing indicator</option>
                             <option value="all_zero">all_zero — all indicators zero</option>
+                            <option value="value_check">value_check — negative / decimal / missing / all zero</option>
                             <option value="formula">formula — arithmetic expression = indicator</option>
                         </select>
                     </div>

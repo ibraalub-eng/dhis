@@ -3972,8 +3972,33 @@ function loadHospitalsSettings() {
             if (["month_over", "month_under", "missing"].indexOf(expr) !== -1) {
                 return [params.code].filter(Boolean);
             }
+            if (expr === "trend") {
+                const codes = (params.codes && params.codes.length) ? params.codes : (params.code ? [params.code] : []);
+                return codes.filter(Boolean);
+            }
+            if (expr === "compare") {
+                const codes = [];
+                ["left", "right"].forEach(function(side) {
+                    const s = params[side] || {};
+                    if (s.codes && s.codes.length) codes.push.apply(codes, s.codes);
+                    else if (s.code) codes.push(s.code);
+                });
+                return codes.filter(Boolean);
+            }
             if (["neg_check", "decimal_check"].indexOf(expr) !== -1) return params.codes || [];
             if (expr === "all_zero") return (params.codes && params.codes.length) ? params.codes : ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"];
+            if (expr === "value_check") {
+                // Mirror of the engine: every check's codes, with the
+                // key-indicator default when an all_zero check names none.
+                const checks = (params && params.checks) || (params && params.kind ? [params] : []);
+                const codes = [];
+                checks.forEach(function(c) {
+                    const list = (c.codes && c.codes.length) ? c.codes : (c.code ? [c.code] : []);
+                    if (list.length) codes.push.apply(codes, list);
+                    else if (c.kind === "all_zero") codes.push.apply(codes, ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]);
+                });
+                return codes.filter(function(c, i, arr) { return arr.indexOf(c) === i; });
+            }
             if (expr === "formula") {
                 // Mirror of the engine's extraction: both sides, either spelling.
                 return _formulaTextCodes(params.formula)
@@ -4036,10 +4061,29 @@ function loadHospitalsSettings() {
                 row("Child", codeName(params.child)); row("Parent", codeName(params.parent));
             } else if (["month_over", "month_under"].indexOf(expr) !== -1) {
                 row("Indicator", codeName(params.code)); row("Factor", esc(params.factor));
+            } else if (expr === "trend") {
+                row("Direction", esc(params.direction || 'over'));
+                row("Factor", esc(params.factor));
+                row("Indicators", childrenList((params.codes && params.codes.length) ? params.codes : (params.code ? [params.code] : [])));
             } else if (["neg_check", "decimal_check", "all_zero"].indexOf(expr) !== -1) {
                 row("Codes", childrenList(params.codes));
             } else if (expr === "missing") {
                 row("Indicator", codeName(params.code));
+            } else if (expr === "compare") {
+                const sideText = function(s) {
+                    const list = (s && s.codes && s.codes.length) ? s.codes : ((s && s.code) ? [s.code] : []);
+                    return childrenList(list) + (s && s.agg ? ' <em>(' + esc(s.agg) + ')</em>' : '');
+                };
+                row("Left side", sideText(params.left));
+                row("Operator", esc(params.op || '>='));
+                row("Right side", sideText(params.right));
+                if (params.factor !== undefined && parseFloat(params.factor) !== 1) row("Factor", esc(params.factor));
+            } else if (expr === "value_check") {
+                const checks = (params && params.checks) || (params && params.kind ? [params] : []);
+                checks.forEach(function(c) {
+                    const list = (c.codes && c.codes.length) ? c.codes : (c.code ? [c.code] : []);
+                    row(c.kind || c.type || "check", childrenList(list));
+                });
             } else if (expr === "formula") {
                 row("Left side", '<span class="rule-ref-chip" style="font-family:Consolas,monospace;">' + esc(params.formula) + '</span>');
                 row("Operator", esc(params.op || '='));
@@ -4633,29 +4677,34 @@ function loadHospitalsSettings() {
         }
 
         export const EXPR_EXPLANATIONS = {
-            'ge': {title: 'parent >= sum(children)', text: 'FAILs when the parent indicator value is less than the sum of its child indicators. Use for aggregation checks like Total Deliveries >= NVD + Assisted + C-sections.'},
-            'gt': {title: 'parent > sum(children)', text: 'FAILs when the parent value is less than or equal to the sum of its children. Strict version of ge — equality does not pass. Use when the parent must strictly exceed its breakdown.'},
-            'ge_factor': {title: 'parent × factor >= sum(children)', text: 'FAILs when the sum of children exceeds the parent value multiplied by a factor. Use factor > 1 to allow children to exceed the parent (e.g. 1.1 = +10% tolerance), or factor < 1 to require a stricter margin. Example params: {"parent":"2","children":["3","4","5"],"factor":1.1}'},
-            'eq': {title: 'parent == sum(children)', text: 'FAILs when the parent value != sum of children. Use for exact equality checks like Male + Female + Unknown = Live Births.'},
-            'le': {title: 'child <= parent', text: 'FAILs when child value exceeds parent value. Use for subset checks like Emergency C/S <= Total C-sections.'},
-            'lt': {title: 'child < parent', text: 'FAILs when the child value is greater than or equal to the parent value. Strict version of le — equality does not pass. Use when the child must be strictly below the parent.'},
-            'le_sum': {title: 'child >= sum(children)', text: 'FAILs when child value is less than sum of its sub-children. Reverse of ge — use when a parent should be >= its breakdown.'},
-            'parent_le': {title: 'parent <= sum(children)', text: 'FAILs when the parent value is greater than the sum of its children. True reverse of ge — use when the children must account for at least the whole parent. Example params: {"parent":"10.a.1","children":["10.a.1.1","10.a.1.2"]}'},
-            'parent_lt': {title: 'parent < sum(children)', text: 'Strict version of parent_le: FAILs when the parent value is greater than or equal to the sum of its children — equality also fails. Use when the breakdown must strictly exceed the parent. Example params: {"parent":"10.a.1","children":["10.a.1.1","10.a.1.2"]}'},
+            'compare': {title: 'left operand op right operand', text: 'Compares two sides with an operator. Each side is one indicator (read as-is) or a list (summed); factor scales the left side for a factored bound. Example params: {"left":{"codes":["2"],"agg":"single"},"right":{"codes":["3","4","5"],"agg":"sum"},"op":">="}. One policy applies to every operator: the tolerance is the rules policy eq_tolerance (so = means equal within it, and > means greater by more than it), a side with no value passes, and 0 compared with 0 passes. The retired per-comparison types still evaluate as aliases, and an old rule opens in this builder as its compare equivalent.'},
             'month_over': {title: 'FAIL if current > factor * previous', text: 'Detects unusual spikes. FAIL when current month value exceeds (previous month × factor). Example: factor=2.0 means >200% increase triggers alert.'},
             'month_under': {title: 'FAIL if current < factor * previous', text: 'Detects unusual drops. FAIL when current month value is below (previous month × factor). Example: factor=0.5 means <50% of previous month triggers alert.'},
+            'trend': {title: 'FAIL when this month moves the wrong way vs the previous month', text: 'One type for the month-over-month checks. direction "over" FAILs when the current value is above factor × previous (2.0 = more than double); "under" FAILs when it is below factor × previous (0.5 = less than half). A previous value that is missing, zero or negative passes — no baseline is not evidence of a spike or a drop. codes[] may list several indicators; the first failure is reported. Legacy types month_over and month_under still work as aliases. Example params: {"direction":"over","factor":2.0,"codes":["2"]}.'},
             'neg_check': {title: 'FAIL if any listed code is negative', text: 'Checks that all listed indicator codes have non-negative values (counts should always be >= 0). Takes codes[] list.'},
             'decimal_check': {title: 'FAIL if any listed code has decimal', text: 'Checks that all listed count indicators are whole numbers (integers). Counts should not have decimal values. Takes codes[] list.'},
             'missing': {title: 'FAIL if indicator has no value', text: 'Checks whether a critical indicator code is present in the data. FAIL if the indicator is missing (null/undefined). Takes a single code.'},
             'all_zero': {title: 'FAIL if ALL listed codes are zero', text: 'Checks if all key indicators are zero, suggesting the facility may not be operational or data is missing. Takes codes[] list.'},
+            'value_check': {title: 'FAIL if any listed value check fails', text: 'One type for the indicator-value checks: negative (a value below zero), decimal (a count that is not a whole number), missing (an indicator with no value) and all_zero (every listed value is zero). Checks run in order and the first failing one is reported; a single-check rule behaves exactly like its legacy type. Example params: {"checks":[{"kind":"negative","codes":["2","3"]},{"kind":"all_zero"}]}.'},
             'formula': {title: 'left side expression ≤/≥/=/≠ right side expression', text: 'Compares two arithmetic expressions over indicator codes and FAILs when the chosen operator does not hold. Both sides accept +, -, *, /, numeric constants, ( ) and [ ] grouping, and indicator references written as {7} or as Name (7) — so a whole rule can be typed as \'Live births (6) + Stillbirths >24w (7) = Total deliveries (2) + [Babies from multiples (6.e) − Multiple pregnancies (6.d)]\'. Operators: =, ≠, >, <, ≥, ≤. Example params: {"formula":"{6} + {7}","rhs":"{2} + [{6.e} - {6.d}]","op":"="}. Against one indicator: {"formula":"({6.e} * 2) - {7}","target":"6","op":">"}. A right side that is a single indicator is stored as "target". Indicators with no value make the rule pass (it never fails on missing data).'},
         };
         // Short human-readable label per expression type — "code — meaning",
         // matching the edit-modal dropdown convention. Falls back to the raw
         // code for unknown types so new backend types never render blank.
+        //: Retired comparison types -> the merged type they are shown as.
+        const RETIRED_COMPARE_TYPES = {
+            ge: 'compare', gt: 'compare', eq: 'compare', ge_factor: 'compare',
+            le: 'compare', lt: 'compare', le_sum: 'compare',
+            parent_le: 'compare', parent_lt: 'compare',
+        };
+
         export function exprTypeLabel(expr) {
-            const expl = EXPR_EXPLANATIONS[expr];
-            return expl ? expr + ' — ' + __(expl.title) : (expr || '--');
+            // A stored rule with a retired type is labelled as its merged
+            // equivalent, so the table never shows a type the dropdown dropped.
+            const merged = RETIRED_COMPARE_TYPES[expr];
+            const expl = EXPR_EXPLANATIONS[merged || expr];
+            if (!expl) return expr || '--';
+            return (merged ? expr + ' \u2192 compare — ' : expr + ' — ') + __(expl.title);
         }
 
 

@@ -1072,8 +1072,11 @@
             'FAILs when the child value is greater than or equal to the parent value. Strict version of le — equality does not pass. Use when the child must be strictly below the parent.': 'يفشل عندما تكون قيمة الابن أكبر من أو تساوي قيمة الأب. النسخة الصارمة من le — المساواة لا تُقبل. يُستخدم عندما يجب أن تكون قيمة الابن أقل من الأب بشكل صارم.',
             'FAILs when child value is less than sum of its sub-children. Reverse of ge — use when a parent should be >= its breakdown.': 'يفشل عندما تكون قيمة الابن أقل من مجموع أبنائه. عكس ge — يُستخدم عندما يجب أن يكون الأصل أكبر من أو يساوي تفصيله.',
             'FAILs when the parent value is greater than the sum of its children. True reverse of ge — use when the children must account for at least the whole parent. Example params: {"parent":"10.a.1","children":["10.a.1.1","10.a.1.2"]}': 'يفشل عندما تكون قيمة الأب أكبر من مجموع أبنائه. العكس الحقيقي لمقابلة ge — يُستخدم عندما يجب أن يحاسب الأبناء كلل الأب بالكامل.',
+            'left operand op right operand': 'الطرف الأيسر (المعامل) الطرف الأيمن',
+            'Compares two sides with an operator. Each side is one indicator (read as-is) or a list (summed); factor scales the left side for a factored bound. Example params: {"left":{"codes":["2"],"agg":"single"},"right":{"codes":["3","4","5"],"agg":"sum"},"op":">="}. One policy applies to every operator: the tolerance is the rules policy eq_tolerance (so = means equal within it, and > means greater by more than it), a side with no value passes, and 0 compared with 0 passes. The retired per-comparison types still evaluate as aliases, and an old rule opens in this builder as its compare equivalent.': 'يقارن طرفين بمعامل. كل طرف مؤشر واحد (يُقرأ كما هو) أو قائمة تُجمع؛ ويضرب factor الطرف الأيسر لإضافة هامش. مثال على المعاملات: {"left":{"codes":["2"],"agg":"single"},"right":{"codes":["3","4","5"],"agg":"sum"},"op":">="}. سياسة واحدة لكل المعاملات: التفاوت هو eq_tolerance من سياسة القواعد (فالمساواة تعني متساويين ضمنه، و> تعني أكبر بأكثر منه)، والطرف بلا قيمة يمرّ، وصفر مقابل صفر يمرّ. الأنواع القديمة ما زالت تعمل كأسماء بديلة، والقاعدة القديمة تُفتح في هذا الباني بما يكافئها من compare.',
 
             // Remaining expression dropdown labels
+            'compare — left operand op right operand': 'compare — الطرف الأيسر (المعامل) الطرف الأيمن',
             'ge — parent >= sum(children)': 'ge — الأب ≥ مجموع (الأبناء)',
             'eq — parent == sum(children)': 'eq — الأب = مجموع (الأبناء)',
             'le — child <= parent': 'le — الابن ≤ الأب',
@@ -1081,10 +1084,12 @@
             'parent_le — parent <= sum(children)': 'parent_le — الأب ≤ مجموع (الأبناء)',
             'month_over — current > factor * prev': 'month_over — الحالي > المعامل × السابق',
             'month_under — current < factor * prev': 'month_under — الحالي < المعامل × السابق',
+            'trend — direction (over/under) + factor vs previous month': 'trend — اتجاه (صعود/هبوط) ومعامل مقابل الشهر السابق',
             'neg_check — negative values': 'neg_check — قيم سالبة',
             'decimal_check — decimal values': 'decimal_check — قيم عشرية',
             'missing — missing indicator': 'missing — مؤشر مفقود',
             'all_zero — all indicators zero': 'all_zero — كل المؤشرات صفر',
+            'value_check — negative / decimal / missing / all zero': 'value_check — قيم سالبة / عشرية / مفقودة / كلها صفر',
 
             // Remaining expression reference table rows
             'parent value >= sum of children': 'قيمة الأب أكبر من أو تساوي مجموع الأبناء',

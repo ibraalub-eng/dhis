@@ -131,12 +131,24 @@ def _extract_codes_from_params(expr_type: str, params: dict) -> List[str]:
         codes.extend(params.get("children", []))
     elif expr_type in ("month_over", "month_under"):
         codes.append(params.get("code", ""))
+    elif expr_type == "trend":
+        from app.engine.quality.rules import trend_params
+        codes.extend((trend_params(params) or {}).get("codes") or [])
     elif expr_type in ("neg_check", "decimal_check"):
         codes.extend(params.get("codes", []))
     elif expr_type == "missing":
         codes.append(params.get("code", ""))
     elif expr_type == "all_zero":
         codes.extend(params.get("codes", ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]))
+    elif expr_type == "value_check":
+        # Mirrors the engine: every check's codes, with the key-indicator
+        # default when an all_zero check names none.
+        from app.engine.quality.rules import value_check_params
+        for check in value_check_params(params) or []:
+            if check["codes"]:
+                codes.extend(check["codes"])
+            elif check["kind"] == "all_zero":
+                codes.extend(["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"])
     return [c for c in codes if c]
 
 

@@ -21,28 +21,15 @@ _EXISTING_BUILDER_KEYS = [
     "child \\u2265 sum(children)",
 ]
 
-# Dropdown option labels (index.html ruleEditExpr)
+# Dropdown option labels (index.html ruleEditExpr). The eight comparison types
+# are merged into compare, which is the only comparison type offered.
 _DROPDOWN_KEYS = [
-    "ge — parent >= sum(children)",
-    "gt — parent > sum(children)",
-    "ge_factor — parent × factor >= sum(children)",
-    "eq — parent == sum(children)",
-    "le — child <= parent",
-    "lt — child < parent",
-    "le_sum — child >= sum(children)",
-    "parent_le — parent <= sum(children)",
+    "compare — left operand op right operand",
 ]
 
 # EXPR_EXPLANATIONS titles
 _EXPLANATION_TITLES = [
-    "parent >= sum(children)",
-    "parent > sum(children)",
-    "parent × factor >= sum(children)",
-    "parent == sum(children)",
-    "child <= parent",
-    "child < parent",
-    "child >= sum(children)",
-    "parent <= sum(children)",
+    "left operand op right operand",
 ]
 
 
@@ -99,14 +86,11 @@ def test_explanation_titles_have_arabic():
 
 def test_explanation_texts_have_arabic():
     obj = _translations_object()
-    # Verify by distinctive fragments of each EXPR_EXPLANATIONS text
+    # Verify by distinctive fragments of the compare explanation text
     fragments = [
-        "Strict version of ge",
-        "Strict version of le",
-        "multiplied by a factor",
-        "sum of its child indicators",
-        "reverse ge",
-        "True reverse of ge",
+        "Compares two sides with an operator",
+        "read as-is",
+        "eq_tolerance",
     ]
     for frag in fragments:
         pattern = re.compile(r"'((?:[^'\\]|\\.)*" + re.escape(frag) + r"(?:[^'\\]|\\.)*)'\s*:\s*'((?:[^'\\]|\\.)*)'")
@@ -125,11 +109,7 @@ def test_no_duplicate_expression_keys():
     obj = _translations_object()
     keys = re.findall(r"'((?:[^'\\]|\\.)*)'\s*:", obj)
     important = _NEW_BUILDER_KEYS + _DROPDOWN_KEYS + [
-        "parent >= sum(children)",
-        "parent == sum(children)",
-        "child <= parent",
-        "child >= sum(children)",
-        "FAIL if indicator has no value",
+        "FAIL if any listed value check fails",
         "FAIL if any listed code is negative",
     ]
     for k in important:

@@ -81,128 +81,199 @@ def _has_any(ctx: ValidationContext, codes: List[str]) -> bool:
     return any(ctx.values.get(c) is not None for c in codes)
 
 
+# ── one comparison policy for every comparison type ─────────────────
+#
+# Every parent/child comparison — the nine legacy types and `compare` — is the
+# same question ("operand A <op> operand B") and answers it with ONE policy:
+#
+# * **Tolerance.** A single epsilon, the rules policy's ``eq_tolerance``, is
+#   the only tolerance. For ``=``/``!=`` it is an equality tolerance; for
+#   ``>``, ``>=``, ``<``, ``<=`` it is the slack that separates "equal" from
+#   "ordered", so ``>`` means "greater by more than epsilon". Nothing is
+#   compared bit-exactly: computed sums are rarely bit-exact.
+# * **Missing data.** A side that carries no value makes the comparison
+#   *not evaluable*, and it PASSes. An unreported total is never silently read
+#   as zero, and no data never produces a FAIL.
+# * **Zero/zero.** Both sides zero means "no activity" and PASSes for every
+#   type.
+#
+# The retired helpers used to disagree on all three (ge/le/lt compared
+# bit-exactly, only some types required data on both sides, and parent_lt
+# failed at 0 vs 0). They now route through :func:`_run_comparison`, so the
+# nine types and `compare` cannot drift apart again.
+
+def _single(code: str) -> dict:
+    return {"codes": [code] if code else [], "agg": "single"}
+
+
+def _sum(codes: List[str]) -> dict:
+    return {"codes": [c for c in (codes or []) if c], "agg": "sum"}
+
+
+def _operand_value(spec: dict, ctx: ValidationContext):
+    """Return (value, has_data) for one comparison side."""
+    codes = [c for c in (spec.get("codes") or []) if c]
+    if not codes:
+        return None, False
+    agg = str(spec.get("agg") or ("single" if len(codes) == 1 else "sum")).lower()
+    if agg == "single":
+        value = _v(ctx, codes[0])
+        return value, value is not None
+    return _vs(ctx, codes), _has_any(ctx, codes)
+
+
+def _comparison_holds(left: float, right: float, op: str, epsilon: float) -> bool:
+    """Evaluate one comparison; ``epsilon`` is the only tolerance."""
+    if op == "=":
+        return abs(left - right) <= epsilon
+    if op == "!=":
+        return abs(left - right) > epsilon
+    if op == ">":
+        return left - right > epsilon
+    if op == ">=":
+        return left - right >= -epsilon
+    if op == "<":
+        return right - left > epsilon
+    return right - left >= -epsilon  # '<='
+
+
+@dataclass
+class _Comparison:
+    """Outcome of one comparison before it is turned into a RuleResult.
+
+    ``state`` is one of ``skipped`` (a side has no value), ``zero`` (both sides
+    zero), ``pass`` or ``fail``. ``left``/``right`` are the raw operand values
+    and ``scaled`` is the left side after the optional factor.
+    """
+    state: str
+    left: Optional[float] = None
+    right: Optional[float] = None
+    scaled: Optional[float] = None
+
+
+def _run_comparison(left: dict, right: dict, op: str, ctx: ValidationContext,
+                    factor: float = 1.0) -> _Comparison:
+    """Apply the shared comparison policy to two operands."""
+    left_value, left_has = _operand_value(left, ctx)
+    right_value, right_has = _operand_value(right, ctx)
+    if not left_has or not right_has:
+        return _Comparison("skipped", left_value, right_value)
+    if left_value == 0 and right_value == 0:
+        return _Comparison("zero", left_value, right_value)
+    scaled = left_value * factor
+    ok = _comparison_holds(scaled, right_value, op, ctx.rules.eq_tolerance)
+    return _Comparison("pass" if ok else "fail", left_value, right_value, scaled)
+
+
 def _ge(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
-    pv = _v(ctx, parent)
-    cs = _vs(ctx, children)
-    if pv is None and cs == 0:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
-    if pv is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
-    if cs > pv:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs}")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} >= children sum={cs}")
+    """parent >= sum(children), within the comparison epsilon."""
+    out = _run_comparison(_single(parent), _sum(children), ">=", ctx)
+    if out.state == "skipped":
+        detail = "No data available" if out.left is None else "No child data to compare"
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, detail)
+    if out.state == "zero":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both sides are zero (no activity)")
+    if out.state == "fail":
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={out.left} but children sum={out.right}")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={out.left} >= children sum={out.right}")
 
 
 def _gt(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
-    """Strict greater-than: FAIL when parent <= sum of children."""
-    pv = _v(ctx, parent)
-    cs = _vs(ctx, children)
-    if pv is None and cs == 0:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
-    if pv is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
-    if not _has_any(ctx, children):
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    if pv == 0 and cs == 0:
+    """Strict greater-than: FAIL when parent <= sum of children (within epsilon)."""
+    out = _run_comparison(_single(parent), _sum(children), ">", ctx)
+    if out.state == "skipped":
+        detail = "No data available" if out.left is None else "No child data to compare"
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, detail)
+    if out.state == "zero":
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both parent and children sum are zero (no activity)")
-    tol = ctx.rules.eq_tolerance
-    if cs >= pv - tol:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs} (parent must be strictly greater)")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} > children sum={cs}")
+    if out.state == "fail":
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={out.left} but children sum={out.right} (parent must be strictly greater)")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={out.left} > children sum={out.right}")
 
 
 def _ge_factor(parent: str, children: List[str], factor: float, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
-    """Factor tolerance: FAIL when sum of children > parent * factor."""
-    pv = _v(ctx, parent)
-    cs = _vs(ctx, children)
-    if pv is None and cs == 0:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
-    if pv is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
-    if not _has_any(ctx, children):
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    tol = ctx.rules.eq_tolerance
-    allowed = pv * factor
-    if cs > allowed + tol:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}x{factor}={allowed:.2f} but children sum={cs}")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}x{factor}={allowed:.2f} >= children sum={cs}")
+    """Factor tolerance: FAIL when sum of children > parent * factor (within epsilon)."""
+    out = _run_comparison(_single(parent), _sum(children), ">=", ctx, factor)
+    if out.state == "skipped":
+        detail = "No data available" if out.left is None else "No child data to compare"
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, detail)
+    if out.state == "zero":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both sides are zero (no activity)")
+    if out.state == "fail":
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}x{factor}={out.scaled:.2f} but children sum={out.right}")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}x{factor}={out.scaled:.2f} >= children sum={out.right}")
 
 
 def _parent_le(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
     """Reverse of ge: FAIL when the parent value exceeds the sum of its children.
 
-    Complements _gt exactly — _gt FAILs when cs >= pv - tol, this FAILs when
-    pv > cs + tol — so the two together reconcile a parent against a breakdown.
+    Complements _gt exactly — _gt FAILs when cs >= pv - eps, this FAILs when
+    pv > cs + eps — so the two together reconcile a parent against a breakdown.
     """
-    pv = _v(ctx, parent)
-    cs = _vs(ctx, children)
-    if pv is None and cs == 0:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
-    if pv is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
-    if not _has_any(ctx, children):
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    tol = ctx.rules.eq_tolerance
-    if pv > cs + tol:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs} (parent must not exceed)")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} <= children sum={cs}")
+    out = _run_comparison(_single(parent), _sum(children), "<=", ctx)
+    if out.state == "skipped":
+        detail = "No data available" if out.left is None else "No child data to compare"
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, detail)
+    if out.state == "zero":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both sides are zero (no activity)")
+    if out.state == "fail":
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={out.left} but children sum={out.right} (parent must not exceed)")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={out.left} <= children sum={out.right}")
 
 
 def _parent_lt(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
     """Strict reverse of ge: FAIL when the parent value is >= the sum of its children.
 
-    Strict companion of parent_le — parent_le allows equality, parent_lt requires
-    the parent to be strictly smaller than the children's sum (within tolerance).
+    Strict companion of parent_le — parent_le allows equality within epsilon,
+    parent_lt requires the parent to be smaller by more than epsilon.
     """
-    pv = _v(ctx, parent)
-    cs = _vs(ctx, children)
-    if pv is None and cs == 0:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
-    if pv is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
-    if not _has_any(ctx, children):
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    tol = ctx.rules.eq_tolerance
-    if pv >= cs - tol:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} >= children sum={cs} (parent must be strictly less)")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} < children sum={cs}")
+    out = _run_comparison(_single(parent), _sum(children), "<", ctx)
+    if out.state == "skipped":
+        detail = "No data available" if out.left is None else "No child data to compare"
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, detail)
+    if out.state == "zero":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both sides are zero (no activity)")
+    if out.state == "fail":
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={out.left} >= children sum={out.right} (parent must be strictly less)")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={out.left} < children sum={out.right}")
 
 
 def _lt(child: str, parent: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
-    """Strict less-than: FAIL when child >= parent."""
-    cv = _v(ctx, child)
-    pv = _v(ctx, parent)
-    if cv is None or pv is None:
+    """Strict less-than: FAIL when child >= parent (within epsilon)."""
+    out = _run_comparison(_single(child), _single(parent), "<", ctx)
+    if out.state == "skipped":
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Missing data")
-    if cv == 0 and pv == 0:
+    if out.state == "zero":
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both child and parent are zero (no activity)")
-    if cv >= pv:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{child}={cv} >= {parent}={pv} (child must be strictly less)")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{child}={cv} < {parent}={pv}")
+    if out.state == "fail":
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{child}={out.left} >= {parent}={out.right} (child must be strictly less)")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{child}={out.left} < {parent}={out.right}")
 
 
 def _eq(parent: str, children: List[str], code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
-    pv = _v(ctx, parent)
-    cs = _vs(ctx, children)
-    if pv is None and cs == 0:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No data available")
-    if pv is None:
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Parent value missing")
-    if not _has_any(ctx, children):
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "No child data to compare")
-    if abs(pv - cs) > ctx.rules.eq_tolerance:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{parent}={pv} but children sum={cs}, diff={abs(pv - cs):.2f}")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={pv} == children sum={cs}")
+    """parent == sum(children), within the comparison epsilon."""
+    out = _run_comparison(_single(parent), _sum(children), "=", ctx)
+    if out.state == "skipped":
+        detail = "No data available" if out.left is None else "No child data to compare"
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, detail)
+    if out.state == "zero":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both sides are zero (no activity)")
+    if out.state == "fail":
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype,
+                          f"{parent}={out.left} but children sum={out.right}, diff={abs(out.left - out.right):.2f}")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{parent}={out.left} == children sum={out.right}")
 
 
 def _le(child: str, parent: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext) -> RuleResult:
-    cv = _v(ctx, child)
-    pv = _v(ctx, parent)
-    if cv is None or pv is None:
+    """child <= parent, within the comparison epsilon."""
+    out = _run_comparison(_single(child), _single(parent), "<=", ctx)
+    if out.state == "skipped":
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Missing data")
-    if cv > pv:
-        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{child}={cv} > {parent}={pv}")
-    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{child}={cv} <= {parent}={pv}")
+    if out.state == "zero":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Both child and parent are zero (no activity)")
+    if out.state == "fail":
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"{child}={out.left} > {parent}={out.right}")
+    return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"{child}={out.left} <= {parent}={out.right}")
 
 
 def _month_over(month_code: str, prev_data: Optional[Dict[str, float]], factor: float, code: str, desc: str, sev: Severity, ctx: ValidationContext) -> RuleResult:
@@ -214,6 +285,11 @@ def _month_over(month_code: str, prev_data: Optional[Dict[str, float]], factor: 
     prev = prev_data.get(month_code)
     if prev is None or prev == 0:
         return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY, "Previous value missing or zero")
+    if prev < 0:
+        # A negative baseline makes the percentage change meaningless (the sign
+        # flips), so it is not evidence of a spike. The negative value itself is
+        # a data-quality problem for the value checks, not for the trend.
+        return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY, "Previous value is negative")
     change_pct = ((cur - prev) / prev) * 100
     if change_pct > factor * 100:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, RuleType.DATA_QUALITY, f"{cur} is {change_pct:+.0f}% vs previous {prev} (>{factor*100:.0f}%)")
@@ -229,10 +305,119 @@ def _month_under(month_code: str, prev_data: Optional[Dict[str, float]], factor:
     prev = prev_data.get(month_code)
     if prev is None or prev == 0:
         return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY, "Previous value missing or zero")
+    if prev < 0:
+        return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY, "Previous value is negative")
     change_pct = ((prev - cur) / prev) * 100
     if change_pct > factor * 100:
         return RuleResult(code, desc, RuleStatus.FAIL, sev, RuleType.DATA_QUALITY, f"{cur} is {-(change_pct):.0f}% drop vs previous {prev} (<{factor*100:.0f}%)")
     return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY, f"Change {((cur-prev)/prev)*100:+.0f}% (OK)")
+
+
+# ── trend: one type for the month-over-month checks ──────────────────
+#
+# month_over and month_under ask the same question — how did this month move
+# against the previous one — and differed only in direction and threshold:
+#
+#   {"direction": "over", "factor": 2.0, "codes": ["2"]}
+#
+# "over"  FAILs when the current value exceeds factor x previous (2.0 = +100%).
+# "under" FAILs when it drops below factor x previous (0.5 = half).
+# `codes` may list several indicators; the first failing one is reported.
+#
+# A baseline that is missing, zero or negative makes the percentage change
+# meaningless, so the check PASSes: absence of a baseline is never evidence of
+# a spike or a drop, and a negative baseline would flip the sign.
+
+_TREND_DIRECTIONS = ("over", "under")
+_TREND_DEFAULT_FACTORS = {"over": 2.0, "under": 0.5}
+
+#: Legacy type -> direction. These types keep working as aliases.
+_LEGACY_TREND_TYPES = {"month_over": "over", "month_under": "under"}
+
+_TREND_DIRECTION_ALIASES = {
+    "over": "over", "above": "over", "increase": "over", "up": "over",
+    "month_over": "over",
+    "under": "under", "below": "under", "decrease": "under", "down": "under",
+    "month_under": "under",
+}
+
+
+def _trend_codes(raw) -> List[str]:
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    return [c for c in (raw or []) if c]
+
+
+def _trend_factor(raw, direction: str) -> float:
+    """Read the factor, falling back to the direction's documented default."""
+    try:
+        factor = float(raw)
+    except (TypeError, ValueError):
+        return _TREND_DEFAULT_FACTORS[direction]
+    return factor if factor > 0 else _TREND_DEFAULT_FACTORS[direction]
+
+
+def normalize_trend_params(expr: str, params: dict) -> Optional[dict]:
+    """Translate a legacy month_over/month_under rule into the `trend` shape.
+
+    Returns ``None`` when ``expr`` is not one of the two aliased types or when
+    it names no indicator. Used by the alias dispatch and the tests, so both
+    paths agree on the conversion.
+    """
+    direction = _LEGACY_TREND_TYPES.get(str(expr or "").strip().lower())
+    if direction is None:
+        return None
+    params = params or {}
+    codes = _trend_codes(params.get("codes") if params.get("codes") else params.get("code"))
+    if not codes:
+        return None
+    return {"direction": direction,
+            "factor": _trend_factor(params.get("factor"), direction),
+            "codes": codes}
+
+
+def trend_params(params: dict) -> Optional[dict]:
+    """Normalize a `trend` rule's params, or None when direction/codes are unusable.
+
+    Accepts ``{"direction": …, "factor": …, "codes": […]}`` and the one-code
+    shorthand ``{"direction": …, "code": "2"}``. An unknown direction is
+    rejected rather than guessed; a missing/zero factor falls back to the
+    direction's default (2.0 over, 0.5 under).
+    """
+    params = params or {}
+    raw_direction = str(params.get("direction") or params.get("type") or "").strip().lower()
+    direction = _TREND_DIRECTION_ALIASES.get(raw_direction)
+    if direction is None:
+        return None
+    codes = _trend_codes(params.get("codes") if params.get("codes") else params.get("code"))
+    if not codes:
+        return None
+    return {"direction": direction,
+            "factor": _trend_factor(params.get("factor"), direction),
+            "codes": codes}
+
+
+def _trend(normalized: dict, code: str, desc: str, sev: Severity,
+           ctx: ValidationContext) -> RuleResult:
+    """Run the month-over-month check for each indicator; first failure wins."""
+    results = []
+    many = len(normalized["codes"]) > 1
+    for target in normalized["codes"]:
+        if normalized["direction"] == "over":
+            result = _month_over(target, ctx.historical_data, normalized["factor"],
+                                 code, desc, sev, ctx)
+        else:
+            result = _month_under(target, ctx.historical_data, normalized["factor"],
+                                  code, desc, sev, ctx)
+        if many:
+            result.details = f"[{target}] {result.details}"
+        if result.status == RuleStatus.FAIL:
+            return result
+        results.append(result)
+    if len(results) == 1:
+        return results[0]
+    return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY,
+                      f"All {len(results)} trend checks passed")
 
 
 def _neg_check(codes: List[str], code: str, desc: str, sev: Severity, ctx: ValidationContext) -> RuleResult:
@@ -521,6 +706,136 @@ def _formula(formula_str: str, target_code: str, code: str, desc: str, sev: Seve
     return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"Formula={lhs_val} {op} {target_code}={target_val}")
 
 
+# ── compare: one comparison type for the parent/child family ────────
+#
+# ge, gt, eq, ge_factor, le, lt, le_sum, parent_le and parent_lt are all the
+# same comparison — "operand A <op> operand B" — differing only in which side
+# is the parent, the tolerance policy and the strictness. `compare` states all
+# of that directly:
+#
+#   {"left":  {"codes": ["2"],          "agg": "single"},
+#    "right": {"codes": ["6.e", "6.d"], "agg": "sum"},
+#    "op": ">=", "factor": 1.1}
+#
+# Only left, right and op are required (plus ``factor`` for a factored bound).
+# Tolerance, the missing-data rule and the 0/0 exemption are NOT per-rule
+# switches: every comparison type shares the single policy documented above,
+# so `compare` and the nine legacy types cannot evaluate differently.
+
+_COMPARE_OPERATORS = ("=", "!=", ">", ">=", "<", "<=")
+
+#: Legacy type -> (left role, right role, op, factor key). Roles, operator and
+#: factor are the only things that ever differed; everything else is shared.
+_LEGACY_COMPARE_BLUEPRINT = {
+    "ge":        ("parent", "children", ">=", None),
+    "gt":        ("parent", "children", ">",  None),
+    "eq":        ("parent", "children", "=",  None),
+    "ge_factor": ("parent", "children", ">=", "factor"),
+    "le":        ("child",  "parent",   "<=", None),
+    "lt":        ("child",  "parent",   "<",  None),
+    "le_sum":    ("child",  "children", ">=", None),
+    "parent_le": ("parent", "children", "<=", None),
+    "parent_lt": ("parent", "children", "<",  None),
+}
+
+#: The comparison types `compare` replaces, in dropdown order.
+LEGACY_COMPARE_TYPES = tuple(_LEGACY_COMPARE_BLUEPRINT)
+
+
+def _compare_operand(role: str, params: dict) -> dict:
+    """Build one compare side from a legacy role name."""
+    if role == "children":
+        return _sum(params.get("children") or [])
+    return _single(params.get(role))
+
+
+def normalize_compare_params(expr: str, params: dict) -> Optional[dict]:
+    """Translate a legacy comparison rule's params into the `compare` shape.
+
+    Returns ``None`` when ``expr`` is not one of the nine replaced types or
+    when its params cannot name both sides. Only the roles, the operator and
+    the optional factor are translated; tolerance, missing data and the 0/0
+    exemption are the shared comparison policy, not per-rule settings, so the
+    converted rule evaluates exactly as its legacy type does.
+    """
+    blueprint = _LEGACY_COMPARE_BLUEPRINT.get(str(expr or "").strip().lower())
+    if blueprint is None:
+        return None
+    left_role, right_role, op, factor_key = blueprint
+    params = params or {}
+    left = _compare_operand(left_role, params)
+    right = _compare_operand(right_role, params)
+    if not left["codes"] or not right["codes"]:
+        return None
+    normalized = {"left": left, "right": right, "op": op}
+    if factor_key:
+        normalized["factor"] = float(params.get(factor_key) or 1.0)
+    return normalized
+
+
+def compare_params(params: dict) -> Optional[dict]:
+    """Normalize a `compare` rule's params, or None when a side is missing.
+
+    A rule whose params still carry the legacy keys can be evaluated as compare
+    by naming its old type explicitly — ``{"legacy": "ge", "parent": …}`` —
+    which is what a migration that only renames expression_type leaves behind.
+
+    Per-rule ``tolerance`` / ``require_right`` / ``zero_passes`` keys are
+    dropped rather than honoured: the comparison policy is shared, so a stored
+    payload cannot reintroduce a divergent rule.
+    """
+    params = params or {}
+    if not params.get("left") and params.get("legacy"):
+        return normalize_compare_params(params.get("legacy"), params)
+
+    def _side(value):
+        return value if isinstance(value, dict) else _single(value)
+
+    if not params.get("left") or not params.get("right"):
+        return None
+    out = dict(params)
+    out["left"] = _side(params["left"])
+    out["right"] = _side(params["right"])
+    op = str(out.get("op") or ">=").strip()
+    out["op"] = "=" if op == "==" else op
+    if out["op"] not in _COMPARE_OPERATORS:
+        out["op"] = ">="
+    for stale in ("tolerance", "require_right", "zero_passes"):
+        out.pop(stale, None)
+    try:
+        out["factor"] = float(out.get("factor") or 1.0)
+    except (TypeError, ValueError):
+        out["factor"] = 1.0
+    return out
+
+
+def _fmt_num(value: float) -> str:
+    """Render a comparison value without a trailing '.0' (105, not 105.0)."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+def _compare(normalized: dict, code: str, desc: str, sev: Severity, rtype: RuleType,
+             ctx: ValidationContext) -> RuleResult:
+    """Compare two operands (a single indicator or a sum of indicators)."""
+    factor = normalized.get("factor") or 1.0
+    op = normalized["op"]
+    out = _run_comparison(normalized["left"], normalized["right"], op, ctx, factor)
+    if out.state == "skipped":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype,
+                          "Comparison could not be evaluated (missing data)")
+    if out.state == "zero":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype,
+                          "Both sides are zero (no activity)")
+    shown_left = _fmt_num(out.left) + (f"x{_fmt_num(factor)}" if factor != 1.0 else "")
+    if out.state == "pass":
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype,
+                          f"Left={shown_left} {op} Right={_fmt_num(out.right)}")
+    return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype,
+                      f"Left={shown_left} {op} Right={_fmt_num(out.right)} does not hold")
+
+
 ALL_ZERO_DEFAULT_CODES = ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]
 
 
@@ -549,6 +864,127 @@ def _all_zero_check(ctx: ValidationContext, code: str, desc: str,
     if all_zero:
         return RuleResult(code, desc, RuleStatus.FAIL, Severity.CRITICAL, RuleType.DATA_QUALITY, "All key indicators are zero - facility may be non-operational or data missing")
     return RuleResult(code, desc, RuleStatus.PASS, Severity.CRITICAL, RuleType.DATA_QUALITY, "Facility has non-zero indicator data")
+
+
+# ── value_check: one type for the four indicator-value checks ────────
+#
+# neg_check, decimal_check, missing and all_zero all ask a question about the
+# values of a list of indicators, not about how they relate to each other.
+# `value_check` states the questions directly:
+#
+#   {"checks": [
+#       {"kind": "negative", "codes": ["2", "3"]},
+#       {"kind": "decimal",  "codes": ["2", "6"]},
+#       {"kind": "missing",  "codes": ["2"]},
+#       {"kind": "all_zero", "codes": ["2", "3"]}]}
+#
+# Checks run in order and the first failing one is reported, so a single-check
+# rule reproduces its legacy type's message exactly. `missing` and `all_zero`
+# accept several codes; `all_zero` with no codes keeps the key-indicator
+# default. Severity is intrinsic to the kind — decimal is LOW and all_zero
+# CRITICAL as before, negative and missing use the rule's severity.
+
+_VALUE_CHECK_KINDS = ("negative", "decimal", "missing", "all_zero")
+
+#: Legacy type -> check kind. These types keep working as aliases.
+_LEGACY_VALUE_CHECK_TYPES = {
+    "neg_check": "negative",
+    "decimal_check": "decimal",
+    "missing": "missing",
+    "all_zero": "all_zero",
+}
+
+_VALUE_CHECK_KIND_ALIASES = {
+    "neg": "negative",
+    "neg_check": "negative",
+    "negative": "negative",
+    "decimal": "decimal",
+    "decimal_check": "decimal",
+    "missing": "missing",
+    "all_zero": "all_zero",
+    "allzero": "all_zero",
+}
+
+
+def _value_check_codes(raw) -> List[str]:
+    """Read a check's codes, accepting one code or a list."""
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    return [c for c in (raw or []) if c]
+
+
+def normalize_value_check_params(expr: str, params: dict) -> Optional[dict]:
+    """Translate a legacy value-check rule's params into the `value_check` shape.
+
+    Returns ``None`` when ``expr`` is not one of the four aliased types or when
+    its params name no code (`all_zero` may legitimately name none and keeps
+    the key-indicator default). Used by the alias dispatch, the migration
+    script and the tests, so all three agree on the conversion.
+    """
+    kind = _LEGACY_VALUE_CHECK_TYPES.get(str(expr or "").strip().lower())
+    if kind is None:
+        return None
+    params = params or {}
+    if kind == "missing":
+        raw = params.get("codes") if params.get("codes") else params.get("code")
+    else:
+        raw = params.get("codes")
+    codes = _value_check_codes(raw)
+    if not codes and kind != "all_zero":
+        return None
+    return {"checks": [{"kind": kind, "codes": codes}]}
+
+
+def value_check_params(params: dict) -> Optional[list]:
+    """Normalize a `value_check` rule's params into a list of checks, or None.
+
+    Accepts the canonical ``{"checks": […]}`` and the one-check shorthand
+    ``{"kind": …, "codes": […]}`` / ``{"kind": "missing", "code": "2"}``.
+    Unknown or codeless kinds are dropped; a payload with no usable check
+    returns ``None`` so the caller can report it instead of passing silently.
+    """
+    params = params or {}
+    raw_checks = params.get("checks")
+    if raw_checks is None and params.get("kind"):
+        raw_checks = [params]
+    checks = []
+    for raw in raw_checks or []:
+        if not isinstance(raw, dict):
+            continue
+        kind = _VALUE_CHECK_KIND_ALIASES.get(
+            str(raw.get("kind") or raw.get("type") or "").strip().lower())
+        if kind is None:
+            continue
+        codes = _value_check_codes(raw.get("codes") if raw.get("codes") else raw.get("code"))
+        if not codes and kind != "all_zero":
+            continue
+        checks.append({"kind": kind, "codes": codes})
+    return checks or None
+
+
+def _value_check(checks: list, code: str, desc: str, sev: Severity,
+                 ctx: ValidationContext) -> RuleResult:
+    """Run the value checks in order; the first failure is the rule's result."""
+    results = []
+    for check in checks:
+        kind = check["kind"]
+        codes = check["codes"]
+        if kind == "negative":
+            results.append(_neg_check(codes, code, desc, sev, ctx))
+        elif kind == "decimal":
+            results.append(_decimal_check(codes, code, desc, ctx))
+        elif kind == "all_zero":
+            results.append(_all_zero_check(ctx, code, desc, codes or None))
+        else:  # missing — one result per code, first missing value fails
+            for indicator in codes:
+                results.append(_missing(indicator, code, desc, sev, ctx))
+    failed = next((r for r in results if r.status == RuleStatus.FAIL), None)
+    if failed is not None:
+        return failed
+    if len(results) == 1:
+        return results[0]
+    return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY,
+                      f"All {len(results)} value checks passed")
 
 
 ALL_RULES = []
@@ -698,9 +1134,25 @@ def _iter_sum_rules(session: Session = None):
                 # reported ones already reconcile the rule (see
                 # compute_covered_codes), otherwise completeness would wrongly
                 # penalize them (incident 5.2 — R061).
-                if rule.expression_type not in ("ge", "eq", "le_sum", "gt", "ge_factor", "parent_le", "parent_lt"):
+                if rule.expression_type not in ("ge", "eq", "le_sum", "gt", "ge_factor", "parent_le", "parent_lt", "compare"):
                     continue
                 params = json.loads(rule.params) if isinstance(rule.params, str) else (rule.params or {})
+                if rule.expression_type == "compare":
+                    # Same doctrine as the legacy types: only a single left side
+                    # against a summed right side describes containment or
+                    # parent accounting for the coverage pass.
+                    normalized = compare_params(params) or {}
+                    left = normalized.get("left") or {}
+                    right = normalized.get("right") or {}
+                    op_name = {">=": "ge", ">": "gt", "=": "eq",
+                               "<=": "parent_le", "<": "parent_lt"}.get(normalized.get("op"))
+                    left_codes = left.get("codes") or []
+                    right_codes = right.get("codes") or []
+                    if (op_name and len(left_codes) == 1
+                            and (left.get("agg") or "single") == "single"
+                            and (right.get("agg") or "single") == "sum" and right_codes):
+                        yield (op_name, left_codes[0], right_codes)
+                    continue
                 if rule.expression_type == "le_sum":
                     parent = params.get("child")
                 else:
@@ -803,12 +1255,28 @@ def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
         return [c for c in codes if c]
     if expr in ("le", "lt"):
         return [params.get("child"), params.get("parent")] if params.get("parent") else [params.get("child")]
+    if expr == "compare":
+        normalized = compare_params(params) or {}
+        codes = []
+        for side in ("left", "right"):
+            codes.extend((normalized.get(side) or {}).get("codes") or [])
+        return [c for c in codes if c]
     if expr in ("month_over", "month_under", "missing"):
         return [params.get("code")]
+    if expr == "trend":
+        return (trend_params(params) or {}).get("codes") or []
     if expr in ("neg_check", "decimal_check"):
         return params.get("codes", [])
     if expr == "all_zero":
         return params.get("codes") or ALL_ZERO_DEFAULT_CODES
+    if expr == "value_check":
+        codes = []
+        for check in value_check_params(params) or []:
+            if check["codes"]:
+                codes.extend(check["codes"])
+            elif check["kind"] == "all_zero":
+                codes.extend(ALL_ZERO_DEFAULT_CODES)
+        return list(dict.fromkeys(codes))
     if expr == "formula":
         codes = formula_referenced_codes(params.get("formula", ""))
         rhs = params.get("rhs")
@@ -865,21 +1333,41 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
         return _parent_le(params["parent"], params["children"], code, desc, sev, rtype, ctx)
     elif expr == "parent_lt":
         return _parent_lt(params["parent"], params["children"], code, desc, sev, rtype, ctx)
-    elif expr == "month_over":
-        return _month_over(params["code"], ctx.historical_data, params["factor"], code, desc, sev, ctx)
-    elif expr == "month_under":
-        return _month_under(params["code"], ctx.historical_data, params["factor"], code, desc, sev, ctx)
-    elif expr == "neg_check":
-        return _neg_check(params["codes"], code, desc, sev, ctx)
-    elif expr == "decimal_check":
-        return _decimal_check(params["codes"], code, desc, ctx)
-    elif expr == "missing":
-        return _missing(params["code"], code, desc, sev, ctx)
-    elif expr == "all_zero":
-        return _all_zero_check(ctx, code, desc, params.get("codes"))
+    elif expr == "trend":
+        normalized = trend_params(params)
+        if normalized is None:
+            return RuleResult(code, desc, RuleStatus.PASS, sev, rtype,
+                              "trend needs a direction (over or under) and the indicator code(s) it watches")
+        return _trend(normalized, code, desc, sev, ctx)
+    elif expr in _LEGACY_TREND_TYPES:
+        # Aliases: the retired types keep working, through the same engine.
+        normalized = normalize_trend_params(expr, params)
+        if normalized is None:
+            return RuleResult(code, desc, RuleStatus.PASS, sev, rtype,
+                              f"{expr} needs the indicator code it watches")
+        return _trend(normalized, code, desc, sev, ctx)
+    elif expr == "value_check":
+        checks = value_check_params(params)
+        if not checks:
+            return RuleResult(code, desc, RuleStatus.PASS, sev, rtype,
+                              "value_check needs at least one check (negative, decimal, missing, all_zero) with its codes")
+        return _value_check(checks, code, desc, sev, ctx)
+    elif expr in _LEGACY_VALUE_CHECK_TYPES:
+        # Aliases: the retired types keep working, through the same engine.
+        normalized = normalize_value_check_params(expr, params)
+        if normalized is None:
+            return RuleResult(code, desc, RuleStatus.PASS, sev, rtype,
+                              f"{expr} needs the indicator code(s) it checks")
+        return _value_check(normalized["checks"], code, desc, sev, ctx)
     elif expr == "formula":
         return _formula(params["formula"], params.get("target"), code, desc, sev, rtype, ctx,
                         op=params.get("op", "="), rhs=params.get("rhs"))
+    elif expr == "compare":
+        normalized = compare_params(params)
+        if normalized is None:
+            return RuleResult(code, desc, RuleStatus.PASS, sev, rtype,
+                              "compare needs both sides: left and right")
+        return _compare(normalized, code, desc, sev, rtype, ctx)
     else:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Unknown expression type: {expr}")
 

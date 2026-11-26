@@ -117,8 +117,10 @@ import { confirmDestructive } from './confirm-modal.js';
             const isSingle = ['vb_zone_parent','vb_zone_child','vb_zone_indicator','vb_zone_target'].includes(zoneId);
             if (isSingle) {
                 _vbState[zoneId.replace('vb_zone_', '')] = code;
-            } else if (zoneId === 'vb_zone_children' || zoneId === 'vb_zone_codes') {
-                const key = zoneId === 'vb_zone_children' ? 'children' : 'codes';
+            } else if (zoneId === 'vb_zone_children' || zoneId === 'vb_zone_codes'
+                    || zoneId === 'vb_zone_left' || zoneId === 'vb_zone_right') {
+                const key = {vb_zone_children:'children', vb_zone_codes:'codes',
+                             vb_zone_left:'leftCodes', vb_zone_right:'rightCodes'}[zoneId];
                 if (!_vbState[key]) _vbState[key] = [];
                 if (!_vbState[key].includes(code)) _vbState[key].push(code);
             }
@@ -126,8 +128,10 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         export function _vbRemoveFromZone(zoneId, code) {
-            const key = zoneId === 'vb_zone_children' ? 'children' : zoneId === 'vb_zone_codes' ? 'codes' : zoneId.replace('vb_zone_', '');
-            if (key === 'children' || key === 'codes') {
+            const key = {vb_zone_children:'children', vb_zone_codes:'codes',
+                         vb_zone_left:'leftCodes', vb_zone_right:'rightCodes'}[zoneId]
+                || zoneId.replace('vb_zone_', '');
+            if (['children', 'codes', 'leftCodes', 'rightCodes'].includes(key)) {
                 if (_vbState[key]) _vbState[key] = _vbState[key].filter(c => c !== code);
             } else {
                 _vbState[key] = '';
@@ -136,7 +140,7 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _vbStateReset(expr) {
-            _vbState = { _expr: expr, parent:'', child:'', children:[], indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], rhsParts:[], target:'', op:'=' };
+            _vbState = { _expr: expr, parent:'', child:'', children:[], indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], rhsParts:[], target:'', op:'=', leftCodes:[], rightCodes:[], leftAgg:'single', rightAgg:'single', compareOp:'>=', compareFactor:1 };
         }
 
         // ── Formula comparison operator helpers ────────────────────
@@ -235,12 +239,39 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'month_over':
                 case 'month_under':
                     return JSON.stringify({ code: _vbState.indicator || '', factor: parseFloat(_vbState.factor) || 1.0 });
+                case 'compare': {
+                    const side = function(codes, savedAgg) {
+                        return { codes: codes || [], agg: (codes && codes.length > 1) ? 'sum' : (savedAgg || 'single') };
+                    };
+                    const params = {
+                        left: side(_vbState.leftCodes, _vbState.leftAgg),
+                        right: side(_vbState.rightCodes, _vbState.rightAgg),
+                        op: _vbState.compareOp || '>=',
+                    };
+                    const factor = parseFloat(_vbState.compareFactor) || 1;
+                    if (factor !== 1) params.factor = factor;
+                    return JSON.stringify(params);
+                }
+                case 'trend': {
+                    const direction = _vbState.direction || 'over';
+                    const fallback = direction === 'under' ? 0.5 : 2.0;
+                    return JSON.stringify({
+                        direction: direction,
+                        factor: parseFloat(_vbState.factor) || fallback,
+                        codes: _vbState.indicator ? [_vbState.indicator] : [],
+                    });
+                }
                 case 'neg_check':
                 case 'decimal_check':
                 case 'all_zero':
                     return JSON.stringify({ codes: _vbState.codes || [] });
                 case 'missing':
                     return JSON.stringify({ code: _vbState.indicator || '' });
+                case 'value_check':
+                    // A value_check is a list of checks, not one relation, so it
+                    // is edited as JSON. The textarea is the source of truth and
+                    // is stored verbatim.
+                    return _vbState.rawParams || '{}';
                 case 'formula': {
                     // A single indicator on the right keeps the legacy `target`
                     // param (every existing formula rule and the drawer read it);
@@ -332,6 +363,15 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'le_sum': cond = chip(p.child) + ' ≥ ' + chips(p.children); break;
                 case 'month_over': cond = chip(p.code) + ' ≤ ' + num(p.factor) + ' × ' + __('previous month'); break;
                 case 'month_under': cond = chip(p.code) + ' ≥ ' + num(p.factor) + ' × ' + __('previous month'); break;
+                case 'trend': cond = chips(p.codes) + ' ' + (p.direction === 'under' ? '≥' : '≤') + ' ' + num(p.factor) + ' × ' + __('previous month'); break;
+                case 'compare': {
+                    const lhs = chips((p.left && p.left.codes) || []);
+                    const rhs = chips((p.right && p.right.codes) || []);
+                    const factor = parseFloat(p.factor) || 1;
+                    cond = (factor !== 1 ? num(factor) + ' × ' : '') + lhs
+                        + ' ' + (p.op === '!=' ? '≠' : (p.op || '>=')) + ' ' + rhs;
+                    break;
+                }
                 case 'neg_check': cond = chips(p.codes) + ' ≥ 0'; break;
                 case 'decimal_check': cond = chips(p.codes) + ' ∈ ℤ'; break;
                 case 'missing': cond = chip(p.code) + ' ' + __('has a value'); break;
@@ -409,7 +449,11 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _buildVBTrend(expr) {
-            const isOver = expr === 'month_over';
+            const isTrend = expr === 'trend';
+            const direction = isTrend ? (_vbState.direction || 'over')
+                : (expr === 'month_over' ? 'over' : 'under');
+            _vbState.direction = direction;
+            const isOver = direction !== 'under';
             const cssClass = isOver ? 'gt' : 'lt';
             const symbol = isOver ? '>' : '<';
             const factor = parseFloat(_vbState.factor) || (isOver ? 2.0 : 0.5);
@@ -417,6 +461,13 @@ import { confirmDestructive } from './confirm-modal.js';
             let relText = isOver ? __('current > factor \u00d7 previous') : __('current < factor \u00d7 previous');
 
             let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
+            if (isTrend) {
+                html += '<div class="vb-row"><span class="vb-label">' + __('Direction') + '</span>';
+                html += '<select id="vb_direction_input" onchange="_vbOnDirectionChange()">';
+                html += '<option value="over"' + (isOver ? ' selected' : '') + '>' + __('over — FAIL above factor × previous') + '</option>';
+                html += '<option value="under"' + (!isOver ? ' selected' : '') + '>' + __('under — FAIL below factor × previous') + '</option>';
+                html += '</select></div>';
+            }
             html += _vbZoneHTML('vb_zone_indicator', __('Indicator'), _vbState.indicator ? [_vbState.indicator] : [], false, __('Drop indicator here'));
             html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + cssClass + '">' + symbol + '</span> ' + relText + '</div>';
             html += '<div class="vb-row"><span class="vb-label">' + __('Factor') + '</span>';
@@ -425,6 +476,18 @@ import { confirmDestructive } from './confirm-modal.js';
             return html;
         }
 
+        window._vbOnDirectionChange = function() {
+            const field = document.getElementById('vb_direction_input');
+            if (!field) return;
+            _vbState.direction = field.value === 'under' ? 'under' : 'over';
+            // Each direction has its own natural threshold (2x vs half).
+            if (!parseFloat(_vbState.factor)) {
+                _vbState.factor = _vbState.direction === 'under' ? 0.5 : 2.0;
+            }
+            buildVisualBuilder(_vbState._expr);
+            updateRuleExprPreview();
+        };
+
         function _buildVBList(expr) {
             let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
             html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">' + (expr === 'neg_check' ? __('Negative values check') : expr === 'decimal_check' ? __('Decimal values check') : __('All zero check')) + '</div>';
@@ -432,6 +495,67 @@ import { confirmDestructive } from './confirm-modal.js';
             html += '</div>';
             return html;
         }
+
+        // value_check spans several checks, so it is edited as JSON rather than
+        // as one relation. The textarea keeps every check intact (a migrated
+        // rule opened for edit must not lose its params).
+        function _buildVBJson(expr) {
+            const raw = _vbState.rawParams || '{\n  "checks": [\n    {"kind": "negative", "codes": ["2"]}\n  ]\n}';
+            let html = '<div class="vb-card">';
+            html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">' + __('Value checks (JSON)') + '</div>';
+            html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-bottom:0.4rem;">' + __('Checks run in order; kinds: negative, decimal, missing, all_zero.') + '</div>';
+            html += '<textarea id="vbJsonParams" style="width:100%;min-height:150px;font-family:Consolas,monospace;font-size:0.75rem;background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border-color);border-radius:6px;padding:0.5rem;" oninput="_vbOnJsonParams()">' + esc(raw) + '</textarea>';
+            html += '</div>';
+            return html;
+        }
+
+        window._vbOnJsonParams = function() {
+            const field = document.getElementById('vbJsonParams');
+            if (!field) return;
+            _vbState.rawParams = field.value;
+            _vbUpdateHidden();
+        };
+
+        // compare is one relation between two operands, each a single indicator
+        // or a list that is summed. Legacy comparison rules are converted to
+        // this shape when they are opened for editing.
+        function _buildVBCompare() {
+            const op = _vbState.compareOp || '>=';
+            const factor = parseFloat(_vbState.compareFactor) || 1;
+            const opClass = (op === '=' || op === '!=') ? 'eq' : ((op === '>' || op === '>=') ? 'ge' : 'le');
+            let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
+            html += '<div class="vb-row" style="margin-bottom:0.4rem;"><span class="vb-label">' + __('Operator') + '</span>';
+            html += '<select id="vb_compare_op" onchange="_vbOnCompareOp()">';
+            ['=', '!=', '>', '>=', '<', '<='].forEach(function(o) {
+                html += '<option value="' + o + '"' + (op === o ? ' selected' : '') + '>' + o + '</option>';
+            });
+            html += '</select>';
+            html += '<span class="vb-label" style="margin-left:0.6rem;">' + __('Factor') + '</span>';
+            html += '<input type="number" class="vb-num-input" id="vb_compare_factor" value="' + factor + '" min="0.01" max="10" step="0.01" onchange="_vbOnCompareFactor()">';
+            html += '</div>';
+            html += _vbZoneHTML('vb_zone_left', __('Left side'), _vbState.leftCodes || [], true, __('Drop the left indicator(s) here'));
+            html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + opClass + '">' + op + '</span> ' + __('left side compared with the right side') + '</div>';
+            html += _vbZoneHTML('vb_zone_right', __('Right side'), _vbState.rightCodes || [], true, __('Drop the right indicator(s) here'));
+            html += '<div style="font-size:0.72rem;color:var(--text-secondary);margin-top:0.35rem;">'
+                + __('One indicator on a side is read as it is; two or more are summed.') + '</div>';
+            html += '</div>';
+            return html;
+        }
+
+        window._vbOnCompareOp = function() {
+            const field = document.getElementById('vb_compare_op');
+            if (!field) return;
+            _vbState.compareOp = field.value;
+            _vbUpdateHidden();
+            buildVisualBuilder(_vbState._expr);
+        };
+
+        window._vbOnCompareFactor = function() {
+            const field = document.getElementById('vb_compare_factor');
+            if (!field) return;
+            _vbState.compareFactor = parseFloat(field.value) || 1;
+            _vbUpdateHidden();
+        };
 
         function _buildVBSingle(expr) {
             let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
@@ -607,7 +731,7 @@ import { confirmDestructive } from './confirm-modal.js';
             _vbState._expr = expr;
             let html = '';
             const parentChild = ['ge', 'eq', 'gt', 'ge_factor', 'le', 'lt', 'le_sum', 'parent_le', 'parent_lt'];
-            const trendTypes = ['month_over', 'month_under'];
+            const trendTypes = ['month_over', 'month_under', 'trend'];
             const listTypes = ['neg_check', 'decimal_check', 'all_zero'];
             if (parentChild.includes(expr)) {
                 html = _buildVBParentChild(expr);
@@ -617,6 +741,10 @@ import { confirmDestructive } from './confirm-modal.js';
                 html = _buildVBList(expr);
             } else if (expr === 'missing') {
                 html = _buildVBSingle(expr);
+            } else if (expr === 'value_check') {
+                html = _buildVBJson(expr);
+            } else if (expr === 'compare') {
+                html = _buildVBCompare();
             } else if (expr === 'formula') {
                 html = _buildVBFormula(expr);
             }
@@ -642,6 +770,42 @@ import { confirmDestructive } from './confirm-modal.js';
             updateRuleExprPreview();
         }
 
+        // Stage 2 of the comparison merge: the legacy comparison types are no
+        // longer offered in Expression Type, but a stored rule must open in the
+        // compare builder with exactly its old meaning. This table mirrors the
+        // engine's _LEGACY_COMPARE_BLUEPRINT (left role, right role, operator,
+        // factor key); tests/test_compare_expression.py checks the two agree.
+        const LEGACY_COMPARE_BUILDER = {
+            ge:        ['parent', 'children', '>=', null],
+            gt:        ['parent', 'children', '>', null],
+            eq:        ['parent', 'children', '=', null],
+            ge_factor: ['parent', 'children', '>=', 'factor'],
+            le:        ['child', 'parent', '<=', null],
+            lt:        ['child', 'parent', '<', null],
+            le_sum:    ['child', 'children', '>=', null],
+            parent_le: ['parent', 'children', '<=', null],
+            parent_lt: ['parent', 'children', '<', null],
+        };
+
+        export function _compareParamsFromLegacy(expr, params) {
+            const spec = LEGACY_COMPARE_BUILDER[expr];
+            if (!spec) return null;
+            let p = params;
+            if (typeof p === 'string') {
+                try { p = JSON.parse(p || '{}'); } catch (e) { p = {}; }
+            }
+            p = p || {};
+            const side = function(role) {
+                if (role === 'children') {
+                    return { codes: (p.children || []).filter(Boolean), agg: 'sum' };
+                }
+                return { codes: p[role] ? [p[role]] : [], agg: 'single' };
+            };
+            const out = { left: side(spec[0]), right: side(spec[1]), op: spec[2] };
+            if (spec[3]) out.factor = parseFloat(p[spec[3]]) || 1.0;
+            return out;
+        }
+
         function _vbLoadExistingParams(expr, paramsStr) {
             let params = {};
             try { params = typeof paramsStr === 'string' ? JSON.parse(paramsStr) : paramsStr; } catch(e) {}
@@ -656,11 +820,21 @@ import { confirmDestructive } from './confirm-modal.js';
                 _vbState.children = params.children || [];
                 if (expr === 'ge_factor') _vbState.ge_factor = params.factor || 1.1;
             } else if (trendTypes.includes(expr)) {
-                _vbState.indicator = params.code || '';
-                _vbState.factor = params.factor || (expr === 'month_over' ? 2.0 : 0.5);
+                _vbState.direction = params.direction || (expr === 'month_under' ? 'under' : 'over');
+                _vbState.indicator = (params.codes && params.codes[0]) || params.code || '';
+                _vbState.factor = params.factor || (_vbState.direction === 'under' ? 0.5 : 2.0);
             } else if (listTypes.includes(expr) || expr === 'missing') {
                 _vbState.codes = params.codes || [];
                 _vbState.indicator = params.code || '';
+            } else if (expr === 'value_check') {
+                _vbState.rawParams = JSON.stringify(params || {}, null, 2);
+            } else if (expr === 'compare') {
+                _vbState.leftCodes = ((params.left && params.left.codes) || []).filter(Boolean);
+                _vbState.rightCodes = ((params.right && params.right.codes) || []).filter(Boolean);
+                _vbState.leftAgg = (params.left && params.left.agg) || 'single';
+                _vbState.rightAgg = (params.right && params.right.agg) || 'single';
+                _vbState.compareOp = params.op || '>=';
+                _vbState.compareFactor = parseFloat(params.factor) || 1;
             } else if (expr === 'formula') {
                 _vbState.formulaParts = _formulaStringToParts(params.formula || '');
                 _vbState.op = params.op || '=';
@@ -728,6 +902,19 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'missing':
                     if (!_vbState.indicator) return '';
                     return 'Missing ' + indName(_vbState.indicator);
+                case 'trend':
+                    if (!_vbState.indicator) return '';
+                    return indName(_vbState.indicator) + (_vbState.direction === 'under' ? ' < ' : ' > ')
+                        + (parseFloat(_vbState.factor) || (_vbState.direction === 'under' ? 0.5 : 2.0))
+                        + 'x previous month';
+                case 'compare': {
+                    const leftNames = listNames(_vbState.leftCodes || []);
+                    const rightNames = listNames(_vbState.rightCodes || []);
+                    if (!leftNames || !rightNames) return '';
+                    const factor = parseFloat(_vbState.compareFactor) || 1;
+                    return (factor !== 1 ? factor + 'x ' : '') + leftNames
+                        + ' ' + (_vbState.compareOp || '>=') + ' ' + rightNames;
+                }
                 case 'formula': {
                     const namesOf = function(parts) {
                         return (parts || []).map(function(p) {
@@ -793,7 +980,7 @@ import { confirmDestructive } from './confirm-modal.js';
             document.getElementById('ruleEditType').value = 'LOGIC';
             document.getElementById('ruleEditSeverity').value = 'HIGH';
             document.getElementById('ruleEditCategory').value = 'BASIC_LOGIC';
-            document.getElementById('ruleEditExpr').value = 'ge';
+            document.getElementById('ruleEditExpr').value = 'compare';
             document.getElementById('ruleEditEnabled').value = 'true';
             document.getElementById('ruleEditDesc').value = '';
 
@@ -805,12 +992,34 @@ import { confirmDestructive } from './confirm-modal.js';
                 document.getElementById('ruleEditType').value = rule.rule_type;
                 document.getElementById('ruleEditSeverity').value = rule.severity;
                 document.getElementById('ruleEditCategory').value = rule.category;
-                document.getElementById('ruleEditExpr').value = rule.expression_type;
+                // A rule saved with a retired comparison type opens as its
+                // compare equivalent; saving then stores the merged shape.
+                let editExpr = rule.expression_type;
+                let editParams = rule.params;
+                const converted = _compareParamsFromLegacy(editExpr, editParams);
+                if (converted) {
+                    editExpr = 'compare';
+                    editParams = JSON.stringify(converted);
+                }
+                document.getElementById('ruleEditExpr').value = editExpr;
                 document.getElementById('ruleEditEnabled').value = rule.enabled ? 'true' : 'false';
                 document.getElementById('ruleEditDesc').value = rule.description || '';
                 document.getElementById('ruleEditCode').disabled = true;
                 // Load existing params into visual builder
-                _vbLoadExistingParams(rule.expression_type, rule.params);
+                _vbLoadExistingParams(editExpr, editParams);
+                // Keep the explanation in step with what the builder shows: a
+                // retired type is now explained as compare.
+                const editExpl = EXPR_EXPLANATIONS[editExpr];
+                const explPanel = document.getElementById('ruleExprExplanation');
+                if (explPanel) {
+                    if (editExpl) {
+                        document.getElementById('ruleExprExplTitle').textContent = __(editExpl.title);
+                        document.getElementById('ruleExprExplText').textContent = __(editExpl.text);
+                        explPanel.style.display = 'block';
+                    } else {
+                        explPanel.style.display = 'none';
+                    }
+                }
             } else {
                 document.getElementById('ruleEditCode').disabled = false;
                 ruleExprTemplate();

@@ -1101,6 +1101,98 @@ class TestRuleValidate:
         assert len(errors) == 1
         assert "Unknown comparison operator" in errors[0]
 
+    # compare: one type for the eight legacy parent/child comparisons.
+    _COMPARE = {
+        "left": {"codes": ["2"], "agg": "single"},
+        "right": {"codes": ["6.d", "6.e"], "agg": "sum"},
+        "op": ">=",
+    }
+
+    def _validate_compare(self, client, params):
+        resp = client.post("/rules/validate", json={
+            "code": "R_COMPARE",
+            "expression_type": "compare",
+            "params": params,
+        })
+        assert resp.status_code == 200, resp.text
+        return resp.json()["errors"]
+
+    def test_validate_compare_is_clean(self, client):
+        assert self._validate_compare(client, dict(self._COMPARE)) == []
+
+    def test_validate_compare_requires_both_sides(self, client):
+        assert self._validate_compare(client, {"op": ">="}) == [
+            "A compare rule needs both sides: left and right."
+        ]
+        left_only = {k: v for k, v in self._COMPARE.items() if k != "right"}
+        assert self._validate_compare(client, left_only) == [
+            "A compare rule needs both sides: left and right."
+        ]
+
+    def test_validate_compare_rejects_unknown_operator(self, client):
+        errors = self._validate_compare(client, {**self._COMPARE, "op": "~~"})
+        assert len(errors) == 1
+        assert "Unknown comparison operator" in errors[0]
+
+    # trend: direction + factor replaces month_over/month_under.
+    _TREND = {"direction": "over", "factor": 2.0, "codes": ["2"]}
+
+    def _validate_trend(self, client, params):
+        resp = client.post("/rules/validate", json={
+            "code": "R_TREND",
+            "expression_type": "trend",
+            "params": params,
+        })
+        assert resp.status_code == 200, resp.text
+        return resp.json()["errors"]
+
+    def test_validate_trend_is_clean(self, client):
+        assert self._validate_trend(client, dict(self._TREND)) == []
+
+    def test_validate_trend_requires_direction_and_codes(self, client):
+        for params in ({}, {"direction": "over"}, {"codes": ["2"]},
+                       {"direction": "sideways", "codes": ["2"]}):
+            errors = self._validate_trend(client, params)
+            assert len(errors) == 1, params
+            assert "direction" in errors[0]
+
+    def test_validate_trend_rejects_a_non_positive_factor(self, client):
+        for factor in (0, -1, "x"):
+            errors = self._validate_trend(client, {**self._TREND, "factor": factor})
+            assert len(errors) == 1, factor
+            assert "positive number" in errors[0]
+
+    # value_check: one type for negative/decimal/missing/all_zero.
+    _VALUE_CHECK = {
+        "checks": [
+            {"kind": "negative", "codes": ["2", "3"]},
+            {"kind": "all_zero"},
+        ],
+    }
+
+    def _validate_value_check(self, client, params):
+        resp = client.post("/rules/validate", json={
+            "code": "R_VALUE_CHECK",
+            "expression_type": "value_check",
+            "params": params,
+        })
+        assert resp.status_code == 200, resp.text
+        return resp.json()["errors"]
+
+    def test_validate_value_check_is_clean(self, client):
+        assert self._validate_value_check(client, dict(self._VALUE_CHECK)) == []
+
+    def test_validate_value_check_requires_a_usable_check(self, client):
+        for params in (
+            {},
+            {"checks": []},
+            {"checks": [{"kind": "bogus", "codes": ["2"]}]},
+            {"checks": [{"kind": "negative", "codes": []}]},
+        ):
+            errors = self._validate_value_check(client, params)
+            assert len(errors) == 1, params
+            assert "at least one check" in errors[0]
+
 
 class TestRuleTestDryRun:
     def test_test_benchmark_rule_is_rejected(self, client):
@@ -1313,10 +1405,15 @@ class TestImpactCacheInvalidation:
         assert rules_api._impact_cache["data"] is not None
         before = next(x for x in first if x["code"] == rule.code)
 
-        # Change the rule's params (children) — a real edit
+        # Change the rule's params (one side of the comparison) — a real edit.
+        # Seeded rules carry the merged `compare` shape; the legacy keys are
+        # still accepted for imported payloads.
         import json as _json
         params = _json.loads(rule.params or "{}")
-        params["children"] = (params.get("children") or [])[:1] or ["3"]
+        if params.get("right", {}).get("codes"):
+            params["right"]["codes"] = params["right"]["codes"][:1]
+        else:
+            params["children"] = (params.get("children") or [])[:1] or ["3"]
         resp = client.put(f"/rules/{rule.id}", json={"params": _json.dumps(params)})
         assert resp.status_code == 200
 
