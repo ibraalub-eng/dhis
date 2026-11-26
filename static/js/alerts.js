@@ -1,5 +1,28 @@
         import { API } from './api.js';
         import { esc } from './tree.js';
+        import { mountQualityComponent } from './quality-components.js';
+
+        // ── Sub-tabs of the merged Validation Result screen ──
+        // "Rule Failures" lists the stored failed rules; "Compliance by hospital"
+        // is the compliance component the same rows add up to. The component is
+        // mounted lazily on first open so the tab keeps its single request.
+        window.switchVrTab = function(tab) {
+            var panels = { failures: 'vrPanel-failures', compliance: 'vrPanel-compliance' };
+            Object.keys(panels).forEach(function(key) {
+                var panel = document.getElementById(panels[key]);
+                if (panel) panel.style.display = (key === tab) ? 'block' : 'none';
+                var btn = document.querySelector('.vr-subtab[data-vr-tab="' + key + '"]');
+                if (!btn) return;
+                var on = key === tab;
+                btn.style.color = on ? 'var(--accent-blue)' : 'var(--text-muted)';
+                btn.style.borderBottom = on ? '2px solid var(--accent-blue)' : 'none';
+                btn.style.marginBottom = on ? '-2px' : '0';
+                btn.setAttribute('aria-selected', on ? 'true' : 'false');
+            });
+            if (tab !== 'compliance') return;
+            var root = document.querySelector('#vrPanel-compliance [data-qc-component]');
+            mountQualityComponent(root, 'compliance');
+        };
 
         // ── Alerts Tab (overview only; rule-failures table merged here) ──
         export function loadAlerts() {

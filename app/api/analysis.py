@@ -1293,6 +1293,10 @@ def list_rule_failures(
     severity: Optional[str] = Query(None, description="Filter by severity HIGH/MEDIUM/LOW"),
     rule_type: Optional[str] = Query(None, description="Filter by rule type LOGIC/CLINICAL/STATISTICAL/TREND"),
     rule_code: Optional[str] = Query(None, description="Filter by rule code"),
+    status: Optional[str] = Query(
+        None,
+        description="Filter by stored outcome: FAIL (default) | PASS | ALL",
+    ),
     q: Optional[str] = Query(None, description="Free-text search over hospital name, rule code, description and details"),
     sort_by: Optional[str] = Query(None, description="Sort column: severity (default) | hospital | month | rule | type | description | details"),
     order: str = Query("asc", description="Sort direction for sort_by (asc | desc)"),
@@ -1300,8 +1304,9 @@ def list_rule_failures(
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    # v5: same reason as the outliers key — eligibility is part of the answer.
-    cache_key = cache.make_key("analysis:rule-failures_v5", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, q=q, sort_by=sort_by, order=order, skip=skip, limit=limit)
+    # v6: the payload now carries the outcome filter and the pass/fail counts
+    # of the same filtered scope, not only the failure page.
+    cache_key = cache.make_key("analysis:rule-failures_v6", month=month, hospital_id=hospital_id, severity=severity, rule_type=rule_type, rule_code=rule_code, status=status, q=q, sort_by=sort_by, order=order, skip=skip, limit=limit)
     cached = cache.get(cache_key)
     if cached:
         return cached
@@ -1309,7 +1314,6 @@ def list_rule_failures(
     query = db.query(ValidationResult).options(selectinload(ValidationResult.hospital)).join(Hospital, ValidationResult.hospital_id == Hospital.id).join(
         Rule, Rule.code == ValidationResult.rule_code,
     ).filter(
-        ValidationResult.status == "FAIL",
         Hospital.is_active.is_(True),
         or_(
             ValidationResult.rule_type.is_(None),
@@ -1343,6 +1347,23 @@ def list_rule_failures(
                 ValidationResult.month.ilike(needle),
             )
         )
+    # The screen lists validation RESULTS, not only their failures: a
+    # hospital-month whose data reconciles produced no FAIL rows at all, so a
+    # failures-only reader showed a blank screen that looked broken even though
+    # every rule had run. These counts are computed over the same filtered
+    # scope (before the outcome filter), so the screen can say "0 failed · 866
+    # passed" and still let the user list the stored passes.
+    status_filter = (status or "FAIL").strip().upper()
+    if status_filter not in ("FAIL", "PASS", "ALL"):
+        status_filter = "FAIL"
+    status_counts = dict(
+        query.with_entities(ValidationResult.status, func.count())
+        .group_by(ValidationResult.status)
+        .all()
+    )
+    if status_filter != "ALL":
+        query = query.filter(ValidationResult.status == status_filter)
+
     total = query.count()
     sev_order = case(
         (ValidationResult.severity == "CRITICAL", 0),
@@ -1400,7 +1421,18 @@ def list_rule_failures(
             "rule_type": r.rule_type,
             "details": r.details,
         })
-    result = {"total": total, "skip": skip, "limit": limit, "data": output}
+    result = {
+        "total": total,
+        "skip": skip,
+        "limit": limit,
+        "status_filter": status_filter,
+        "counts": {
+            "FAIL": int(status_counts.get("FAIL", 0)),
+            "PASS": int(status_counts.get("PASS", 0)),
+            "total": int(status_counts.get("FAIL", 0)) + int(status_counts.get("PASS", 0)),
+        },
+        "data": output,
+    }
     cache.set(cache_key, result)
     return result
 

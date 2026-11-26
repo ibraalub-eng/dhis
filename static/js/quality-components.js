@@ -16,6 +16,9 @@ const PAGES = {
     'quality-confidence': 'confidence',
 };
 
+// The component keys PAGES maps to — a caller may pass either form.
+const PAGE_KEY_LIST = Object.keys(PAGES).map(function(k) { return PAGES[k]; });
+
 const LEVEL_META = {
     on_target: { label: 'On target', color: '#2e7d32' },
     watch: { label: 'Watch', color: '#e65100' },
@@ -409,6 +412,22 @@ async function _load(root, key) {
 }
 
 /**
+ * Mount one component page inside any container. ``key`` is either the
+ * component key (completeness, compliance, …) or the tab name that owns it.
+ * The merged Validation Result screen uses this to show the compliance view in
+ * one of its own sub-tabs.
+ */
+export function mountQualityComponent(root, key) {
+    const compKey = PAGE_KEY_LIST.indexOf(key) !== -1 ? key : PAGES[key];
+    if (!root || !compKey) return;
+    if (root.dataset.qcMounted === '1') return;
+    root.dataset.qcMounted = '1';
+    // The container ships its own spinner; replace it once data arrives.
+    _bind(root, compKey);
+    _load(root, compKey);
+}
+
+/**
  * Mount the component page that is currently active. Called from main.js when
  * one of the four quality-component tabs is opened.
  */
@@ -419,10 +438,5 @@ export function initQualityComponents() {
     // PAGES is keyed by the tab name switchTab uses, so drop it before lookup.
     const key = PAGES[String(pane.id || '').replace(/^tab-/, '')];
     if (!key) return;
-    const root = pane.querySelector('[data-qc-component]');
-    if (!root || root.dataset.qcMounted === '1') return;
-    root.dataset.qcMounted = '1';
-    // The fragment ships its own spinner; replace it once data arrives.
-    _bind(root, key);
-    _load(root, key);
+    mountQualityComponent(pane.querySelector('[data-qc-component]'), key);
 }

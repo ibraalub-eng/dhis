@@ -179,3 +179,25 @@ def test_why_popup_carries_the_indicator_code():
     assert "indicator_code || ''" in js
     # the positional rate-name-only call is what lost the code
     assert "showWhyPopup('anomaly'," not in js
+
+
+def test_validation_results_screen_lists_stored_passes():
+    """The sidebar screen is named 'Validation Result', but only FAIL rows were
+    readable, so a month whose data reconciles rendered a blank table that
+    looked broken. A Status filter/column now exposes the stored PASS rows and
+    the header reports how many results were checked."""
+    html = _read_alerts_tab()
+    assert 'id="ruleFailStatusFilter"' in html
+    assert "<th>Status</th>" in html
+    js = _read_outliers()
+    loader = js.split("export function loadRuleFailures")[1].split("function updateRuleFailUI")[0]
+    assert "'status=' + encodeURIComponent(status)" in loader
+    ui = js.split("function updateRuleFailUI")[1]
+    assert "resp.counts" in ui
+    assert "counts.PASS" in ui
+    assert "resp.status_filter" in ui
+    assert 'colspan="9"' in ui
+    assert "No rule failures — all " in ui
+    # CSV export honours the same Status filter as the table.
+    filt = js.split("function _ruleFailureFilterQuery")[1].split("export async function")[0]
+    assert "'status=' + encodeURIComponent(status)" in filt

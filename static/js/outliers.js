@@ -48,11 +48,13 @@
             const hosp = document.getElementById('ruleFailHospitalFilter')?.value;
             const mon = document.getElementById('ruleFailMonthFilter')?.value;
             const sev = document.getElementById('ruleFailSeverityFilter')?.value;
+            const status = document.getElementById('ruleFailStatusFilter')?.value;
             const typ = document.getElementById('ruleFailTypeFilter')?.value;
             const search = (document.getElementById('ruleFailSearch')?.value || '').trim();
             if (hosp) q += 'hospital_id=' + hosp + '&';
             if (mon) q += 'month=' + encodeURIComponent(mon) + '&';
             if (sev) q += 'severity=' + encodeURIComponent(sev) + '&';
+            if (status && status !== 'all') q += 'status=' + encodeURIComponent(status) + '&';
             if (typ) q += 'rule_type=' + encodeURIComponent(typ) + '&';
             // The CSV must reflect exactly what the table shows.
             if (search) q += 'q=' + encodeURIComponent(search) + '&';
@@ -523,52 +525,65 @@
             pinned.forEach(r => tbody.appendChild(r));
         }
 
-        // ── Rule Failures Tab ──────────────────────────────────────
+        // ── Validation Results Tab ─────────────────────────────────
         export function loadRuleFailures() {
             const tbody = document.getElementById('ruleFailTbody');
             if (!tbody) return;
             const hosp = document.getElementById('ruleFailHospitalFilter').value;
             const mon = document.getElementById('ruleFailMonthFilter').value;
             const sev = document.getElementById('ruleFailSeverityFilter').value;
+            const status = (document.getElementById('ruleFailStatusFilter')?.value || '');
             const typ = document.getElementById('ruleFailTypeFilter').value;
             const search = (document.getElementById('ruleFailSearch')?.value || '').trim();
             const sortVal = (document.getElementById('ruleFailSort')?.value || '');
             const [sortBy, sortOrder] = sortVal ? sortVal.split(':') : [null, 'asc'];
             const loading = document.getElementById('ruleFailLoading');
             if (loading) loading.classList.remove('hidden');
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading rule failures...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:2rem;color:var(--text-muted);">Loading validation results...</td></tr>';
             let url = '/analysis/rule-failures?';
             if (hosp) url += 'hospital_id=' + hosp + '&';
             if (mon) url += 'month=' + encodeURIComponent(mon) + '&';
             if (sev) url += 'severity=' + encodeURIComponent(sev) + '&';
+            if (status) url += 'status=' + encodeURIComponent(status) + '&';
             if (typ) url += 'rule_type=' + encodeURIComponent(typ) + '&';
             if (search) url += 'q=' + encodeURIComponent(search) + '&';
             if (sortBy) url += 'sort_by=' + encodeURIComponent(sortBy) + '&order=' + encodeURIComponent(sortOrder || 'asc') + '&';
             apiGet(url).then(data => {
                 if (loading) loading.classList.add('hidden');
-                updateRuleFailUI(data, hosp, mon, search);
+                updateRuleFailUI(data, hosp, mon, search, status);
             }).catch(err => {
                 if (loading) loading.classList.add('hidden');
-                tbody.innerHTML = '<tr><td colspan="8" style="color:red;text-align:center;">Error loading rule failures: ' + err.message + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" style="color:red;text-align:center;">Error loading validation results: ' + err.message + '</td></tr>';
             });
         }
 
-        function updateRuleFailUI(resp, currentHosp, currentMon, currentSearch) {
+        function updateRuleFailUI(resp, currentHosp, currentMon, currentSearch, currentStatus) {
             const data = resp.data || resp;
             window._lastRuleFailureData = data;
-            const total = resp.total || data.length;
-            document.getElementById('ruleFailCount').textContent = total + ' failure(s)';
+            const total = resp.total != null ? resp.total : data.length;
+            const counts = resp.counts || {};
+            const failed = counts.FAIL != null ? counts.FAIL : 0;
+            const passed = counts.PASS != null ? counts.PASS : 0;
+            const checked = counts.total != null ? counts.total : (failed + passed);
+            const statusFilter = resp.status_filter || currentStatus || 'FAIL';
+            // This screen is "Validation Results", not a failures-only feed: a
+            // month whose data reconciles stores no FAIL rows, and the old
+            // failures-only reader showed a blank table that looked broken even
+            // though every rule had run. The header always reports what was
+            // checked, and the Status filter lists the stored PASS rows too.
+            document.getElementById('ruleFailCount').textContent =
+                failed + ' failed · ' + passed + ' passed'
+                + (checked ? ' (' + checked + ' checked)' : '');
             // Summary
             const sevCounts = {};
-            const typeCounts = {};
             data.forEach(d => {
                 sevCounts[d.severity] = (sevCounts[d.severity] || 0) + 1;
-                typeCounts[d.rule_type] = (typeCounts[d.rule_type] || 0) + 1;
             });
             const topSev = Object.entries(sevCounts).sort((a,b) => b[1]-a[1]);
             const rfPill = 'display:inline-flex;align-items:center;gap:0.25rem;border-radius:4px;padding:0.2rem 0.55rem;font-size:0.72rem;';
             document.getElementById('ruleFailSummary').innerHTML =
-                '<span style="' + rfPill + 'background:#b71c1c11;border:1px solid #b71c1c44;"><span style="font-weight:700;color:#b71c1c;">' + total + '</span><span style="color:#b71c1c66;">Failures</span></span>' +
+                '<span style="' + rfPill + 'background:#b71c1c11;border:1px solid #b71c1c44;"><span style="font-weight:700;color:#b71c1c;">' + failed + '</span><span style="color:#b71c1c66;">Failed</span></span>' +
+                '<span style="' + rfPill + 'background:#2e7d3211;border:1px solid #2e7d3244;"><span style="font-weight:700;color:#2e7d32;">' + passed + '</span><span style="color:#2e7d3266;">Passed</span></span>' +
                 '<span style="' + rfPill + 'background:#e6510011;border:1px solid #e6510044;"><span style="font-weight:700;color:#e65100;">' + (topSev[0] ? topSev[0][0] : '--') + '</span><span style="color:#e6510066;">Top Severity</span></span>' +
                 '<span style="' + rfPill + 'background:#1565c011;border:1px solid #1565c044;"><span style="font-weight:700;color:#1565c0;">' + new Set(data.map(d => d.hospital)).size + '</span><span style="color:#1565c066;">Hospitals</span></span>' +
                 '<span style="' + rfPill + 'background:#2e7d3211;border:1px solid #2e7d3244;"><span style="font-weight:700;color:#2e7d32;">' + new Set(data.map(d => d.rule_code)).size + '</span><span style="color:#2e7d3266;">Rules</span></span>';
@@ -594,24 +609,37 @@
             // Render
             const tbody = document.getElementById('ruleFailTbody');
             if (!data.length) {
-                // Distinguish "nothing failed" from "your search matched nothing"
-                // — otherwise a working search reads as an empty screen.
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">' +
-                    (currentSearch
+                // Distinguish a search miss from "nothing failed" and from
+                // "nothing has been analysed yet" — otherwise every one of
+                // them reads as the same empty, apparently broken screen.
+                let msg;
+                if (currentSearch) {
+                    msg = statusFilter === 'FAIL'
                         ? 'No rule failures match &quot;' + esc(currentSearch) + '&quot;.'
-                        : 'No rule failures found.') +
-                    '</td></tr>';
+                        : 'No validation results match &quot;' + esc(currentSearch) + '&quot;.';
+                } else if (!checked) {
+                    msg = 'No validation results are stored for this scope yet — run an analysis for these months.';
+                } else if (statusFilter === 'FAIL' && passed) {
+                    msg = 'No rule failures — all ' + passed + ' stored validation results passed.';
+                } else if (statusFilter === 'PASS' && failed) {
+                    msg = 'No passing results — ' + failed + ' rule failure(s) are stored for this scope.';
+                } else {
+                    msg = 'No validation results found.';
+                }
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--text-muted);">' + msg + '</td></tr>';
                 return;
             }
             tbody.innerHTML = data.map(d => {
                 const sevBadge = d.severity === 'CRITICAL' ? 'badge-critical' : d.severity === 'HIGH' ? 'badge-high' : d.severity === 'MEDIUM' ? 'badge-medium' : 'badge-low';
                 const typeBadge = d.rule_type === 'LOGIC' ? 'badge-pass' : d.rule_type === 'CLINICAL' ? 'badge-medium' : d.rule_type === 'STATISTICAL' ? 'badge-high' : 'badge-stable';
+                const statusBadge = d.status === 'FAIL' ? 'badge-critical' : 'badge-pass';
                 return '<tr>' +
                     '<td>' + esc(d.hospital) + '</td>' +
                     '<td>' + esc(d.month) + '</td>' +
                     '<td><code>' + esc(d.rule_code) + '</code></td>' +
                     '<td>' + esc(d.rule_description) + '</td>' +
                     '<td><span class="badge ' + sevBadge + '">' + esc(d.severity) + '</span></td>' +
+                    '<td><span class="badge ' + statusBadge + '">' + esc(d.status || '--') + '</span></td>' +
                     '<td><span class="badge ' + typeBadge + '">' + esc(d.rule_type) + '</span></td>' +
                     '<td style="font-size:0.8rem;color:var(--text-secondary);">' + esc(d.details).substring(0,80) + '</td>' +
                     '<td><button onclick="window.showWhyPopup(\'rule\',' + Number(d.hospital_id) + ',\'' + esc(d.month) + '\',null,' + JSON.stringify(String(d.rule_code)).replace(/"/g, '&quot;') + ')" '
@@ -619,5 +647,14 @@
                         + 'style="background:none;border:1px solid var(--border-default,#ccc);border-radius:4px;padding:1px 7px;font-size:0.7rem;cursor:pointer;color:var(--accent-blue,#1565c0);font-weight:600;">\u2139\ufe0f ' + __('Why') + '</button></td>' +
                     '</tr>';
             }).join('');
+            // The table holds one page (limit=100); say so instead of letting
+            // a truncated list read as the whole result set.
+            if (total > data.length) {
+                tbody.insertAdjacentHTML('beforeend',
+                    '<tr data-no-sort><td colspan="9" style="text-align:center;color:var(--text-muted);font-size:0.72rem;padding:0.6rem;">'
+                    + esc(__('Showing')) + ': ' + data.length + ' / ' + total + ' — '
+                    + esc(__('narrow the filter to see the rest'))
+                    + '</td></tr>');
+            }
             wireRuleFailSort();
         }

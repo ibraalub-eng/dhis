@@ -1,3 +1,17 @@
+<div style="margin-bottom:0.8rem;">
+    <h2 style="margin:0;" data-menu-label>Validation Alerts</h2>
+    <span style="font-size:0.82rem;color:var(--text-muted);" data-i18n="Stored validation results: the rules that failed and the compliance score they add up to">Stored validation results: the rules that failed and the compliance score they add up to</span>
+</div>
+
+<!-- One screen, two views of the same stored validation results: the individual
+     rule failures and the compliance component they add up to. The separate
+     "Rule Compliance" screen is no longer a sidebar entry — this is it. -->
+<div id="vrSubtabs" style="display:flex;gap:0;border-bottom:2px solid var(--border-default);margin-bottom:1rem;">
+    <button type="button" class="vr-subtab" data-vr-tab="failures" onclick="window.switchVrTab('failures')" aria-selected="true" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--accent-blue);border-bottom:2px solid var(--accent-blue);margin-bottom:-2px;cursor:pointer;font-size:0.82rem;" data-i18n="Validation Results">Validation Results</button>
+    <button type="button" class="vr-subtab" data-vr-tab="compliance" onclick="window.switchVrTab('compliance')" aria-selected="false" style="padding:0.4rem 1rem;border:none;background:none;font-weight:600;color:var(--text-muted);cursor:pointer;font-size:0.82rem;" data-i18n="Compliance by hospital">Compliance by hospital</button>
+</div>
+
+<div id="vrPanel-failures" class="vr-tab-content">
                     <div class="filter-bar" id="alertFilterBar" style="display:none;gap:0.75rem;align-items:center;margin-bottom:1rem;flex-wrap:wrap;">
                         <select id="alert-severity-filter" class="form-select" onchange="window.filterAlerts()" style="font-size:0.78rem;padding:0.3rem 0.5rem;">
                             <option value="all" data-i18n="All severities">جميع المستويات</option>
@@ -12,13 +26,7 @@
                         <input type="text" id="alert-search" class="form-input" placeholder="بحث في التنبيهات الحرجة..." title="Search the critical alerts panel below (hospital, rule, description)" data-i18n-placeholder="search" oninput="window.filterAlerts()" style="max-width:200px;font-size:0.78rem;padding:0.3rem 0.5rem;">
                     </div>
 
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
-                        <div>
-                            <h2 style="margin:0;" data-menu-label>Validation Alerts</h2>
-                            <span style="font-size:0.82rem;color:var(--text-muted);">Real-time severity overview & rule failures</span>
-                        </div>
-                        <div style="display:flex;gap:0.5rem;align-items:center;" id="alertSummaryBar"></div>
-                    </div>
+                    <div style="display:flex;justify-content:flex-end;margin-bottom:0.6rem;" id="alertSummaryBar"></div>
 
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
                         <div class="card" style="padding:0.6rem 0.8rem;">
@@ -34,7 +42,7 @@
                     <!-- Rule Failures (merged from Rule Failures tab) -->
                     <div class="card" style="padding:0.6rem 0.8rem;">
                         <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.5rem;">
-                            <h3 style="margin:0;font-size:0.95rem;">Rule Failures <span id="ruleFailCount" style="font-size:0.75rem;color:var(--text-muted);"></span></h3>
+                            <h3 style="margin:0;font-size:0.95rem;">Validation Results <span id="ruleFailCount" style="font-size:0.75rem;color:var(--text-muted);"></span></h3>
                             <div style="display:flex;align-items:center;gap:0.4rem;">
                                 <div id="ruleFailSummary" style="display:flex;gap:0.4rem;flex-wrap:wrap;"></div>
                                 <button id="ruleFailExportBtn" onclick="exportRuleFailuresCSV()" style="background:var(--bg-surface-hover);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;padding:0.2rem 0.6rem;font-size:0.75rem;cursor:pointer;">Export CSV</button>
@@ -46,6 +54,8 @@
                             <select id="ruleFailHospitalFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
                             <label style="font-size:0.75rem;color:var(--text-secondary);">Month:</label>
                             <select id="ruleFailMonthFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option></select>
+                            <label style="font-size:0.75rem;color:var(--text-secondary);">Status:</label>
+                            <select id="ruleFailStatusFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="all">All</option><option value="FAIL">Failed</option><option value="PASS">Passed</option></select>
                             <label style="font-size:0.75rem;color:var(--text-secondary);">Severity:</label>
                             <select id="ruleFailSeverityFilter" onchange="loadRuleFailures()" style="font-size:0.78rem;padding:0.2rem 0.4rem;"><option value="">All</option><option value="CRITICAL">Critical</option><option value="HIGH">High</option><option value="MEDIUM">Medium</option><option value="LOW">Low</option></select>
                             <label style="font-size:0.75rem;color:var(--text-secondary);">Type:</label>
@@ -73,6 +83,7 @@
                                     <th class="sortable" data-col="rule_code">Rule</th>
                                     <th class="sortable" data-col="rule_description">Description</th>
                                     <th class="sortable" data-col="severity">Severity</th>
+                                    <th>Status</th>
                                     <th class="sortable" data-col="rule_type">Type</th>
                                     <th class="sortable" data-col="details">Details</th>
                                     <th data-i18n="Why">Why</th>
@@ -81,3 +92,12 @@
                             </table>
                         </div>
                     </div>
+</div>
+
+<div id="vrPanel-compliance" class="vr-tab-content" style="display:none;">
+    <div data-qc-component="compliance">
+        <div style="padding:1.5rem;text-align:center;color:var(--text-muted);font-size:0.85rem;">
+            <span class="spinner"></span> <span data-i18n="Loading...">Loading...</span>
+        </div>
+    </div>
+</div>
