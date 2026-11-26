@@ -829,10 +829,20 @@ def process_excel_upload(file_path: str, session: Session) -> Dict:
     hospital_names = sorted(set(r["hospital_name"] for r in records))
     months = sorted(set(r["month"] for r in records))
 
+    # Resolve the hospitals from the rows just imported, not by exact name.
+    # DHIS organisation names are often paths ("dir/مستشفيات/name"); the
+    # importer matches those to existing records by org id / normalised name /
+    # token containment, so an exact-name lookup returns [] and every analysis
+    # batch keyed on this list (process-preview, upload/analyze,
+    # update-saved, multiple-analyze) silently skipped all hospitals.
+    hospital_ids = {
+        row[0] for row in session.query(IndicatorValue.hospital_id)
+        .filter(IndicatorValue.source_file == filename)
+        .distinct().all()
+    }
     hosp_records = (
-        session.query(Hospital)
-        .filter(Hospital.name.in_(hospital_names))
-        .all()
+        session.query(Hospital).filter(Hospital.id.in_(hospital_ids)).all()
+        if hospital_ids else []
     )
     hospitals_list = [{"id": h.id, "name": h.name} for h in hosp_records]
 

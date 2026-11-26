@@ -535,6 +535,31 @@ def get_month_settings_audit(
     ]
 
 
+def _requeue_reenabled_pair(db: Session, hospital_id: int, month: str):
+    """Refresh the stored score of a pair that just became active again.
+
+    While a pair is disabled the analysis workers skip it, so its stored score
+    can predate values uploaded to that hidden month. Re-enabling returns the
+    pair to every reader, so that one pair is recomputed in the background
+    instead of reappearing stale. A pair with no enabled values has nothing to
+    analyse and is left untouched (no fallback row, no wasted work).
+    """
+    try:
+        from app.engine.pipeline import get_enabled_values_for_hospital_month
+        if not get_enabled_values_for_hospital_month(db, hospital_id, month):
+            return None
+        from app.api.file_ops import _recompute_pair_bg
+        return _recompute_pair_bg(
+            hospital_id, month, f"re-enable:{hospital_id}:{month}")
+    except Exception:
+        # The setting is already saved and audited: a re-analysis problem must
+        # not turn the toggle into an error. The month simply keeps its previous
+        # score until the next analysis run covers it.
+        logger.exception("Could not queue re-analysis for hospital %s / %s",
+                         hospital_id, month)
+        return None
+
+
 @router.put("/month-settings")
 def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db),
                          user=Depends(require_permission("settings.write"))):
@@ -591,6 +616,11 @@ def update_month_setting(updates: dict = Body(...), db: Session = Depends(get_db
         _cache.invalidate("smart_")
     except Exception:
         logger.exception("Failed to invalidate caches after month toggle")
+    # Only a disabled -> enabled transition needs a refresh: the month was
+    # hidden from the workers while it collected new values. Re-saving an
+    # already-enabled month changes nothing and must not start an analysis.
+    if changed and enabled:
+        _requeue_reenabled_pair(db, hospital_id, month)
     return {"status": "ok", "month": month, "hospital_id": hospital_id,
             "enabled": enabled, "changed": changed,
             "previous_state": previous_state}

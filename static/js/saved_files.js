@@ -1,4 +1,4 @@
-        import { API } from './api.js';
+        import { API, clearApiCache } from './api.js';
         import { __ } from './i18n.js';
         import { esc, setStatus } from './tree.js';
         import { updateAlertBadge } from './alerts.js';
@@ -176,6 +176,36 @@ import { confirmDestructive } from './confirm-modal.js';
             input.click();
         }
 
+        // The update imports values and then re-runs the analyses in a
+        // background task. Poll it so the month lists, reports and dashboard
+        // are refreshed only after the new scores are stored — otherwise the
+        // screens keep showing the pre-update months/analyses.
+        function _waitForTask(taskId) {
+            return new Promise(resolve => {
+                let polls = 0;
+                const tick = () => {
+                    authFetch(API() + '/tasks/' + taskId)
+                        .then(r => r.json())
+                        .then(task => {
+                            if (task.status === 'done') { resolve(task.result); return; }
+                            if (task.status === 'error') {
+                                // The import itself succeeded; only the re-analysis failed.
+                                setStatus('err', __('Analysis failed:') + ' ' + (task.error || ''));
+                                resolve(null);
+                                return;
+                            }
+                            polls++;
+                            if (polls > 300) { resolve(null); return; }
+                            const pct = task.progress || Math.min(10 + polls * 3, 90);
+                            setStatus('loading', 'Updating ' + __('and analyzing') + ' (' + pct + '%)...');
+                            setTimeout(tick, 2000);
+                        })
+                        .catch(() => resolve(null));
+                };
+                tick();
+            });
+        }
+
         async function runUpdateSaved(fname, file) {
             setStatus('loading', 'Updating ' + fname + '...');
             const fd = new FormData();
@@ -190,6 +220,20 @@ import { confirmDestructive } from './confirm-modal.js';
                 const data = await res.json();
                 setStatus('ok', data.message || __('Updated.'));
                 await refreshSavedFiles();
+                if (data.task_id) {
+                    await _waitForTask(data.task_id);
+                    clearApiCache();
+                    // Analysis tabs snapshot their months/reports on first visit;
+                    // reset them so the next visit re-fetches the new months.
+                    ['dashboard', 'quality', 'alerts', 'outliers', 'analysis',
+                     'clinical', 'smart-analytics', 'smart-forecast',
+                     'root-cause', 'indicator-tree'].forEach(function(t) {
+                        if (window._tabInited) window._tabInited.delete(t);
+                    });
+                    if (typeof window.switchTab === 'function') window.switchTab('dashboard');
+                    if (typeof window.loadDashboard === 'function') window.loadDashboard();
+                    setStatus('ok', __('Updated and analyzed.') + ' ' + (data.months || []).join(', '));
+                }
             } catch (err) {
                 setStatus('err', 'Update failed: ' + err.message);
             }

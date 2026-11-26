@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import List
 import threading
 from app.database import get_db, SessionLocal
-from app.tasks import create_task, run_task
+from app.tasks import create_task, run_task, set_task_meta
 from app.models import Hospital, Indicator, IndicatorValue, QualityScore, ValidationResult
 from app.engine.pipeline import (
     run_full_analysis,
@@ -18,18 +18,27 @@ from app.utils.excel_parser import process_excel_upload
 from app.config import UPLOAD_DIR, MAX_UPLOAD_SIZE
 from app.schemas import MultiFileUploadResponse
 from app.core.deps import require_permission
+from app.eligibility import disabled_pairs
 from app.utils.files import safe_upload_name
 import os
 import io
 import shutil
 import json
 import logging
+import time
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/analysis", tags=["analysis"], dependencies=[Depends(require_permission("data.upload"))])
 
 ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".xlsm", ".xlsb"}
+
+#: Ceiling for a background re-analysis batch. The upload UI polls a task for
+#: at most 10 minutes and then refreshes the screens anyway, so the batch must
+#: always end before that — otherwise the refresh happens before the caches are
+#: dropped and the "new" months still look missing. 8 minutes leaves headroom
+#: for the last hospital-month batch and the final cache work.
+RECOMPUTE_BUDGET_SECONDS = 8 * 60
 
 
 @router.get("/saved-files")
@@ -218,6 +227,25 @@ async def analyze_saved_files(
     hospital_comparisons = _run_hospital_comparisons(db, hospitals_list, all_months)
     clinical_analyses = _run_clinical_analyses(db, hospitals_list, hospital_months)
 
+    # The analyses above rewrote every stored score. Without dropping the
+    # caches, /reports/, /analysis/months and the dashboard kept serving the
+    # pre-analysis payload — the "I re-analyzed and nothing changed" report.
+    try:
+        from app.cache import cache as _cache
+        _cache.invalidate()
+    except Exception as e:
+        logger.warning("Analysis cache invalidation failed: %s", e)
+    try:
+        from app.engine.comparative.report_cache import invalidate_report_cache
+        invalidate_report_cache(db)
+    except Exception as e:
+        logger.warning("Report cache invalidation failed: %s", e)
+    try:
+        from app.api.upload import _precompute_smart_bg
+        _precompute_smart_bg(sorted(all_months))
+    except Exception as e:
+        logger.warning("Smart analytics precompute failed: %s", e)
+
     return {
         "files_processed": processed_files,
         "hospitals_processed": len(hospitals_list),
@@ -330,11 +358,15 @@ async def update_saved_file(
         invalidate_report_cache(db)
     except Exception as e:
         logger.warning("Report cache invalidation failed: %s", e)
-    for prefix in ("smart_overview_", "smart_anomalies_", "smart_clusters_", "smart_correlations_", "smart_residuals_"):
-        try:
-            _cache.invalidate(prefix)
-        except Exception:
-            pass
+
+    # Replacing a file's values leaves that hospital's stored analyses stale
+    # (and a newly added month has none at all), so the screens would keep
+    # showing the pre-update reports/scores. Recompute them in the background
+    # and let the UI poll the task before it refreshes its month/report caches.
+    hospital_ids = [h["id"] for h in result.get("hospitals", [])]
+    task_id = (_recompute_hospital_months_bg(
+        hospital_ids, result.get("months", []), f"update-saved:{filename}")
+        if hospital_ids else None)
 
     return {
         "filename": filename,
@@ -342,6 +374,7 @@ async def update_saved_file(
         "rows_imported": result.get("rows_imported", 0),
         "hospitals": result.get("hospitals", []),
         "months": result.get("months", []),
+        "task_id": task_id,
         "message": f"Updated {filename}: {result.get('rows_imported', 0)} indicator values imported ({deleted} old records replaced)",
     }
 
@@ -413,7 +446,6 @@ async def upload_multiple_files(
 @router.post("/upload-multiple-analyze")
 async def upload_multiple_and_analyze(
     files: List[UploadFile] = File(...),
-    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
 ):
     upload_dir = UPLOAD_DIR
@@ -452,33 +484,14 @@ async def upload_multiple_and_analyze(
                 os.remove(file_path)
 
     hospitals_list = _get_hospitals_from_ids(db, all_hospital_ids)
-    hospital_months = _get_hospital_months_map(db, hospitals_list)
 
-    task_id = create_task("Upload & Analyze", lambda: None)
-
-    def _run_analyses_in_bg(h_months, tid):
-        from app.tasks import set_progress
-        bg_db = SessionLocal()
-        try:
-            total = max(sum(len(ms) for ms in h_months.values()), 1)
-            done = 0
-            for h_id, months in h_months.items():
-                for m in months:
-                    try:
-                        # force=True so months that already have a QualityScore
-                        # are refreshed rather than early-returning stale results.
-                        recompute_hospital_months(bg_db, h_id, [m], force=True)
-                    except Exception as e:
-                        logger.error(f"Background analysis failed H{h_id}/{m}: {e}")
-                    done += 1
-                    set_progress(tid, int(done / total * 100))
-        finally:
-            bg_db.close()
-
-    if background_tasks is not None:
-        background_tasks.add_task(run_task, task_id, _run_analyses_in_bg, hospital_months, task_id)
-    else:
-        threading.Thread(target=run_task, args=(task_id, _run_analyses_in_bg, hospital_months, task_id), daemon=True).start()
+    # One background recompute for every upload path: the same ordering (new
+    # months first, then changed ones, then the older baselines), the same
+    # RECOMPUTE_BUDGET_SECONDS cap, the same full cache drop (analysis + report
+    # + smart) and the same /tasks progress as "update saved file". A second
+    # copy here drifted (no budget, no precompute, different invalidation).
+    task_id = _recompute_hospital_months_bg(
+        sorted(all_hospital_ids), sorted(all_months), "upload-multiple-analyze")
 
     return {
         "task_id": task_id,
@@ -554,12 +567,16 @@ def process_preview_file(
             db.rollback()
 
     task_id = create_task(f"process-preview:{filename}")
-    t = threading.Thread(target=run_task, args=(task_id, _process_preview_worker, file_path), daemon=True)
+    t = threading.Thread(
+        target=run_task,
+        args=(task_id, _process_preview_worker, file_path, task_id),
+        daemon=True,
+    )
     t.start()
     return {"task_id": task_id, "status": "pending"}
 
 
-def _process_preview_worker(file_path: str) -> dict:
+def _process_preview_worker(file_path: str, task_id: str | None = None) -> dict:
     """Heavy analysis work — runs inside run_task() which handles
     status/result/error automatically."""
     db = SessionLocal()
@@ -575,6 +592,14 @@ def _process_preview_worker(file_path: str) -> dict:
         if result.get("hospitals"):
             for h in result["hospitals"]:
                 all_hospital_ids.add(h["id"])
+
+        # The upload screen reports each month's analysis state while this
+        # worker runs; publish what this run covers before the slow analysis.
+        if task_id and all_months:
+            set_task_meta(task_id, {
+                "months": sorted(all_months),
+                "hospital_ids": sorted(all_hospital_ids),
+            })
 
         hospitals_list = _get_hospitals_from_ids(db, all_hospital_ids)
         hospital_months = _get_hospital_months_map(db, hospitals_list)
@@ -648,6 +673,235 @@ def _get_hospital_months_map(db: Session, hospitals_list: list) -> dict:
         )
         result[h.id] = sorted([r[0] for r in rows])
     return result
+
+
+def _recompute_pair_bg(hospital_id: int, month: str, label: str) -> str:
+    """Recompute exactly ONE hospital-month in a background task.
+
+    Used when a disabled pair returns to active readers. The analysis workers
+    skip disabled pairs, so a score stored before (or while) the month was
+    hidden can predate values uploaded to it; re-enabling must not surface that
+    older score. This is deliberately not a history sweep: one pair, no budget,
+    same cache invalidation and failure reporting as the batch worker.
+    """
+    from app.tasks import set_progress
+
+    task_id = create_task(
+        label, lambda: None,
+        meta={"months": [month], "hospital_ids": [hospital_id]},
+    )
+
+    def _run(tid, h_id, m):
+        bg_db = SessionLocal()
+        try:
+            failure = None
+            try:
+                result = recompute_hospital_months(bg_db, h_id, [m], force=True)
+                if getattr(result, "failed", 0):
+                    failure = f"analysis failed for hospital {h_id} / {m}"
+            except Exception as e:
+                bg_db.rollback()
+                logger.error("Re-analysis after re-enable failed H%s %s: %s", h_id, m, e)
+                failure = str(e)
+            try:
+                from app.cache import cache as _cache
+                _cache.invalidate()
+                from app.engine.comparative.report_cache import invalidate_report_cache
+                invalidate_report_cache(bg_db)
+            except Exception as e:
+                logger.warning("Cache invalidation after re-enable failed: %s", e)
+            set_progress(tid, 100)
+            if failure:
+                # run_task turns this into status=error, which the upload
+                # screen's month status reports instead of leaving the month
+                # looking queued forever.
+                raise RuntimeError(failure)
+            return {"recomputed": 1, "hospital_id": h_id, "month": m}
+        finally:
+            bg_db.close()
+
+    threading.Thread(
+        target=run_task,
+        args=(task_id, _run, task_id, hospital_id, month),
+        daemon=True,
+    ).start()
+    return task_id
+
+
+def _recompute_hospital_months_bg(hospital_ids: list, priority_months, label: str) -> str:
+    """Recompute the affected months of the given hospitals in a background task.
+
+    Shared by "update saved file" and "upload multiple files & analyze":
+    both import first and then hand their hospitals and uploaded months here,
+    so ordering, budget, progress and cache invalidation cannot drift apart.
+
+    ``priority_months`` are the months the file just delivered. They are split
+    into the months that have NO stored result yet (new months — what the
+    upload is about) and the uploaded months that already had one; both run
+    before the older months, whose historical baselines only need refreshing.
+    With a whole-history file the new months therefore still go first, not in
+    file order.
+
+    The whole batch is bounded by ``RECOMPUTE_BUDGET_SECONDS`` so it finishes
+    (and publishes) within the upload UI's 10-minute poll; months left over are
+    logged and counted, never silently dropped from the result.
+
+    Caches are dropped after the last stored month (whether the batch finished
+    or hit the budget), so no screen keeps a half-updated picture.
+    """
+    from app.tasks import set_progress
+
+    task_id = create_task(
+        label, lambda: None,
+        meta={
+            "months": sorted({m for m in (priority_months or []) if m}),
+            "hospital_ids": list(hospital_ids),
+        },
+    )
+
+    def _run(tid, ids, priority):
+        bg_db = SessionLocal()
+        try:
+            hospitals_list = _get_hospitals_from_ids(bg_db, set(ids))
+            months_map = _get_hospital_months_map(bg_db, hospitals_list)
+            # The same analysis gate the readers and /upload/analysis-status
+            # use: a disabled hospital-month pair, or a pair with no enabled
+            # values, is never analysed. Recomputing it burned the budget on
+            # results no screen shows and made the task's progress disagree
+            # with what the month actually contains.
+            disabled = disabled_pairs(bg_db)
+            raw_pairs = 0
+            eligible_map = {}
+            for h_id, months in months_map.items():
+                raw_pairs += len(months)
+                eligible_map[h_id] = [
+                    m for m in months
+                    if (h_id, m) not in disabled
+                    and get_enabled_values_for_hospital_month(bg_db, h_id, m)
+                ]
+            months_map = eligible_map
+            ineligible = raw_pairs - sum(len(ms) for ms in months_map.values())
+            if ineligible:
+                logger.info(
+                    "Analysis skipped %s disabled/no-data hospital-month(s) for %s",
+                    ineligible, label,
+                )
+            priority = [m for m in (priority or []) if m]
+            # Months with no stored result yet are the new ones; they must be
+            # analysed before everything else, even when the uploaded file
+            # carries the whole history (otherwise file order would start at
+            # the oldest month and the new ones could miss the budget).
+            try:
+                from app.models import QualityScore
+                analysed = {
+                    (row[0], row[1]) for row in bg_db.query(
+                        QualityScore.hospital_id, QualityScore.month
+                    ).filter(
+                        QualityScore.hospital_id.in_(list(months_map))
+                    ).all()
+                }
+            except Exception:
+                analysed = set()
+            ordered = {}
+            for h_id, months in months_map.items():
+                new = [m for m in months if m in priority and (h_id, m) not in analysed]
+                # Changed months newest-first: when the budget runs out it must
+                # leave the OLDEST baselines unrefreshed, never the new month
+                # the upload was about.
+                uploaded = sorted(
+                    (m for m in months if m in priority and (h_id, m) in analysed),
+                    reverse=True,
+                )
+                rest = [m for m in months if m not in priority]
+                ordered[h_id] = (new, uploaded, rest)
+            total = sum(sum(len(part) for part in parts) for parts in ordered.values())
+            done = 0
+            # A pair whose analysis raised before storing anything is NOT
+            # finished: counting it as done made the task read success while its
+            # month stayed queued forever, with nothing to explain it. These
+            # pairs travel in the task result so /upload/analysis-status can
+            # report them as failures with their count.
+            failures: list = []
+            if not total:
+                # Nothing to analyse (no hospital resolved, or no months): still
+                # report completion instead of leaving the task at 0%.
+                set_progress(tid, 100)
+            deadline = time.monotonic() + RECOMPUTE_BUDGET_SECONDS
+            # One policy snapshot per hospital/month-batch. Phase 0: months the
+            # file added; phase 1: changed months that already had a result;
+            # phase 2: the older baselines.
+            for phase in (0, 1, 2):
+                for h_id, parts in ordered.items():
+                    months = parts[phase]
+                    if not months:
+                        continue
+                    if time.monotonic() >= deadline:
+                        break
+                    pair_failures = []
+                    try:
+                        result = recompute_hospital_months(
+                            bg_db, h_id, months, force=True)
+                        pair_failures = [
+                            {
+                                "hospital_id": f.get("hospital_id", h_id),
+                                "month": f.get("month"),
+                                "error": f.get("reason") or "analysis failed",
+                            }
+                            for f in (getattr(result, "failures", None) or [])
+                        ]
+                    except Exception as e:
+                        bg_db.rollback()
+                        logger.error(f"Background analysis failed H{h_id}: {e}")
+                        # Raised outside the per-month guard: no month of this
+                        # call can be called finished.
+                        pair_failures = [
+                            {"hospital_id": h_id, "month": m, "error": str(e)}
+                            for m in months
+                        ]
+                    failures.extend(pair_failures)
+                    done += len(months) - len(pair_failures)
+                    set_progress(tid, int(done / max(total, 1) * 100))
+                else:
+                    continue
+                break  # budget reached
+            # Budget leftovers only: a failed pair is reported as a failure, not
+            # as work the deadline cut short.
+            skipped = max(total - done - len(failures), 0)
+            if skipped:
+                logger.warning(
+                    "Background analysis budget (%ss) reached for %s: "
+                    "%s of %s hospital-month(s) not recomputed",
+                    RECOMPUTE_BUDGET_SECONDS, label, skipped, total,
+                )
+            if failures:
+                logger.warning(
+                    "Background analysis failed for %s of %s hospital-month(s) "
+                    "in %s: %s",
+                    len(failures), total, label,
+                    ", ".join(
+                        f"H{f['hospital_id']}/{f['month']}" for f in failures[:10]
+                    ),
+                )
+            from app.cache import cache as _cache
+            _cache.invalidate()
+            from app.engine.comparative.report_cache import invalidate_report_cache
+            invalidate_report_cache(bg_db)
+            try:
+                from app.api.upload import _precompute_smart_bg
+                _precompute_smart_bg(sorted({m for ms in months_map.values() for m in ms}))
+            except Exception as e:
+                logger.warning("Smart analytics precompute failed: %s", e)
+            return {"recomputed": done, "skipped": skipped, "total": total,
+                    "failed": failures}
+        finally:
+            bg_db.close()
+
+    threading.Thread(
+        target=run_task,
+        args=(task_id, _run, task_id, list(hospital_ids), list(priority_months or [])),
+        daemon=True,
+    ).start()
+    return task_id
 
 
 def _run_quality_reports(db: Session, hospitals_list: list, hospital_months: dict) -> list:

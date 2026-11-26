@@ -236,6 +236,66 @@ class TestUploadMultipleAnalyze:
         assert data["task_id"]
         assert isinstance(data["task_id"], str)
 
+    def test_uses_the_shared_background_recompute(
+            self, client, sample_excel_bytes, monkeypatch):
+        """One recompute implementation: upload-multiple-analyze must hand its
+        hospitals and months to the same helper "update saved file" uses, so
+        ordering, budget, cache invalidation and progress cannot drift."""
+        import app.api.file_ops as file_ops
+
+        calls = []
+
+        def _fake_recompute(hospital_ids, priority_months, label):
+            calls.append((hospital_ids, priority_months, label))
+            return "shared-task"
+
+        monkeypatch.setattr(file_ops, "_recompute_hospital_months_bg", _fake_recompute)
+        buf = sample_excel_bytes()
+        resp = client.post(
+            "/analysis/upload-multiple-analyze",
+            files={"files": ("unit_shared.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["task_id"] == "shared-task"
+        assert calls, "upload-multiple-analyze started its own analysis instead"
+        hospital_ids, months, label = calls[0]
+        assert label == "upload-multiple-analyze"
+        assert hospital_ids, "the imported hospitals must reach the shared helper"
+        assert months, "the uploaded months must reach the shared helper"
+
+
+class TestUploadQueuesAnalysis:
+    def test_upload_runs_the_shared_background_recompute(
+            self, client, sample_excel_bytes, monkeypatch):
+        """POST /upload/ imports only; without the background recompute an API
+        upload produced months with values but no scores. It must queue the
+        same helper the other upload paths use, and keep its response shape."""
+        import app.api.file_ops as file_ops
+
+        calls = []
+
+        def _fake_recompute(hospital_ids, priority_months, label):
+            calls.append((hospital_ids, priority_months, label))
+            return "upload-task"
+
+        monkeypatch.setattr(file_ops, "_recompute_hospital_months_bg", _fake_recompute)
+        monkeypatch.setattr("app.api.upload._precompute_smart_bg", lambda months: None)
+        buf = sample_excel_bytes()
+        resp = client.post(
+            "/upload/",
+            files={"file": ("unit_queued.xlsx", buf, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # The API response is a contract: no task id leaks into it.
+        assert "task_id" not in body
+        assert body["rows_imported"] >= 1
+        assert calls, "POST /upload/ left its months unanalysed"
+        hospital_ids, months, label = calls[0]
+        assert label == "upload"
+        assert hospital_ids, "the imported hospitals must reach the shared helper"
+        assert months, "the imported months must reach the shared helper"
+
 
 class TestUpdateSavedFiles:
     def test_update_nonexistent_file(self, client, sample_excel_bytes):
@@ -284,6 +344,114 @@ class TestUpdateSavedFiles:
             files={"file": ("notallowed.txt", io.BytesIO(b"dummy"), "text/plain")},
         )
         assert resp.status_code == 422
+
+
+class TestUpdateSavedReanalysis:
+    """Updating a saved file must re-run the analysis and publish it.
+
+    Without the follow-up analysis the new months had indicator values but no
+    stored QualityScore, so /reports/, /analysis/months and the dashboard kept
+    showing the pre-update picture.
+    """
+
+    @staticmethod
+    def _inline_thread(monkeypatch):
+        """Run the worker in the calling thread so the assertions are not racy."""
+        class _InlineThread:
+            def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+                self._target = target
+                self._args = args
+
+            def start(self):
+                self._target(*self._args)
+
+        import app.api.file_ops as file_ops
+        monkeypatch.setattr(file_ops.threading, "Thread", _InlineThread)
+
+    def test_update_saved_reruns_analysis_for_uploaded_months(
+            self, client, monkeypatch, db_session):
+        import pandas as pd
+        import app.api.file_ops as file_ops
+        from app.models import Hospital, IndicatorValue
+
+        h = db_session.query(Hospital).first()
+        db_session.add(IndicatorValue(
+            hospital_id=h.id, indicator_id=1, month="2026-03",
+            value=40.0, source_file="to_reanalyze.xlsx",
+        ))
+        db_session.commit()
+
+        # A DHIS organisation path, not the stored name: the importer matches
+        # it by normalised core name, so the analysis batch must be keyed on
+        # the imported rows rather than on an exact-name lookup.
+        file_hospital = "مستشفيات/" + h.name
+
+        # Keep the heavy smart precompute out of the test, but let the
+        # background analysis itself run (inline) so we can observe it.
+        import app.api.upload as upload_api
+        monkeypatch.setattr(upload_api, "_precompute_smart_bg", lambda *a, **k: None)
+        self._inline_thread(monkeypatch)
+        calls = []
+        monkeypatch.setattr(
+            file_ops, "recompute_hospital_months",
+            lambda db, h_id, months, force=False: calls.append((h_id, list(months))))
+
+        df = pd.DataFrame({
+            "organisationunitname": [file_hospital, file_hospital],
+            "month": ["2026-03", "2026-04"],
+            "Total Deliveries": [300, 310],
+        })
+        buf = io.BytesIO()
+        df.to_excel(buf, index=False, engine="openpyxl")
+        buf.seek(0)
+
+        resp = client.post(
+            "/analysis/update-saved?filename=to_reanalyze.xlsx",
+            files={"file": ("replacement.xlsx", buf,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["hospitals"], (
+            "path-style organisation names must still resolve to the imported hospital")
+        assert data["task_id"], "update-saved must expose its analysis task"
+        assert calls, "update-saved did not re-run any analysis"
+        # The months delivered by the file are analysed before the older ones.
+        assert calls[0][0] == h.id
+        assert calls[0][1] == ["2026-03", "2026-04"]
+
+        uploaded = os.path.join(UPLOAD_DIR, "to_reanalyze.xlsx")
+        if os.path.exists(uploaded):
+            _retry_remove(uploaded)
+
+    def test_analyze_saved_invalidates_caches(self, client, monkeypatch, db_session):
+        """Re-analysing a saved file must drop the caches the screens read."""
+        import app.api.file_ops as file_ops
+        import app.api.upload as upload_api
+        from app.cache import cache
+        from app.models import Hospital, IndicatorValue
+
+        h = db_session.query(Hospital).first()
+        db_session.add(IndicatorValue(
+            hospital_id=h.id, indicator_id=1, month="2026-05",
+            value=12.0, source_file="cache_probe.xlsx",
+        ))
+        db_session.commit()
+
+        # Fast, deterministic: the cache behaviour is what is under test.
+        monkeypatch.setattr(file_ops, "_run_quality_reports", lambda *a, **k: [])
+        monkeypatch.setattr(file_ops, "_run_trend_analyses", lambda *a, **k: {})
+        monkeypatch.setattr(file_ops, "_run_hospital_comparisons", lambda *a, **k: {})
+        monkeypatch.setattr(file_ops, "_run_clinical_analyses", lambda *a, **k: {})
+        monkeypatch.setattr(upload_api, "_precompute_smart_bg", lambda *a, **k: None)
+
+        cache.set("probe:reports:list", {"stale": True})
+        assert cache.get("probe:reports:list") is not None
+
+        resp = client.post("/analysis/analyze-saved?filenames=cache_probe.xlsx")
+        assert resp.status_code == 200
+        assert cache.get("probe:reports:list") is None, (
+            "analyze-saved left stale cached payloads behind")
 
 
 class TestProcessPreview:

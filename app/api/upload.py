@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import io
 import json
@@ -9,13 +10,18 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.utils.excel_parser import process_excel_upload, parse_excel, normalize_data
-from app.engine.pipeline import run_full_analysis, recompute_hospital_months
+from app.engine.pipeline import (
+    run_full_analysis,
+    recompute_hospital_months,
+    get_enabled_values_for_hospital_month,
+)
+from app.eligibility import disabled_pairs
 from app.schemas import UploadResponse, AutoReportResponse
 from app.indicators import INDICATOR_FLAT_LIST, SYNTHETIC_INDICATOR_CODES
 from app.models import IndicatorValue, Indicator, Hospital
 from app.cache import cache
 from app.engine.comparative.report_cache import invalidate_report_cache
-from app.core.deps import require_permission
+from app.core.deps import get_user_hospital_ids, require_permission
 from app.config import MAX_UPLOAD_SIZE
 from app.utils.files import safe_upload_name
 from datetime import datetime
@@ -24,6 +30,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/upload", tags=["upload"])
+
+
+def invalidate_data_caches(db=None):
+    """Drop every cache derived from indicator values and stored analyses.
+
+    An import changes the month list, the reports, the dashboard and every
+    smart section at once. Clearing only the ``smart_*`` prefixes left
+    /analysis/months, /reports/ and the dashboard serving the pre-upload
+    payload for up to 24h whenever the set of months did not change (a
+    corrected re-upload of months that already existed), so the screens looked
+    "not updated" right after an upload.
+    """
+    cache.invalidate()
+    if db is not None:
+        try:
+            invalidate_report_cache(db)
+        except Exception:
+            logger.warning("Report cache invalidation failed", exc_info=True)
 
 
 def _process_upload(file_path, file, db):
@@ -39,9 +63,173 @@ def _process_upload(file_path, file, db):
             os.remove(file_path)
         logger.error(f"Unexpected error processing {file.filename}: {e}", exc_info=True)
         raise HTTPException(status_code=422, detail=f"Error processing file: {str(e)}")
-    for prefix in ("smart_overview_", "smart_anomalies_", "smart_clusters_", "smart_correlations_", "smart_residuals_", "smart_analysis_indicators_"):
-        cache.invalidate(prefix)
+    invalidate_data_caches(db)
     return result
+
+_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+@router.get("/analysis-status")
+def analysis_status(
+    months: str = Query(
+        "",
+        description="Comma-separated YYYY-MM months; empty = the months of a running analysis",
+    ),
+    db: Session = Depends(get_db),
+    user=Depends(require_permission("analysis.read")),
+):
+    """Per-month analysis state for the upload screen.
+
+    ``POST /upload/`` keeps its published response: it imports values and
+    queues the analysis, so the browser never receives a task id. This reader
+    answers the question that screen actually has — for each month, is the
+    background analysis still running, finished, or failed — keyed by month
+    instead of by task.
+
+    The counters use the pipeline's own analysis eligibility, not merely "has
+    any value": a disabled hospital-month pair and a pair whose indicators are
+    all disabled are never analysed, so they are outside both the denominator
+    and the finished count. Otherwise such a month could never read complete.
+    """
+    from app.engine.pipeline import is_fallback_quality_row
+    from app.models import QualityScore
+    from app.tasks import list_tasks
+
+    tasks = list_tasks()
+    requested = [m.strip() for m in (months or "").split(",") if m.strip()]
+    if not requested:
+        # Nothing named: report whatever a running analysis is working on, so
+        # the screen can show the months it would otherwise render empty.
+        requested = sorted({
+            m
+            for t in tasks
+            if t.get("status") in ("pending", "running")
+            for m in ((t.get("meta") or {}).get("months") or [])
+        })
+    requested = [m for m in dict.fromkeys(requested) if _MONTH_RE.match(m)]
+    if not requested:
+        return {"months": []}
+
+    scope = get_user_hospital_ids(user, db)
+    disabled = disabled_pairs(db)
+
+    def _in_scope(query, column):
+        return query.filter(column.in_(scope)) if scope is not None else query
+
+    out = []
+    for month in requested:
+        month_tasks = [
+            t for t in tasks
+            if month in ((t.get("meta") or {}).get("months") or [])
+        ]
+        month_tasks.sort(
+            key=lambda t: (t.get("created_at") or "", t.get("id") or ""),
+            reverse=True,
+        )
+        task = month_tasks[0] if month_tasks else None
+        task_status = (task or {}).get("status")
+        task_result = (task or {}).get("result") or {}
+
+        # The analysis gate itself (see app.engine.pipeline): a hospital-month
+        # is analysed only when the pair is not disabled and it still has
+        # enabled values (non-null, indicator not manually disabled). Counting
+        # every active hospital that merely has some non-null value included
+        # pairs the pipeline deliberately never analyses, so a month with one
+        # such pair could never reach "complete".
+        candidate_ids = _in_scope(
+            db.query(Hospital.id)
+            .join(IndicatorValue, IndicatorValue.hospital_id == Hospital.id)
+            .filter(
+                IndicatorValue.month == month,
+                IndicatorValue.value.isnot(None),
+                Hospital.is_active.is_(True),
+            )
+            .distinct(),
+            Hospital.id,
+        ).all()
+        eligible = sorted({
+            hospital_id
+            for (hospital_id,) in candidate_ids
+            if (hospital_id, month) not in disabled
+            and get_enabled_values_for_hospital_month(db, hospital_id, month)
+        })
+        hospitals = len(eligible)
+
+        # Same eligibility on the finished side. Stored rows of pairs outside
+        # it (a "no data" or failure row for a month that was since disabled)
+        # are not part of this month's analysis result.
+        stored = (
+            db.query(QualityScore).filter(
+                QualityScore.month == month,
+                QualityScore.hospital_id.in_(eligible),
+            ).all()
+            if eligible else []
+        )
+        rows_by_hospital = {row.hospital_id: row for row in stored}
+        # A pair whose analysis raised before storing anything leaves no row, so
+        # the stored rows alone can never report it — the task's own failure
+        # report is the only evidence. Counting it as "could not be analysed"
+        # makes the month fail visibly instead of waiting in the queue forever.
+        task_failed_ids = {
+            f.get("hospital_id")
+            for f in (task_result.get("failed") or [])
+            if f.get("month") == month and f.get("hospital_id") in eligible
+        }
+        stored_failed = sum(
+            1 for row in rows_by_hospital.values() if is_fallback_quality_row(row)
+        )
+        failed = stored_failed + len(
+            {hid for hid in task_failed_ids if hid not in rows_by_hospital}
+        )
+        analyzed = len(rows_by_hospital) - stored_failed
+        covered = analyzed + failed
+
+        if task_status in ("pending", "running"):
+            # The task is the authority while it runs: its own progress counts
+            # the hospital-months it has finished, including the older
+            # baselines the month itself does not need.
+            status = "analyzing"
+            progress = int((task or {}).get("progress") or 0)
+            error = None
+        elif task_status == "error" and covered < hospitals:
+            status = "failed"
+            progress = 100
+            error = (task or {}).get("error") or "Analysis failed"
+        elif covered >= hospitals and failed:
+            status = "failed"
+            progress = 100
+            error = f"{failed} hospital(s) could not be analysed"
+        elif covered >= hospitals:
+            # Also the empty month: with no eligible pair there is nothing the
+            # analysis can produce for it, so it is finished rather than left
+            # "queued" forever.
+            status = "complete"
+            progress = 100
+            error = None
+        elif task_status == "done" and task_result.get("skipped"):
+            skipped = int(task_result.get("skipped") or 0)
+            status = "failed"
+            progress = int(covered / max(hospitals, 1) * 100)
+            error = (
+                "Analysis stopped before this month finished "
+                f"({skipped} hospital-month(s) left)"
+            )
+        else:
+            status = "pending"
+            progress = int(covered / max(hospitals, 1) * 100) if hospitals else 0
+            error = None
+
+        out.append({
+            "month": month,
+            "status": status,
+            "progress": progress,
+            "hospitals": hospitals,
+            "analyzed": analyzed,
+            "failed": failed,
+            "error": error,
+        })
+    return {"months": out}
+
 
 ALLOWED_EXTENSIONS = {".xlsx", ".xls", ".csv", ".xlsm", ".xlsb"}
 
@@ -67,6 +255,32 @@ async def _check_upload_size(file: UploadFile):
             status_code=413,
             detail=f"File too large: {size // 1024 // 1024}MB exceeds {MAX_UPLOAD_SIZE // 1024 // 1024}MB limit",
         )
+
+
+def _recompute_after_upload(result: dict):
+    """Queue the shared background recompute for an import's hospitals/months.
+
+    ``POST /upload/`` only imports values. Without this step an API upload
+    created months with indicator values but no QualityScore/validation rows,
+    so every screen showed those months as empty until someone re-analysed by
+    hand. The work itself is the same helper "update saved file" and
+    "upload multiple & analyze" use (new months first, budgeted, caches and
+    smart analytics refreshed at the end). The HTTP response is unchanged.
+    """
+    hospital_ids = [
+        h.get("id") for h in (result.get("hospitals") or []) if h.get("id")
+    ]
+    if not hospital_ids:
+        return None
+    try:
+        from app.api.file_ops import _recompute_hospital_months_bg
+        return _recompute_hospital_months_bg(
+            hospital_ids, result.get("months") or [], "upload")
+    except Exception:
+        # The import already succeeded and the response must not change; the
+        # month simply stays unanalysed and a later analysis run picks it up.
+        logger.warning("Could not queue background analysis after upload", exc_info=True)
+        return None
 
 
 def _precompute_smart_bg(months: list):
@@ -276,16 +490,7 @@ def save_manual_entry(
             db.add(iv)
         saved += 1
     db.commit()
-    cache.invalidate("smart_overview_")
-    cache.invalidate("smart_anomalies_")
-    cache.invalidate("smart_clusters_")
-    cache.invalidate("smart_correlations_")
-    cache.invalidate("smart_residuals_")
-    cache.invalidate("smart_analysis_indicators_")
-    cache.invalidate("smart_stratified_")
-    cache.invalidate("smart_geo_")
-    cache.invalidate("smart_timeline")
-    invalidate_report_cache(db, month)
+    invalidate_data_caches(db)
     return {"message": f"Saved {saved} values for {hospital.name} / {month}", "hospital": hospital.name, "month": month, "values_saved": saved}
 
 
@@ -331,11 +536,9 @@ async def upload_excel(file: UploadFile = File(...), override: bool = Query(Fals
         )
 
     result = _process_upload(file_path, file, db)
-    cache.invalidate("smart_stratified_")
-    cache.invalidate("smart_geo_")
-    cache.invalidate("smart_timeline")
-    cache.invalidate("smart_analysis_indicators_")
-    invalidate_report_cache(db)
+    # Importing values is not analysing them: recompute the affected months in
+    # the background before the screens can be asked for them.
+    _recompute_after_upload(result)
     # Pre-compute smart analytics in background so the dashboard loads instantly
     _precompute_smart_bg(result.get("months", []))
     return UploadResponse(**result)
@@ -382,11 +585,6 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
         )
 
     result = _process_upload(file_path, file, db)
-    cache.invalidate("smart_stratified_")
-    cache.invalidate("smart_geo_")
-    cache.invalidate("smart_timeline")
-    cache.invalidate("smart_analysis_indicators_")
-    invalidate_report_cache(db)
 
     hospitals = result["hospitals"]
     months = result["months"]
@@ -408,6 +606,10 @@ async def upload_and_analyze(file: UploadFile = File(...), override: bool = Quer
                 reports.append(report)
             except Exception as e:
                 logger.warning(f"Could not analyze {hosp['name']} / {month}: {e}")
+
+    # The analyses above rewrote the stored scores; drop anything cached while
+    # the batch was running so no screen keeps a mid-run payload.
+    invalidate_data_caches(db)
 
     # Pre-compute smart analytics in background
     _precompute_smart_bg(months)

@@ -254,11 +254,11 @@ def test_both_screens_render_the_inherited_state_distinctly():
     assert "' inh'" in tree_js
     assert "_refreshInheritance" in tree_js
 
-    # Indicators catalog + raw drawer mirror the same state.
-    assert "it.optional_by_inheritance" in ind_js
-    assert "d.optional_by_inheritance" in ind_js
-    assert "_reqBadge" in ind_js
+    # The Indicators screen deliberately renders no Required/Optional tag:
+    # the flag is shown and edited on the Data Tree only.
+    assert "_reqBadge" not in ind_js
+    assert "ind-req-chip" not in ind_js
+    assert "requirement_type" not in ind_js
 
     assert "'Optional (inherited)':" in i18n
     assert ".tree-req-chip.inh" in css
-    assert ".ind-req-chip.inh" in css

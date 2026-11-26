@@ -43,12 +43,23 @@
                 });
             }
             updateStep(1);
-            if (typeof window.refreshSavedFiles === 'function') window.refreshSavedFiles();
+            resumeMonthAnalysisStatus();
+            // refreshSavedFiles is bound asynchronously once its module is
+            // imported (app.js replaces the placeholder). Doing a single check
+            // here left the list stuck on "Loading saved files..." when the app
+            // was reloaded directly onto this screen, because the placeholder
+            // was still installed and nothing called the real function later.
+            (function refreshWhenReady(retries) {
+                const fn = window.refreshSavedFiles;
+                if (typeof fn === 'function' && !fn.__isStub) { fn(); return; }
+                if (retries > 0) setTimeout(function() { refreshWhenReady(retries - 1); }, 250);
+            })(40);
         }
         let previewFilePath = null;
         let previewFiles = null;
         let previewFileName = null;
         let previewFileBytes = null;  // store raw bytes for re-upload
+        let previewMonths = [];        // months the previewed file will import
         let pendingOverride = false;   // true if user confirmed overwrite of duplicate
         const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
         const ALLOWED_EXTS = ['.xlsx', '.xls', '.csv', '.xlsm', '.xlsb'];
@@ -171,6 +182,7 @@
                 previewFileName = data.filename;
                 var hospitals = data.hospitals || [];
                 var months = data.months || [];
+                previewMonths = months.slice();
                 var sampleRows = data.sample_rows || [];
                 var totalRows = data.total_rows || sampleRows.length;
                 var area = document.getElementById('previewArea');
@@ -317,6 +329,9 @@
                         });
                 };
                 poll();
+                // Show the uploaded months' analysis state right away, so a
+                // month that has no scores yet reads as "analyzing", not empty.
+                showMonthAnalysisStatus(previewMonths);
             }).catch(e => {
                 hideLoader();
                 fill.style.width = '0%';
@@ -368,6 +383,101 @@
         }
         window._catalogChangeSummary = _catalogChangeSummary;
 
+        // ── Month analysis status ──────────────────────────────────
+        // POST /upload/ imports values and analyses them in the background (its
+        // published response carries no task id), so a month can appear in every
+        // dropdown with no scores or reports while its analysis is still
+        // running. This panel reports each uploaded month's state from
+        // /upload/analysis-status — keyed by month, not by task — until it
+        // finishes, so an unfinished month never reads as empty data.
+        const _MONTH_STATE = {
+            analyzing: { icon: '⏳', color: 'var(--accent-blue)', label: 'Analyzing' },
+            complete: { icon: '✓', color: '#2e7d32', label: 'Complete' },
+            failed: { icon: '✗', color: 'var(--accent-red)', label: 'Failed' },
+            pending: { icon: '…', color: 'var(--text-muted)', label: 'Queued' },
+        };
+        let _monthStatusTimer = null;
+        let _monthStatusMonths = [];
+
+        function _monthStatusChip(row) {
+            const meta = _MONTH_STATE[row.status] || _MONTH_STATE.pending;
+            const counts = row.hospitals
+                ? ' <span style="opacity:0.7;">' + Math.min(row.analyzed + row.failed, row.hospitals) + '/' + row.hospitals + '</span>'
+                : '';
+            const state = row.status === 'analyzing' && row.progress ? ' ' + row.progress + '%' : '';
+            const title = row.error ? ' title="' + esc(row.error) + '"' : '';
+            return '<span' + title + ' style="display:inline-flex;align-items:center;gap:0.35rem;'
+                + 'border:1px solid ' + meta.color + '55;background:' + meta.color + '11;color:' + meta.color + ';'
+                + 'border-radius:14px;padding:0.2rem 0.6rem;font-size:0.78rem;">'
+                + '<span aria-hidden="true">' + meta.icon + '</span>'
+                + '<strong>' + esc(row.month) + '</strong>'
+                + '<span>' + __(meta.label) + state + '</span>' + counts
+                + '</span>';
+        }
+
+        function _monthStatusHtml(rows) {
+            if (!rows || !rows.length) return '';
+            const busy = rows.some(r => r.status === 'analyzing' || r.status === 'pending');
+            return '<div class="card" style="padding:0.6rem 0.8rem;">'
+                + '<div style="display:flex;align-items:center;gap:0.45rem;flex-wrap:wrap;">'
+                + '<span style="font-size:0.8rem;color:var(--text-secondary);font-weight:600;">'
+                + __('Month analysis') + '</span>'
+                + rows.map(_monthStatusChip).join(' ')
+                + '</div>'
+                + (busy
+                    ? '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">'
+                        + __('Scores and reports appear for each month as its analysis finishes — an unfinished month is not empty data.')
+                        + '</div>'
+                    : '')
+                + '</div>';
+        }
+
+        export function showMonthAnalysisStatus(months) {
+            const box = document.getElementById('monthAnalysisStatus');
+            if (!box) return;
+            const list = (months || []).filter(Boolean);
+            if (!list.length) {
+                box.classList.add('hidden');
+                box.innerHTML = '';
+                return;
+            }
+            _monthStatusMonths = list.slice();
+            box.classList.remove('hidden');
+            if (_monthStatusTimer) { clearTimeout(_monthStatusTimer); _monthStatusTimer = null; }
+            let polls = 0;
+            const tick = function() {
+                apiGet('/upload/analysis-status?months=' + encodeURIComponent(_monthStatusMonths.join(',')))
+                    .then(resp => {
+                        const rows = (resp && resp.months) || [];
+                        box.innerHTML = _monthStatusHtml(rows);
+                        if (typeof window.applyLang === 'function') window.applyLang();
+                        const busy = rows.some(r => r.status === 'analyzing' || r.status === 'pending');
+                        polls++;
+                        // Stop once every month is final; the cap matches the
+                        // upload UI's own 10-minute task poll.
+                        if (busy && polls < 240) _monthStatusTimer = setTimeout(tick, 2500);
+                    })
+                    .catch(err => {
+                        box.innerHTML = '<div style="font-size:0.8rem;color:var(--accent-red);">'
+                            + __('Analysis status unavailable') + ': ' + esc(err.message) + '</div>';
+                    });
+            };
+            tick();
+        }
+
+        // On opening the tab, pick up an analysis started elsewhere (an API
+        // upload, or a reload while a background run is still going).
+        export function resumeMonthAnalysisStatus() {
+            apiGet('/upload/analysis-status')
+                .then(resp => {
+                    const months = ((resp && resp.months) || []).map(r => r.month);
+                    if (months.length) showMonthAnalysisStatus(months);
+                })
+                .catch(() => {});
+        }
+        window.showMonthAnalysisStatus = showMonthAnalysisStatus;
+        window.resumeMonthAnalysisStatus = resumeMonthAnalysisStatus;
+
         export function displayResults(result) {
             const section = document.getElementById('resultsSection');
             section.classList.remove('hidden');
@@ -392,6 +502,9 @@
             _setHtml('treeMonthSelect', monthOptsTree);
 
             filterQualityReports();
+            // The response of /upload/ carries no task id; this panel resolves
+            // each month's state from /upload/analysis-status instead.
+            showMonthAnalysisStatus(result.months);
         }
         function _setHtml(id, html) { const el = document.getElementById(id); if (el) el.innerHTML = html; }
 

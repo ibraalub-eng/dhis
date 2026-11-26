@@ -7,7 +7,8 @@ _task_store: dict[str, dict] = {}
 _lock = threading.Lock()
 
 
-def create_task(name: str, fn: Callable = None, *args, **kwargs) -> str:
+def create_task(name: str, fn: Callable = None, *args, meta: dict | None = None,
+                **kwargs) -> str:
     task_id = uuid.uuid4().hex[:12]
     with _lock:
         _task_store[task_id] = {
@@ -17,6 +18,10 @@ def create_task(name: str, fn: Callable = None, *args, **kwargs) -> str:
             "progress": 0,
             "result": None,
             "error": None,
+            # What the task covers (months/hospital ids). The upload screen has
+            # no task id to poll — /upload/ keeps its published response — so it
+            # finds a running analysis by the months this metadata names.
+            "meta": dict(meta or {}),
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
         }
@@ -65,6 +70,23 @@ def get_task(task_id: str) -> dict | None:
         if t:
             return dict(t)
         return None
+
+
+def set_task_meta(task_id: str, meta: dict) -> None:
+    """Attach or extend a task's scope (months, hospital ids)."""
+    with _lock:
+        t = _task_store.get(task_id)
+        if t:
+            merged = dict(t.get("meta") or {})
+            merged.update(meta or {})
+            t["meta"] = merged
+            t["updated_at"] = datetime.utcnow().isoformat()
+
+
+def list_tasks() -> list[dict]:
+    """Snapshot every task, metadata included."""
+    with _lock:
+        return [{**t, "meta": dict(t.get("meta") or {})} for t in _task_store.values()]
 
 
 
