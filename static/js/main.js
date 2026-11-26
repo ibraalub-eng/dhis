@@ -283,8 +283,12 @@
             // and this history entry describes what it shows.
             var resolved = screen && document.querySelector('.tab[data-tab="' + screen + '"]')
                 ? screen : 'dashboard';
+            // A deep link may also carry an in-screen anchor (the user guide
+            // uses #guide/data/<key>): keep it, so ?screen=user-guide#guide/...
+            // opens that exact guide instead of the guide index.
+            var bootHash = window.location.hash && window.location.hash !== '#' ? window.location.hash : '';
             try {
-                window.history.replaceState({ __tabtrail: true, tab: resolved }, '', _screenUrl(resolved));
+                window.history.replaceState({ __tabtrail: true, tab: resolved }, '', _screenUrl(resolved) + bootHash);
             } catch (e) { /* replaceState unavailable — harmless */ }
             _tabTrailCurrent = resolved;
             // Boot never adds a duplicate entry for the URL already in the bar.
@@ -314,6 +318,14 @@
             if (screen === 'root-cause' && hid) {
                 _whenBound('goRootCause', function (goRootCause) {
                     goRootCause(Number(hid), month || '');
+                });
+            }
+            if (screen === 'indicators' && params.get('code')) {
+                // Direction Coverage link: open that exact catalog row so the
+                // definition (or data element) is read before a direction is
+                // applied there.
+                _whenBound('openIndicatorForCode', function (openCode) {
+                    openCode(params.get('code'), params.get('def') || null);
                 });
             }
             if (screen === 'quality' && (params.get('hospital') || month)) {
@@ -371,6 +383,7 @@
             if (name === 'smart-analytics') _tryInit('initSmartAnalytics', 10);
             if (name === 'smart-forecast') _tryInit('initSmartForecast', 10);
             if (name === 'admin') _tryInit('loadAdminPanel', 10);
+            if (name === 'user-guide') _tryInit('initUserGuide', 10);
         }
 
         window._retryTab = function(name) {
@@ -388,8 +401,8 @@
         window.skeletonCard=skeletonCard;window.skeletonTable=skeletonTable;window.skeletonChart=skeletonChart;
 
         // -- Breadcrumb Navigation --
-        var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', 'quality-completeness': 'Completeness', 'quality-compliance': 'Rule Compliance', 'quality-consistency': 'Consistency', 'quality-confidence': 'Confidence', 'quality-alerts': 'Quality Alerts', analysis: 'Hospital Comparisons', clinical: 'Clinical Intelligence', outliers: 'Outlier Scan', layered: 'Outlier Diagnostics', alerts: 'Validation Alerts', 'indicator-tree': 'Data Tree', 'indicator-groups': 'Data Group', indicators: 'Indicators', 'direction-coverage': 'Direction Coverage', 'rules-manager': 'Validation Rules', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', guides: 'Guides', settings: 'System Settings', 'smart-analytics': 'Smart Analytics', 'smart-forecast': 'Smart Forecast' };
-        var _tabIcons = { dashboard: '📊', upload: '📤', quality: '⭐', 'quality-completeness': '🧩', 'quality-compliance': '📏', 'quality-consistency': '🔗', 'quality-confidence': '🎯', analysis: '📈', clinical: '🩺', outliers: '⚠', layered: '🧱', alerts: '🔔', 'indicator-tree': '🌳', 'indicator-groups': '🗂️', indicators: '📐', 'direction-coverage': '🧭', 'rules-manager': '📝', 'root-cause': '🔍', audit: '📋', admin: '🛡', guides: '📚', settings: '⚙', 'smart-analytics': '🧠', 'smart-forecast': '🔮' };
+        var _tabLabels = { dashboard: 'Dashboard', upload: 'Upload Data', quality: 'Quality Reports', 'quality-completeness': 'Completeness', 'quality-compliance': 'Rule Compliance', 'quality-consistency': 'Consistency', 'quality-confidence': 'Confidence', 'quality-alerts': 'Quality Alerts', analysis: 'Hospital Comparisons', clinical: 'Clinical Intelligence', outliers: 'Outlier Scan', layered: 'Outlier Diagnostics', alerts: 'Validation Alerts', 'indicator-tree': 'Data Tree', 'indicator-groups': 'Data Group', indicators: 'Indicators', 'direction-coverage': 'Direction Coverage', 'rules-manager': 'Validation Rules', 'root-cause': 'Root Cause', audit: 'Audit Log', admin: 'System Control', guides: 'Guides', 'user-guide': 'User Guide', settings: 'System Settings', 'smart-analytics': 'Smart Analytics', 'smart-forecast': 'Smart Forecast' };
+        var _tabIcons = { dashboard: '📊', upload: '📤', quality: '⭐', 'quality-completeness': '🧩', 'quality-compliance': '📏', 'quality-consistency': '🔗', 'quality-confidence': '🎯', analysis: '📈', clinical: '🩺', outliers: '⚠', layered: '🧱', alerts: '🔔', 'indicator-tree': '🌳', 'indicator-groups': '🗂️', indicators: '📐', 'direction-coverage': '🧭', 'rules-manager': '📝', 'root-cause': '🔍', audit: '📋', admin: '🛡', guides: '📚', 'user-guide': '📖', settings: '⚙', 'smart-analytics': '🧠', 'smart-forecast': '🔮' };
         export function updateBreadcrumb(tabName) { var el = document.getElementById('bcCurrent'); if (!el) return; var name = (window._menuLabels && window._menuLabels[tabName]) || _tabLabels[tabName] || tabName; el.textContent = (_tabIcons[tabName]||'')+' '+name; }
         window.updateBreadcrumb = updateBreadcrumb;
 
@@ -426,7 +439,7 @@
         window.applyScreenTitle = applyScreenTitle;
 
         // -- Global Search (Ctrl+K) --
-        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'quality-completeness',kw:'completeness missing values quality score part'},{tab:'quality-compliance',kw:'rule compliance validation passed quality score part'},{tab:'quality-consistency',kw:'consistency contradictions quality score part'},{tab:'quality-confidence',kw:'confidence reliability trust quality score part'},{tab:'quality-alerts',kw:'quality alerts risk outliers very high peer comparison ownership governance region'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'direction-coverage',kw:'direction coverage clinical interpretation missing higher is better lower is worse اتجاه التغطية'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
+        var _searchItems = [ {tab:'dashboard',kw:'dashboard home ranking overview'},{tab:'upload',kw:'upload import excel data files saved'},{tab:'quality',kw:'quality scores reports'},{tab:'quality-completeness',kw:'completeness missing values quality score part'},{tab:'quality-consistency',kw:'consistency contradictions quality score part'},{tab:'quality-confidence',kw:'confidence reliability trust quality score part'},{tab:'quality-alerts',kw:'quality alerts risk outliers very high peer comparison ownership governance region'},{tab:'analysis',kw:'analysis hospital comparisons comparative trends peers'},{tab:'clinical',kw:'clinical maternal neonatal'},{tab:'outliers',kw:'outlier scan outliers anomalies'},{tab:'layered',kw:'outlier diagnostics layered analysis classification investigation data quality clinical'},{tab:'alerts',kw:'alerts warnings rule failures'},{tab:'indicator-tree',kw:'indicator tree hierarchy'},{tab:'indicator-groups',kw:'indicator groups bulk enable disable macros'},{tab:'indicators',kw:'indicators formula definitions catalog builder recompute validation metrics مؤشرات'},{tab:'direction-coverage',kw:'direction coverage clinical interpretation missing higher is better lower is worse اتجاه التغطية'},{tab:'rules-manager',kw:'validation rules manager validation'},{tab:'root-cause',kw:'root cause analysis'},{tab:'audit',kw:'audit log history'},{tab:'admin',kw:'system control admin users roles permissions settings'},{tab:'guides',kw:'guides faq help how to use classification legend استعلامات دليل'},{tab:'user-guide',kw:'user guide documentation data section screens help upload tree indicators rules شرح دليل'},{tab:'settings',kw:'settings config thresholds AI'},{tab:'smart-analytics',kw:'smart analytics AI ML'},{tab:'smart-forecast',kw:'smart forecast prediction xgboost horizon تنبؤ'} ];
         var _searchIdx = 0;
         function openSearch() { var ov=document.getElementById('searchOverlay'); var inp=document.getElementById('searchInput'); if(!ov||!inp)return; ov.classList.add('active'); inp.value=''; inp.focus(); _showSearchResults(''); }
         function closeSearch() { var ov=document.getElementById('searchOverlay'); if(ov)ov.classList.remove('active'); }

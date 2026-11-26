@@ -6,6 +6,8 @@ databases. The backfill appends missing registry tabs to the matching default
 group without touching custom ordering/groups.
 """
 import pytest
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -64,6 +66,42 @@ def test_backfill_adds_new_tab_to_existing_db(session):
     keys = [i.tab_key for i in session.query(MenuItem).filter_by(group_id=data.id).all()]
     assert keys == ["upload", "indicator-tree", "indicator-groups", "indicators",
                     "direction-coverage", "rules-manager"]
+
+
+def test_retired_tab_is_pruned_from_existing_db(session):
+    """A screen merged into another one must vanish from every database.
+
+    Rule Compliance was merged into Validation Result, so its tab left
+    TAB_REGISTRY. A database seeded before the merge still carries the menu
+    row; the startup seed must remove it instead of leaving a dead entry.
+    """
+    seed_menu(session)
+    home = session.query(MenuGroup).filter_by(name="Home").first()
+    session.add(MenuItem(group_id=home.id, tab_key="quality-compliance", sort_order=99))
+    session.commit()
+
+    seed_menu(session)
+
+    assert session.query(MenuItem).filter_by(tab_key="quality-compliance").first() is None
+    assert session.query(MenuItem).count() == len(TAB_REGISTRY)
+
+
+def test_merged_rule_compliance_screen_is_not_a_registry_default():
+    """The retired screen may not come back through the registry or defaults."""
+    from app.menu_registry import DEFAULT_GROUPS
+
+    assert "quality-compliance" not in TAB_REGISTRY
+    assert not any("quality-compliance" in g["items"] for g in DEFAULT_GROUPS), \
+        "the backfill re-adds every tab DEFAULT_GROUPS lists"
+
+
+def test_sidebar_fallback_and_search_do_not_offer_the_merged_screen():
+    js = Path(__file__).resolve().parent.parent / "static" / "js"
+    sidebar = (js / "renderSidebar.js").read_text(encoding="utf-8")
+    main = (js / "main.js").read_text(encoding="utf-8")
+
+    assert "tab_key:'quality-compliance'" not in sidebar
+    assert "tab:'quality-compliance'" not in main
 
 
 def test_backfill_is_idempotent(session):

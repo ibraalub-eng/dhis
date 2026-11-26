@@ -9,6 +9,27 @@ from app.menu_registry import DEFAULT_GROUPS, TAB_REGISTRY
 from app.models import MenuGroup, MenuItem
 
 
+def _prune_retired_tabs(session):
+    """Delete menu items for screens that no longer exist in TAB_REGISTRY.
+
+    Retiring a tab is done by removing it from the registry, but a database
+    seeded before that keeps its menu row, and that row would render as a bare
+    tab key with no label and no permission. Pruning keeps every existing
+    database in step on its next startup (the seed only runs on an empty menu
+    table, and the backfill below only ever ADDS).
+    """
+    retired = [item for item in session.query(MenuItem).all()
+               if item.tab_key not in TAB_REGISTRY]
+    if not retired:
+        return []
+    removed = sorted({item.tab_key for item in retired})
+    for item in retired:
+        session.delete(item)
+    session.commit()
+    print(f"[menu] Removed retired tab(s): {', '.join(removed)}")
+    return removed
+
+
 def _backfill_new_tabs(session):
     """Add menu items for registry tabs that are missing from every group.
 
@@ -81,6 +102,7 @@ def seed_menu(session):
     Returns the list of tab keys backfilled (empty for a fresh seed).
     """
     if session.query(MenuGroup).first() is not None:
+        _prune_retired_tabs(session)
         return _backfill_new_tabs(session)
     for idx, group_def in enumerate(DEFAULT_GROUPS):
         group = MenuGroup(

@@ -1483,6 +1483,36 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .sidebar-item-icon { font-size:1.05rem; flex-shrink:0; min-width:1.2rem; text-align:center; line-height:1; }
 .sidebar-item-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
+/* Guides submenu: one entry per screen manual under the User Guide item */
+.sidebar .tab.has-subitems { flex-wrap:wrap; row-gap:0.1rem; }
+.sidebar-subitems {
+  flex:0 0 100%;
+  display:flex; flex-direction:column; gap:1px;
+  margin-top:0.2rem;
+  padding-inline-start:1.2rem;
+}
+.sidebar-subitem {
+  display:flex; align-items:center; gap:0.45rem;
+  padding:0.3rem 0.45rem;
+  border-radius:6px;
+  border-inline-start:2px solid transparent;
+  cursor:pointer;
+  font-size:0.78rem; font-weight:400;
+  color:var(--text-muted);
+  transition:background 0.12s, color 0.12s, border-color 0.12s;
+}
+.sidebar-subitem:hover { background:var(--bg-surface-hover); color:var(--text-primary); }
+.sidebar-subitem:focus-visible { outline:2px solid var(--accent-blue); outline-offset:-2px; }
+.sidebar-subitem.active {
+  background:var(--accent-blue-10, rgba(0,120,255,0.08));
+  border-inline-start-color:var(--accent-blue);
+  color:var(--accent-blue);
+  font-weight:600;
+}
+.sidebar-subitem-icon { flex-shrink:0; font-size:0.82rem; line-height:1; }
+.sidebar-subitem-label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sidebar.collapsed .sidebar-subitems { display:none; }
+
 .sidebar-toggle-btn {
   display:none !important; /* overridden to '' on mobile */
 }

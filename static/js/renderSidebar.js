@@ -5,6 +5,8 @@
 import { switchTab } from './main.js';
 
 var _sidebarData = null;
+var _guideLabels = null;   // guide key -> bilingual title ('' is the index)
+var _guideLang = null;
 
 /**
  * Expose the server-side names (registry default or per-item rename) so the
@@ -50,6 +52,132 @@ function _buildItem(item) {
     }
     el.addEventListener('click', function() { switchTab(item.tab_key); });
     return el;
+}
+
+// ── Guides submenu: the Data-section manuals, one entry per screen ──────────
+// Every manual lives in static/js/guides/*.js and is read by the user-guide
+// tab, so the entries hang off the User Guide item. That way a single guide
+// can be opened straight from the menu instead of going through the hub page
+// first. The modules are imported on demand so their text does not weigh down
+// boot.
+
+function _uiLang() {
+    return localStorage.getItem('lang') === 'ar' ? 'ar' : 'en';
+}
+
+function _guideTitle(pair) {
+    return pair ? (pair[_uiLang()] || pair.en || '') : '';
+}
+
+function _guideKeyFromHash() {
+    var match = String(location.hash || '').match(/^#guide\/(?:data\/)?([a-z0-9-]+)\s*$/i);
+    return match ? match[1] : '';
+}
+
+/** Keep the open guide highlighted after a click, a deep link or a back/forward. */
+function _syncGuideActive() {
+    var active = document.querySelector('#sidebarRoot .tab.active');
+    var onReader = !!active && active.getAttribute('data-tab') === 'user-guide';
+    var key = _guideKeyFromHash();
+    document.querySelectorAll('#sidebarRoot .sidebar-subitem').forEach(function(el) {
+        var isActive = onReader && el.getAttribute('data-guide-key') === key;
+        el.classList.toggle('active', isActive);
+        if (isActive) el.setAttribute('aria-current', 'page');
+        else el.removeAttribute('aria-current');
+    });
+}
+
+function _openGuide(key) {
+    // switchTab writes ?screen=user-guide and drops any hash, so the anchor is
+    // applied afterwards on the same history entry (the trail marker is kept,
+    // so Back still walks screens). replaceState is used instead of assigning
+    // location.hash because that navigation is refused in some embedded
+    // browsers; the reader is then asked to render the new anchor.
+    if (!document.querySelector('#sidebarRoot .tab[data-tab="user-guide"]')) {
+        switchTab('guides');
+        return;
+    }
+    switchTab('user-guide');
+    var hash = key ? '#guide/data/' + key : '#guide';
+    try {
+        history.replaceState({ __tabtrail: true, tab: 'user-guide' }, '',
+            '?screen=user-guide' + hash);
+    } catch (e) {
+        try { location.hash = hash; } catch (e2) { /* no anchor support */ }
+    }
+    try {
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+    } catch (e) { /* older browser: initUserGuide reads the hash on load */ }
+    _syncGuideActive();
+}
+
+function _buildSubItem(key, icon, pair) {
+    var el = document.createElement('div');
+    el.className = 'sidebar-subitem';
+    el.setAttribute('data-guide-key', key);
+    el.setAttribute('role', 'link');
+    el.setAttribute('tabindex', '0');
+    el.setAttribute('title', _guideTitle(pair));
+    var iconEl = document.createElement('span');
+    iconEl.className = 'sidebar-subitem-icon';
+    iconEl.setAttribute('aria-hidden', 'true');
+    iconEl.textContent = icon || '📄';
+    var labelEl = document.createElement('span');
+    labelEl.className = 'sidebar-subitem-label';
+    labelEl.textContent = _guideTitle(pair);
+    el.appendChild(iconEl);
+    el.appendChild(labelEl);
+    el.addEventListener('click', function(event) {
+        event.stopPropagation();   // the parent .tab opens the User Guide hub
+        _openGuide(key);
+    });
+    el.addEventListener('keydown', function(event) {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        event.stopPropagation();
+        _openGuide(key);
+    });
+    return el;
+}
+
+function _mountGuideSubmenu() {
+    var host = document.querySelector('#sidebarRoot .tab[data-tab="user-guide"]');
+    if (!host || host.querySelector('.sidebar-subitems')) return;
+    Promise.all([import('./guide-data.js'), import('./guide-kit.js')]).then(function(mods) {
+        var guides = (mods[0] && mods[0].DATA_GUIDES) || [];
+        var meta = (mods[1] && mods[1].GUIDE_META) || {};
+        var wrap = document.createElement('div');
+        wrap.className = 'sidebar-subitems';
+        wrap.setAttribute('role', 'group');
+        _guideLabels = { '': meta.backToIndex || { en: 'All guides', ar: 'كل الأدلة' } };
+        _guideLang = _uiLang();
+        wrap.setAttribute('aria-label', meta.hubTitle ? _guideTitle(meta.hubTitle) : 'User guides');
+        wrap.appendChild(_buildSubItem('', '📖', _guideLabels['']));
+        guides.forEach(function(guide) {
+            _guideLabels[guide.key] = guide.title;
+            wrap.appendChild(_buildSubItem(guide.key, guide.icon, guide.title));
+        });
+        host.classList.add('has-subitems');
+        host.appendChild(wrap);
+        _syncGuideActive();
+    }).catch(function(err) {
+        console.warn('[sidebar] User Guide submenu unavailable:', err);
+    });
+}
+
+/** Follow the language toggle: guide titles are bilingual pairs, not data-i18n. */
+function _relabelGuideSubmenu() {
+    var lang = _uiLang();
+    if (lang === _guideLang) return;
+    _guideLang = lang;
+    if (!_guideLabels) return;
+    document.querySelectorAll('#sidebarRoot .sidebar-subitem').forEach(function(el) {
+        var pair = _guideLabels[el.getAttribute('data-guide-key')];
+        if (!pair) return;
+        var label = el.querySelector('.sidebar-subitem-label');
+        if (label) label.textContent = _guideTitle(pair);
+        el.setAttribute('title', _guideTitle(pair));
+    });
 }
 
 /**
@@ -124,6 +252,7 @@ function _render(groups) {
     if (typeof window.applyLang === 'function') {
         window.applyLang();
     }
+    _mountGuideSubmenu();
     // A rename saved from the admin panel must also update the open screen's
     // own title without a reload.
     var activeName = document.querySelector('#sidebarRoot .tab.active');
@@ -138,6 +267,7 @@ function _highlightActive() {
     document.querySelectorAll('#sidebarRoot .tab').forEach(function(el) {
         el.classList.toggle('active', el.getAttribute('data-tab') === tabName);
     });
+    _syncGuideActive();
 }
 
 /**
@@ -187,7 +317,6 @@ function _renderFallback() {
         {id:'fb-4', name:'Oversight', icon:'🛡️', items:[
             {tab_key:'quality', label:'Quality Reports', icon:'✅', permission:'quality.read'},
             {tab_key:'quality-completeness', label:'Completeness', icon:'🧩', permission:'quality.read'},
-            {tab_key:'quality-compliance', label:'Rule Compliance', icon:'📏', permission:'quality.read'},
             {tab_key:'quality-consistency', label:'Consistency', icon:'🔗', permission:'quality.read'},
             {tab_key:'quality-confidence', label:'Confidence', icon:'🎯', permission:'quality.read'},
             {tab_key:'quality-alerts', label:'Quality Alerts', icon:'🚨', permission:'quality_alerts.read'},
@@ -245,6 +374,14 @@ if (_sidebarRoot) {
             if (sidebar) sidebar.classList.remove('open');
         }
     });
+}
+
+// A guide opened by hash (deep link, link inside the reader, Back) stays in
+// sync with the submenu highlight; the language toggle renames its entries.
+window.addEventListener('hashchange', function() { _syncGuideActive(); });
+if (typeof MutationObserver === 'function') {
+    new MutationObserver(function() { _relabelGuideSubmenu(); })
+        .observe(document.documentElement, { attributes: true, attributeFilter: ['dir', 'lang'] });
 }
 
 // Save group collapse state on click

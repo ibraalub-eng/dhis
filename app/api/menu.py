@@ -44,7 +44,11 @@ def _group_dict(group: MenuGroup) -> dict:
         "icon": group.icon,
         "sort_order": group.sort_order,
         "is_active": group.is_active,
-        "items": [_item_dict(i) for i in group.items],
+        # A row whose tab is no longer in TAB_REGISTRY belongs to a retired
+        # screen (e.g. Rule Compliance, merged into Validation Result). It is
+        # never served — it would show as a bare tab key with no permission —
+        # and scripts.seed_menu prunes it on the next startup.
+        "items": [_item_dict(i) for i in group.items if i.tab_key in TAB_REGISTRY],
     }
 
 

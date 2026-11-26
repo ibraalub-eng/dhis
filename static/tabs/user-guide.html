@@ -1,0 +1,76 @@
+<!--
+  user-guide.html — Data section user guide (index + one page per screen).
+
+  Static shell only: static/js/user-guide.js renders the searchable index and
+  the individual guides from static/js/guides/*.js. Deep link per guide:
+  ?screen=user-guide#guide/data/upload
+-->
+<style>
+  .ug-wrap { max-width: 1120px; margin: 0 auto; }
+  .ug-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem; margin-bottom: 0.9rem; }
+  .ug-head h2 { margin: 0; }
+  .ug-head .ug-sub { font-size: 0.82rem; color: var(--text-muted); display: block; margin-top: 0.2rem; }
+  .ug-search-wrap { position: relative; min-width: 260px; flex: 1; max-width: 380px; }
+  .ug-search-wrap input { width: 100%; box-sizing: border-box; padding: 0.45rem 0.7rem; font-size: 0.82rem; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-input); color: var(--text-primary); }
+  .ug-hero h3 { margin: 0 0 0.35rem; font-size: 1.05rem; }
+  .ug-hero p { margin: 0 0 0.4rem; font-size: 0.84rem; color: var(--text-secondary); line-height: 1.65; }
+  .ug-hint { font-size: 0.74rem; color: var(--text-muted); }
+  .ug-count { font-size: 0.74rem; color: var(--text-muted); margin-top: 0.3rem; }
+  .ug-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0.8rem; margin-top: 0.9rem; }
+  .ug-card { display: flex; gap: 0.7rem; padding: 0.9rem 1rem; border: 1px solid var(--border-default); border-radius: 10px; background: var(--bg-surface); text-decoration: none; color: inherit; transition: border-color 0.15s, transform 0.15s; }
+  .ug-card:hover { border-color: var(--accent-blue); transform: translateY(-1px); }
+  .ug-card-icon { font-size: 1.4rem; line-height: 1; }
+  .ug-card-body { flex: 1; min-width: 0; }
+  .ug-card-title { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); }
+  .ug-card-menu { font-size: 0.72rem; color: var(--text-muted); margin: 0.1rem 0 0.35rem; }
+  .ug-card-purpose { font-size: 0.78rem; color: var(--text-secondary); line-height: 1.55; }
+  .ug-card-foot { display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; margin-top: 0.5rem; flex-wrap: wrap; }
+  .ug-chip { font-size: 0.7rem; color: var(--text-muted); background: var(--bg-surface-hover); border: 1px solid var(--border-default); border-radius: 999px; padding: 0.12rem 0.55rem; }
+  .ug-open { font-size: 0.74rem; color: var(--accent-blue); font-weight: 600; }
+  .ug-empty { padding: 2rem 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; grid-column: 1 / -1; }
+  .ug-crumbs { display: flex; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: var(--text-muted); margin-bottom: 0.6rem; flex-wrap: wrap; }
+  .ug-crumbs a { color: var(--accent-blue); text-decoration: none; }
+  .ug-guide-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.6rem; flex-wrap: wrap; }
+  .ug-guide-head h3 { margin: 0 0 0.45rem; font-size: 1.15rem; }
+  .ug-chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+  .ug-toc { display: flex; gap: 0.45rem; flex-wrap: wrap; align-items: center; padding: 0.55rem 0.7rem; border: 1px solid var(--border-default); border-radius: 8px; background: var(--bg-surface-hover); margin: 0.8rem 0 1rem; }
+  .ug-toc-title { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; }
+  .ug-toc-link { font-size: 0.74rem; color: var(--accent-blue); text-decoration: none; border-bottom: 1px dotted var(--accent-blue); }
+  .ug-section { margin: 0 0 1.35rem; scroll-margin-top: 1rem; }
+  .ug-section h4 { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--text-primary); border-inline-start: 3px solid var(--accent-blue); padding-inline-start: 0.5rem; }
+  .ug-section p { margin: 0 0 0.55rem; font-size: 0.84rem; line-height: 1.7; color: var(--text-secondary); }
+  .ug-section ul, .ug-section ol { margin: 0 0 0.6rem; padding-inline-start: 1.3rem; font-size: 0.84rem; line-height: 1.7; color: var(--text-secondary); }
+  .ug-section li { margin-bottom: 0.25rem; }
+  .ug-table-wrap { overflow-x: auto; margin: 0 0 0.7rem; }
+  .ug-table { width: 100%; font-size: 0.78rem; }
+  .ug-table th { text-align: start; white-space: nowrap; }
+  .ug-table td { vertical-align: top; line-height: 1.6; }
+  .ug-shot { margin: 0 0 1rem; border: 1px solid var(--border-default); border-radius: 10px; overflow: hidden; background: var(--bg-surface); }
+  .ug-shot img { display: block; width: 100%; height: auto; }
+  .ug-shot figcaption { padding: 0.6rem 0.8rem; border-top: 1px solid var(--border-default); }
+  .ug-shot-title { font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); }
+  .ug-legend-title { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.3rem; }
+  .ug-legend { margin: 0.25rem 0 0.3rem; padding-inline-start: 1.2rem; font-size: 0.76rem; line-height: 1.6; color: var(--text-secondary); }
+  .ug-shot-missing { padding: 1.2rem; text-align: center; font-size: 0.8rem; color: var(--text-muted); }
+  .ug-pager { display: flex; align-items: stretch; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; border-top: 1px solid var(--border-default); padding-top: 0.8rem; margin-top: 1rem; }
+  .ug-pager-link { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 0.15rem; padding: 0.5rem 0.7rem; border: 1px solid var(--border-default); border-radius: 8px; text-decoration: none; color: inherit; }
+  .ug-pager-link:hover { border-color: var(--accent-blue); }
+  .ug-pager-link.is-disabled { border-color: transparent; }
+  .ug-pager-dir { font-size: 0.7rem; color: var(--text-muted); }
+  .ug-pager-title { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+  .ug-pager-index { align-self: center; font-size: 0.75rem; color: var(--accent-blue); text-decoration: none; white-space: nowrap; }
+  .ug-verified { font-size: 0.72rem; color: var(--text-muted); margin-top: 1rem; text-align: center; }
+</style>
+
+<div class="ug-wrap" id="ugWrap">
+  <div class="ug-head">
+    <div>
+      <h2 data-menu-label data-i18n="User Guide">User Guide</h2>
+      <span class="ug-sub" data-i18n="Step-by-step guides for every screen in the Data section.">Step-by-step guides for every screen in the Data section.</span>
+    </div>
+    <div class="ug-search-wrap">
+      <input id="ugSearch" type="search" autocomplete="off" data-i18n-placeholder="Search a screen or a topic…" placeholder="Search a screen or a topic…" aria-label="Search the user guides">
+    </div>
+  </div>
+  <div id="ugBody"></div>
+</div>

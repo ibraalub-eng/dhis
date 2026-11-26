@@ -39,7 +39,7 @@ const _stubs = {};
 // new button's handler). The console.warn alone reads as "the button is
 // broken" — surface a refresh hint instead.
 function _stub(name) {
-  return function() {
+  const fn = function() {
     console.warn('[app] Module not loaded:', name);
     try {
       import('./toast.js').then(m => m.toastWarning(
@@ -47,6 +47,11 @@ function _stub(name) {
       ));
     } catch (e) { /* toast unavailable — console warning stands */ }
   };
+  // Callers that need the REAL module (e.g. upload.js waiting for
+  // refreshSavedFiles after a reload straight onto a screen) must be able to
+  // tell the placeholder from the bound function without invoking it.
+  fn.__isStub = true;
+  return fn;
 }
 
 // Placeholders — replaced async by _loadModules()
@@ -159,6 +164,7 @@ window.closeIndicatorDrawer = _stub('closeIndicatorDrawer');
 window.toggleIndicatorActive = _stub('toggleIndicatorActive');
 window.deleteIndicator = _stub('deleteIndicator');
 window.recomputeIndicators = _stub('recomputeIndicators');
+window.openIndicatorForCode = _stub('openIndicatorForCode');
 window.openGroupModal = _stub('openGroupModal');
 window.closeGroupModal = _stub('closeGroupModal');
 window.saveGroupModal = _stub('saveGroupModal');
@@ -228,6 +234,7 @@ async function _loadModules() {
     ['rules',       () => import('./rules.js')],
     ['audit',       () => import('./audit.js')],
     ['hospitals',   () => import('./hospitals.js')],
+    ['userGuide',   () => import('./user-guide.js')],
   ];
 
   const loaded = [];
@@ -357,6 +364,7 @@ function _bindAll(mod, label) {
       _bind(mod, 'saveIndicator'); _bind(mod, 'validateIndicatorDraft');
       _bind(mod, 'closeIndicatorDrawer'); _bind(mod, 'toggleIndicatorActive');
       _bind(mod, 'deleteIndicator'); _bind(mod, 'recomputeIndicators');
+      _bind(mod, 'openIndicatorForCode');
       break;
     case 'rules':
       _bind(mod, '_vbDragStart'); _bind(mod, '_vbDragOver'); _bind(mod, '_vbDragEnter');
@@ -378,6 +386,9 @@ function _bindAll(mod, label) {
     case 'audit':
       _bind(mod, 'initAudit'); _bind(mod, 'loadAudit');
       _bind(mod, 'downloadAuditJSON'); _bind(mod, 'downloadAuditCSV');
+      break;
+    case 'userGuide':
+      _bind(mod, 'initUserGuide'); _bind(mod, 'loadUserGuide');
       break;
     case 'hospitals':
       _bind(mod, 'loadHospitalsTab');

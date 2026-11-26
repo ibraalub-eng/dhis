@@ -58,6 +58,19 @@ def test_list_tabs(client):
     assert "guides" in keys
 
 
+def test_retired_menu_row_is_not_served(client, db_session):
+    """A row for a retired tab is hidden even before the startup prune runs."""
+    from app.models import MenuGroup, MenuItem
+
+    home = db_session.query(MenuGroup).filter_by(name="Home").first()
+    db_session.add(MenuItem(group_id=home.id, tab_key="quality-compliance", sort_order=99))
+    db_session.commit()
+
+    keys = [item["tab_key"] for group in client.get("/menu").json()["groups"]
+            for item in group["items"]]
+    assert "quality-compliance" not in keys
+
+
 def test_create_group(client):
     resp = client.post("/menu/groups", json={"name": "Test Group", "icon": "🧪"})
     assert resp.status_code == 200

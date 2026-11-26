@@ -15,7 +15,6 @@ TAB_REGISTRY = OrderedDict([
     ("smart-forecast",  {"label": "Smart Forecast",       "icon": "🔮", "permission": "smart_analytics.read"}),
     ("quality",         {"label": "Quality Reports",      "icon": "✅", "permission": "quality.read"}),
     ("quality-completeness", {"label": "Completeness",     "icon": "🧩", "permission": "quality.read"}),
-    ("quality-compliance",   {"label": "Rule Compliance",  "icon": "📏", "permission": "quality.read"}),
     ("quality-consistency",  {"label": "Consistency",      "icon": "🔗", "permission": "quality.read"}),
     ("quality-confidence",   {"label": "Confidence",       "icon": "🎯", "permission": "quality.read"}),
     ("quality-alerts",  {"label": "Quality Alerts",       "icon": "🚨", "permission": "quality_alerts.read"}),
@@ -26,6 +25,7 @@ TAB_REGISTRY = OrderedDict([
     ("audit",           {"label": "Audit Log",             "icon": "📝", "permission": "audit.read"}),
     ("admin",           {"label": "System Control",       "icon": "⚙️", "permission": "system.manage_users", "superadmin_only": True}),
     ("guides",          {"label": "Guides",               "icon": "📚", "permission": "dashboard.read"}),
+    ("user-guide",      {"label": "User Guide",           "icon": "📖", "permission": "dashboard.read"}),
     ("settings",        {"label": "Settings",             "icon": "🔧", "permission": "system.manage_users", "hidden": True}),
 ])
 
@@ -34,8 +34,11 @@ DEFAULT_GROUPS = [
     {"name": "Data",      "icon": "📊", "items": ["upload", "indicator-tree", "indicator-groups", "indicators", "direction-coverage", "rules-manager"]},
     {"name": "Analysis",  "icon": "📈", "items": ["analysis", "smart-analytics", "smart-forecast", "clinical", "root-cause"]},
     {"name": "Oversight", "icon": "🛡️", "items": [
-        "quality", "quality-completeness", "quality-compliance", "quality-consistency",
+        # Rule Compliance (quality-compliance) is retired as a screen: its view
+        # is the "Compliance by hospital" sub-tab of the alerts screen, which is
+        # what this group lists. Do not re-add it without a registry entry.
+        "quality", "quality-completeness", "quality-consistency",
         "quality-confidence", "quality-alerts", "outliers", "layered", "alerts", "audit",
     ]},
-    {"name": "System",    "icon": "⚙️", "items": ["admin", "guides", "settings"]},
+    {"name": "System",    "icon": "⚙️", "items": ["admin", "guides", "user-guide", "settings"]},
 ]
