@@ -188,7 +188,16 @@ def test_seed_op_rules_dispatch_correctly(db_session):
     assert _run("R076", {"10": 10, "2": 200}).status == RuleStatus.PASS
     assert _run("R076", {"10": 60, "2": 200}).status == RuleStatus.FAIL
 
+    # R078 delivery identity: 6 + 7 = 2 + (6.e - 6.d)
+    # 100 + 5 = 105, and 99 + (12 - 6) = 105 -> balanced
+    assert _run("R078", {"6": 100, "7": 5, "2": 99, "6.d": 6, "6.e": 12}).status == RuleStatus.PASS
+    # one delivery too many breaks the identity (106 vs 105)
+    assert _run("R078", {"6": 100, "7": 5, "2": 100, "6.d": 6, "6.e": 12}).status == RuleStatus.FAIL
+    # no multiple pregnancies: the extra-babies term is zero, 6 + 7 must equal 2
+    assert _run("R078", {"6": 80, "7": 2, "2": 82, "6.d": 0, "6.e": 0}).status == RuleStatus.PASS
+    assert _run("R078", {"6": 80, "7": 2, "2": 83, "6.d": 0, "6.e": 0}).status == RuleStatus.FAIL
     # missing data must never fail a rule (formula unobservable -> PASS)
+    assert _run("R078", {"6": 100, "7": 5, "2": 99, "6.d": 6}).status == RuleStatus.PASS
     assert _run("R074", {}).status == RuleStatus.PASS
 
 

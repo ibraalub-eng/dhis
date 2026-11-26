@@ -688,6 +688,17 @@ RULES = [
         "params": json.dumps({"formula": "{10} * 4", "target": "2", "op": "<"}),
         "description": "4 × SMM complications must be strictly below Total Deliveries — a severe-morbidity share at or above 25% flags implausible data",
     },
+    {
+        "code": "R078",
+        "name": "Live Births + Stillbirths = Total Deliveries + (Babies from multiples - Multiple pregnancies)",
+        "rule_type": "LOGIC",
+        "severity": "HIGH",
+        "category": "BASIC_LOGIC",
+        "expression_type": "formula",
+        # 6 + 7 = 2 + ({6.e} - {6.d})  ⇔  2 = 6 + 7 - ({6.e} - {6.d})
+        "params": json.dumps({"formula": "{6} + {7} - ({6.e} - {6.d})", "target": "2", "op": "="}),
+        "description": "Live Births (6) + Stillbirths >24w (7) must equal Total Deliveries (2) + [Babies from multiples (6.e) − Multiple pregnancies (6.d)] — every delivery is one mother, so the extra babies of a multiple pregnancy are the only births that can exceed the delivery count",
+    },
 ]
 
 
@@ -828,7 +839,8 @@ def seed_rules(session=None):
 
     Existing rows are left untouched; only rules whose code is missing from the
     DB are inserted. This keeps the Rules Manager up to date as SUM_RULE_SPECS
-    grows without overwriting user edits.
+    grows without overwriting user edits — including the name and description,
+    which the Rules Manager owns once the row exists.
     """
     own_session = session is None
     if own_session:
@@ -838,7 +850,6 @@ def seed_rules(session=None):
         removed_rules, removed_failures, removed_settings = remove_benchmark_validation_data(session)
         existing = {r.code: r for r in session.query(Rule).all()}
         added = 0
-        synced = 0
         for idx, r in enumerate(RULES):
             if r["code"] not in existing:
                 rule = Rule(
@@ -854,21 +865,13 @@ def seed_rules(session=None):
                 )
                 session.add(rule)
                 added += 1
-                continue
-            row = existing[r["code"]]
-            if row.name != r["name"] or row.description != r["description"]:
-                row.name = r["name"]
-                row.description = r["description"]
-                synced += 1
-        if added or synced or removed_rules or removed_failures or removed_settings:
+        if added or removed_rules or removed_failures or removed_settings:
             session.commit()
         if own_session:
             total = session.query(Rule).count()
             if added:
                 print(f"Added {added} missing rule(s).")
-            if synced:
-                print(f"Synced names/descriptions for {synced} rule(s).")
-            if not added and not synced:
+            else:
                 print(f"Rules table is up to date ({total} rules).")
     finally:
         if own_session:

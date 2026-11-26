@@ -18,11 +18,11 @@
         "coverage": [],
         "quality": {
           "completeness": 13.3,
-          "consistency": 97.0,
+          "consistency": 97.1,
           "issues": "[\"R002: Primigravida + Multigravida \\u2248 Total Deliveries\", \"R061: Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity\", \"Anomaly: Fetal Deaths >24 weeks (HIGH)\"]",
           "outlier_penalty": 1.8,
           "rule_compliance": 97.0,
-          "score": 76.2
+          "score": 76.3
         },
         "rules": {
           "R001": [
@@ -288,6 +288,10 @@
           "R076": [
             "PASS",
             "Formula=20.0 < Total Deliveries=105.0"
+          ],
+          "R078": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
           ]
         },
         "run": {
@@ -296,7 +300,7 @@
             "R002: Primigravida + Multigravida ≈ Total Deliveries",
             "R061: Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity"
           ],
-          "score": 76.2
+          "score": 76.3
         },
         "trends": [
           [
@@ -370,7 +374,7 @@
           "issues": "[\"R061: Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity\", \"Anomaly: Total Deliveries (VERY_HIGH)\", \"Anomaly: Primigravida (VERY_HIGH)\", \"Anomaly: Multigravida (VERY_HIGH)\", \"Anomaly: Normal Vaginal Deliveries (VERY_HIGH)\", \"Anomaly: Caesarean Sections (VERY_HIGH)\", \"Anomaly: Live Births (VERY_HIGH)\", \"Anomaly: Fetal Deaths >24 weeks (HIGH)\", \"Anomaly: Severe Maternal Morbidity (SMM) (HIGH)\", \"Anomaly: Hemorrhage (HIGH)\", \"Anomaly: NICU admissions (HIGH)\", \"... and 12 more flagged indicator(s)\"]",
           "outlier_penalty": 40.0,
           "rule_compliance": 98.5,
-          "score": 71.3
+          "score": 71.4
         },
         "rules": {
           "R001": [
@@ -636,6 +640,10 @@
           "R076": [
             "PASS",
             "Formula=48.0 < Total Deliveries=430.0"
+          ],
+          "R078": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
           ]
         },
         "run": {
@@ -653,7 +661,7 @@
             "Anomaly: Total Deliveries (VERY_HIGH)",
             "R061: Severe Maternal Morbidity (SMM) = Hemorrhage + Uterine Rupture + Relaparotomy + Hysterectomy + Hypertensive Disorders + Sepsis + Respiratory Failure + Cardiac ICU + Renal Failure + Thromboembolism + Neurological Complications + Anaesthesia Complications + Unplanned ICU + Self-Harm/Suicide + Other Morbidity"
           ],
-          "score": 71.3
+          "score": 71.4
         },
         "trends": [
           [
@@ -1014,6 +1022,10 @@
           "R076": [
             "PASS",
             "Formula=20.0 < Total Deliveries=105.0"
+          ],
+          "R078": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
           ]
         },
         "run": {
@@ -1360,6 +1372,10 @@
           "R076": [
             "PASS",
             "Formula=48.0 < Total Deliveries=430.0"
+          ],
+          "R078": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
           ]
         },
         "run": {
@@ -1737,6 +1753,10 @@
           "R076": [
             "PASS",
             "Formula=20.0 < Total Deliveries=105.0"
+          ],
+          "R078": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
           ]
         },
         "run": {
@@ -2083,6 +2103,10 @@
           "R076": [
             "PASS",
             "Formula=48.0 < Total Deliveries=430.0"
+          ],
+          "R078": [
+            "PASS",
+            "Formula could not be evaluated (missing data)"
           ]
         },
         "run": {
