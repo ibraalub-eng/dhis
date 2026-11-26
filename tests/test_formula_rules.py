@@ -9,7 +9,12 @@ from app.engine.quality import (
     RuleType,
     dispatch_rule,
 )
-from app.engine.quality.rules import _eval_formula, _get_rule_ref_codes_from_expr
+from app.engine.quality.rules import (
+    _eval_formula,
+    _get_rule_ref_codes_from_expr,
+    formula_referenced_codes,
+    validate_formula_expression,
+)
 
 
 def _make_ctx(data: dict, **kw) -> ValidationContext:
@@ -230,3 +235,76 @@ def test_formula_op_boundary_values_strictness_matrix():
             assert result.status == (RuleStatus.PASS if expected[case] else RuleStatus.FAIL), (
                 f"op={op!r} case={case} (formula={fval} vs target=5) -> {result.status}"
             )
+
+
+# ── two-sided formula rules: expression <op> expression ─────────────
+#
+# The Rule Validation screen accepts a whole arithmetic expression on each
+# side, typed by the user with indicator names and Unicode signs:
+#
+#   Live births (6) + Stillbirths >24w (7)
+#   = Total deliveries (2) + [Babies from multiples (6.e) − Multiple pregnancies (6.d)]
+
+_USER_LHS = "Live births (6) + Stillbirths >24w (7)"
+_USER_RHS = (
+    "Total deliveries (2) + [Babies from multiples (6.e) \u2212 "
+    "Multiple pregnancies (6.d)]"
+)
+# left = 100 + 5 = 105, right = 5 + (100 - 0) = 105
+_USER_VALUES = {"6": 100, "7": 5, "2": 5, "6.e": 100, "6.d": 0}
+
+
+def _make_two_sided_rule(lhs=_USER_LHS, rhs=_USER_RHS, op="="):
+    return _make_rule("R081", "formula", {"formula": lhs, "rhs": rhs, "op": op})
+
+
+def test_two_sided_expression_parses_labels_brackets_and_unicode_minus():
+    assert formula_referenced_codes(_USER_LHS) == ["6", "7"]
+    assert formula_referenced_codes(_USER_RHS) == ["2", "6.e", "6.d"]
+    assert _eval_formula(_USER_LHS, _USER_VALUES) == 105.0
+    assert _eval_formula(_USER_RHS, _USER_VALUES) == 105.0
+
+
+def test_validate_expression_accepts_both_user_sides():
+    assert validate_formula_expression(_USER_LHS) is None
+    assert validate_formula_expression(_USER_RHS) is None
+
+
+def test_validate_expression_rejects_incomplete_sides():
+    assert "ends with the operator" in validate_formula_expression(_USER_LHS + " +")
+    assert "unbalanced" in validate_formula_expression(_USER_RHS[:-1])
+
+
+def test_two_sided_formula_rule_passes_when_both_sides_equal():
+    result = dispatch_rule(_make_two_sided_rule(op="="), _make_ctx(_USER_VALUES))
+    assert result.status == RuleStatus.PASS
+    assert "Left=105 == Right=105" in result.details
+
+
+def test_two_sided_formula_rule_fails_when_sides_differ():
+    values = {**_USER_VALUES, "7": 6}  # left becomes 106, right stays 105
+    result = dispatch_rule(_make_two_sided_rule(op="="), _make_ctx(values))
+    assert result.status == RuleStatus.FAIL
+    assert "Left=106 = Right=105" in result.details
+    assert "diff=1.00" in result.details
+
+
+def test_two_sided_formula_rule_respects_the_operator():
+    values = {**_USER_VALUES, "7": 6}
+    result = dispatch_rule(_make_two_sided_rule(op=">"), _make_ctx(values))
+    assert result.status == RuleStatus.PASS
+    assert "Left=106 > Right=105" in result.details
+
+
+def test_two_sided_formula_rule_passes_when_a_side_has_missing_data():
+    values = {k: v for k, v in _USER_VALUES.items() if k != "6.d"}
+    result = dispatch_rule(_make_two_sided_rule(), _make_ctx(values))
+    assert result.status == RuleStatus.PASS
+    assert "could not be evaluated" in result.details
+
+
+def test_ref_codes_include_both_sides():
+    codes = _get_rule_ref_codes_from_expr(
+        "formula", {"formula": _USER_LHS, "rhs": _USER_RHS, "op": "="}
+    )
+    assert sorted(codes) == sorted(["6", "7", "2", "6.e", "6.d"])

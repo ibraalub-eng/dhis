@@ -716,6 +716,34 @@ def validate_rule(body: dict, db: Session = Depends(get_db)):
             if same_parent and same_children:
                 warnings.append(f"Conflicts with '{other.code}': same comparison set, different strictness.")
 
+    # 3. Formula syntax. A rule whose expression cannot be parsed is silently
+    # skipped by the engine (which reports PASS), so the two sides are checked
+    # here — before the definition can be saved — with a message naming the
+    # offending side.
+    if (expr or "").lower() == "formula":
+        from app.engine.quality.rules import validate_formula_expression
+
+        left = params_raw.get("formula")
+        right = params_raw.get("rhs")
+        target = params_raw.get("target")
+        if not str(left or "").strip():
+            errors.append("Left side expression is required.")
+        else:
+            left_error = validate_formula_expression(left)
+            if left_error:
+                errors.append(f"Left side expression: {left_error}.")
+        if not str(right or "").strip() and not str(target or "").strip():
+            errors.append("Right side expression is required.")
+        elif str(right or "").strip():
+            right_error = validate_formula_expression(right)
+            if right_error:
+                errors.append(f"Right side expression: {right_error}.")
+        if str(params_raw.get("op") or "=").strip() not in ("=", "!=", ">", "<", ">=", "<="):
+            errors.append(
+                f"Unknown comparison operator '{params_raw.get('op')}'. "
+                "Use one of =, \u2260, >, <, \u2265, \u2264."
+            )
+
     return {"errors": errors, "warnings": warnings}
 
 

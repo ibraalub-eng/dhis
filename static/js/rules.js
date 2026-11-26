@@ -136,7 +136,7 @@ import { confirmDestructive } from './confirm-modal.js';
         }
 
         function _vbStateReset(expr) {
-            _vbState = { _expr: expr, parent:'', child:'', children:[], indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], target:'', op:'=' };
+            _vbState = { _expr: expr, parent:'', child:'', children:[], indicator:'', factor:2.0, ge_factor:1.1, codes:[], formulaParts:[], rhsParts:[], target:'', op:'=' };
         }
 
         // ── Formula comparison operator helpers ────────────────────
@@ -150,12 +150,12 @@ import { confirmDestructive } from './confirm-modal.js';
 
         function _formulaRelText(op) {
             switch (op) {
-                case '!=': return __('formula result \u2260 target indicator');
-                case '>':  return __('formula result > target indicator');
-                case '<':  return __('formula result < target indicator');
-                case '>=': return __('formula result \u2265 target indicator');
-                case '<=': return __('formula result \u2264 target indicator');
-                default:   return __('formula result == target indicator');
+                case '!=': return __('left side \u2260 right side');
+                case '>':  return __('left side > right side');
+                case '<':  return __('left side < right side');
+                case '>=': return __('left side \u2265 right side');
+                case '<=': return __('left side \u2264 right side');
+                default:   return __('left side = right side');
             }
         }
 
@@ -168,26 +168,47 @@ import { confirmDestructive } from './confirm-modal.js';
             }).join(' ');
         }
 
+        // Parses an expression the way the engine does: {code} references,
+        // "Name (code)" references (the name is a dropped label, so a name may
+        // contain digits and signs like "Stillbirths >24w (7)"), numbers,
+        // + - * / and () / [] grouping. Unicode −, ×, ÷ normalize to - * /.
         function _formulaStringToParts(str) {
             var parts = [];
             var i = 0;
-            while (i < str.length) {
-                var ch = str[i];
-                if (ch === ' ' || ch === '\t') { i++; continue; }
+            var text = String(str || '')
+                .replace(/\u2212/g, '-').replace(/\u2013/g, '-').replace(/\u2014/g, '-')
+                .replace(/\u00d7/g, '*').replace(/\u00f7/g, '/');
+            while (i < text.length) {
+                var ch = text[i];
+                if (ch === ' ' || ch === '\t' || ch === '\u00a0') { i++; continue; }
                 if (ch === '{') {
-                    var j = str.indexOf('}', i + 1);
+                    var j = text.indexOf('}', i + 1);
                     if (j === -1) break;
-                    parts.push({ t: 'ind', code: str.slice(i + 1, j) });
+                    parts.push({ t: 'ind', code: text.slice(i + 1, j).trim() });
                     i = j + 1;
-                } else if ('+-*/()'.includes(ch)) {
+                } else if ('+-*/()[]'.includes(ch)) {
                     parts.push({ t: 'op', op: ch });
                     i++;
                 } else if (ch >= '0' && ch <= '9') {
                     var start = i;
-                    while (i < str.length && ((str[i] >= '0' && str[i] <= '9') || str[i] === '.')) i++;
-                    parts.push({ t: 'num', val: parseFloat(str.slice(start, i)) });
+                    while (i < text.length && ((text[i] >= '0' && text[i] <= '9') || text[i] === '.')) i++;
+                    parts.push({ t: 'num', val: parseFloat(text.slice(start, i)) });
                 } else {
-                    i++;
+                    // "Babies from multiples (6.e)" → the code in parentheses.
+                    var k = i;
+                    while (k < text.length && '+-*/()[]{}'.indexOf(text[k]) === -1) k++;
+                    var m = k;
+                    while (m < text.length && /\s/.test(text[m])) m++;
+                    var end = text[m] === '(' ? text.indexOf(')', m + 1) : -1;
+                    if (end !== -1) {
+                        var inner = text.slice(m + 1, end).trim();
+                        if (inner && !/[\s()+\-*/]/.test(inner)) {
+                            parts.push({ t: 'ind', code: inner });
+                            i = end + 1;
+                            continue;
+                        }
+                    }
+                    i = k > i ? k : i + 1;
                 }
             }
             return parts;
@@ -220,8 +241,21 @@ import { confirmDestructive } from './confirm-modal.js';
                     return JSON.stringify({ codes: _vbState.codes || [] });
                 case 'missing':
                     return JSON.stringify({ code: _vbState.indicator || '' });
-                case 'formula':
-                    return JSON.stringify({ formula: _formulaPartsToString(_vbState.formulaParts || []), target: _vbState.target || '', op: _vbState.op || '=' });
+                case 'formula': {
+                    // A single indicator on the right keeps the legacy `target`
+                    // param (every existing formula rule and the drawer read it);
+                    // any wider expression is stored as `rhs`.
+                    const rhsParts = _vbState.rhsParts || [];
+                    const rhs = _formulaPartsToString(rhsParts);
+                    const singleTarget = (rhsParts.length === 1 && rhsParts[0].t === 'ind') ? rhsParts[0].code : '';
+                    const params = {
+                        formula: _formulaPartsToString(_vbState.formulaParts || []),
+                        target: singleTarget || _vbState.target || '',
+                        op: _vbState.op || '=',
+                    };
+                    if (rhs && !singleTarget) params.rhs = rhs;
+                    return JSON.stringify(params);
+                }
                 default:
                     return '{}';
             }
@@ -302,7 +336,14 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'decimal_check': cond = chips(p.codes) + ' ∈ ℤ'; break;
                 case 'missing': cond = chip(p.code) + ' ' + __('has a value'); break;
                 case 'all_zero': cond = chips(p.codes) + ' ≠ 0 (' + __('at least one') + ')'; break;
-                case 'formula': cond = '<span class="rule-ref-chip" style="font-family:Consolas,monospace;">' + esc(p.formula || '…') + '</span> ' + esc(p.op || '=') + ' ' + chip(p.target); break;
+                case 'formula': {
+                    const opSym = _formulaOpDef(p.op || '=').sym;
+                    const side = function(text) {
+                        return '<span class="rule-ref-chip" style="font-family:Consolas,monospace;">' + esc(text || '…') + '</span>';
+                    };
+                    cond = side(p.formula) + ' <strong style="color:var(--text-primary);">' + esc(opSym) + '</strong> ' + side(p.rhs || p.target);
+                    break;
+                }
                 default: cond = '';
             }
             if (!cond) { box.style.display = 'none'; return; }
@@ -399,44 +440,59 @@ import { confirmDestructive } from './confirm-modal.js';
             return html;
         }
 
-        function _buildVBFormula(expr) {
-            let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
-            const op = _vbState.op || '=';
-            const def = _formulaOpDef(op);
-            html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin-bottom:0.4rem;">' + __('Formula (left side)') + '</div>';
-            html += '<div class="vb-dropzone" id="vb_zone_formula" ondragover="_vbDragOver(event)" ondragenter="_vbDragEnter(event)" ondragleave="_vbDragLeave(event)" ondrop="_vbDropFormula(event)">';
-            html += '<div class="vb-dropzone-label">' + __('Drop indicators here') + ' <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem;">(' + __('or use buttons below') + ')</span></div>';
-            var parts = _vbState.formulaParts || [];
-            for (var pi = 0; pi < parts.length; pi++) {
-                var p = parts[pi];
+        // One side of a formula rule: dropzone + operator toolbar + a text field
+        // for typing or pasting the whole expression, e.g.
+        // "Live births (6) + Stillbirths >24w (7)".
+        function _vbFormulaSideHTML(side, parts) {
+            const isRhs = side === 'rhs';
+            const glyphs = { '(': '(', ')': ')', '+': '+', '-': '&minus;', '*': '&times;', '/': '&divide;' };
+            let html = '<div class="vb-formula-side" data-side="' + side + '">';
+            html += '<div style="font-size:0.78rem;font-weight:600;color:var(--text-secondary);margin:0.35rem 0 0.25rem;">'
+                + (isRhs ? __('Right side expression') : __('Left side expression')) + '</div>';
+            html += '<div class="vb-dropzone" id="vb_zone_formula_' + side + '" data-side="' + side + '"'
+                + ' ondragover="_vbDragOver(event)" ondragenter="_vbDragEnter(event)" ondragleave="_vbDragLeave(event)" ondrop="_vbDropFormula(event)">';
+            html += '<div class="vb-dropzone-label">' + __('Drop indicators here')
+                + ' <span style="font-weight:400;color:var(--text-muted);font-size:0.7rem;">(' + __('or use buttons below') + ')</span></div>';
+            for (let pi = 0; pi < parts.length; pi++) {
+                const p = parts[pi];
+                const del = '<button class="vb-chip-del" onclick="_vbFormulaRemove(' + pi + ',\'' + side + '\')">\u00d7</button>';
                 if (p.t === 'ind') {
-                    var ind = _indicatorsCache.find(function(x){return x.code === p.code;});
-                    var nm = ind ? ind.name : p.code;
-                    html += '<span class="vb-drag-chip vb-chip-ind" draggable="true" ondragstart="_vbDragStart(event,\'' + p.code + '\')"><span class="vb-chip-code">' + p.code + '</span> <span class="vb-chip-name">' + nm + '</span> <button class="vb-chip-del" onclick="_vbFormulaRemove(' + pi + ')">\u00d7</button></span>';
+                    const ind = _indicatorsCache.find(function(x){return x.code === p.code;});
+                    const nm = ind ? ind.name : p.code;
+                    html += '<span class="vb-drag-chip vb-chip-ind" draggable="true" ondragstart="_vbDragStart(event,\'' + p.code + '\')"><span class="vb-chip-code">' + p.code + '</span> <span class="vb-chip-name">' + nm + '</span> ' + del + '</span>';
                 } else if (p.t === 'num') {
-                    html += '<span class="vb-drag-chip vb-chip-num"><span class="vb-chip-code">' + p.val + '</span> <button class="vb-chip-del" onclick="_vbFormulaRemove(' + pi + ')">\u00d7</button></span>';
+                    html += '<span class="vb-drag-chip vb-chip-num"><span class="vb-chip-code">' + p.val + '</span> ' + del + '</span>';
                 } else {
-                    html += '<span class="vb-drag-chip vb-chip-op"><span class="vb-chip-code">' + p.op + '</span> <button class="vb-chip-del" onclick="_vbFormulaRemove(' + pi + ')">\u00d7</button></span>';
+                    html += '<span class="vb-drag-chip vb-chip-op"><span class="vb-chip-code">' + p.op + '</span> ' + del + '</span>';
                 }
             }
             html += '</div>';
             html += '<div class="vb-formula-toolbar">';
-            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'(\')" title="Open paren">(</button>';
-            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\')\')" title="Close paren">)</button>';
-            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'+\')" title="Add">+</button>';
-            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'-\')" title="Subtract">&minus;</button>';
-            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'*\')" title="Multiply">&times;</button>';
-            html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'/\')" title="Divide">&divide;</button>';
-            html += '<span style="margin-left:0.4rem;display:inline-flex;align-items:center;gap:0.25rem;"><input type="number" id="vb_formula_num_input" class="vb-num-input" style="width:60px;" value="" placeholder="&#8484;" step="any"><button class="vb-formula-btn" onclick="_vbFormulaAddNum()">+</button></span>';
-            html += '<button class="vb-formula-btn vb-formula-btn-danger" onclick="_vbFormulaClear()" title="Clear all">&times; ' + __('Clear') + '</button>';
+            ['(', ')', '+', '-', '*', '/'].forEach(function(o) {
+                html += '<button class="vb-formula-btn" onclick="_vbFormulaAddOp(\'' + o + '\',\'' + side + '\')" title="' + esc(o) + '">' + glyphs[o] + '</button>';
+            });
+            html += '<span style="margin-left:0.4rem;display:inline-flex;align-items:center;gap:0.25rem;"><input type="number" id="vb_formula_num_' + side + '" class="vb-num-input" style="width:60px;" value="" placeholder="&#8484;" step="any"><button class="vb-formula-btn" onclick="_vbFormulaAddNum(\'' + side + '\')">+</button></span>';
+            html += '<button class="vb-formula-btn vb-formula-btn-danger" onclick="_vbFormulaClear(\'' + side + '\')" title="' + __('Clear') + '">&times; ' + __('Clear') + '</button>';
             html += '</div>';
+            html += '<input type="text" id="vb_formula_text_' + side + '" style="width:100%;margin-top:0.35rem;font-family:Consolas,monospace;font-size:0.75rem;padding:0.25rem 0.4rem;background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;direction:ltr;" value="' + esc(_formulaPartsToString(parts)) + '" placeholder="' + __('Type or paste an expression, e.g. Live births (6) + Stillbirths >24w (7)') + '" onchange="_vbFormulaTextChange(\'' + side + '\')">';
+            html += '</div>';
+            return html;
+        }
+
+        function _buildVBFormula(expr) {
+            let html = '<div class="vb-card">' + _vbPaletteHeaderHTML();
+            const op = _vbState.op || '=';
+            const def = _formulaOpDef(op);
+            html += _vbFormulaSideHTML('lhs', _vbState.formulaParts || []);
             html += '<div class="vb-relation-box"><span class="vb-relation-symbol ' + def.cls + '" id="vb_op_symbol">' + def.sym + '</span> ';
             html += '<select id="vb_op_select" style="font-size:0.78rem;padding:0.15rem 0.3rem;background:var(--bg-elevated);color:var(--text-primary);border:1px solid var(--border-default);border-radius:4px;" onchange="_vbOnOpChange()" title="' + __('Comparison operator') + '">';
             html += _FORMULA_OP_ORDER.map(function(o) {
                 return '<option value="' + o + '"' + (o === op ? ' selected' : '') + '>' + _formulaRelText(o) + '</option>';
             }).join('');
             html += '</select></div>';
-            html += _vbZoneHTML('vb_zone_target', __('Target Indicator'), _vbState.target ? [_vbState.target] : [], false, __('Drop target indicator here'));
+            html += _vbFormulaSideHTML('rhs', _vbState.rhsParts || []);
+            html += '<div style="margin-top:0.4rem;font-size:0.7rem;color:var(--text-muted);">'
+                + __('Either side accepts {code} or Name (code) indicator references, + - * / and [ ] grouping.') + '</div>';
             html += '</div>';
             return html;
         }
@@ -471,37 +527,63 @@ import { confirmDestructive } from './confirm-modal.js';
             if (symEl) { symEl.textContent = def.sym; symEl.className = 'vb-relation-symbol ' + def.cls; }
         }
 
-        export function _vbFormulaAddOp(op) {
+        // Formula builders hold two independent part lists: the left side in
+        // formulaParts, the right side in rhsParts. Every handler takes the side
+        // so one set of buttons drives both.
+        function _vbFormulaParts(side) {
+            if (side === 'rhs') {
+                if (!_vbState.rhsParts) _vbState.rhsParts = [];
+                return _vbState.rhsParts;
+            }
             if (!_vbState.formulaParts) _vbState.formulaParts = [];
-            _vbState.formulaParts.push({ t: 'op', op: op });
+            return _vbState.formulaParts;
+        }
+
+        export function _vbFormulaAddOp(op, side) {
+            _vbFormulaParts(side).push({ t: 'op', op: op });
             _vbRebuild();
         }
 
-        export function _vbFormulaAddNum() {
-            var inp = document.getElementById('vb_formula_num_input');
+        export function _vbFormulaAddNum(side) {
+            var s = side === 'rhs' ? 'rhs' : 'lhs';
+            var inp = document.getElementById('vb_formula_num_' + s);
             if (!inp) return;
             var val = parseFloat(inp.value);
             if (isNaN(val)) return;
-            if (!_vbState.formulaParts) _vbState.formulaParts = [];
-            _vbState.formulaParts.push({ t: 'num', val: val });
+            _vbFormulaParts(s).push({ t: 'num', val: val });
             inp.value = '';
             _vbRebuild();
         }
 
-        export function _vbFormulaAddIndicator(code) {
-            if (!_vbState.formulaParts) _vbState.formulaParts = [];
-            _vbState.formulaParts.push({ t: 'ind', code: code });
+        export function _vbFormulaAddIndicator(code, side) {
+            _vbFormulaParts(side).push({ t: 'ind', code: code });
             _vbRebuild();
         }
 
-        export function _vbFormulaRemove(idx) {
-            if (!_vbState.formulaParts) return;
-            _vbState.formulaParts.splice(idx, 1);
+        export function _vbFormulaRemove(idx, side) {
+            _vbFormulaParts(side).splice(idx, 1);
             _vbRebuild();
         }
 
-        export function _vbFormulaClear() {
-            _vbState.formulaParts = [];
+        export function _vbFormulaClear(side) {
+            if (side === 'rhs') _vbState.rhsParts = [];
+            else _vbState.formulaParts = [];
+            _vbRebuild();
+        }
+
+        // Typed/pasted text replaces that side's chips. Accepts the same
+        // syntax the engine does, so "Name (code)" works as well as {code}.
+        export function _vbFormulaTextChange(side) {
+            var s = side === 'rhs' ? 'rhs' : 'lhs';
+            var inp = document.getElementById('vb_formula_text_' + s);
+            if (!inp) return;
+            var parts = _formulaStringToParts(inp.value);
+            if (s === 'rhs') {
+                _vbState.rhsParts = parts;
+                _vbState.target = '';
+            } else {
+                _vbState.formulaParts = parts;
+            }
             _vbRebuild();
         }
 
@@ -510,7 +592,8 @@ import { confirmDestructive } from './confirm-modal.js';
             ev.currentTarget.classList.remove('drag-over');
             var code = _vbDragCode || ev.dataTransfer.getData('text/plain');
             if (!code) return;
-            _vbFormulaAddIndicator(code);
+            var side = (ev.currentTarget.dataset && ev.currentTarget.dataset.side) || 'lhs';
+            _vbFormulaAddIndicator(code, side);
         }
 
         function _vbRebuild() {
@@ -580,8 +663,10 @@ import { confirmDestructive } from './confirm-modal.js';
                 _vbState.indicator = params.code || '';
             } else if (expr === 'formula') {
                 _vbState.formulaParts = _formulaStringToParts(params.formula || '');
-                _vbState.target = params.target || '';
                 _vbState.op = params.op || '=';
+                _vbState.target = params.target || '';
+                // Legacy rules carry a single target code; show it as the right side.
+                _vbState.rhsParts = _formulaStringToParts(params.rhs || (params.target ? '{' + params.target + '}' : ''));
             }
             buildVisualBuilder(expr);
         }
@@ -643,10 +728,19 @@ import { confirmDestructive } from './confirm-modal.js';
                 case 'missing':
                     if (!_vbState.indicator) return '';
                     return 'Missing ' + indName(_vbState.indicator);
-                case 'formula':
-                    if (!_vbState.target) return '';
-                    const op = _formulaOpDef(_vbState.op || '=').sym;
-                    return 'Formula result ' + op + ' ' + indName(_vbState.target);
+                case 'formula': {
+                    const namesOf = function(parts) {
+                        return (parts || []).map(function(p) {
+                            if (p.t === 'ind') return indName(p.code);
+                            if (p.t === 'num') return String(p.val);
+                            return p.op;
+                        }).filter(Boolean).join(' ');
+                    };
+                    const leftName = namesOf(_vbState.formulaParts);
+                    const rightName = namesOf(_vbState.rhsParts) || indName(_vbState.target);
+                    if (!leftName || !rightName) return '';
+                    return leftName + ' ' + _formulaOpDef(_vbState.op || '=').sym + ' ' + rightName;
+                }
                 default:
                     return '';
             }

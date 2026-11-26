@@ -180,6 +180,14 @@ window._vbRemoveFromZone = _stub('_vbRemoveFromZone');
 window._vbOnPaletteSearch = _stub('_vbOnPaletteSearch');
 window._vbOnFactorChange = _stub('_vbOnFactorChange');
 window._vbOnGeFactorChange = _stub('_vbOnGeFactorChange');
+window._vbOnOpChange = _stub('_vbOnOpChange');
+window._vbFormulaAddOp = _stub('_vbFormulaAddOp');
+window._vbFormulaAddNum = _stub('_vbFormulaAddNum');
+window._vbFormulaAddIndicator = _stub('_vbFormulaAddIndicator');
+window._vbFormulaRemove = _stub('_vbFormulaRemove');
+window._vbFormulaClear = _stub('_vbFormulaClear');
+window._vbFormulaTextChange = _stub('_vbFormulaTextChange');
+window._vbDropFormula = _stub('_vbDropFormula');
 window.ruleExprTemplate = _stub('ruleExprTemplate');
 window.toggleExprHelp = _stub('toggleExprHelp');
 window.openRuleModal = _stub('openRuleModal');
@@ -355,6 +363,12 @@ function _bindAll(mod, label) {
       _bind(mod, '_vbDragLeave'); _bind(mod, '_vbDrop'); _bind(mod, '_vbRemoveFromZone');
       _bind(mod, '_vbOnPaletteSearch'); _bind(mod, '_vbOnFactorChange');
       _bind(mod, '_vbOnGeFactorChange'); _bind(mod, '_vbOnOpChange');
+      // The formula builder's chips and operator toolbar call these through
+      // inline onclick/onchange, so they must exist on window.
+      _bind(mod, '_vbFormulaAddOp'); _bind(mod, '_vbFormulaAddNum');
+      _bind(mod, '_vbFormulaAddIndicator'); _bind(mod, '_vbFormulaRemove');
+      _bind(mod, '_vbFormulaClear'); _bind(mod, '_vbFormulaTextChange');
+      _bind(mod, '_vbDropFormula');
       _bind(mod, 'ruleExprTemplate'); _bind(mod, 'toggleExprHelp');
       _bind(mod, 'openRuleModal'); _bind(mod, 'closeRuleModal');
       _bind(mod, 'saveRule'); _bind(mod, 'deleteRule');

@@ -104,7 +104,7 @@
                                 <tr><td><code>decimal_check</code></td><td>FAIL if any listed code has decimal value</td><td><code>codes[]</code></td><td><code>{"codes":["2","3","4","5","6","7","8","10","11","16","17"]}</code></td></tr>
                                 <tr><td><code>missing</code></td><td>FAIL if the indicator code has no value</td><td><code>code</code></td><td><code>{"code":"2"}</code></td></tr>
                                 <tr><td><code>all_zero</code></td><td>FAIL if ALL listed codes are zero</td><td><code>codes[]</code></td><td><code>{"codes":["2","3","4","5","6","7","8","10","11","16","17"]}</code></td></tr>
-                                <tr><td><code>formula</code></td><td>FAIL if evaluated formula != target indicator (exact equality)</td><td><code>formula</code>, <code>target</code></td><td><code>{"formula":"({6.e} * 2) - {7}","target":"6"}</code></td></tr>
+                                <tr><td><code>formula</code></td><td>FAIL if the left-side expression does not satisfy the operator against the right-side expression (or against <code>target</code> when no right side is given). Both sides accept <code>{code}</code> or <code>Name (code)</code> references, <code>+ - * /</code> and <code>[ ]</code> grouping.</td><td><code>formula</code>, <code>rhs</code> or <code>target</code>, <code>op</code></td><td><code>{"formula":"Live births (6) + Stillbirths &gt;24w (7)","rhs":"Total deliveries (2) + [Babies from multiples (6.e) − Multiple pregnancies (6.d)]","op":"="}</code></td></tr>
                             </tbody>
                         </table>
                         <div style="margin-top:0.8rem;font-size:0.78rem;color:var(--text-muted);border-top:1px solid var(--border-default);padding-top:0.5rem;">

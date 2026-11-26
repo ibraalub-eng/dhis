@@ -3975,10 +3975,25 @@ function loadHospitalsSettings() {
             if (["neg_check", "decimal_check"].indexOf(expr) !== -1) return params.codes || [];
             if (expr === "all_zero") return (params.codes && params.codes.length) ? params.codes : ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"];
             if (expr === "formula") {
-                const codes = (String(params.formula || "").match(/\{([^}]+)\}/g) || []).map(c => c.slice(1, -1));
-                return codes.concat(params.target ? [params.target] : []).filter(Boolean);
+                // Mirror of the engine's extraction: both sides, either spelling.
+                return _formulaTextCodes(params.formula)
+                    .concat(_formulaTextCodes(params.rhs))
+                    .concat(params.target ? [params.target] : [])
+                    .filter((c, i, arr) => arr.indexOf(c) === i);
             }
             return [];
+        }
+
+        // Codes referenced by an expression, in the {code} or the human-readable
+        // "Name (code)" spelling ("Babies from multiples (6.e)").
+        function _formulaTextCodes(text) {
+            const src = String(text || "");
+            const braces = (src.match(/\{([^}]+)\}/g) || []).map(c => c.slice(1, -1).trim());
+            const named = [];
+            const re = /\(\s*([0-9][0-9A-Za-z.]*)\s*\)/g;
+            let m;
+            while ((m = re.exec(src)) !== null) named.push(m[1]);
+            return braces.concat(named).filter(Boolean);
         }
 
         // Clickable indicator chip: opens the Indicator Tree tab and reveals
@@ -4026,9 +4041,11 @@ function loadHospitalsSettings() {
             } else if (expr === "missing") {
                 row("Indicator", codeName(params.code));
             } else if (expr === "formula") {
-                row("Formula", '<span class="rule-ref-chip" style="font-family:Consolas,monospace;">' + esc(params.formula) + '</span>');
-                row("Target", codeName(params.target));
+                row("Left side", '<span class="rule-ref-chip" style="font-family:Consolas,monospace;">' + esc(params.formula) + '</span>');
                 row("Operator", esc(params.op || '='));
+                row("Right side", params.rhs
+                    ? '<span class="rule-ref-chip" style="font-family:Consolas,monospace;">' + esc(params.rhs) + '</span>'
+                    : codeName(params.target));
             } else {
                 return null; // unknown type → raw JSON fallback
             }
@@ -4631,7 +4648,7 @@ function loadHospitalsSettings() {
             'decimal_check': {title: 'FAIL if any listed code has decimal', text: 'Checks that all listed count indicators are whole numbers (integers). Counts should not have decimal values. Takes codes[] list.'},
             'missing': {title: 'FAIL if indicator has no value', text: 'Checks whether a critical indicator code is present in the data. FAIL if the indicator is missing (null/undefined). Takes a single code.'},
             'all_zero': {title: 'FAIL if ALL listed codes are zero', text: 'Checks if all key indicators are zero, suggesting the facility may not be operational or data is missing. Takes codes[] list.'},
-            'formula': {title: 'formula result ≤/≥/=/≠ target indicator', text: 'FAILs when the evaluated arithmetic formula does not satisfy the chosen comparison with the target indicator. Supports +, -, *, /, parentheses, numeric constants, indicator codes, and the operators =, ≠, >, <, ≥, ≤. Example: {"formula":"(6.e * 2) - 7","target":"6","op":">"} evaluates (Number of twins × 2) - Stillbirths and FAILs unless it is strictly greater than Live Births.'},
+            'formula': {title: 'left side expression ≤/≥/=/≠ right side expression', text: 'Compares two arithmetic expressions over indicator codes and FAILs when the chosen operator does not hold. Both sides accept +, -, *, /, numeric constants, ( ) and [ ] grouping, and indicator references written as {7} or as Name (7) — so a whole rule can be typed as \'Live births (6) + Stillbirths >24w (7) = Total deliveries (2) + [Babies from multiples (6.e) − Multiple pregnancies (6.d)]\'. Operators: =, ≠, >, <, ≥, ≤. Example params: {"formula":"{6} + {7}","rhs":"{2} + [{6.e} - {6.d}]","op":"="}. Against one indicator: {"formula":"({6.e} * 2) - {7}","target":"6","op":">"}. A right side that is a single indicator is stored as "target". Indicators with no value make the rule pass (it never fails on missing data).'},
         };
         // Short human-readable label per expression type — "code — meaning",
         // matching the edit-modal dropdown convention. Falls back to the raw

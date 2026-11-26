@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
@@ -257,36 +258,146 @@ def _missing(indicator_code: str, code: str, desc: str, sev: Severity, ctx: Vali
     return RuleResult(code, desc, RuleStatus.PASS, sev, RuleType.DATA_QUALITY, f"{indicator_code}={val}")
 
 
-def _parse_formula_tokens(formula: str):
-    """Tokenize a formula string into: {'code', code} references, numbers, operators, parens.
+# Indicator codes are the dotted numbers of the data tree: 6, 6.e, 10.a.1.2.
+_CODE_PATTERN = re.compile(r"^[0-9][0-9A-Za-z]*(?:\.[0-9A-Za-z]+)*$")
 
-    Indicator codes must be wrapped in braces: {6.e}, {7}. Bare numbers are constants.
+# Unicode signs typed or pasted from Word/Excel normalize to the ASCII operators
+# the parser understands.
+_UNICODE_OPERATORS = {
+    "\u2212": "-",  # minus sign
+    "\u2013": "-",  # en dash
+    "\u2014": "-",  # em dash
+    "\u00d7": "*",  # multiplication sign
+    "\u00f7": "/",  # division sign
+}
+
+_FORMULA_STRUCTURE = "+-*/()[]{}"
+
+
+def _normalize_formula_text(formula: str) -> str:
+    """Map Unicode arithmetic signs and non-breaking spaces to their ASCII form."""
+    text = formula or ""
+    for source, target in _UNICODE_OPERATORS.items():
+        text = text.replace(source, target)
+    return text.replace("\u00a0", " ")
+
+
+def _parse_formula_tokens(formula: str):
+    """Tokenize an expression into code references, numbers, operators and brackets.
+
+    Two spellings of an indicator reference are accepted:
+
+    * ``{6.e}`` — the canonical stored form.
+    * ``Babies from multiples (6.e)`` — the human-readable form typed on the Rule
+      Validation screen: the indicator's name followed by its code in
+      parentheses. The name is only a label and is dropped, so it may contain
+      digits and signs, as in ``Stillbirths >24w (7)``.
+
+    ``[...]`` groups exactly like ``(...)``, and the Unicode signs ``−``, ``×``
+    and ``÷`` are accepted for ``-``, ``*`` and ``/``.
     """
+    text = _normalize_formula_text(formula)
     tokens = []
     i = 0
-    while i < len(formula):
-        ch = formula[i]
+    while i < len(text):
+        ch = text[i]
         if ch.isspace():
             i += 1
             continue
         if ch == '{':
-            j = formula.find('}', i + 1)
+            j = text.find('}', i + 1)
             if j == -1:
                 raise ValueError("Unclosed '{' in formula")
-            tokens.append(('code', formula[i + 1:j]))
+            tokens.append(('code', text[i + 1:j].strip()))
             i = j + 1
-        elif ch in '+-*/()':
+        elif ch in _FORMULA_STRUCTURE:
             tokens.append(('op', ch))
             i += 1
         elif ch.isdigit():
             j = i
-            while j < len(formula) and (formula[j].isdigit() or formula[j] == '.'):
+            while j < len(text) and (text[j].isdigit() or text[j] == '.'):
                 j += 1
-            tokens.append(('num', float(formula[i:j])))
+            tokens.append(('num', float(text[i:j])))
             i = j
         else:
-            raise ValueError(f"Unexpected character '{ch}' at position {i}")
+            # Human-readable reference: an indicator name followed by "(code)".
+            j = i
+            while j < len(text) and text[j] not in _FORMULA_STRUCTURE:
+                j += 1
+            k = j
+            while k < len(text) and text[k].isspace():
+                k += 1
+            if k < len(text) and text[k] == '(':
+                m = text.find(')', k + 1)
+                if m != -1:
+                    code = text[k + 1:m].strip()
+                    if code and _CODE_PATTERN.match(code):
+                        tokens.append(('code', code))
+                        i = m + 1
+                        continue
+            raise ValueError(
+                f"Unexpected text '{text[i:j].strip() or text[i]}' at position {i} "
+                "(write an indicator as {code} or as Name (code))"
+            )
     return tokens
+
+
+_BINARY_OPERATORS = ("+", "-", "*", "/")
+_OPEN_BRACKETS = {"(": ")", "[": "]"}
+
+
+def validate_formula_expression(expr: str) -> Optional[str]:
+    """Return why an expression cannot be parsed or is incomplete, else None.
+
+    Catches the two mistakes a stored rule must never contain — an unknown
+    character/label (raised by the tokenizer) and a structure the parser can
+    only return None for: a dangling operator, an operator without a left
+    operand, or unbalanced parentheses/brackets.
+    """
+    if expr is None or not str(expr).strip():
+        return "the expression is empty"
+    try:
+        tokens = _parse_formula_tokens(str(expr))
+    except ValueError as exc:
+        return str(exc)
+    if not tokens:
+        return "the expression is empty"
+    depth = []
+    last = None
+    for kind, value in tokens:
+        if kind == 'op':
+            if value in _OPEN_BRACKETS:
+                depth.append(_OPEN_BRACKETS[value])
+            elif value in (')', ']'):
+                if not depth or depth.pop() != value:
+                    return "the parentheses / brackets are unbalanced"
+            else:
+                has_left = last is not None and (last[0] in ('num', 'code') or last[1] in (')', ']'))
+                if not has_left and value != "-":
+                    return f"operator '{value}' has no left operand"
+        elif last is not None and last[0] in ('num', 'code'):
+            return "two values follow each other without an operator"
+        last = (kind, value)
+    if depth:
+        return "the parentheses / brackets are unbalanced"
+    if last[0] == 'op' and last[1] in _BINARY_OPERATORS:
+        return f"the expression ends with the operator '{last[1]}'"
+    return None
+
+
+def formula_referenced_codes(expr: str) -> list:
+    """Indicator codes an expression references, in order of appearance.
+
+    Understands both the ``{code}`` and the ``Name (code)`` spellings. A string
+    the parser rejects falls back to the brace scan so a half-written rule still
+    reports the codes it already names.
+    """
+    if not expr:
+        return []
+    try:
+        return [tok[1] for tok in _parse_formula_tokens(str(expr)) if tok[0] == 'code']
+    except Exception:
+        return [c for c in re.findall(r'\{([^}]+)\}', str(expr)) if c.strip()]
 
 
 def _eval_formula(expr_str: str, values: Dict[str, float]) -> Optional[float]:
@@ -295,7 +406,10 @@ def _eval_formula(expr_str: str, values: Dict[str, float]) -> Optional[float]:
     Codes referenced as {code} resolve from the values dict; a missing code yields None.
     Returns None if any referenced indicator is missing or on error.
     """
-    tokens = _parse_formula_tokens(expr_str)
+    try:
+        tokens = _parse_formula_tokens(expr_str)
+    except Exception:
+        return None
     pos = [0]
 
     def peek():
@@ -338,10 +452,10 @@ def _eval_formula(expr_str: str, values: Dict[str, float]) -> Optional[float]:
         if tok[0] == 'code':
             consume()
             return values.get(tok[1])
-        if tok[1] == '(':
+        if tok[1] in ('(', '['):
             consume()
             result = parse_expr()
-            if peek() is None or peek()[1] != ')':
+            if peek() is None or peek()[1] not in (')', ']'):
                 raise ValueError("Unbalanced parentheses in formula")
             consume()
             return result
@@ -370,24 +484,41 @@ _COMPARE_OPS = {
 }
 
 
-def _formula(formula_str: str, target_code: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext, op: str = "=") -> RuleResult:
-    """Evaluate a formula and compare with a target indicator using a comparison operator.
+def _formula(formula_str: str, target_code: str, code: str, desc: str, sev: Severity, rtype: RuleType, ctx: ValidationContext, op: str = "=", rhs: Optional[str] = None) -> RuleResult:
+    """Compare a left-side expression with a right side using a comparison operator.
+
+    The right side is either ``rhs`` — a second arithmetic expression over
+    indicator codes, for two-sided rules such as
+    ``Live births (6) + Stillbirths >24w (7) = Total deliveries (2) + [Babies from
+    multiples (6.e) − Multiple pregnancies (6.d)]`` — or, when ``rhs`` is absent,
+    a single target indicator code (the legacy ``target`` param).
 
     Supported ops: =, !=, >, <, >=, <=. Unknown ops fall back to '='.
     """
     if op not in _COMPARE_OPS:
         op = "="
     compare = _COMPARE_OPS[op]
-    formula_val = _eval_formula(formula_str, ctx.values)
-    target_val = _v(ctx, target_code)
-    if formula_val is None:
+    shown = "==" if op == "=" else op
+    lhs_val = _eval_formula(formula_str, ctx.values)
+    rhs_expr = (rhs or "").strip()
+
+    if rhs_expr:
+        rhs_val = _eval_formula(rhs_expr, ctx.values)
+        if lhs_val is None or rhs_val is None:
+            return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Expression could not be evaluated (missing data)")
+        if compare(lhs_val, rhs_val):
+            return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Left={lhs_val} {shown} Right={rhs_val}")
+        return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype,
+                          f"Left={lhs_val} {op} Right={rhs_val} (diff={abs(lhs_val - rhs_val):.2f})")
+
+    target_val = _v(ctx, target_code) if target_code else None
+    if lhs_val is None:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, "Formula could not be evaluated (missing data)")
     if target_val is None:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Target indicator {target_code} missing")
-    if compare(formula_val, target_val):
-        shown = "==" if op == "=" else op
-        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Formula={formula_val} {shown} {target_code}={target_val}")
-    return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"Formula={formula_val} {op} {target_code}={target_val}")
+    if compare(lhs_val, target_val):
+        return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Formula={lhs_val} {shown} {target_code}={target_val}")
+    return RuleResult(code, desc, RuleStatus.FAIL, sev, rtype, f"Formula={lhs_val} {op} {target_code}={target_val}")
 
 
 ALL_ZERO_DEFAULT_CODES = ["2", "3", "4", "5", "6", "7", "8", "10", "11", "16", "17"]
@@ -679,10 +810,12 @@ def _get_rule_ref_codes_from_expr(expr: str, params: dict) -> list:
     if expr == "all_zero":
         return params.get("codes") or ALL_ZERO_DEFAULT_CODES
     if expr == "formula":
-        import re
-        codes = re.findall(r'\{([^}]+)\}', params.get("formula", ""))
+        codes = formula_referenced_codes(params.get("formula", ""))
+        rhs = params.get("rhs")
+        if rhs:
+            codes += formula_referenced_codes(rhs)
         target = params.get("target", "")
-        return [c for c in codes if c] + ([target] if target else [])
+        return codes + ([target] if target and target not in codes else [])
     return []
 
 
@@ -745,7 +878,8 @@ def dispatch_rule(rule, ctx: ValidationContext) -> Optional[RuleResult]:
     elif expr == "all_zero":
         return _all_zero_check(ctx, code, desc, params.get("codes"))
     elif expr == "formula":
-        return _formula(params["formula"], params["target"], code, desc, sev, rtype, ctx, op=params.get("op", "="))
+        return _formula(params["formula"], params.get("target"), code, desc, sev, rtype, ctx,
+                        op=params.get("op", "="), rhs=params.get("rhs"))
     else:
         return RuleResult(code, desc, RuleStatus.PASS, sev, rtype, f"Unknown expression type: {expr}")
 

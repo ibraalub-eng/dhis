@@ -501,6 +501,37 @@ class TestRuleFailureSearchAndSort:
         _, searched = self._codes(client, q="R_AAA", limit=100)
         assert len(plain) == 9 and len(searched) == 3
 
+    def test_status_filter_lists_stored_passes_with_counts(self, client, db_session):
+        """A hospital-month whose data reconciles stores no FAIL row, so a
+        failures-only reader made the Validation Result screen look empty even
+        though every rule had run. The endpoint now reports how many results
+        were checked and can list the stored PASS rows."""
+        from app.cache import cache as _cache
+        db_session.add(ValidationResult(
+            hospital_id=self.hospitals[0].id, month="2026-08",
+            rule_code="R_AAA", rule_description="R_AAA alpha pass",
+            status="PASS", severity="CRITICAL", rule_type="LOGIC",
+            details="Total Deliveries == children sum",
+        ))
+        db_session.commit()
+        _cache._cache.clear()
+        try:
+            only_failures, _ = self._codes(client, limit=100)
+            assert only_failures["total"] == 9
+            assert only_failures["status_filter"] == "FAIL"
+            assert only_failures["counts"] == {"FAIL": 9, "PASS": 1, "total": 10}
+
+            passes, _ = self._codes(client, status="PASS", limit=100)
+            assert passes["total"] == 1
+            assert [row["status"] for row in passes["data"]] == ["PASS"]
+            assert passes["counts"]["PASS"] == 1
+
+            everything, _ = self._codes(client, status="ALL", limit=100)
+            assert everything["total"] == 10
+            assert everything["status_filter"] == "ALL"
+        finally:
+            _cache._cache.clear()
+
 
 _PROBE_PARENT = "2"
 _PROBE_CHILD = "2.a"   # seeded high -> ge FAILs while the rule points at it
@@ -1004,6 +1035,71 @@ class TestRuleValidate:
             "params": '{"parent": "2", "children": ["3"]}',
         })
         assert resp.status_code == 200
+
+    # Two-sided formula rules: a full expression on each side of the operator.
+    # An unparseable side must be refused before saving — the engine would
+    # otherwise skip it and report PASS.
+    _TWO_SIDED = {
+        "formula": "Live births (6) + Stillbirths >24w (7)",
+        "rhs": (
+            "Total deliveries (2) + [Babies from multiples (6.e) \u2212 "
+            "Multiple pregnancies (6.d)]"
+        ),
+        "op": "=",
+    }
+
+    def _validate_formula(self, client, params, as_string=False):
+        payload = {
+            "code": "R_TWO_SIDED",
+            "expression_type": "formula",
+            "params": json.dumps(params) if as_string else params,
+        }
+        resp = client.post("/rules/validate", json=payload)
+        assert resp.status_code == 200, resp.text
+        return resp.json()["errors"]
+
+    def test_validate_two_sided_formula_is_clean(self, client):
+        assert self._validate_formula(client, dict(self._TWO_SIDED)) == []
+        assert self._validate_formula(client, dict(self._TWO_SIDED), as_string=True) == []
+
+    def test_validate_two_sided_formula_rejects_missing_right_side(self, client):
+        params = dict(self._TWO_SIDED)
+        params.pop("rhs")
+        assert self._validate_formula(client, params) == [
+            "Right side expression is required."
+        ]
+
+    def test_validate_two_sided_formula_rejects_missing_left_side(self, client):
+        params = {k: v for k, v in self._TWO_SIDED.items() if k != "formula"}
+        assert self._validate_formula(client, params) == [
+            "Left side expression is required."
+        ]
+
+    def test_validate_two_sided_formula_rejects_dangling_left_operator(self, client):
+        params = {**self._TWO_SIDED, "formula": "Live births (6) +"}
+        errors = self._validate_formula(client, params)
+        assert len(errors) == 1
+        assert errors[0].startswith("Left side expression:")
+        assert "ends with the operator" in errors[0]
+
+    def test_validate_two_sided_formula_rejects_unbalanced_right_side(self, client):
+        params = {
+            **self._TWO_SIDED,
+            "rhs": (
+                "Total deliveries (2) + [Babies from multiples (6.e) - "
+                "Multiple pregnancies (6.d)"
+            ),
+        }
+        errors = self._validate_formula(client, params)
+        assert len(errors) == 1
+        assert errors[0].startswith("Right side expression:")
+        assert "unbalanced" in errors[0]
+
+    def test_validate_two_sided_formula_rejects_unknown_operator(self, client):
+        params = {**self._TWO_SIDED, "op": "~~"}
+        errors = self._validate_formula(client, params)
+        assert len(errors) == 1
+        assert "Unknown comparison operator" in errors[0]
 
 
 class TestRuleTestDryRun:
